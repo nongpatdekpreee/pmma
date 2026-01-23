@@ -1,0 +1,38 @@
+export const Sla_data = {
+  "devices": [
+    { "contract_id": "CON-001", "vendor": "Cisco", "site": "Bangkok", "sla_percentage": 90, "status": "Pass" },
+    { "contract_id": "CON-002", "vendor": "Cisco", "site": "Bangkok", "sla_percentage": 95, "status": "Pass" },
+    { "contract_id": "CON-003", "vendor": "Cisco", "site": "Bangkok", "sla_percentage": 95, "status": "Pass" },
+    { "contract_id": "CON-004", "vendor": "Cisco", "site": "Bangkok", "sla_percentage": 80, "status": "Partial" },
+    { "contract_id": "CON-005", "vendor": "HPE", "site": "Bangkok", "sla_percentage": 70, "status": "Miss" },
+    { "contract_id": "CON-006", "vendor": "HPE", "site": "Bangkok", "sla_percentage": 95, "status": "Active" },
+    { "contract_id": "CON-007", "vendor": "Fortinet", "site": "Bangkok", "sla_percentage": 95, "status": "Active" },
+    { "contract_id": "CON-008", "vendor": "Fortinet", "site": "Bangkok", "sla_percentage": 95, "status": "Miss" },
+    { "contract_id": "CON-009", "vendor": "Cisco", "site": "Bangkok", "sla_percentage": 92, "status": "Pass" },
+    { "contract_id": "CON-010", "vendor": "HPE", "site": "Bangkok", "sla_percentage": 65, "status": "Miss" },
+    { "contract_id": "CON-011", "vendor": "Fortinet", "site": "Bangkok", "sla_percentage": 88, "status": "Partial" },
+    { "contract_id": "CON-012", "vendor": "Cisco", "site": "Bangkok", "sla_percentage": 98, "status": "Active" },
+    { "contract_id": "CON-013", "vendor": "HPE", "site": "Bangkok", "sla_percentage": 94, "status": "Pass" },
+    { "contract_id": "CON-014", "vendor": "Fortinet", "site": "Bangkok", "sla_percentage": 91, "status": "Pass" },
+    { "contract_id": "CON-015", "vendor": "Cisco", "site": "Bangkok", "sla_percentage": 75, "status": "Miss" },
+    { "contract_id": "CON-016", "vendor": "HPE", "site": "Bangkok", "sla_percentage": 96, "status": "Active" },
+    { "contract_id": "CON-017", "vendor": "Fortinet", "site": "Bangkok", "sla_percentage": 82, "status": "Partial" },
+    { "contract_id": "CON-018", "vendor": "Cisco", "site": "Bangkok", "sla_percentage": 90, "status": "Pass" },
+    { "contract_id": "CON-019", "vendor": "HPE", "site": "Bangkok", "sla_percentage": 85, "status": "Partial" },
+    { "contract_id": "CON-020", "vendor": "Fortinet", "site": "Bangkok", "sla_percentage": 93, "status": "Pass" },
+    { "contract_id": "CON-021", "vendor": "Cisco", "site": "Chiang Mai", "sla_percentage": 94, "status": "Pass" },
+    { "contract_id": "CON-022", "vendor": "HPE", "site": "Chiang Mai", "sla_percentage": 89, "status": "Partial" },
+    { "contract_id": "CON-023", "vendor": "Fortinet", "site": "Chiang Mai", "sla_percentage": 96, "status": "Active" },
+    { "contract_id": "CON-024", "vendor": "Cisco", "site": "Chiang Mai", "sla_percentage": 78, "status": "Miss" },
+    { "contract_id": "CON-025", "vendor": "HPE", "site": "Chiang Mai", "sla_percentage": 91, "status": "Pass" },
+    { "contract_id": "CON-026", "vendor": "Cisco", "site": "Phuket", "sla_percentage": 88, "status": "Partial" },
+    { "contract_id": "CON-027", "vendor": "HPE", "site": "Phuket", "sla_percentage": 93, "status": "Pass" },
+    { "contract_id": "CON-028", "vendor": "Fortinet", "site": "Phuket", "sla_percentage": 97, "status": "Active" },
+    { "contract_id": "CON-029", "vendor": "Cisco", "site": "Phuket", "sla_percentage": 72, "status": "Miss" },
+    { "contract_id": "CON-030", "vendor": "Cisco", "site": "Chonburi", "sla_percentage": 95, "status": "Pass" },
+    { "contract_id": "CON-031", "vendor": "HPE", "site": "Chonburi", "sla_percentage": 90, "status": "Pass" },
+    { "contract_id": "CON-032", "vendor": "Fortinet", "site": "Chonburi", "sla_percentage": 84, "status": "Partial" },
+    { "contract_id": "CON-033", "vendor": "Cisco", "site": "Chonburi", "sla_percentage": 68, "status": "Miss" }
+  ]
+
+};

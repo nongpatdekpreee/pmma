@@ -1,0 +1,250 @@
+
+Project pm_ma_management {
+  database_type: 'MySQL'
+  Note: 'PM/MA Management System Database Schema'
+} 
+
+
+// ============================================
+// 2. EMPLOYEES TABLE
+// ============================================
+Table employees {
+  employee_id varchar(50) [primary key]
+  name varchar(100) [not null]
+  gmail varchar(100) [not null]
+  tel number [not null]
+  position_type enum('Technical', 'Management') [not null]
+  employment_type enum('Full-time', 'Contract', 'Part-time') [not null]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`]
+  
+  Note: 'ข้อมูลพนักงาน/วิศวกร'
+  
+  indexes {
+    department [name: 'idx_department']
+    position_type [name: 'idx_position_type']
+  }
+}
+
+// ============================================
+// 3. VENDORS TABLE
+// ============================================
+Table vendors {
+  vendor_id int [primary key, increment]
+  vendor_name varchar(255) [not null, unique]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`]
+  
+  Note: 'ข้อมูลผู้ขาย/ผู้ให้บริการ'
+}
+
+
+  
+  indexes {
+    site_id [name: 'idx_site']
+    status [name: 'idx_status']
+    next_pm_date [name: 'idx_next_pm']
+    (site_id, status) [name: 'idx_assets_site_status']
+  }
+}
+
+// ============================================
+// 6. CONTRACTS TABLE (MA - Maintenance Agreement)
+// ============================================
+Table contracts {
+  contract_id varchar(50) [primary key]
+  vendor_id int [not null, ref: > vendors.vendor_id]
+  site_id varchar(50) [not null, ref: > sites.site_id]
+  contract_name varchar(255)
+  sla_term enum('Design', 'Standard', 'Premium') [not null]
+  start_date date [not null]
+  end_date date [not null]
+  duration_months int [not null]
+  status enum('Active', 'Expired', 'Terminated') [default: 'Active']
+  sla_percentage decimal(5,2)
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`]
+  
+  Note: 'ข้อมูลสัญญา Maintenance Agreement (MA)'
+  
+  indexes {
+    vendor_id [name: 'idx_vendor']
+    site_id [name: 'idx_site']
+    status [name: 'idx_status']
+    (start_date, end_date) [name: 'idx_dates']
+    (vendor_id, status) [name: 'idx_contracts_vendor_status']
+  }
+}
+
+// ============================================
+// 7. CONTRACT ASSET BINDINGS (Many-to-Many)
+// ============================================
+Table contract_asset_bindings {
+  binding_id int [primary key, increment]
+  contract_id varchar(50) [not null, ref: - contracts.contract_id]
+  device_id varchar(50) [not null, ref: - assets.device_id]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  
+  Note: 'การเชื่อมโยงสัญญากับอุปกรณ์'
+  
+  indexes {
+    contract_id [name: 'idx_contract']
+    device_id [name: 'idx_device']
+    (contract_id, device_id) [unique, name: 'unique_contract_device']
+  }
+}
+
+// ============================================
+// 8. TASKS TABLE (PM and MA Tasks)
+// ============================================
+Table tasks {
+  task_id varchar(50) [primary key]
+  task_type enum('PM', 'MA') [not null]
+  title varchar(255) [not null]
+  site_id varchar(50) [not null, ref: > sites.site_id]
+  contract_id varchar(50) [ref: > contracts.contract_id]
+  start_date date [not null]
+  end_date date [not null]
+  priority enum('Low', 'Medium', 'High') [default: 'Medium']
+  coverage_scope text
+  travel_method enum('airplane', 'bus', 'private-car', 'train', 'other')
+  travel_cost decimal(10,2)
+  status enum('Scheduled', 'In Progress', 'Done', 'Failed', 'Not Started') [default: 'Scheduled']
+  actually_went boolean [default: false]
+  notes text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`]
+  
+  Note: 'งาน PM และ MA'
+  
+  indexes {
+    task_type [name: 'idx_task_type']
+    site_id [name: 'idx_site']
+    status [name: 'idx_status']
+    (start_date, end_date) [name: 'idx_dates']
+    (task_type, status) [name: 'idx_tasks_type_status']
+  }
+}
+
+// ============================================
+// 9. TASK ASSIGNMENTS (Many-to-Many: Tasks to Engineers)
+// ============================================
+Table task_assignments {
+  assignment_id int [primary key, increment]
+  task_id varchar(50) [not null, ref: - tasks.task_id]
+  employee_id varchar(50) [not null, ref: - employees.employee_id]
+  assigned_at timestamp [default: `CURRENT_TIMESTAMP`]
+  
+  Note: 'การมอบหมายงานให้พนักงาน'
+  
+  indexes {
+    task_id [name: 'idx_task']
+    employee_id [name: 'idx_employee']
+    (task_id, employee_id) [unique, name: 'unique_task_employee']
+  }
+}
+
+// ============================================
+// 10. TASK ASSETS (Many-to-Many: Tasks to Assets)
+// ============================================
+Table task_assets {
+  task_asset_id int [primary key, increment]
+  task_id varchar(50) [not null, ref: - tasks.task_id]
+  device_id varchar(50) [not null, ref: - assets.device_id]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  
+  Note: 'การเชื่อมโยงงานกับอุปกรณ์'
+  
+  indexes {
+    task_id [name: 'idx_task']
+    device_id [name: 'idx_device']
+    (task_id, device_id) [unique, name: 'unique_task_device']
+  }
+}
+
+// ============================================
+// 11. PM HISTORY TABLE
+// ============================================
+Table pm_history {
+  pm_history_id varchar(50) [primary key]
+  device_id varchar(50) [not null, ref: - assets.device_id]
+  task_id varchar(50) [ref: > tasks.task_id]
+  pm_date date [not null]
+  technician_id varchar(50) [not null, ref: > employees.employee_id]
+  status enum('Done', 'In Progress', 'Failed', 'Scheduled') [not null]
+  notes text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`]
+  
+  Note: 'ประวัติการทำ PM'
+  
+  indexes {
+    device_id [name: 'idx_device']
+    pm_date [name: 'idx_date']
+    status [name: 'idx_status']
+  }
+}
+
+// ============================================
+// 12. TASK PHOTOS TABLE
+// ============================================
+Table task_photos {
+  photo_id int [primary key, increment]
+  task_id varchar(50) [not null, ref: - tasks.task_id]
+  photo_url varchar(500) [not null]
+  photo_type enum('base64', 'url', 'file_path') [default: 'url']
+  uploaded_at timestamp [default: `CURRENT_TIMESTAMP`]
+  
+  Note: 'รูปภาพที่เกี่ยวข้องกับงาน'
+  
+  indexes {
+    task_id [name: 'idx_task']
+  }
+}
+
+// ============================================
+// 13. SLA COMPLIANCE TABLE
+// ============================================
+Table sla_compliance {
+  compliance_id int [primary key, increment]
+  contract_id varchar(50) [not null, ref: - contracts.contract_id]
+  vendor_id int [not null, ref: > vendors.vendor_id]
+  site_id varchar(50) [not null, ref: > sites.site_id]
+  sla_percentage decimal(5,2) [not null]
+  status enum('Pass', 'Partial', 'Miss', 'Active') [not null]
+  measured_date date [not null]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  
+  Note: 'ข้อมูลการปฏิบัติตาม SLA'
+  
+  indexes {
+    contract_id [name: 'idx_contract']
+    status [name: 'idx_status']
+    measured_date [name: 'idx_date']
+  }
+}
+
+// ============================================
+// 14. DEPARTMENTS TABLE (Reference Data)
+// ============================================
+Table departments {
+  department_id int [primary key, increment]
+  department_name varchar(100) [not null, unique]
+  
+  Note: 'ข้อมูลแผนก'
+}
+
+// ============================================
+// 15. POSITIONS TABLE (Reference Data)
+// ============================================
+Table positions {
+  position_id int [primary key, increment]
+  position_name varchar(100) [not null]
+  position_type enum('Technical', 'Management') [not null]
+  
+  Note: 'ข้อมูลตำแหน่งงาน'
+  
+  indexes {
+    (position_name, position_type) [unique, name: 'unique_position_type']
+  }
+}

@@ -1,55 +1,26 @@
-import { Sidebar } from '@/components/ui/Sidebar';
+import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { MaintenanceCard } from '@/components/ui/MaintenanceCard';
-
 import { Search, Bell, ChevronDown } from 'lucide-react';
 import Link from 'next/link'; 
+import DateTime from '@/components/ui/DateTime';
+import DashboardHeader from '@/components/ui/Header';
 
 export default function DashboardPage() {
   return (
-    <div className="flex min-h-screen bg-[#f8faf9]">
-      {/* 1. Sidebar Fixed */}
-      <div className="w-64 fixed h-full bg-white">
-        <Sidebar />
-      </div>
+    <SidebarLayout>
+      <DashboardHeader />
 
-      {/* 2. Main Area (Margin Left เพื่อหลบ Sidebar) */}
-      <div className="ml-64 flex-1 flex flex-col">
-        
-        {/* Header Section */}
-        <header className="flex items-center justify-between p-6">
-          <div className="relative w-96">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="Search" 
-              className="w-full pl-10 pr-4 py-2 bg-white rounded-xl border-none focus:ring-2 focus:ring-blue-500 shadow-sm"
-            />
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="p-2 bg-white rounded-full shadow-sm cursor-pointer relative">
-              <Bell size={20} className="text-gray-600" />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-            </div>
-            <div className="flex items-center gap-2 bg-white p-1 pr-4 rounded-full shadow-sm cursor-pointer">
-              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Piyapat" className="w-8 h-8 rounded-full bg-orange-100" />
-              <span className="text-sm font-bold text-gray-700 uppercase">Piyapat</span>
-              <ChevronDown size={14} className="text-gray-400" />
-            </div>
-          </div>
-        </header>
-
-        {/* Content Body */}
-        <div className="flex p-6 pt-0 gap-6">
+      {/* Content Body */}
+      <div className="flex p-6 pt-0 gap-6 md:mt-0 mt-16">
           
           {/* ฝั่งซ้าย: Dashboard & Maintenance */}
           <div className="flex-[2] space-y-6">
             <div className="flex items-center justify-between">
               <Link href="/" className="text-3xl font-bold text-slate-800">
-                Dashboard &gt;
+                Dashboard 
                 </Link>
-              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm text-sm text-gray-500 font-medium cursor-pointer">
-                <span>Jun 1, 2025 - Jun 16, 2025</span>
-              </div>
+              <DateTime />
+
             </div>
 
             {/* Placeholder สำหรับ Graph */}
@@ -75,7 +46,7 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-3">
                 <MaintenanceCard 
-                  id="PM-001" location="Bangkok" date="Sep 12, 2025" priority="High" 
+                  id="PM-001" location="Chiang Rai" date="12, 2025" priority="High" 
                   deviceType="Switch" count={13} 
                   assignees={['https://i.pravatar.cc/150?u=1', 'https://i.pravatar.cc/150?u=2', 'https://i.pravatar.cc/150?u=3']} 
                 />
@@ -121,8 +92,7 @@ export default function DashboardPage() {
           </div>
 
         </div>
-      </div>
-    </div>
+    </SidebarLayout>
   );
 }
 

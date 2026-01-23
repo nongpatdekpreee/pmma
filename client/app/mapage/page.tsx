@@ -1,88 +1,207 @@
 'use client';
-import { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+ 
+import { useState, useEffect } from 'react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+ 
+import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
+import DashboardHeader from '@/components/ui/Header';
 import { StatusCard } from '@/components/ui/StatusCard';
 import { FolderCard } from '@/components/ui/FolderCard';
-import { Sidebar } from '@/components/ui/Sidebar';
 import { AddContractModal } from '@/components/ui/AddContractModal';
+import { getVendorStatistics } from '@/lib/api';
+import Link from 'next/link';
 
-const vendorData = [
-  { name: 'Cisco', value: 22, total: 30 },
-  { name: 'HPE', value: 25, total: 30 },
-  { name: 'Huawei', value: 20, total: 30 },
-  { name: 'Dell', value: 28, total: 30 },
-  { name: 'Ubi', value: 22, total: 30 },
-  { name: 'Fortinet', value: 24, total: 30 },
-];
+interface VendorData {
+  name: string;
+  value: number;
+  deviceCount: number;
+  siteCount: number;
+  total: number;
+}
+ 
+export default function MAPage() {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [vendorData, setVendorData] = useState<VendorData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalContracts, setTotalContracts] = useState(0);
+  const [totalSites, setTotalSites] = useState(0);
 
-export default function MAContractsPage() {
-const [isModalOpen, setIsModalOpen] = useState(false);
+  useEffect(() => {
+    const loadVendorStatistics = async () => {
+      try {
+        setLoading(true);
+        const response = await getVendorStatistics();
+        if (response.success && response.data) {
+          setVendorData(response.data);
+          // Calculate totals
+          const totalContractCount = response.data.reduce((sum, item) => sum + item.value, 0);
+          const uniqueSites = new Set<number>();
+          response.data.forEach(item => {
+            // siteCount is already aggregated per vendor, so we can sum them
+            // But to get unique sites, we'd need the API to return that
+            // For now, we'll use the sum as an approximation
+          });
+          setTotalContracts(totalContractCount);
+          // For total sites, we'll need to calculate from the data
+          // Since we don't have unique site count, we'll use a sum approximation
+          const totalSiteCount = response.data.reduce((sum, item) => sum + item.siteCount, 0);
+          setTotalSites(totalSiteCount);
+        }
+      } catch (error) {
+        console.error('Error loading vendor statistics:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadVendorStatistics();
+  }, []);
+ 
   return (
-    <div className="flex min-h-screen bg-[#f8faf9]">
-          {/* 1. Sidebar Fixed */}
-          <div className="w-64 fixed h-full bg-white">
-            <Sidebar />
-    </div>
-    <div className="ml-64 flex-1 flex flex-col">
-    <div className="p-8 space-y-8">
-      <h1 className="text-3xl font-bold text-slate-800">Dashboard</h1>
-
-      <div className="grid grid-cols-3 gap-6">
-        {/* ฝั่งซ้าย: กราฟหลัก */}
-        <div className="col-span-2 space-y-6">
-          {/* Chart 1: MA Contracts by Vendor */}
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50">
-            <h3 className="font-bold text-slate-700 mb-6">MA Contracts by Vendor</h3>
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={vendorData}>
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
-                  <Tooltip cursor={{fill: '#f8fafc'}} />
-                  <Bar dataKey="value" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={20} />
-                  <Bar dataKey="total" fill="#e2e8f0" radius={[4, 4, 0, 0]} barSize={20} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+    <SidebarLayout>
+      {/* Header */}
+      <DashboardHeader />
+ 
+        {/* Page Body */}
+        <div className="flex flex-col p-6 pt-0 gap-6">
+ 
+          {/* Title Section */}
+          <div>
+            <h1 className="text-3xl font-bold text-slate-800">
+              Maintenance Agreement
+            </h1>
+            <p className="text-sm text-slate-500 mt-1">
+              Overview of MA contracts and SLA coverage
+            </p>
           </div>
-
-          {/* Chart 2: MA Distribution by Site */}
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50">
-            <h3 className="font-bold text-slate-700 mb-6">MA Distribution by Site</h3>
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={vendorData}> {/* เปลี่ยน data ตามจริง */}
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize: 12, fill: '#94a3b8'}} />
-                  <Bar dataKey="value" fill="#93c5fd" radius={[4, 4, 0, 0]} barSize={25} />
-                </BarChart>
-              </ResponsiveContainer>
+ 
+          {/* Charts and Status Section */}
+          <div className="grid grid-cols-3 gap-6">
+           
+            {/* Charts Column */}
+            <div className="col-span-2 space-y-6">
+             
+              {/* MA Contracts by Vendor */}
+              <div className="bg-white p-6 rounded-[2rem] border border-slate-100">
+                <h3 className="font-bold text-slate-700 mb-6">
+                  MA Contracts by Vendor
+                </h3>
+                <div className="h-64">
+                  {loading ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-slate-500">Loading...</p>
+                    </div>
+                  ) : vendorData.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-slate-500">No vendor data available</p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={vendorData}>
+                        <XAxis
+                          dataKey="name"
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fontSize: 12, fill: '#94a3b8' }}
+                        />
+                        <Tooltip 
+                          formatter={(value: number | undefined, name: string | undefined) => {
+                            const numValue = value ?? 0;
+                            const nameStr = name ?? '';
+                            if (nameStr === 'value') return [`${numValue} contracts`, 'Contracts'];
+                            if (nameStr === 'total') return [`${numValue} total`, 'Total'];
+                            return [numValue, nameStr];
+                          }}
+                        />
+                        <Bar dataKey="value" fill="#3b82f6" barSize={20} />
+                        <Bar dataKey="total" fill="#e2e8f0" barSize={20} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+ 
+              {/* MA Distribution by Site */}
+              <div className="bg-white p-6 rounded-[2rem] border border-slate-100">
+                <h3 className="font-bold text-slate-700 mb-6">
+                  MA Distribution by Vendor (Sites)
+                </h3>
+                <div className="h-64">
+                  {loading ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-slate-500">Loading...</p>
+                    </div>
+                  ) : vendorData.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-slate-500">No vendor data available</p>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={vendorData}>
+                        <XAxis 
+                          dataKey="name" 
+                          axisLine={false} 
+                          tickLine={false}
+                          tick={{ fontSize: 12, fill: '#94a3b8' }}
+                        />
+                        <Tooltip 
+                          formatter={(value: number | undefined, name: string | undefined) => [`${value ?? 0} sites`, name ?? 'Sites']}
+                        />
+                        <Bar dataKey="siteCount" fill="#93c5fd" barSize={25} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+ 
             </div>
+ 
+            {/* Status Cards Column */}
+            <div className="space-y-4">
+              <StatusCard 
+                title="Total MA Contracts" 
+                value={loading ? "..." : String(totalContracts)} 
+                color="bg-green-500" 
+              />
+              <StatusCard 
+                title="Active Sites Covered" 
+                value={loading ? "..." : String(totalSites)} 
+                color="bg-amber-400" 
+              />
+              <StatusCard   
+                title="Total Vendors" 
+                value={loading ? "..." : String(vendorData.length)} 
+                color="bg-blue-500" 
+              />
+            </div>
+ 
           </div>
+ 
+          {/* Action Cards Section */}
+          <div className="grid grid-cols-4 gap-4 mt-6">
+            <button onClick={() => setIsModalOpen(true)}>
+              <FolderCard title="Contract Editor" pages={5} color="text-amber-500" />
+            </button>
+ 
+            <Link href="/pmscheadule"><FolderCard title="PM Schedule Generator" pages={8} color="text-green-500" /></Link>
+            <Link href="/"><FolderCard title="MA-PM Report" pages={2} color="text-blue-400" /></Link>
+            <Link href="/slacompliance"><FolderCard title="SLA Compliance" pages={5} color="text-purple-500" /></Link>
+          </div>
+ 
         </div>
 
-        {/* ฝั่งขวา: Status Cards */}
-        <div className="space-y-4">
-          <StatusCard title="Total MA Contracts" value="100" color="bg-green-500" />
-          <StatusCard title="Active Sites Covered" value="50" color="bg-amber-400" />
-          <StatusCard title="Expiring in 30 Days" value="50" color="bg-red-600" />
-        </div>
-      </div>
-
-      {/* แถวล่าง: Folder Cards */}
-      <div className="grid grid-cols-4 gap-4 mt-8">
-        {/* หุ้ม div เพื่อให้คลิกได้ทั้ง Card */}
-        <div onClick={() => setIsModalOpen(true)}>
-          <FolderCard title="Contract Editor" pages={5} color="text-amber-500" />
-        </div>
-        <FolderCard title="PM Schedule Generator" pages={8} color="text-green-500" />
-        <FolderCard title="MA-PM Report" pages={2} color="text-blue-400" />
-        <FolderCard title="SLA Compliance" pages={5} color="text-purple-500" />
-         </div>
-        </div>
-    </div>
+      {/* Add Contract Modal */}
       <AddContractModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
       />
-    </div>
+    </SidebarLayout>
   );
 }
+ 
