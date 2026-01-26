@@ -227,8 +227,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         sla_detail: slaDetail.trim(),
         sale_account: saleAccount.trim() || null,
         coverage_scope: coverageScope.trim() || null,
-        file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
-        image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
+        file_paths: filePaths.length > 0 ? filePaths : null,
+        image_paths: imagePaths.length > 0 ? imagePaths : null,
       };
       const res = await fetch(apiUrl('/api/contracts'), {
         method: 'POST',

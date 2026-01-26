@@ -53,9 +53,9 @@ app.get('/', (req, res) => {
     version: '1.0.0'
   });
 });
-
+  
 // Start server
-app.listen(PORT, () => {
+app.listen(5000, () => {
   console.log(`🚀 Server กำลังทำงานที่ port ${PORT}`);
   console.log(`📡 http://localhost:${PORT}`);
 });

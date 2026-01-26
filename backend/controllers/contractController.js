@@ -89,16 +89,39 @@ const createContract = async (req, res) => {
 
     const siteId = site_id != null && site_id !== '' ? parseInt(site_id, 10) : null;
 
-    const filePathsJson = Array.isArray(file_paths)
-      ? JSON.stringify(file_paths)
-      : file_paths && String(file_paths).trim()
-        ? String(file_paths).trim()
-        : null;
-    const imagePathsJson = Array.isArray(image_paths)
-      ? JSON.stringify(image_paths)
-      : image_paths && String(image_paths).trim()
-        ? String(image_paths).trim()
-        : null;
+    // Handle file_paths: accept array or JSON string, convert to JSON string for DB
+    let filePathsJson = null;
+    if (file_paths) {
+      if (Array.isArray(file_paths)) {
+        filePathsJson = file_paths.length > 0 ? JSON.stringify(file_paths) : null;
+      } else if (typeof file_paths === 'string' && file_paths.trim()) {
+        // If it's already a JSON string, try to parse and re-stringify to validate
+        try {
+          const parsed = JSON.parse(file_paths);
+          filePathsJson = Array.isArray(parsed) && parsed.length > 0 ? JSON.stringify(parsed) : file_paths.trim();
+        } catch {
+          // If not valid JSON, treat as single string path
+          filePathsJson = file_paths.trim();
+        }
+      }
+    }
+
+    // Handle image_paths: accept array or JSON string, convert to JSON string for DB
+    let imagePathsJson = null;
+    if (image_paths) {
+      if (Array.isArray(image_paths)) {
+        imagePathsJson = image_paths.length > 0 ? JSON.stringify(image_paths) : null;
+      } else if (typeof image_paths === 'string' && image_paths.trim()) {
+        // If it's already a JSON string, try to parse and re-stringify to validate
+        try {
+          const parsed = JSON.parse(image_paths);
+          imagePathsJson = Array.isArray(parsed) && parsed.length > 0 ? JSON.stringify(parsed) : image_paths.trim();
+        } catch {
+          // If not valid JSON, treat as single string path
+          imagePathsJson = image_paths.trim();
+        }
+      }
+    }
 
     const [result] = await db.execute(
       `INSERT INTO contract (

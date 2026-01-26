@@ -1,9 +1,13 @@
+"use client";
+
+import { useState, useEffect } from 'react';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { MaintenanceCard } from '@/components/ui/MaintenanceCard';
 import { Search, Bell, ChevronDown } from 'lucide-react';
 import Link from 'next/link'; 
 import DateTime from '@/components/ui/DateTime';
 import DashboardHeader from '@/components/ui/Header';
+import { apiUrl } from '@/lib/api';
 
 export default function DashboardPage() {
   const [nearestEvents, setNearestEvents] = useState<any[]>([]);
@@ -25,6 +29,7 @@ export default function DashboardPage() {
               const taskDate = new Date(task.startDate);
               taskDate.setHours(0, 0, 0, 0);
               return taskDate >= today;
+              
             })
             .sort((a: any, b: any) => {
               const dateA = new Date(a.startDate).getTime();
