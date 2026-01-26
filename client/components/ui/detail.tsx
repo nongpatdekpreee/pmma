@@ -1,0 +1,492 @@
+'use client';
+
+import { X, Camera, CheckCircle2, XCircle, Upload, Image as ImageIcon } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+
+interface Device {
+  id: string;
+  name: string;
+  type: string;
+  serialNumber?: string;
+  site?: string;
+}
+
+interface Engineer {
+  id: string;
+  name: string;
+}
+
+interface TaskDetail {
+  id: string;
+  taskType?: 'PM' | 'MA';
+  title: string;
+  time: string;
+  color?: string;
+  startDay?: number;
+  endDay?: number;
+  month?: number;
+  year?: number;
+  Sid?: string;
+  Sname?: string;
+  Eng_ids?: Engineer[];
+  engineer?: string;
+  startDate?: string;
+  endDate?: string;
+  priority?: string;
+  coverageScope?: string;
+  assets?: Device[];
+  vendorName?: string;
+  slaTerm?: string;
+  duration?: string;
+  assetBinding?: string;
+  travelMethod?: string;
+  travelCost?: string;
+  // Status fields
+  actuallyWent?: boolean;
+  photos?: string[]; // Array of base64 or URLs
+  notes?: string;
+  status?: 'done' | 'working' | 'stuck' | 'not-started';
+}
+
+interface Props {
+  isOpen: boolean;
+  onClose: () => void;
+  task: TaskDetail | null;
+  onUpdate?: (updatedTask: TaskDetail) => void;
+  onEdit?: (task: TaskDetail) => void;
+}
+
+export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit }: Props) {
+  const [actuallyWent, setActuallyWent] = useState<boolean | null>(task?.actuallyWent ?? null);
+  const [photos, setPhotos] = useState<string[]>(task?.photos || []);
+  const [notes, setNotes] = useState(task?.notes || '');
+  const [status, setStatus] = useState<'done' | 'working' | 'stuck' | 'not-started'>(task?.status || 'not-started');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Update local state when task changes
+  useEffect(() => {
+    if (task) {
+      setActuallyWent(task.actuallyWent ?? null);
+      setPhotos(task.photos || []);
+      setNotes(task.notes || '');
+      setStatus(task.status || 'not-started');
+    }
+  }, [task]);
+
+  if (!isOpen || !task) return null;
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    Array.from(files).forEach((file) => {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64String = reader.result as string;
+          setPhotos((prev) => [...prev, base64String]);
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSave = () => {
+    const updatedTask: TaskDetail = {
+      ...task,
+      actuallyWent: actuallyWent ?? undefined,
+      photos,
+      notes,
+      status,
+    };
+
+    onUpdate?.(updatedTask);
+    onClose();
+  };
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('th-TH', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-4xl max-h-[90vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
+          <div>
+            <h2 className="text-xl font-extrabold text-slate-800">Task Details</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {task.taskType === 'MA' ? 'Maintenance Agreement' : 'Preventive Maintenance'}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 bg-white rounded-full hover:bg-slate-100 transition-colors shadow-sm"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {/* Basic Information */}
+          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+            <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-blue-500" />
+              Basic Information
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-slate-500">Task Type</label>
+                <p className="text-sm font-medium text-slate-800 mt-1">
+                  {task.taskType === 'MA' ? 'Maintenance Agreement (MA)' : 'Preventive Maintenance (PM)'}
+                </p>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-slate-500">Title</label>
+                <p className="text-sm font-medium text-slate-800 mt-1">{task.title}</p>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-slate-500">Time</label>
+                <p className="text-sm font-medium text-slate-800 mt-1">{task.time}</p>
+              </div>
+              {task.Sid && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Site ID</label>
+                  <p className="text-sm font-medium text-slate-800 mt-1">{task.Sid}</p>
+                </div>
+              )}
+              {task.Sname && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Site Name</label>
+                  <p className="text-sm font-medium text-slate-800 mt-1">{task.Sname}</p>
+                </div>
+              )}
+              {task.startDate && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Start Date</label>
+                  <p className="text-sm font-medium text-slate-800 mt-1">{formatDate(task.startDate)}</p>
+                </div>
+              )}
+              {task.endDate && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">End Date</label>
+                  <p className="text-sm font-medium text-slate-800 mt-1">{formatDate(task.endDate)}</p>
+                </div>
+              )}
+              {task.priority && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Priority</label>
+                  <p className="text-sm font-medium text-slate-800 mt-1">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      task.priority === 'High' ? 'bg-red-100 text-red-700' :
+                      task.priority === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-green-100 text-green-700'
+                    }`}>
+                      {task.priority}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Engineers */}
+          {(task.Eng_ids && task.Eng_ids.length > 0) || task.engineer ? (
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">Assigned Engineers</h3>
+              <div className="flex flex-wrap gap-2">
+                {task.Eng_ids?.map((eng) => (
+                  <span
+                    key={eng.id}
+                    className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
+                  >
+                    {eng.name}
+                  </span>
+                ))}
+                {!task.Eng_ids && task.engineer && (
+                  <span className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                    {task.engineer}
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          {/* MA Contract Information */}
+          {task.taskType === 'MA' && (task.vendorName || task.slaTerm || task.duration || task.assetBinding) && (
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">Contract Information</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {task.vendorName && (
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-slate-500">Vendor Name</label>
+                    <p className="text-sm font-medium text-slate-800 mt-1">{task.vendorName}</p>
+                  </div>
+                )}
+                {task.slaTerm && (
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-slate-500">SLA Term</label>
+                    <p className="text-sm font-medium text-slate-800 mt-1">{task.slaTerm}</p>
+                  </div>
+                )}
+                {task.duration && (
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-slate-500">Duration</label>
+                    <p className="text-sm font-medium text-slate-800 mt-1">{task.duration} months</p>
+                  </div>
+                )}
+                {task.assetBinding && (
+                  <div className="col-span-2">
+                    <label className="text-[10px] font-semibold uppercase text-slate-500">Asset Binding</label>
+                    <p className="text-sm font-medium text-slate-800 mt-1">{task.assetBinding}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Assets */}
+          {(task.assets && task.assets.length > 0) && (
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">
+                Selected Assets ({task.assets.length})
+              </h3>
+              <div className="space-y-2">
+                {task.assets.map((asset) => (
+                  <div
+                    key={asset.id}
+                    className="p-2.5 bg-white rounded-lg border border-slate-200"
+                  >
+                    <p className="text-xs font-medium text-slate-800">{asset.name}</p>
+                    <div className="flex gap-2 text-[10px] text-slate-500 mt-1">
+                      <span>Type: {asset.type}</span>
+                      {asset.serialNumber && <span>| SN: {asset.serialNumber}</span>}
+                      {asset.site && <span>| Site: {asset.site}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Coverage Scope */}
+          {task.coverageScope && (
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">Coverage Scope</h3>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">{task.coverageScope}</p>
+            </div>
+          )}
+
+          {/* Travel Information */}
+          {(task.travelMethod || task.travelCost) && (
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">Travel Information</h3>
+              <div className="grid grid-cols-2 gap-3">
+                {task.travelMethod && (
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-slate-500">Travel Method</label>
+                    <p className="text-sm font-medium text-slate-800 mt-1">{task.travelMethod}</p>
+                  </div>
+                )}
+                {task.travelCost && (
+                  <div>
+                    <label className="text-[10px] font-semibold uppercase text-slate-500">Travel Cost</label>
+                    <p className="text-sm font-medium text-slate-800 mt-1">
+                      {parseFloat(task.travelCost).toLocaleString('th-TH')} THB
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Task Status Section */}
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200">
+            <h3 className="text-sm font-bold text-slate-700 mb-4">Task Status</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setStatus('done')}
+                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
+                  status === 'done'
+                    ? 'bg-green-500 text-white shadow-md'
+                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-green-300'
+                }`}
+              >
+                Done
+              </button>
+              <button
+                onClick={() => setStatus('working')}
+                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
+                  status === 'working'
+                    ? 'bg-orange-500 text-white shadow-md'
+                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-orange-300'
+                }`}
+              >
+                Working on it
+              </button>
+              <button
+                onClick={() => setStatus('stuck')}
+                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
+                  status === 'stuck'
+                    ? 'bg-red-500 text-white shadow-md'
+                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-red-300'
+                }`}
+              >
+                Stuck
+              </button>
+              <button
+                onClick={() => setStatus('not-started')}
+                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
+                  status === 'not-started'
+                    ? 'bg-gray-400 text-white shadow-md'
+                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-gray-300'
+                }`}
+              >
+                Not Started
+              </button>
+            </div>
+          </div>
+
+          {/* Technician Confirmation Section */}
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
+            <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
+              <Camera size={16} className="text-blue-500" />
+              Technician Confirmation
+            </h3>
+
+            {/* Actually Went Confirmation */}
+            {/* <div className="mb-4">
+              <label className="text-xs font-semibold text-slate-700 mb-2 block">
+                Did you actually go to the site? *
+              </label>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setActuallyWent(true)}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
+                    actuallyWent === true
+                      ? 'bg-green-500 text-white shadow-md'
+                      : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-green-300'
+                  }`}
+                >
+                  <CheckCircle2 size={18} />
+                  Yes, I went
+                </button>
+                <button
+                  onClick={() => setActuallyWent(false)}
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
+                    actuallyWent === false
+                      ? 'bg-red-500 text-white shadow-md'
+                      : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-red-300'
+                  }`}
+                >
+                  <XCircle size={18} />
+                  No, I didn't go
+                </button>
+              </div>
+            </div> */}
+
+            {/* Photo Upload */}
+            <div className="mb-4">
+              <label className="text-xs font-semibold text-slate-700 mb-2 block">Upload Photos</label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handlePhotoUpload}
+                className="hidden"
+                id="photo-upload"
+              />
+              <label
+                htmlFor="photo-upload"
+                className="flex items-center justify-center gap-2 py-3 px-4 bg-white border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+              >
+                <Upload size={18} className="text-slate-500" />
+                <span className="text-sm font-medium text-slate-600">Click to upload photos</span>
+              </label>
+
+              {/* Photo Preview */}
+              {photos.length > 0 && (
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {photos.map((photo, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={photo}
+                        alt={`Upload ${index + 1}`}
+                        className="w-full h-24 object-cover rounded-lg border border-slate-200"
+                      />
+                      <button
+                        onClick={() => removePhoto(index)}
+                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block">Additional Notes</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                placeholder="Add any additional notes or comments..."
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 resize-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-between items-center gap-3 px-6 py-4 border-t bg-slate-50">
+          {onEdit && (
+            <button
+              onClick={() => {
+                if (task && onEdit) {
+                  onEdit(task);
+                }
+              }}
+              className="px-6 py-2.5 bg-purple-500 text-white rounded-xl font-semibold text-sm hover:bg-purple-600 transition-colors shadow-md"
+            >
+              Edit
+            </button>
+          )}
+          <div className="flex gap-3 ml-auto">
+            <button
+              onClick={onClose}
+              className="px-6 py-2.5 bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm hover:bg-slate-300 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-6 py-2.5 bg-blue-500 text-white rounded-xl font-semibold text-sm hover:bg-blue-600 transition-colors shadow-md"
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

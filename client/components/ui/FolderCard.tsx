@@ -1,4 +1,3 @@
-// components/ui/FolderCard.tsx
 import { Folder } from 'lucide-react';
 
 interface FolderCardProps {
@@ -7,7 +6,7 @@ interface FolderCardProps {
   color: string;
 }
 
-// ต้องมีคำว่า export ตรงนี้ครับ!
+
 export function FolderCard({ title, pages, color }: FolderCardProps) {
   return (
     <div className="bg-white p-6 rounded-[2.5rem] shadow-sm border border-gray-50 hover:shadow-md transition-all cursor-pointer group">
