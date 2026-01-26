@@ -6,9 +6,9 @@ const logDeviceHistory = async (deviceId, action, oldValue = null, newValue = nu
     const historySql = `INSERT INTO Device_History (
       Did, Action, Old_Value, New_Value, Changed_Fields, User
     ) VALUES (?, ?, ?, ?, ?, ?)`;
-    
+
     const changedFieldsJson = changedFields ? JSON.stringify(changedFields) : null;
-    
+
     await db.execute(historySql, [
       deviceId,
       action,
@@ -54,13 +54,13 @@ const createDevice = async (req, res) => {
     const assetNumbers = devices
       .filter(d => d.Asset_Number)
       .map(d => d.Asset_Number);
-    
+
     let existingAssetsMap = new Map();
     if (assetNumbers.length > 0) {
       const placeholders = assetNumbers.map(() => '?').join(',');
       const checkSql = `SELECT Did, Asset_Number FROM Devices WHERE Asset_Number IN (${placeholders})`;
       const [existing] = await db.execute(checkSql, assetNumbers);
-      
+
       // สร้าง map สำหรับค้นหาเร็ว
       existing.forEach(row => {
         existingAssetsMap.set(row.Asset_Number, row.Did);
@@ -98,7 +98,7 @@ const createDevice = async (req, res) => {
           const [result] = await db.execute(
             `INSERT INTO Devices (
               Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-              Project, Sid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+              Project, SLid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
               Refer_Ticket, Assigned_Service, Reason, warranty, Dtypeid, DeRoleid
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -295,8 +295,8 @@ const createDevice = async (req, res) => {
           }
 
           // บันทึกประวัติ UPDATE (ถ้าไม่ใช่แค่เปลี่ยน Asset_State)
-          if (Object.keys(changedFields).length > 0 && 
-              (Object.keys(changedFields).length > 1 || !changedFields.Asset_State)) {
+          if (Object.keys(changedFields).length > 0 &&
+            (Object.keys(changedFields).length > 1 || !changedFields.Asset_State)) {
             await logDeviceHistory(
               device._id,
               'UPDATE',
@@ -340,7 +340,7 @@ const createDevice = async (req, res) => {
 
     // เรียงผลลัพธ์ตาม index เดิม
     const allResults = [...insertedDevices, ...updatedDevices].sort((a, b) => a._index - b._index);
-    
+
     // ลบ _index ออกก่อนส่ง response
     allResults.forEach(result => delete result._index);
 
@@ -386,7 +386,7 @@ const getDevices = async (req, res) => {
     // สร้าง WHERE condition สำหรับ search
     let searchCondition = '';
     let searchParams = [];
-    
+
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `AND (
@@ -424,7 +424,7 @@ const getDevices = async (req, res) => {
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
-    
+
     const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
 
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
@@ -478,7 +478,7 @@ const getDevicesExcludeInStore = async (req, res) => {
     // สร้าง WHERE condition สำหรับ search
     let searchCondition = '';
     let searchParams = [];
-    
+
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `AND (
@@ -518,7 +518,7 @@ const getDevicesExcludeInStore = async (req, res) => {
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
-    
+
     const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
 
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
@@ -574,7 +574,7 @@ const getDevicesExcludeOutStore = async (req, res) => {
     // สร้าง WHERE condition สำหรับ search
     let searchCondition = '';
     let searchParams = [];
-    
+
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `AND (
@@ -614,7 +614,7 @@ const getDevicesExcludeOutStore = async (req, res) => {
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
-    
+
     const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
 
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
@@ -673,7 +673,7 @@ const getDeviceById = async (req, res) => {
                  AND Devices.Sid = Sites.Sid 
                  AND Devices.Did = ? 
                  ORDER BY Did DESC`;
-    
+
     const [rows] = await db.execute(sql, [id]);
 
     if (rows.length === 0) {
@@ -868,15 +868,15 @@ const updateDevice = async (req, res) => {
     } = req.body;
 
     // ตรวจสอบว่ามีข้อมูลที่จะอัพเดทหรือไม่
-    const hasUpdate = Asset_State !== undefined || serial !== undefined || 
-                     CI_Name !== undefined || Asset_Number !== undefined || 
-                     PR_No !== undefined || Vendor !== undefined || 
-                     Project !== undefined || Sid !== undefined || 
-                     Location2 !== undefined || PO_No !== undefined || 
-                     Loan_Start !== undefined || Request_Date !== undefined || 
-                     Refer_SOF !== undefined || Refer_Ticket !== undefined || 
-                     Assigned_Service !== undefined || Reason !== undefined || 
-                     Dtypeid !== undefined;
+    const hasUpdate = Asset_State !== undefined || serial !== undefined ||
+      CI_Name !== undefined || Asset_Number !== undefined ||
+      PR_No !== undefined || Vendor !== undefined ||
+      Project !== undefined || Sid !== undefined ||
+      Location2 !== undefined || PO_No !== undefined ||
+      Loan_Start !== undefined || Request_Date !== undefined ||
+      Refer_SOF !== undefined || Refer_Ticket !== undefined ||
+      Assigned_Service !== undefined || Reason !== undefined ||
+      Dtypeid !== undefined;
 
     if (!hasUpdate) {
       return res.status(400).json({
@@ -1009,7 +1009,7 @@ const updateDevice = async (req, res) => {
     // บันทึกประวัติ UPDATE (ถ้ามีการเปลี่ยนแปลงฟิลด์อื่นๆ)
     const otherChangedFields = { ...changedFields };
     delete otherChangedFields.Asset_State;
-    
+
     if (Object.keys(otherChangedFields).length > 0) {
       await logDeviceHistory(
         id,
@@ -1419,8 +1419,8 @@ const viewDeviceHistory = async (req, res) => {
       params.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
     }
 
-    const whereClause = whereConditions.length > 0 
-      ? `WHERE ${whereConditions.join(' AND ')}` 
+    const whereClause = whereConditions.length > 0
+      ? `WHERE ${whereConditions.join(' AND ')}`
       : '';
 
     // นับจำนวน records ทั้งหมด
@@ -1464,7 +1464,7 @@ const viewDeviceHistory = async (req, res) => {
                   ${whereClause}
                   ORDER BY dh.Created_At DESC
                   LIMIT ? OFFSET ?`;
-    
+
     const [rows] = await db.execute(sql, [...params, limit, offset]);
 
     // Parse Changed_Fields JSON
@@ -1540,7 +1540,7 @@ const getDeviceHistory = async (req, res) => {
     // สร้าง WHERE condition สำหรับ filter action
     let actionCondition = '';
     let params = [id];
-    
+
     if (action && ['INSERT', 'UPDATE', 'ASSET_STATE_CHANGE'].includes(action.toUpperCase())) {
       actionCondition = 'AND Action = ?';
       params.push(action.toUpperCase());
@@ -1553,7 +1553,7 @@ const getDeviceHistory = async (req, res) => {
                   FROM Device_History
                   WHERE Did = ? ${actionCondition}
                   ORDER BY Created_At DESC`;
-    
+
     const [rows] = await db.execute(sql, params);
 
     // Parse Changed_Fields JSON
@@ -1582,8 +1582,9 @@ const getDevicesWithPM = async (req, res) => {
   try {
     console.log('[getDevicesWithPM] Request received:', {
       search: req.query.search,
-      deviceType: req.query.deviceType,
+      deviceType: req.query.DeRoleid,
       site: req.query.site
+
     });
 
     const search = req.query.search || '';
@@ -1593,7 +1594,7 @@ const getDevicesWithPM = async (req, res) => {
     // Build search condition
     let searchCondition = '';
     let searchParams = [];
-    
+
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `AND (
@@ -1632,7 +1633,7 @@ const getDevicesWithPM = async (req, res) => {
         Devices.serial,
         Devices.Vendor,
         Devices.SLid,
-        NULL as Location2,
+        location.Province,
         Devices.Dtypeid,
         Devices.DeRoleid,
         Device_Role.name as DeviceRole,
@@ -1641,46 +1642,41 @@ const getDevicesWithPM = async (req, res) => {
       FROM contract_device
       INNER JOIN Devices ON contract_device.device_id = Devices.Did
       LEFT JOIN Device_Role ON Devices.DeRoleid = Device_Role.DeRoleid
-      LEFT JOIN Sites ON Devices.SLid = Sites.Sid
-      WHERE 1=1
-      ${searchCondition}
-      ${deviceRoleCondition}
+      LEFT JOIN location ON location.lid = location.Province
+      LEFT JOIN Sites ON Devices.SLid = Sites.Sid WHERE 1=1 
+      ${searchCondition} 
+      ${deviceRoleCondition} 
       ${siteCondition}
-      ORDER BY Devices.Did DESC
-    `;
-
-    console.log('[getDevicesWithPM] Executing SQL with params:', searchParams);
+       ORDER BY Devices.Did DESC`;
     const [devices] = await db.execute(devicesSql, searchParams);
-    
-    console.log(`[getDevicesWithPM] Found ${devices.length} devices from database`);
 
     // Get all PM tasks (task_type = 'PM')
     const [pmTasks] = await db.execute(`
       SELECT id, assets, start_date, end_date, status, engineers, notes
-      FROM Tasks
+      FROM TasksD
       WHERE task_type = 'PM'
       ORDER BY start_date DESC
     `);
-    
+
     console.log(`[getDevicesWithPM] Found ${pmTasks.length} PM tasks`);
 
     // Process devices and attach PM information
     const devicesWithPM = devices.map(device => {
       const deviceId = device.Did;
-      
+
       // Find last PM (most recent completed PM task that includes this device)
       let lastPM = null;
       let lastPMTask = null;
-      
+
       // Find next PM (future PM task that includes this device)
       let nextPM = null;
-      
+
       // Find all PM history for this device
       const pmHistory = [];
 
       for (const task of pmTasks) {
         if (!task.assets) continue;
-        
+
         try {
           const assets = typeof task.assets === 'string' ? JSON.parse(task.assets) : task.assets;
           if (!Array.isArray(assets)) continue;
@@ -1721,7 +1717,7 @@ const getDevicesWithPM = async (req, res) => {
 
             // PM History
             const engineers = task.engineers ? (typeof task.engineers === 'string' ? JSON.parse(task.engineers) : task.engineers) : [];
-            const technicianName = engineers.length > 0 
+            const technicianName = engineers.length > 0
               ? (engineers[0].name || engineers[0].id || 'Unknown')
               : 'Unassigned';
 
@@ -1752,14 +1748,14 @@ const getDevicesWithPM = async (req, res) => {
         site: device.SiteName || 'Unknown',
         location: device.Location2 || 'N/A',
         vendor: device.Vendor || 'Unknown',
-        model: device.DeviceType || 'Unknown',
+        model: device.DeviceRole || 'Unknown',
         serialNumber: device.serial || 'N/A',
         lastPM: lastPM,
         nextPM: nextPM,
         pmHistory: pmHistory,
-        status: device.Asset_State === 'In Use' || device.Asset_State === 'In Store On Site' ? 'Active' : 
-                device.Asset_State === 'In Store' ? 'Inactive' : 
-                device.Asset_State === 'Maintenance' ? 'Maintenance' : 'Active',
+        status: device.Asset_State === 'In Use' || device.Asset_State === 'In Store On Site' ? 'Active' :
+          device.Asset_State === 'In Store' ? 'Inactive' :
+            device.Asset_State === 'Maintenance' ? 'Maintenance' : 'Active',
       };
     });
 

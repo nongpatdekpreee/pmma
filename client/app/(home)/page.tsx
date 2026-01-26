@@ -1,15 +1,9 @@
-'use client';
-
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { MaintenanceCard } from '@/components/ui/MaintenanceCard';
 import { Search, Bell, ChevronDown } from 'lucide-react';
 import Link from 'next/link'; 
 import DateTime from '@/components/ui/DateTime';
 import DashboardHeader from '@/components/ui/Header';
-import { useEffect, useState } from 'react';
-import { apiUrl } from '@/lib/api';
-
-// Mock data for Maintenance Agreementไม่บอก
 
 export default function DashboardPage() {
   const [nearestEvents, setNearestEvents] = useState<any[]>([]);

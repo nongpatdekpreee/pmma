@@ -6,7 +6,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Somsak",
       "lastName": "Prasert",
       "department": "IT",
-      "position": "Senior Developer",
+      "gmail": "somsak.prasert@example.com",
+      "tel": "081-234-5678",
       "positionType": "Technical",
       "employmentType": "Full-time"
     },
@@ -16,7 +17,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Suda",
       "lastName": "Kaewmanee",
       "department": "HR",
-      "position": "HR Manager",
+      "gmail": "suda.kaewmanee@example.com",
+      "tel": "082-345-6789",
       "positionType": "Management",
       "employmentType": "Full-time"
     },
@@ -26,7 +28,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Chai",
       "lastName": "Wongsakul",
       "department": "Sales",
-      "position": "Sales Executive",
+      "gmail": "chai.wongsakul@example.com",
+      "tel": "083-456-7890",
       "positionType": "Technical",
       "employmentType": "Contract"
     },
@@ -36,7 +39,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Nit",
       "lastName": "Somchai",
       "department": "IT",
-      "position": "IT Manager",
+      "gmail": "nit.somchai@example.com",
+      "tel": "084-567-8901",
       "positionType": "Management",
       "employmentType": "Full-time"
     },
@@ -46,7 +50,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Pornpan",
       "lastName": "Limsakul",
       "department": "Finance",
-      "position": "Accountant",
+      "gmail": "pornpan.limsakul@example.com",
+      "tel": "085-678-9012",
       "positionType": "Technical",
       "employmentType": "Full-time"
     },
@@ -56,7 +61,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Manee",
       "lastName": "Tanprasert",
       "department": "Marketing",
-      "position": "Marketing Manager",
+      "gmail": "manee.tanprasert@example.com",
+      "tel": "086-789-0123",
       "positionType": "Management",
       "employmentType": "Contract"
     },
@@ -66,7 +72,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Somchai",
       "lastName": "Rattana",
       "department": "IT",
-      "position": "Junior Developer",
+      "gmail": "somchai.rattana@example.com",
+      "tel": "087-890-1234",
       "positionType": "Technical",
       "employmentType": "Part-time"
     },
@@ -76,7 +83,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Arunee",
       "lastName": "Maneerat",
       "department": "HR",
-      "position": "HR Officer",
+      "gmail": "arunee.manerat@example.com",
+      "tel": "088-901-2345",
       "positionType": "Technical",
       "employmentType": "Full-time"
     },
@@ -86,7 +94,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Wichai",
       "lastName": "Kongpetch",
       "department": "IT",
-      "position": "DevOps Engineer",
+      "gmail": "wichai.kongpetch@example.com",
+      "tel": "089-012-3456",
       "positionType": "Technical",
       "employmentType": "Full-time"
     },
@@ -96,7 +105,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Siriporn",
       "lastName": "Wattana",
       "department": "Finance",
-      "position": "Finance Manager",
+      "gmail": "siriporn.wattana@example.com",
+      "tel": "090-123-4567",
       "positionType": "Management",
       "employmentType": "Full-time"
     },
@@ -106,7 +116,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Kritsada",
       "lastName": "Chaiyaporn",
       "department": "Sales",
-      "position": "Sales Manager",
+      "gmail": "kritsada.chaiyaporn@example.com",
+      "tel": "091-234-5678",
       "positionType": "Management",
       "employmentType": "Full-time"
     },
@@ -116,7 +127,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Nattaya",
       "lastName": "Siriwan",
       "department": "Marketing",
-      "position": "Content Creator",
+            "gmail": "nattaya.siriwan@example.com",
+      "tel": "092-345-6789",
       "positionType": "Technical",
       "employmentType": "Contract"
     },
@@ -126,7 +138,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Pongsakorn",
       "lastName": "Thaworn",
       "department": "IT",
-      "position": "System Analyst",
+      "gmail": "pongsakorn.thaworn@example.com",
+      "tel": "093-456-7890",
       "positionType": "Technical",
       "employmentType": "Full-time"
     },
@@ -136,7 +149,8 @@ export const EMPLOYEE_DATA = {
       "firstName": "Rungnapa",
       "lastName": "Pattana",
       "department": "HR",
-      "position": "Recruiter",
+      "gmail": "rungnapa.pattana@example.com",
+      "tel": "094-567-8901",
       "positionType": "Technical",
       "employmentType": "Full-time"
     },
@@ -146,48 +160,11 @@ export const EMPLOYEE_DATA = {
       "firstName": "Thanawat",
       "lastName": "Boonsong",
       "department": "Sales",
-      "position": "Sales Representative",
+      "gmail": "thanawat.boonsong@example.com",
+      "tel": "095-678-9012",
       "positionType": "Technical",
       "employmentType": "Part-time"
     }
   ],
-  "departments": [
-    "IT",
-    "HR",
-    "Sales",
-    "Finance",
-    "Marketing",
-    "Operations"
-  ],
-  "positions": {
-    "Technical": [
-      "Junior Developer",
-      "Senior Developer",
-      "DevOps Engineer",
-      "System Analyst",
-      "Accountant",
-      "Sales Executive",
-      "Sales Representative",
-      "Content Creator",
-      "HR Officer",
-      "Recruiter",
-      "Designer",
-      "Data Analyst"
-    ],
-    "Management": [
-      "IT Manager",
-      "HR Manager",
-      "Sales Manager",
-      "Finance Manager",
-      "Marketing Manager",
-      "Operations Manager",
-      "Team Lead",
-      "Director"
-    ]
-  },
-  "employmentTypes": [
-    "Full-time",
-    "Contract",
-    "Part-time"
-  ]
+
 }

@@ -15,6 +15,7 @@ interface PMHistory {
 }
 
 interface AssetDevice {
+  Did?: number; // เพิ่ม Did เพื่อใช้เป็น unique key
   deviceId: string;
   deviceName: string;
   deviceRole: "Network Switch" | "Router" | "Firewall" | "Server" | "Storage System" | "UPS" | "Access Point" | string;
@@ -244,9 +245,9 @@ const AssetSiteDatabase = () => {
   const SortIcon = ({ field }: { field: typeof sortField }) => {
     if (sortField !== field) return null;
     return sortOrder === "asc" ? (
-      <ChevronUp className="ml-1 h-4 w-4" />
+      <ChevronUp className="ml-1 h-3 w-3" />
     ) : (
-      <ChevronDown className="ml-1 h-4 w-4" />
+      <ChevronDown className="ml-1 h-3 w-3" />
     );
   };
 
@@ -320,7 +321,7 @@ const AssetSiteDatabase = () => {
         </section>
 
         {/* ================= Table Card ================= */}
-        <div className="rounded-2xl bg-white p-4 md:p-6 shadow-md overflow-hidden">
+        <div className="rounded-xl bg-white p-4 md:p-6 shadow-md overflow-hidden">
           {/* Header */}
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div>
@@ -399,11 +400,11 @@ const AssetSiteDatabase = () => {
 
           {/* Table */}
           <div className="overflow-x-auto w-full">
-            <table className="w-full text-sm table-fixed" style={{ minWidth: '800px' }}>
+            <table className="w-full text-xs table-fixed" style={{ minWidth: '800px' }}>
               <thead className="bg-gray-50 text-xs uppercase text-gray-400">
                 <tr>
                   <th
-                    className="cursor-pointer px-2 py-3 text-left hover:bg-gray-100 whitespace-nowrap"
+                    className="cursor-pointer px-1.5 py-1.5 text-center hover:bg-gray-100 whitespace-nowrap"
                     onClick={() => handleSort("deviceId")}
                     style={{ width: '80px' }}
                   >
@@ -412,20 +413,21 @@ const AssetSiteDatabase = () => {
                       <SortIcon field="deviceId" />
                     </div>
                   </th>
-                  <th className="px-3 py-3 text-left" style={{ width: '200px', minWidth: '150px' }}>Device Name</th>
-                  <th className="px-3 py-3 text-left whitespace-nowrap">Role</th>
+                  <th className="px-2 py-1.5 text-center" style={{ width: '150px', minWidth: '100px' }}>Device Name</th>
+                  <th className="px-1 py-1.5 text-center whitespace-nowrap" style={{ width: '80px', minWidth: '70px' }}>Role</th>
                   <th
-                    className="cursor-pointer px-3 py-3 text-left hover:bg-gray-100 whitespace-nowrap"
+                    className="cursor-pointer px-2 py-1.5 text-center hover:bg-gray-100"
                     onClick={() => handleSort("site")}
+                    style={{ width: '250px', minWidth: '200px' }}
                   >
                     <div className="flex items-center gap-1">
                       Site
                       <SortIcon field="site" /> 
                     </div>
                   </th>
-                  <th className="px-3 py-3 text-left whitespace-nowrap hidden lg:table-cell">Location</th>
+                  <th className="px-2 py-1.5 text-center whitespace-nowrap hidden lg:table-cell" style={{ width: '150px', minWidth: '120px' }}>Location</th>
                   <th
-                    className="cursor-pointer px-3 py-3 text-left hover:bg-gray-100 whitespace-nowrap"
+                    className="cursor-pointer px-2 py-1.5 text-center hover:bg-gray-100 whitespace-nowrap"
                     onClick={() => handleSort("lastPM")}
                   >
                     <div className="flex items-center gap-1">
@@ -434,7 +436,7 @@ const AssetSiteDatabase = () => {
                     </div>
                   </th>
                   <th
-                    className="cursor-pointer px-3 py-3 text-left hover:bg-gray-100 whitespace-nowrap"
+                    className="cursor-pointer px-2 py-1.5 text-center hover:bg-gray-100 whitespace-nowrap"
                     onClick={() => handleSort("nextPM")}
                   >
                     <div className="flex items-center gap-1">
@@ -442,21 +444,21 @@ const AssetSiteDatabase = () => {
                       <SortIcon field="nextPM" />
                     </div>
                   </th>
-                  <th className="px-3 py-3 text-center whitespace-nowrap">Status</th>
-                  <th className="px-3 py-3 text-center whitespace-nowrap">Actions</th>
+                  <th className="px-2 py-1.5 text-center whitespace-nowrap">Status</th>
+                  <th className="px-2 py-1.5 text-center whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
 
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
+                    <td colSpan={9} className="px-2 py-4 text-center text-gray-500">
                       Loading devices...
                     </td>
                   </tr>
                 ) : paginatedDevices.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
+                    <td colSpan={9} className="px-2 py-4 text-center text-gray-500">
                       No devices found matching your criteria
                     </td>
                   </tr>
@@ -472,43 +474,52 @@ const AssetSiteDatabase = () => {
                         key={device.deviceId}
                         className="border-t hover:bg-gray-50 transition-colors"
                       >
-                        <td className="px-2 py-3 font-medium text-indigo-600 whitespace-nowrap" style={{ width: '80px' }}>
+                        <td className="px-1 py-1.5 font-medium text-indigo-600 whitespace-nowrap" style={{ width: '30px' }}>
                           {device.deviceId}
                         </td>
-                        <td className="px-3 py-3" style={{ width: '200px', minWidth: '150px' }}>
-                          <div className="flex items-center gap-1.5">
-                            <DeviceIcon className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                            <span className="font-medium truncate">{device.deviceName}</span>
+                        <td className="px-1 py-1.5" style={{ width: '200px', minWidth: '150px' }}>
+                          <div className="flex items-start gap-1">
+                            <DeviceIcon className="h-3 w-3 text-gray-400 flex-shrink-0 mt-0.5" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-medium truncate">   {device.deviceName?.split('/')[0]?.trim() || device.deviceName}</span>
+
+                              <span className="text-xs text-gray-500 truncate">
+                                {device.model} / {device.serialNumber}
+                              </span>
+                            </div>
                           </div>
                         </td>
-                        <td className="px-3 py-3">
-                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 whitespace-nowrap">
+                        <td className="px-1 py-1.5" style={{ width: '80px', minWidth: '70px' }}>
+                          <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-xs text-blue-700 whitespace-nowrap">
                             {device.deviceRole}
                           </span>
                         </td>
-                        <td className="px-3 py-3 whitespace-nowrap">
+                        <td className="px-2 py-1.5" style={{ width: '250px', minWidth: '200px' }}>
                           <div className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3 text-gray-400 flex-shrink-0" />
-                            <span>{device.site}</span>
+                            <MapPin className="h-2.5 w-2.5 text-gray-400 flex-shrink-0" />
+                            <span className="break-words" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>{device.site}</span>
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-gray-600 hidden lg:table-cell">
-                          <span className="truncate block max-w-[200px]">{device.location}</span>
+                        <td className="px-2 py-1.5 text-gray-600 hidden lg:table-cell" style={{ width: '150px', minWidth: '120px', maxWidth: '200px' }}>
+                          <span className="block break-words overflow-wrap-anywhere line-clamp-2" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+                            {device.location
+                             || 'N/A'}
+                          </span>
                         </td>
-                        <td className="px-3 py-3 whitespace-nowrap">
+                        <td className="px-2 py-1.5 whitespace-nowrap">
                           {device.lastPM ? (
-                            <span className="text-gray-700 text-sm">
+                            <span className="text-gray-700">
                               {formatDate(device.lastPM)}
                             </span>
                           ) : (
-                            <span className="text-gray-400 text-sm">Never</span>
+                            <span className="text-gray-400">Never</span>
                           )}
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-2 py-1.5">
                           {device.nextPM ? (
                             <div className="flex flex-col">
                               <span
-                                className={`text-sm whitespace-nowrap ${
+                                className={`whitespace-nowrap ${
                                   isPMOverdue
                                     ? "font-semibold text-red-600"
                                     : isPMDueSoon
@@ -537,27 +548,27 @@ const AssetSiteDatabase = () => {
                               )}
                             </div>
                           ) : (
-                            <span className="text-gray-400 text-sm">Not scheduled</span>
+                            <span className="text-gray-400">Not scheduled</span>
                           )}
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-2 py-1.5">
                           <span
-                            className={`rounded-full px-2 py-0.5 text-xs ${getStatusColor(
+                            className={`rounded-full px-1.5 py-0.5 text-xs ${getStatusColor(
                               device.status
                             )} whitespace-nowrap`}
                           >
                             {device.status}
                           </span>
                         </td>
-                        <td className="px-3 py-3">
+                        <td className="px-2 py-1.5">
                           <button
                             onClick={() => {
                               setSelectedDevice(device);
                               setShowPMHistory(true);
                             }}
-                            className="flex items-center gap-1 rounded-lg bg-indigo-50 px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-100 transition-colors whitespace-nowrap"
+                            className="flex items-center gap-1 rounded-lg bg-indigo-50 px-1.5 py-0.5 text-xs text-indigo-600 hover:bg-indigo-100 transition-colors whitespace-nowrap"
                           >
-                            <History className="h-3 w-3" />
+                            <History className="h-2.5 w-2.5" />
                             History
                           </button>
                         </td>
