@@ -196,8 +196,8 @@ const createTask = async (req, res) => {
 
     const [result] = await db.execute(insertSql, insertValues);
 
-    // Handle replacement device asset state changes
-    if (replacementDeviceId && assets && Array.isArray(assets) && assets.length > 0) {
+    // Handle replacement device asset state changes and contract_device update
+    if (replacementDeviceId && assets && Array.isArray(assets) && assets.length > 0 && taskType === 'MA') {
       try {
         // Get first asset ID (original device that will be replaced)
         const firstAsset = assets[0];
@@ -212,6 +212,7 @@ const createTask = async (req, res) => {
         // Convert to number if needed
         const replacementId = typeof replacementDeviceId === 'number' ? replacementDeviceId : parseInt(String(replacementDeviceId), 10);
         const originalId = typeof originalDeviceId === 'number' ? originalDeviceId : parseInt(String(originalDeviceId), 10);
+        const contractIdNum = safeParseInt(contractId);
         
         if (!isNaN(replacementId)) {
           // Update replacement device: In Store -> In Use
@@ -221,6 +222,46 @@ const createTask = async (req, res) => {
         if (!isNaN(originalId)) {
           // Update original device: current state -> In Store
           await updateDeviceAssetState(originalId, 'In Store', req.user?.username || req.user?.id || null);
+        }
+
+        // Update contract_device: replace broken device with replacement device
+        if (contractIdNum && !isNaN(originalId) && !isNaN(replacementId)) {
+          try {
+            // Check if the broken device exists in contract_device
+            const [existing] = await db.execute(
+              'SELECT * FROM contract_device WHERE contract_id = ? AND device_id = ?',
+              [contractIdNum, originalId]
+            );
+
+            if (existing.length > 0) {
+              // Update: Delete old device and insert new device
+              await db.execute(
+                'DELETE FROM contract_device WHERE contract_id = ? AND device_id = ?',
+                [contractIdNum, originalId]
+              );
+              
+              // Insert replacement device (only if not already exists)
+              const [checkExisting] = await db.execute(
+                'SELECT * FROM contract_device WHERE contract_id = ? AND device_id = ?',
+                [contractIdNum, replacementId]
+              );
+              
+              if (checkExisting.length === 0) {
+                await db.execute(
+                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                  [contractIdNum, replacementId]
+                );
+                console.log(`Updated contract_device: Replaced device ${originalId} with ${replacementId} in contract ${contractIdNum}`);
+              } else {
+                console.log(`Device ${replacementId} already exists in contract ${contractIdNum}, skipping insert`);
+              }
+            } else {
+              console.log(`Device ${originalId} not found in contract_device for contract ${contractIdNum}, skipping update`);
+            }
+          } catch (error) {
+            console.error('Error updating contract_device:', error);
+            // Continue even if contract_device update fails
+          }
         }
       } catch (error) {
         console.error('Error updating device asset states:', error);
@@ -317,6 +358,13 @@ const updateTask = async (req, res) => {
       return res.status(404).json({ success: false, message: 'ไม่พบ Task สำหรับอัพเดท' });
     }
 
+    // Helper function to safely parse integer
+    const safeParseInt = (value) => {
+      if (value === null || value === undefined || value === '') return null;
+      const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
+      return isNaN(parsed) ? null : parsed;
+    };
+
     const oldReplacementDeviceId = existing[0].replacement_device_id;
     const oldAssets = existing[0].assets ? JSON.parse(existing[0].assets) : [];
 
@@ -356,11 +404,13 @@ const updateTask = async (req, res) => {
     const updateSql = `UPDATE Tasks SET ${updates.join(', ')} WHERE id = ?`;
     await db.execute(updateSql, values);
 
-    // Handle replacement device asset state changes
+    // Handle replacement device asset state changes and contract_device update
     const newReplacementDeviceId = replacementDeviceId !== undefined ? replacementDeviceId : oldReplacementDeviceId;
     const newAssets = assets !== undefined ? assets : oldAssets;
+    const newContractId = contractId !== undefined ? contractId : existing[0].contract_id;
+    const currentTaskType = taskType !== undefined ? taskType : existing[0].task_type;
     
-    if (newReplacementDeviceId && newAssets && newAssets.length > 0) {
+    if (newReplacementDeviceId && newAssets && newAssets.length > 0 && currentTaskType === 'MA') {
       try {
         // Revert old replacement device if changed (In Use -> In Store)
         if (oldReplacementDeviceId && oldReplacementDeviceId !== newReplacementDeviceId) {
@@ -389,6 +439,50 @@ const updateTask = async (req, res) => {
         // Update new original device: current state -> In Store
         if (newOriginalDeviceId) {
           await updateDeviceAssetState(newOriginalDeviceId, 'In Store', req.user?.username || req.user?.id || null);
+        }
+
+        // Update contract_device: replace broken device with replacement device
+        const contractIdNum = safeParseInt(newContractId);
+        const replacementIdNum = typeof newReplacementDeviceId === 'number' ? newReplacementDeviceId : parseInt(String(newReplacementDeviceId), 10);
+        const originalIdNum = typeof newOriginalDeviceId === 'number' ? newOriginalDeviceId : parseInt(String(newOriginalDeviceId), 10);
+
+        if (contractIdNum && !isNaN(originalIdNum) && !isNaN(replacementIdNum)) {
+          try {
+            // Check if the broken device exists in contract_device
+            const [existingContractDevice] = await db.execute(
+              'SELECT * FROM contract_device WHERE contract_id = ? AND device_id = ?',
+              [contractIdNum, originalIdNum]
+            );
+
+            if (existingContractDevice.length > 0) {
+              // Update: Delete old device and insert new device
+              await db.execute(
+                'DELETE FROM contract_device WHERE contract_id = ? AND device_id = ?',
+                [contractIdNum, originalIdNum]
+              );
+              
+              // Insert replacement device (only if not already exists)
+              const [checkExisting] = await db.execute(
+                'SELECT * FROM contract_device WHERE contract_id = ? AND device_id = ?',
+                [contractIdNum, replacementIdNum]
+              );
+              
+              if (checkExisting.length === 0) {
+                await db.execute(
+                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                  [contractIdNum, replacementIdNum]
+                );
+                console.log(`Updated contract_device: Replaced device ${originalIdNum} with ${replacementIdNum} in contract ${contractIdNum}`);
+              } else {
+                console.log(`Device ${replacementIdNum} already exists in contract ${contractIdNum}, skipping insert`);
+              }
+            } else {
+              console.log(`Device ${originalIdNum} not found in contract_device for contract ${contractIdNum}, skipping update`);
+            }
+          } catch (error) {
+            console.error('Error updating contract_device:', error);
+            // Continue even if contract_device update fails
+          }
         }
       } catch (error) {
         console.error('Error updating device asset states:', error);

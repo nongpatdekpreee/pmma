@@ -6,11 +6,12 @@ import {
   Link as LinkIcon,
   ShieldCheck,
   CalendarClock,
+  Plus,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { apiUrl, getContractsBySite, getDevicesByContract } from '@/lib/api';
 
-/* ================= types ================= */
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -84,6 +85,15 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [replacementDevices, setReplacementDevices] = useState<Device[]>([]);
   const [selectedReplacementDevice, setSelectedReplacementDevice] = useState<Device | null>(null);
   const [loadingReplacementDevices, setLoadingReplacementDevices] = useState(false);
+  
+  interface BrokenDevicePair {
+    id: string; // unique ID for this pair
+    brokenDevice: Device;
+    replacementDevice: Device | null;
+    replacementDevices: Device[]; // available replacements for this broken device
+    loading: boolean;
+  }
+  const [brokenDevicePairs, setBrokenDevicePairs] = useState<BrokenDevicePair[]>([]);
 
   /* ===== Travel fields ===== */
   const [travelMethod, setTravelMethod] = useState('');
@@ -129,6 +139,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setShowAll(false);
     setReplacementDevices([]);
     setSelectedReplacementDevice(null);
+    setBrokenDevicePairs([]);
   };
 
   const fetchSiteOptions = async () => {
@@ -242,15 +253,22 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setLoadingDevices(true);
     setDeviceError(null);
     try {
-      const [contractList, availableList] = await Promise.all([
-        contractId ? fetchDevicesByContract(contractId) : [],
-        currentTaskType === 'MA' ? fetchAvailableDevices() : [],
-      ]);
-      setAvailableNewDevices(availableList);
-      const combined = mergeDevices([contractList, availableList]);
-      setDevices(combined);
+      // For MA: only load devices from Contract (broken devices must be from contract)
+      // For PM: load from contract only
+      const contractList = contractId ? await fetchDevicesByContract(contractId) : [];
+      
+      // Only load available devices for replacement device selection (not for broken device selection)
+      if (currentTaskType === 'MA') {
+        const availableList = await fetchAvailableDevices();
+        setAvailableNewDevices(availableList);
+      } else {
+        setAvailableNewDevices([]);
+      }
+      
+      // For broken device selection: only use contract devices
+      setDevices(contractList);
       // keep only selected devices that still exist in the list
-      setSelectedDevices((prev) => prev.filter((d) => combined.some((c) => String(c.id) === String(d.id))));
+      setSelectedDevices((prev) => prev.filter((d) => contractList.some((c) => String(c.id) === String(d.id))));
       setShowAll(false);
     } catch (error: any) {
       console.error('loadDevicesForSelection error:', error);
@@ -292,6 +310,21 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       } else {
         setSelectedReplacementDevice(null);
       }
+      // For MA: initialize broken device pairs if editing
+      if (editingEvent.taskType === 'MA' && editingEvent.assets && Array.isArray(editingEvent.assets) && editingEvent.assets.length > 0) {
+        const pairs: BrokenDevicePair[] = editingEvent.assets.map((asset: Device) => ({
+          id: crypto.randomUUID(),
+          brokenDevice: asset,
+          replacementDevice: editingEvent.replacementDeviceId && asset.id === editingEvent.assets[0]?.id 
+            ? ({ id: editingEvent.replacementDeviceId } as Device)
+            : null,
+          replacementDevices: [],
+          loading: false,
+        }));
+        setBrokenDevicePairs(pairs);
+      } else {
+        setBrokenDevicePairs([]);
+      }
     } else {
       resetForm();
     }
@@ -327,13 +360,26 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setSlaTerm('');
       setReplacementDevices([]);
       setSelectedReplacementDevice(null);
+      setBrokenDevicePairs([]);
       // ไม่ reset travel fields เพราะใช้ร่วมกันทั้ง PM และ MA
     }
   }, [taskType]);
 
-  // Load replacement devices when selectedDevices change (for MA only)
+  // Load replacement devices for broken device pairs (for MA only)
   useEffect(() => {
-    if (taskType === 'MA' && selectedDevices.length > 0) {
+    if (taskType === 'MA') {
+      // Load replacement devices for each broken device pair
+      brokenDevicePairs.forEach((pair) => {
+        if (pair.brokenDevice.Dtypeid && pair.brokenDevice.DeRoleid && pair.replacementDevices.length === 0 && !pair.loading) {
+          loadReplacementDevicesForPair(pair.id, pair.brokenDevice.Dtypeid, pair.brokenDevice.DeRoleid);
+        }
+      });
+    }
+  }, [brokenDevicePairs, taskType]);
+
+  // Legacy: Keep for backward compatibility when not using broken device pairs
+  useEffect(() => {
+    if (taskType === 'MA' && selectedDevices.length > 0 && brokenDevicePairs.length === 0) {
       // Use the first selected device's Dtypeid and DeRoleid
       const firstDevice = selectedDevices[0];
       if (firstDevice.Dtypeid && firstDevice.DeRoleid) {
@@ -342,11 +388,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         setReplacementDevices([]);
         setSelectedReplacementDevice(null);
       }
-    } else {
+    } else if (taskType === 'MA' && brokenDevicePairs.length === 0) {
       setReplacementDevices([]);
       setSelectedReplacementDevice(null);
     }
-  }, [selectedDevices, taskType]);
+  }, [selectedDevices, taskType, brokenDevicePairs.length]);
 
   const loadReplacementDevices = async (dtypeid: number, deroleid: number) => {
     setLoadingReplacementDevices(true);
@@ -364,6 +410,68 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     } finally {
       setLoadingReplacementDevices(false);
     }
+  };
+
+  const loadReplacementDevicesForPair = async (pairId: string, dtypeid: number, deroleid: number) => {
+    setBrokenDevicePairs((prev) =>
+      prev.map((pair) =>
+        pair.id === pairId ? { ...pair, loading: true } : pair
+      )
+    );
+
+    try {
+      const res = await fetch(apiUrl(`/api/devices/replacement?dtypeid=${dtypeid}&deroleid=${deroleid}`));
+      const json = await res.json();
+      if (res.ok && json.data) {
+        const replacementDevices = json.data.map((item: any) => mapDeviceFromApi(item, 'available'));
+        setBrokenDevicePairs((prev) =>
+          prev.map((pair) =>
+            pair.id === pairId
+              ? { ...pair, replacementDevices, loading: false }
+              : pair
+          )
+        );
+      } else {
+        setBrokenDevicePairs((prev) =>
+          prev.map((pair) =>
+            pair.id === pairId ? { ...pair, replacementDevices: [], loading: false } : pair
+          )
+        );
+      }
+    } catch (error) {
+      console.error('Error loading replacement devices for pair:', error);
+      setBrokenDevicePairs((prev) =>
+        prev.map((pair) =>
+          pair.id === pairId ? { ...pair, replacementDevices: [], loading: false } : pair
+        )
+      );
+    }
+  };
+
+  const addBrokenDevicePair = (device: Device) => {
+    const pairId = crypto.randomUUID();
+    const newPair: BrokenDevicePair = {
+      id: pairId,
+      brokenDevice: device,
+      replacementDevice: null,
+      replacementDevices: [],
+      loading: false,
+    };
+    setBrokenDevicePairs((prev) => [...prev, newPair]);
+    // Remove device from selectedDevices if it's there
+    setSelectedDevices((prev) => prev.filter((d) => d.id !== device.id));
+  };
+
+  const removeBrokenDevicePair = (pairId: string) => {
+    setBrokenDevicePairs((prev) => prev.filter((pair) => pair.id !== pairId));
+  };
+
+  const updateBrokenDeviceReplacement = (pairId: string, replacementDevice: Device | null) => {
+    setBrokenDevicePairs((prev) =>
+      prev.map((pair) =>
+        pair.id === pairId ? { ...pair, replacementDevice } : pair
+      )
+    );
   };
 
   /* ================= handlers ================= */
@@ -430,7 +538,49 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         alert('Please fill required MA fields: Vendor Name, Start Date,  and SLA Term');
         return;
       }
+      // Contract is required for MA because broken devices must come from contract
+      if (!selectedContractId) {
+        alert('กรุณาเลือก Contract ก่อน (อุปกรณ์เสียต้องเป็นอุปกรณ์ที่ผูกกับ Contract)');
+        return;
+      }
+      // Validate broken device pairs (new way) or legacy selectedDevices
+      if (brokenDevicePairs.length === 0 && selectedDevices.length === 0) {
+        alert('กรุณาเพิ่มอุปกรณ์เสียอย่างน้อย 1 ชิ้น');
+        return;
+      }
+      // Check if all broken devices have replacement devices
+      if (brokenDevicePairs.length > 0) {
+        const missingReplacement = brokenDevicePairs.find(pair => !pair.replacementDevice);
+        if (missingReplacement) {
+          alert(`กรุณาเลือก Replacement Device สำหรับอุปกรณ์: ${missingReplacement.brokenDevice.name}`);
+          return;
+        }
+      } else if (selectedDevices.length > 0 && !selectedReplacementDevice) {
+        // Legacy mode validation
+        alert('กรุณาเลือก Replacement Device');
+        return;
+      }
     }
+
+    // For MA: use brokenDevicePairs, for PM: use selectedDevices
+    const maAssets = taskType === 'MA' && brokenDevicePairs.length > 0
+      ? brokenDevicePairs.map(pair => pair.brokenDevice)
+      : selectedDevices;
+    
+    // For MA: use first replacement device (backend only supports one)
+    const maReplacementDeviceId = taskType === 'MA' && brokenDevicePairs.length > 0 && brokenDevicePairs[0].replacementDevice
+      ? (() => {
+          const id = brokenDevicePairs[0].replacementDevice!.id;
+          const num = typeof id === 'number' ? id : parseInt(String(id), 10);
+          return isNaN(num) ? null : num;
+        })()
+      : taskType === 'MA' && selectedReplacementDevice
+      ? (() => {
+          const id = selectedReplacementDevice.id;
+          const num = typeof id === 'number' ? id : parseInt(String(id), 10);
+          return isNaN(num) ? null : num;
+        })()
+      : null;
 
     const payload = {
       ...(editingEvent?.id && { id: editingEvent.id }),
@@ -447,15 +597,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       priority,
       slaTerm: taskType === 'MA' ? slaTerm : null,
       coverageScope,
-      assets: selectedDevices,
+      assets: maAssets,
       // MA Contract fields (เหมือน PM)
       vendorName: taskType === 'MA' ? vendorName : null,
       assetBinding: taskType === 'MA' ? assetBinding : null,
-      replacementDeviceId: taskType === 'MA' && selectedReplacementDevice ? (() => {
-        const id = selectedReplacementDevice.id;
-        const num = typeof id === 'number' ? id : parseInt(String(id), 10);
-        return isNaN(num) ? null : num;
-      })() : null,
+      replacementDeviceId: maReplacementDeviceId,
       // Travel fields (ใช้ร่วมกันทั้ง PM และ MA)
       travelMethod,
       travelCost,
@@ -626,11 +772,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Device List */}
             {devices.length === 0 && !loadingDevices && (
               <p className="text-xs text-slate-400">
-                {!Sid ? 'เลือก Site เพื่อแสดงสัญญา' : !selectedContractId ? 'เลือก Contract เพื่อแสดงอุปกรณ์ที่ผูกอยู่' : 'ไม่พบอุปกรณ์ในสัญญานี้ หรือโหลดอุปกรณ์คงคลังสำหรับ MA'}
+                {!Sid ? 'เลือก Site เพื่อแสดงสัญญา' : !selectedContractId ? (taskType === 'MA' ? 'เลือก Contract เพื่อแสดงอุปกรณ์ที่เสีย (ต้องเป็นอุปกรณ์ที่ผูกกับ Contract)' : 'เลือก Contract เพื่อแสดงอุปกรณ์ที่ผูกอยู่') : 'ไม่พบอุปกรณ์ในสัญญานี้'}
               </p>
             )}
 
-            {devices.length > 0 && (
+            {devices.length > 0 && taskType === 'PM' && (
               <div className="space-y-1.5">
                 {(showAll ? devices : devices.slice(0, 3)).map((d) => {
                   const active = selectedDevices.some((x) => x.id === d.id);
@@ -667,38 +813,121 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               </button>
             )}
 
-            {/* Replacement Device (for MA only) */}
-            {taskType === 'MA' && selectedDevices.length > 0 && (
+            {/* Broken Device Pairs (for MA only) */}
+            {taskType === 'MA' && (
               <div className="mt-4 pt-4 border-t border-slate-200">
-                <label className={fieldLabel}>Replacement Device *</label>
-                {loadingReplacementDevices ? (
-                  <p className="text-xs text-slate-400">กำลังโหลด...</p>
-                ) : replacementDevices.length === 0 ? (
-                  <p className="text-xs text-slate-400">ไม่พบอุปกรณ์ In Store</p>
-                ) : (
-                  <select
-                    value={selectedReplacementDevice?.id || ''}
-                    onChange={(e) => {
-                      const device = replacementDevices.find(d => String(d.id) === e.target.value);
-                      setSelectedReplacementDevice(device || null);
-                    }}
-                    className={selectBase}
-                  >
-                    <option value="">-- เลือก Replacement Device --</option>
-                    {replacementDevices.map((d) => (
-                      <option key={d.id} value={String(d.id)}>
-                        {d.name} {d.assetNumber ? `(${d.assetNumber})` : ''} {d.serialNumber ? `- SN: ${d.serialNumber}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {selectedReplacementDevice && (
-                  <div className="mt-2 p-2 bg-blue-50 rounded-lg">
-                    <p className="text-xs font-medium text-blue-700">
-                      เลือกแล้ว: {selectedReplacementDevice.name}
-                      {selectedReplacementDevice.assetNumber && ` (${selectedReplacementDevice.assetNumber})`}
-                    </p>
+                <label className={fieldLabel}>อุปกรณ์เสียและอุปกรณ์ที่จะเปลี่ยน *</label>
+
+                {/* First broken device selection (if no pairs yet) */}
+                {brokenDevicePairs.length === 0 && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
+                        อุปกรณ์เสียชิ้นที่ 1 *
+                      </label>
+                      {devices.length === 0 ? (
+                        <p className="text-xs text-slate-400">
+                          {!selectedContractId ? 'กรุณาเลือก Contract ก่อน' : 'ไม่พบอุปกรณ์ใน Contract นี้'}
+                        </p>
+                      ) : (
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const deviceId = e.target.value;
+                            if (deviceId) {
+                              const device = devices.find(d => String(d.id) === deviceId);
+                              if (device) {
+                                addBrokenDevicePair(device);
+                              }
+                            }
+                          }}
+                          className={selectBase}
+                        >
+                          <option value="">-- เลือกอุปกรณ์เสีย --</option>
+                          {devices.map((d) => (
+                            <option key={d.id} value={String(d.id)}>
+                              {d.name} {d.assetNumber ? `(${d.assetNumber})` : ''} {d.serialNumber ? `- SN: ${d.serialNumber}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
                   </div>
+                )}
+
+                {/* Display existing broken device pairs */}
+                {brokenDevicePairs.map((pair, index) => (
+                  <div key={pair.id} className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <p className="text-xs font-semibold text-slate-700 mb-1">
+                          อุปกรณ์เสียชิ้นที่ {index + 1}: {pair.brokenDevice.name}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-500">
+                          <span>Type: {pair.brokenDevice.type}</span>
+                          {pair.brokenDevice.serialNumber && <span>| SN: {pair.brokenDevice.serialNumber}</span>}
+                          {pair.brokenDevice.assetNumber && <span>| Asset: {pair.brokenDevice.assetNumber}</span>}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeBrokenDevicePair(pair.id)}
+                        className="p-1 text-red-500 hover:bg-red-50 rounded"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
+                        Replacement Device *
+                      </label>
+                      {pair.loading ? (
+                        <p className="text-xs text-slate-400">กำลังโหลด...</p>
+                      ) : pair.replacementDevices.length === 0 ? (
+                        <p className="text-xs text-slate-400">ไม่พบอุปกรณ์ In Store</p>
+                      ) : (
+                        <select
+                          value={pair.replacementDevice?.id || ''}
+                          onChange={(e) => {
+                            const device = pair.replacementDevices.find(d => String(d.id) === e.target.value);
+                            updateBrokenDeviceReplacement(pair.id, device || null);
+                          }}
+                          className={selectBase}
+                        >
+                          <option value="">-- เลือก Replacement Device --</option>
+                          {pair.replacementDevices.map((d) => (
+                            <option key={d.id} value={String(d.id)}>
+                              {d.name} {d.assetNumber ? `(${d.assetNumber})` : ''} {d.serialNumber ? `- SN: ${d.serialNumber}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {pair.replacementDevice && (
+                        <div className="mt-2 p-2 bg-green-50 rounded-lg">
+                          <p className="text-xs font-medium text-green-700">
+                            เลือกแล้ว: {pair.replacementDevice.name}
+                            {pair.replacementDevice.assetNumber && ` (${pair.replacementDevice.assetNumber})`}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Add button - only show if first pair is complete */}
+                {brokenDevicePairs.length > 0 && brokenDevicePairs[0].replacementDevice && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Open modal to select next broken device
+                      setAssetModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition mt-2"
+                  >
+                    <Plus size={14} />
+                    เพิ่มอุปกรณ์เสียชิ้นที่ {brokenDevicePairs.length + 1}
+                  </button>
                 )}
               </div>
             )}
@@ -873,10 +1102,25 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       </div>
       <AssetSelectModal
         open={assetModalOpen}
-        devices={devices}
-        selected={selectedDevices}
+        devices={devices.filter(d => 
+          taskType === 'MA' 
+            ? !brokenDevicePairs.some(pair => pair.brokenDevice.id === d.id)
+            : true
+        )}
+        selected={taskType === 'MA' ? [] : selectedDevices}
+        taskType={taskType}
         onClose={() => setAssetModalOpen(false)}
-        onConfirm={(items) => setSelectedDevices(items)}
+        onConfirm={(items) => {
+          if (taskType === 'MA') {
+            // For MA: add first selected device as broken device pair
+            if (items.length > 0) {
+              addBrokenDevicePair(items[0]);
+            }
+          } else {
+            // For PM: use normal selection
+            setSelectedDevices(items);
+          }
+        }}
       />
 
     </div>
@@ -912,6 +1156,7 @@ interface AssetModalProps {
   open: boolean;
   devices: Device[];
   selected: Device[];
+  taskType?: 'PM' | 'MA';
   onClose: () => void;
   onConfirm: (items: Device[]) => void;
 }
@@ -920,27 +1165,49 @@ function AssetSelectModal({
   open,
   devices,
   selected,
+  taskType = 'PM',
   onClose,
   onConfirm,
 }: AssetModalProps) {
   const [localSelected, setLocalSelected] = useState<Device[]>(selected);
+  const [singleSelected, setSingleSelected] = useState<Device | null>(null);
 
   useEffect(() => {
     setLocalSelected(selected);
-  }, [selected]);
+    if (taskType === 'MA' && selected.length > 0) {
+      setSingleSelected(selected[0]);
+    } else if (taskType === 'MA') {
+      setSingleSelected(null);
+    }
+  }, [selected, taskType]);
 
   if (!open) return null;
 
   const toggle = (d: Device) => {
-    setLocalSelected((prev) =>
-      prev.some((x) => x.id === d.id)
-        ? prev.filter((x) => x.id !== d.id)
-        : [...prev, d]
-    );
+    if (taskType === 'MA') {
+      // For MA: single selection
+      setSingleSelected(d);
+    } else {
+      // For PM: multiple selection
+      setLocalSelected((prev) =>
+        prev.some((x) => x.id === d.id)
+          ? prev.filter((x) => x.id !== d.id)
+          : [...prev, d]
+      );
+    }
   };
 
-  const selectAll = () => setLocalSelected(devices);
-  const clearAll = () => setLocalSelected([]);
+  const selectAll = () => {
+    if (taskType === 'MA') return;
+    setLocalSelected(devices);
+  };
+  const clearAll = () => {
+    if (taskType === 'MA') {
+      setSingleSelected(null);
+    } else {
+      setLocalSelected([]);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
@@ -948,37 +1215,43 @@ function AssetSelectModal({
 
         {/* header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h3 className="text-lg font-bold">Select Assets</h3>
+          <h3 className="text-lg font-bold">
+            {taskType === 'MA' ? 'เลือกอุปกรณ์เสีย' : 'Select Assets'}
+          </h3>
           <button onClick={onClose} className="p-2 bg-slate-100 rounded-full">
             <X size={18} />
           </button>
         </div>
 
         {/* actions */}
-        <div className="flex justify-between px-6 py-3 border-b">
-          <div className="flex gap-2">
-            <button
-              onClick={selectAll}
-              className="px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-600 rounded-lg"
-            >
-              Select all
-            </button>
-            <button
-              onClick={clearAll}
-              className="px-3 py-1.5 text-xs font-semibold bg-slate-100 rounded-lg"
-            >
-              Clear
-            </button>
+        {taskType === 'PM' && (
+          <div className="flex justify-between px-6 py-3 border-b">
+            <div className="flex gap-2">
+              <button
+                onClick={selectAll}
+                className="px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-600 rounded-lg"
+              >
+                Select all
+              </button>
+              <button
+                onClick={clearAll}
+                className="px-3 py-1.5 text-xs font-semibold bg-slate-100 rounded-lg"
+              >
+                Clear
+              </button>
+            </div>
+            <span className="text-xs text-slate-400">
+              {localSelected.length} selected
+            </span>
           </div>
-          <span className="text-xs text-slate-400">
-            {localSelected.length} selected
-          </span>
-        </div>
+        )}
 
         {/* list */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
           {devices.map((d) => {
-            const checked = localSelected.some((x) => x.id === d.id);
+            const checked = taskType === 'MA' 
+              ? singleSelected?.id === d.id
+              : localSelected.some((x) => x.id === d.id);
             return (
               <label
                 key={d.id}
@@ -994,10 +1267,11 @@ function AssetSelectModal({
                   </div>
                 </div>
                 <input
-                  type="checkbox"
+                  type={taskType === 'MA' ? 'radio' : 'checkbox'}
+                  name={taskType === 'MA' ? 'broken-device' : undefined}
                   checked={checked}
                   onChange={() => toggle(d)}
-                  className="w-4 h-4 accent-blue-500"
+                  className={taskType === 'MA' ? 'w-4 h-4 accent-blue-500' : 'w-4 h-4 accent-blue-500'}
                 />
               </label>
             );
@@ -1014,10 +1288,21 @@ function AssetSelectModal({
           </button>
           <button
             onClick={() => {
-              onConfirm(localSelected);
+              if (taskType === 'MA') {
+                if (singleSelected) {
+                  onConfirm([singleSelected]);
+                }
+              } else {
+                onConfirm(localSelected);
+              }
               onClose();
             }}
-            className="px-5 py-2 text-sm bg-blue-500 text-white rounded-xl font-bold"
+            disabled={taskType === 'MA' && !singleSelected}
+            className={`px-5 py-2 text-sm rounded-xl font-bold ${
+              taskType === 'MA' && !singleSelected
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-blue-500 text-white hover:bg-blue-600'
+            }`}
           >
             Confirm
           </button>

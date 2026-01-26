@@ -1641,7 +1641,7 @@ const getDevicesWithPM = async (req, res) => {
         contract_device.contract_id
       FROM contract_device
       INNER JOIN Devices ON contract_device.device_id = Devices.Did
-      LEFT JOIN Device_Role ON Devices.DeRoleid = Device_Role.DeRoleid
+      LEFT JOIN evice_Role ON Devices.DeRoleid = Device_Role.DeRoleid
       LEFT JOIN location ON location.lid = location.Province
       LEFT JOIN Sites ON Devices.SLid = Sites.Sid WHERE 1=1 
       ${searchCondition} 
@@ -1653,7 +1653,7 @@ const getDevicesWithPM = async (req, res) => {
     // Get all PM tasks (task_type = 'PM')
     const [pmTasks] = await db.execute(`
       SELECT id, assets, start_date, end_date, status, engineers, notes
-      FROM Tasks
+      FROM TasksD
       WHERE task_type = 'PM'
       ORDER BY start_date DESC
     `);
