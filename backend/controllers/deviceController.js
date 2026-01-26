@@ -1621,6 +1621,7 @@ const getDevicesWithPM = async (req, res) => {
     }
 // yyyyyyydqw
      console.log('BBBB');
+     console.log('BBBwfwejfwejfeqiwkfhioeskmhfcfhuiwahja bB');
 
     const devicesSql = `
     SELECT DISTINCT
@@ -1639,16 +1640,11 @@ const getDevicesWithPM = async (req, res) => {
         Location.Province,
         contract_device.contract_id
     FROM contract_device
-    INNER JOIN Devices 
-        ON contract_device.device_id = Devices.Did
-    LEFT JOIN Device_Role 
-        ON Devices.DeRoleid = Device_Role.DeRoleid
-    LEFT JOIN Sites 
-        ON Devices.SLid = Sites.Sid
-    LEFT JOIN Sites_Location SL
-        ON Devices.SLid = SL.SLid
-    LEFT JOIN Location 
-        ON SL.lid = Location.lid
+    INNER JOIN Devices ON contract_device.device_id = Devices.Did
+    LEFT JOIN Device_Role ON Devices.DeRoleid = Device_Role.DeRoleid
+    LEFT JOIN Sites ON Devices.SLid = Sites.Sid
+    LEFT JOIN Sites_Location SL ON Devices.SLid = SL.SLid
+    LEFT JOIN Location ON SL.lid = Location.lid
     WHERE 1=1
     ${searchCondition}
     ${deviceRoleCondition}
