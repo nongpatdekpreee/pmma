@@ -1619,7 +1619,7 @@ const getDevicesWithPM = async (req, res) => {
       siteCondition = 'AND Sites.Name = ?';
       searchParams.push(filterSite);
     }
-
+// yyyyyyy
 
     const devicesSql = `
     SELECT DISTINCT
