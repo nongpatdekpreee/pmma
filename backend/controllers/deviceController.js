@@ -1576,7 +1576,6 @@ const getDeviceHistory = async (req, res) => {
     });
   }
 };
-
 // GET - ดึง Devices พร้อม PM Information สำหรับ Asset & Site Database
 const getDevicesWithPM = async (req, res) => {
   try {
@@ -1620,9 +1619,9 @@ const getDevicesWithPM = async (req, res) => {
       siteCondition = 'AND Sites.Name = ?';
       searchParams.push(filterSite);
     }
-    // Get devices that exist in contract_device table
-    // Note: Devices table uses SLid (not Sid) to reference Sites
-    // Use Device_Role.name instead of Device_Type.model
+// yyyyyyydqw
+     console.log('BBBB');
+
     const devicesSql = `
     SELECT DISTINCT
         Devices.Did,
@@ -1640,15 +1639,15 @@ const getDevicesWithPM = async (req, res) => {
         Location.Province,
         contract_device.contract_id
     FROM contract_device
-    INNER JOIN Devices
+    INNER JOIN Devices 
         ON contract_device.device_id = Devices.Did
-    LEFT JOIN Device_Role
+    LEFT JOIN Device_Role 
         ON Devices.DeRoleid = Device_Role.DeRoleid
-    LEFT JOIN Sites
+    LEFT JOIN Sites 
         ON Devices.SLid = Sites.Sid
     LEFT JOIN Sites_Location SL
         ON Devices.SLid = SL.SLid
-    LEFT JOIN Location
+    LEFT JOIN Location 
         ON SL.lid = Location.lid
     WHERE 1=1
     ${searchCondition}
@@ -1656,6 +1655,7 @@ const getDevicesWithPM = async (req, res) => {
     ${siteCondition}
     ORDER BY Devices.Did DESC
     `;
+    
     const [devices] = await db.execute(devicesSql, searchParams);
 
     // Get all PM tasks (task_type = 'PM')
@@ -1754,7 +1754,7 @@ const getDevicesWithPM = async (req, res) => {
         deviceName: device.CI_Name || device.Asset_Number || `Device ${device.Did}`,
         deviceRole: deviceRoleName,
         site: device.SiteName || 'Unknown',
-        location: device.Location2 || 'N/A',
+        location: device.Province || 'N/A',
         vendor: device.Vendor || 'Unknown',
         model: device.DeviceRole || 'Unknown',
         serialNumber: device.serial || 'N/A',
