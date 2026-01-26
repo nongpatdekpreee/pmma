@@ -502,8 +502,8 @@ const AssetSiteDatabase = () => {
                         </td>
                         <td className="px-2 py-1.5 text-gray-600 hidden lg:table-cell" style={{ width: '150px', minWidth: '120px', maxWidth: '200px' }}>
                           <span className="block break-words overflow-wrap-anywhere line-clamp-2" style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}>
-                            {device.location
-                             || 'N/A'}
+                            {
+                             device.location || 'N/A'}
                           </span>
                         </td>
                         <td className="px-2 py-1.5 whitespace-nowrap">
