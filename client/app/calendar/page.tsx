@@ -18,6 +18,7 @@ interface Device {
 interface Engineer {
   id: string;
   name: string;
+  lastName?: string;
 }
 
 interface CalendarEvent {
@@ -73,7 +74,7 @@ export default function CalendarPage() {
     const engineers = task.engineers || task.Eng_ids || [];
     const engineerNames =
       engineers.length > 0
-        ? engineers.map((e: Engineer) => e.name || e.id).join(', ')
+        ? engineers.map((e: Engineer) => (e.name || e.id) + (e.lastName ? ' ' + e.lastName : '')).join(', ')
         : 'Unassigned';
     const taskType = task.taskType || task.task_type || 'PM';
     const siteName = task.siteName || task.site_name || task.Sname;
@@ -536,7 +537,7 @@ export default function CalendarPage() {
 
                               // Get engineer names for display (truncate if too long)
                               const engineerNames = ev.Eng_ids && ev.Eng_ids.length > 0
-                                ? ev.Eng_ids.map((e: Engineer) => e.name).join(', ')
+                                ? ev.Eng_ids.map((e: Engineer) => e.name + (e.lastName ? ' ' + e.lastName : '')).join(', ')
                                 : ev.engineer || '';
 
                               // Get status label for display (split into two lines if needed)
