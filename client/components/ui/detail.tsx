@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Camera, CheckCircle2, XCircle, Upload, Image as ImageIcon } from 'lucide-react';
+import { X, Camera, CheckCircle2, XCircle, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 
 interface Device {
@@ -43,6 +43,8 @@ interface TaskDetail {
   assetBinding?: string;
   travelMethod?: string;
   travelCost?: string;
+  contractId?: string | number;
+  replacementDeviceId?: string | number;
   // Status fields
   actuallyWent?: boolean;
   photos?: string[]; // Array of base64 or URLs
@@ -56,9 +58,10 @@ interface Props {
   task: TaskDetail | null;
   onUpdate?: (updatedTask: TaskDetail) => void;
   onEdit?: (task: TaskDetail) => void;
+  onDelete?: (taskId: string) => void;
 }
 
-export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit }: Props) {
+export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete }: Props) {
   const [actuallyWent, setActuallyWent] = useState<boolean | null>(task?.actuallyWent ?? null);
   const [photos, setPhotos] = useState<string[]>(task?.photos || []);
   const [notes, setNotes] = useState(task?.notes || '');
@@ -463,18 +466,61 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit }: Pro
 
         {/* Footer */}
         <div className="flex justify-between items-center gap-3 px-6 py-4 border-t bg-slate-50">
-          {onEdit && (
-            <button
-              onClick={() => {
-                if (task && onEdit) {
-                  onEdit(task);
-                }
-              }}
-              className="px-6 py-2.5 bg-purple-500 text-white rounded-xl font-semibold text-sm hover:bg-purple-600 transition-colors shadow-md"
-            >
-              Edit
-            </button>
-          )}
+          <div className="flex gap-3">
+            {onEdit && (
+              <button
+                onClick={() => {
+                  if (task && onEdit) {
+                    // Ensure dates are in YYYY-MM-DD format for date inputs
+                    const formatDateForInput = (dateString?: string): string => {
+                      if (!dateString) return '';
+                      const date = new Date(dateString);
+                      if (isNaN(date.getTime())) return '';
+                      const year = date.getFullYear();
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const day = String(date.getDate()).padStart(2, '0');
+                      return `${year}-${month}-${day}`;
+                    };
+
+                    const taskToEdit = {
+                      ...task,
+                      startDate: formatDateForInput(task.startDate),
+                      endDate: formatDateForInput(task.endDate),
+                      // Ensure contractId is included (check multiple possible field names)
+                      contractId: task.contractId || (task as any).contract_id || undefined,
+                      // Ensure replacementDeviceId is included
+                      replacementDeviceId: task.replacementDeviceId || (task as any).replacement_device_id || undefined,
+                      // Ensure assets are included
+                      assets: task.assets || [],
+                      // Ensure SLA term is included for MA tasks
+                      slaTerm: task.slaTerm || (task as any).sla_term || undefined,
+                      // Ensure vendorName is included for MA tasks
+                      vendorName: task.vendorName || (task as any).vendor_name || undefined,
+                      // Ensure duration is included for MA tasks
+                      duration: task.duration || undefined,
+                    };
+                    onEdit(taskToEdit);
+                  }
+                }}
+                className="px-6 py-2.5 bg-purple-500 text-white rounded-xl font-semibold text-sm hover:bg-purple-600 transition-colors shadow-md"
+              >
+                Edit
+              </button>
+            )}
+            {onDelete && task && (
+              <button
+                onClick={() => {
+                  if (task && onDelete && confirm('คุณแน่ใจหรือไม่ว่าต้องการลบ Task นี้?')) {
+                    onDelete(task.id);
+                  }
+                }}
+                className="px-6 py-2.5 bg-red-500 text-white rounded-xl font-semibold text-sm hover:bg-red-600 transition-colors shadow-md flex items-center gap-2"
+              >
+                <Trash2 size={16} />
+                Delete
+              </button>
+            )}
+          </div>
           <div className="flex gap-3 ml-auto">
             <button
               onClick={onClose}

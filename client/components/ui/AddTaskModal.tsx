@@ -8,7 +8,7 @@ import {
   CalendarClock,
   Plus,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { apiUrl, getContractsBySite, getDevicesByContract } from '@/lib/api';
 import { EMPLOYEE_DATA } from '@/data/employee.mock';
 
@@ -117,6 +117,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [selectedDevices, setSelectedDevices] = useState<Device[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const editingAssetsRef = useRef<Device[]>([]);
 
   const resetForm = () => {
     setTaskType('PM');
@@ -227,10 +228,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     return Array.from(map.values());
   };
 
-  const loadContractsForSite = async (siteId: string) => {
+  const loadContractsForSite = async (siteId: string, preserveContractId?: string) => {
     if (!isOpen || !siteId) {
       setContractOptions([]);
-      setSelectedContractId('');
+      if (!preserveContractId) {
+        setSelectedContractId('');
+      }
       setDevices([]);
       return;
     }
@@ -239,10 +242,22 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const contracts = await fetchContractsBySite(siteId);
       setContractOptions(contracts);
-      // Reset contract selection when site changes
-      setSelectedContractId('');
-      setDevices([]);
-      setSelectedDevices([]);
+      // Only reset contract selection when site changes if not preserving (i.e., not editing)
+      if (!preserveContractId) {
+        setSelectedContractId('');
+        setDevices([]);
+        setSelectedDevices([]);
+      } else {
+        // If preserving contractId, verify it exists in the new contracts list
+        const contractExists = contracts.some(c => String(c.contract_id) === String(preserveContractId));
+        if (contractExists) {
+          // Set the contractId after contracts are loaded
+          setSelectedContractId(String(preserveContractId));
+        } else {
+          // Contract doesn't exist for this site, reset it
+          setSelectedContractId('');
+        }
+      }
     } catch (error: any) {
       console.error('loadContractsForSite error:', error);
       setDeviceError(error.message || 'ไม่สามารถโหลดสัญญาได้');
@@ -252,7 +267,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
   };
 
-  const loadDevicesForSelection = async (contractId: string, currentTaskType: 'PM' | 'MA') => {
+  const loadDevicesForSelection = async (contractId: string, currentTaskType: 'PM' | 'MA', preserveSelectedDevices: Device[] = []) => {
     if (!isOpen) return;
     setLoadingDevices(true);
     setDeviceError(null);
@@ -271,8 +286,15 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       
       // For broken device selection: only use contract devices
       setDevices(contractList);
-      // keep only selected devices that still exist in the list
-      setSelectedDevices((prev) => prev.filter((d) => contractList.some((c) => String(c.id) === String(d.id))));
+      
+      // If we have preserved devices from editing, keep them (don't filter them out)
+      if (preserveSelectedDevices.length > 0) {
+        // Keep preserved devices - they should already be valid from the contract
+        setSelectedDevices(preserveSelectedDevices);
+      } else {
+        // Normal behavior: keep only selected devices that still exist in the list
+        setSelectedDevices((prev) => prev.filter((d) => contractList.some((c) => String(c.id) === String(d.id))));
+      }
       setShowAll(false);
     } catch (error: any) {
       console.error('loadDevicesForSelection error:', error);
@@ -291,6 +313,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   useEffect(() => {
     if (!isOpen) return;
     if (editingEvent) {
+      const editingAssets: Device[] = editingEvent.assets || [];
+      // Store editing assets in ref for later restoration
+      editingAssetsRef.current = editingAssets;
       setTaskType(editingEvent.taskType || 'PM');
       setSid(editingEvent.Sid ? String(editingEvent.Sid) : editingEvent.siteId ? String(editingEvent.siteId) : '');
       setSname(editingEvent.Sname || editingEvent.siteName || '');
@@ -299,14 +324,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setEndDate(editingEvent.endDate || '');
       setPriority(editingEvent.priority || '');
       setCoverageScope(editingEvent.coverageScope || '');
-      setSlaTerm(editingEvent.slaTerm || '');
+      // Set SLA Term - check multiple possible field names
+      setSlaTerm(editingEvent.slaTerm || (editingEvent as any).sla_term || '');
       setVendorName(editingEvent.vendorName || '');
       setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
       setAssetBinding(editingEvent.assetBinding || '');
       setTravelMethod(editingEvent.travelMethod || '');
       setTravelCost(editingEvent.travelCost ? String(editingEvent.travelCost) : '');
-      setSelectedContractId(editingEvent.contractId ? String(editingEvent.contractId) : '');
-      setSelectedDevices(editingEvent.assets || []);
+      const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
+      setSelectedContractId(contractId);
+      // Store editing assets to preserve them after devices are loaded
+      setSelectedDevices(editingAssets);
       // Load replacement device if replacementDeviceId exists
       if (editingEvent.replacementDeviceId) {
         // We'll need to fetch the device details, but for now just set the ID
@@ -315,34 +343,107 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         setSelectedReplacementDevice(null);
       }
       // For MA: initialize broken device pairs if editing
-      if (editingEvent.taskType === 'MA' && editingEvent.assets && Array.isArray(editingEvent.assets) && editingEvent.assets.length > 0) {
-        const pairs: BrokenDevicePair[] = editingEvent.assets.map((asset: Device) => ({
-          id: crypto.randomUUID(),
-          brokenDevice: asset,
-          replacementDevice: editingEvent.replacementDeviceId && asset.id === editingEvent.assets[0]?.id 
-            ? ({ id: editingEvent.replacementDeviceId } as Device)
-            : null,
-          replacementDevices: [],
-          loading: false,
-        }));
-        setBrokenDevicePairs(pairs);
+      if (editingEvent.taskType === 'MA' && editingAssets.length > 0) {
+        // Fetch replacement device details if replacementDeviceId exists
+        const initializeBrokenDevicePairs = async () => {
+          let replacementDeviceDetails: Device | null = null;
+          
+          if (editingEvent.replacementDeviceId) {
+            try {
+              const res = await fetch(apiUrl(`/api/devices/${editingEvent.replacementDeviceId}`));
+              const json = await res.json();
+              if (json.success && json.data) {
+                // Use mapDeviceFromApi to properly map the device data
+                replacementDeviceDetails = mapDeviceFromApi(json.data, 'available');
+              }
+            } catch (error) {
+              console.error('Error fetching replacement device:', error);
+              // Fallback to just ID if fetch fails
+              replacementDeviceDetails = { id: editingEvent.replacementDeviceId } as Device;
+            }
+          }
+          
+          // Fetch full device details for each broken device to get Dtypeid and DeRoleid
+          const fetchDeviceDetails = async (deviceId: string | number): Promise<Device> => {
+            try {
+              const res = await fetch(apiUrl(`/api/devices/${deviceId}`));
+              const json = await res.json();
+              if (json.success && json.data) {
+                return mapDeviceFromApi(json.data, 'site');
+              }
+            } catch (error) {
+              console.error(`Error fetching device ${deviceId}:`, error);
+            }
+            // Fallback to original asset if fetch fails
+            return editingAssets.find((a: Device) => String(a.id) === String(deviceId)) || { id: deviceId } as Device;
+          };
+          
+          // Fetch all broken device details in parallel
+          const brokenDevicesWithDetails = await Promise.all(
+            editingAssets.map((asset: Device) => fetchDeviceDetails(asset.id))
+          );
+          
+          // Map replacement device to first broken device (backend stores one replacement per task)
+          const pairs: BrokenDevicePair[] = brokenDevicesWithDetails.map((device: Device, index: number) => ({
+            id: crypto.randomUUID(),
+            brokenDevice: device,
+            replacementDevice: index === 0 && replacementDeviceDetails ? replacementDeviceDetails : null,
+            replacementDevices: [],
+            loading: false,
+          }));
+          
+          setBrokenDevicePairs(pairs);
+          
+          // Load replacement devices for each broken device pair that has Dtypeid and DeRoleid
+          pairs.forEach((pair) => {
+            if (pair.brokenDevice.Dtypeid && pair.brokenDevice.DeRoleid) {
+              loadReplacementDevicesForPair(pair.id, pair.brokenDevice.Dtypeid, pair.brokenDevice.DeRoleid);
+            }
+          });
+        };
+        
+        initializeBrokenDevicePairs();
       } else {
         setBrokenDevicePairs([]);
       }
     } else {
+      editingAssetsRef.current = [];
       resetForm();
     }
   }, [editingEvent, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-    loadContractsForSite(Sid);
-  }, [Sid, isOpen]);
+    // If editing, preserve the contractId when loading contracts
+    const preserveContractId = editingEvent?.contractId ? String(editingEvent.contractId) : undefined;
+    loadContractsForSite(Sid, preserveContractId);
+  }, [Sid, isOpen, editingEvent]);
 
   useEffect(() => {
     if (!isOpen) return;
-    loadDevicesForSelection(selectedContractId, taskType);
-  }, [selectedContractId, taskType, isOpen]);
+    // If editing and we have assets, preserve them when loading devices
+    const preserveDevices = editingEvent?.assets || [];
+    loadDevicesForSelection(selectedContractId, taskType, preserveDevices.length > 0 && editingEvent ? preserveDevices : []);
+  }, [selectedContractId, taskType, isOpen, editingEvent]);
+
+  // After devices are loaded, restore selected devices from editingEvent if editing
+  useEffect(() => {
+    if (!isOpen || !editingEvent || loadingDevices) return;
+    // This will run after devices finish loading (when loadingDevices becomes false)
+    const editingAssets = editingAssetsRef.current;
+    if (editingAssets.length > 0 && devices.length > 0) {
+      // Restore selected devices after devices are loaded
+      const validDevices = editingAssets.filter((asset) =>
+        devices.some((d) => String(d.id) === String(asset.id))
+      );
+      if (validDevices.length > 0) {
+        setSelectedDevices(validDevices);
+      } else if (editingAssets.length > 0) {
+        // If no valid devices found but we have editing assets, keep them anyway
+        setSelectedDevices(editingAssets);
+      }
+    }
+  }, [loadingDevices, devices, editingEvent, isOpen]);
 
   // Auto-calculate end date from start date and duration (for MA)
   useEffect(() => {
