@@ -14,6 +14,7 @@ interface Device {
 interface Engineer {
   id: string;
   name: string;
+  lastName?: string;
 }
 
 interface TaskDetail {
@@ -29,6 +30,7 @@ interface TaskDetail {
   Sid?: string;
   Sname?: string;
   Eng_ids?: Engineer[];
+  lastName?: string;
   engineer?: string;
   startDate?: string;
   endDate?: string;
@@ -174,12 +176,6 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   <p className="text-sm font-medium text-slate-800 mt-1">{task.Sid}</p>
                 </div>
               )}
-              {task.Sname && (
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Site Name</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">{task.Sname}</p>
-                </div>
-              )}
               {task.startDate && (
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-slate-500">Start Date</label>
@@ -187,11 +183,19 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 </div>
               )}
               {task.endDate && (
+                
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-slate-500">End Date</label>
                   <p className="text-sm font-medium text-slate-800 mt-1">{formatDate(task.endDate)}</p>
                 </div>
               )}
+              {task.Sname && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Site Name</label>
+                  <p className="text-sm font-medium text-slate-800 mt-1">{task.Sname}</p>
+                </div>
+              )}
+              
               {task.priority && (
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-slate-500">Priority</label>
@@ -219,7 +223,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                     key={eng.id}
                     className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
                   >
-                    {eng.name}
+                    {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
                   </span>
                 ))}
                 {!task.Eng_ids && task.engineer && (

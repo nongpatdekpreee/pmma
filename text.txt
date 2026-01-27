@@ -1,0 +1,10 @@
+// ทำหน้าเพิ่ม   
+1 Graph ออกแบบไหน ทำให้ view all ไปหน้าคล้าย asset list
+Preventive Maintenance ทำให้โชว์จริงได้ไหม view all ดูอะไร
+Activity คืออะไร ต้องแดสงอะไร
+Noti แจ้งเตือนอะไร
+แกเ uxui detail  title --> site แก้วันให้แสดงอยู่แถวเดียวกัน  name โชว์ชื่อเต็ม
+    -start date end date (✓)
+    - name โชว์ครบแล้ว
+PM checklist database 
+ย้าย contract ไป sidebar อันออื่นแล้วแต่จะแก้ 

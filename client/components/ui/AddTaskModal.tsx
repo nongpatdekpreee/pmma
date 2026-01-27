@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { apiUrl, getContractsBySite, getDevicesByContract } from '@/lib/api';
+import { EMPLOYEE_DATA } from '@/data/employee.mock';
 
 
 interface Props {
@@ -35,6 +36,7 @@ interface Device {
 interface Engineer {
   id: string;
   name: string;
+  lastName?: string;
 }
 
 interface SiteOption {
@@ -56,12 +58,14 @@ interface ContractOption {
 }
 
 /* ================= available engineers ================= */
-const AVAILABLE_ENGINEERS: Engineer[] = [
-  { id: 'ENG001', name: 'Yotsawan' },
-  { id: 'ENG002', name: 'Somsai' },
-  { id: 'ENG003', name: 'Somchai' },
-  { id: 'ENG004', name: 'Narong' },
-];
+// ดึงข้อมูล engineer จาก employee.mock.ts
+const AVAILABLE_ENGINEERS: Engineer[] = EMPLOYEE_DATA.employees
+  .filter(emp => emp.positionType === 'Technical') // เฉพาะ Technical เท่านั้น
+  .map(emp => ({
+    id: emp.id,
+    name: emp.firstName,
+    lastName: emp.lastName,
+  }));
 
 export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   /* ================= state (ตามที่กำหนด) ================= */
@@ -589,6 +593,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     (eng) =>
       !selectedEngineers.some((s) => s.id === eng.id) &&
       (eng.name.toLowerCase().includes(engineerInput.toLowerCase()) ||
+        eng.lastName?.toLowerCase().includes(engineerInput.toLowerCase()) ||
         eng.id.toLowerCase().includes(engineerInput.toLowerCase()))
   );
 
@@ -1057,7 +1062,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     key={eng.id}
                     className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
                   >
-                    {eng.name}
+                    {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -1100,7 +1105,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       onClick={() => addEngineer(eng)}
                       className="px-3 py-2 hover:bg-blue-50 cursor-pointer transition"
                     >
-                      <p className="text-sm font-medium text-slate-700">{eng.name}</p>
+                      <p className="text-sm font-medium text-slate-700">
+                        {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
+                      </p>
                       <p className="text-xs text-slate-400">{eng.id}</p>
                     </div>
                   ))}
