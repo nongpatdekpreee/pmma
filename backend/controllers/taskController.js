@@ -513,9 +513,38 @@ const updateTask = async (req, res) => {
   }
 };
 
+// DELETE /api/tasks/:id
+const deleteTask = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Check if task exists
+    const [existing] = await db.execute('SELECT * FROM Tasks WHERE id = ?', [id]);
+    if (!existing[0]) {
+      return res.status(404).json({ success: false, message: 'ไม่พบ Task สำหรับลบ' });
+    }
+
+    // Delete the task
+    await db.execute('DELETE FROM Tasks WHERE id = ?', [id]);
+    
+    res.status(200).json({
+      success: true,
+      message: 'ลบ Task สำเร็จ',
+    });
+  } catch (error) {
+    console.error('Error deleting task:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการลบ Task',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createTask,
   getTasks,
   getTaskById,
   updateTask,
+  deleteTask,
 };
