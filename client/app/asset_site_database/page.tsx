@@ -482,7 +482,7 @@ const AssetSiteDatabase = () => {
                             <DeviceIcon className="h-3 w-3 text-gray-400 flex-shrink-0 mt-0.5" />
                             <div className="flex flex-col min-w-0">
                               <span className="font-medium truncate">   {device.deviceName?.split('/')[0]?.trim() || device.deviceName}</span>
-                            
+
                               <span className="text-xs text-gray-500 truncate">
                                 {device.model} / {device.serialNumber}
                               </span>

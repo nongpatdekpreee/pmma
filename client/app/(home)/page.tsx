@@ -1,11 +1,81 @@
+"use client";
+///สวัสดีวันจันทร์ครับ
+import { useState, useEffect } from 'react';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { MaintenanceCard } from '@/components/ui/MaintenanceCard';
 import { Search, Bell, ChevronDown } from 'lucide-react';
 import Link from 'next/link'; 
 import DateTime from '@/components/ui/DateTime';
 import DashboardHeader from '@/components/ui/Header';
+import { apiUrl } from '@/lib/api';
 
 export default function DashboardPage() {
+  const [nearestEvents, setNearestEvents] = useState<any[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+
+  useEffect(() => {
+    const loadNearestEvents = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/tasks'));
+        const json = await res.json();
+        if (json.success && json.data) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          
+          // Filter events that are today or in the future, sort by start_date
+          const upcoming = json.data
+            .filter((task: any) => {
+              if (!task.startDate) return false;
+              const taskDate = new Date(task.startDate);
+              taskDate.setHours(0, 0, 0, 0);
+              return taskDate >= today;
+              
+            })
+            .sort((a: any, b: any) => {
+              const dateA = new Date(a.startDate).getTime();
+              const dateB = new Date(b.startDate).getTime();
+              return dateA - dateB;
+            })
+            .slice(0, 5); // Get top 5 nearest events
+          
+          setNearestEvents(upcoming);
+        }
+      } catch (error) {
+        console.error('Error loading nearest events:', error);
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+
+    loadNearestEvents();
+  }, []);
+
+  const formatEventDate = (dateString: string) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const eventDate = new Date(date);
+    eventDate.setHours(0, 0, 0, 0);
+    
+    const diffTime = eventDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      return 'Today';
+    } else if (diffDays === 1) {
+      return 'Tomorrow';
+    } else if (diffDays < 7) {
+      return `In ${diffDays} days`;
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  };
+
+  const getEventColor = (taskType: string) => {
+    return taskType === 'MA' ? 'border-yellow-400 bg-yellow-50/30' : 'border-green-400 bg-green-50/30';
+  };
+
   return (
     <SidebarLayout>
       <DashboardHeader />
@@ -29,7 +99,7 @@ export default function DashboardPage() {
                 <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
                 <Link href="/mapage" className="text-blue-600 text-sm font-medium hover:underline">
                 View all &gt;
-                </Link>
+                </Link> 
               </div>
               <div className="h-64 flex items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed border-gray-200">
                 <p className="text-gray-400">กราฟอะ ค่อย</p>
@@ -69,17 +139,43 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-[2rem] shadow-sm">
               <div className="flex justify-between mb-4">
                 <h3 className="font-bold text-slate-700">Nearest Events</h3>
-                <button className="text-blue-500 text-xs">View all</button>
+                <Link href="/calendar" className="text-blue-500 text-xs hover:underline">View all</Link>
               </div>
-              {/* ตัวอย่าง Event Item */}
-              <div className="border-l-4 border-yellow-400 pl-4 py-2 mb-4 bg-yellow-50/30 rounded-r-xl">
-                <p className="text-sm font-bold text-slate-700 leading-tight">Presentation of the new department</p>
-                <p className="text-[10px] text-gray-400 mt-1">Today | 5:00 PM</p>
-              </div>
-              <div className="border-l-4 border-green-400 pl-4 py-2 bg-green-50/30 rounded-r-xl">
-                <p className="text-sm font-bold text-slate-700">PM (One Bangkok)</p>
-                <p className="text-[10px] text-gray-400 mt-1">Today | 6:00 PM</p>
-              </div>
+              {loadingEvents ? (
+                <div className="text-center py-4">
+                  <p className="text-xs text-slate-400">Loading events...</p>
+                </div>
+              ) : nearestEvents.length === 0 ? (
+                <div className="text-center py-4">
+                  <p className="text-xs text-slate-400">No upcoming events</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {nearestEvents.map((event) => (
+                    <div
+                      key={event.id}
+                      className={`border-l-4 ${getEventColor(event.taskType)} pl-4 py-2 rounded-r-xl`}
+                    >
+                      <p className="text-sm font-bold text-slate-700 leading-tight">
+                        {event.taskType} {event.siteName ? `(${event.siteName})` : ''}
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {formatEventDate(event.startDate)}
+                        {event.startDate && event.startDate.includes('T') && (
+                          <>
+                            {' | '}
+                            {new Date(event.startDate).toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true,
+                            })}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="bg-white p-6 rounded-[2rem] shadow-sm">
