@@ -748,13 +748,16 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               </div>
             )}
           </div>
+          
           <div className={sectionCard}>
+          {taskType === 'PM' && (
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-700">Asset Binding</h3>
               <span className="text-xs text-slate-400">
                 {selectedDevices.length} selected
               </span>
             </div>
+            )} 
 
             {deviceError && <p className="text-xs text-red-500">{deviceError}</p>}
             {loadingDevices && <p className="text-xs text-slate-400">กำลังโหลดข้อมูลอุปกรณ์...</p>}
@@ -777,7 +780,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Device List */}
             {devices.length === 0 && !loadingDevices && (
               <p className="text-xs text-slate-400">
-                {!Sid ? 'เลือก Site เพื่อแสดงสัญญา' : !selectedContractId ? (taskType === 'MA' ? 'เลือก Contract เพื่อแสดงอุปกรณ์ที่เสีย (ต้องเป็นอุปกรณ์ที่ผูกกับ Contract)' : 'เลือก Contract เพื่อแสดงอุปกรณ์ที่ผูกอยู่') : 'ไม่พบอุปกรณ์ในสัญญานี้'}
+                {!Sid ? 'Select Site to show contracts' : !selectedContractId ? (taskType === 'MA' ? 'Select Contract to show broken devices (must be devices bound to contract)' : 'Select Contract to show bound devices') : 'No devices found in contract'}
               </p>
             )}
 
@@ -809,7 +812,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               </div>
             )}
 
-            {devices.length > 3 && (
+            { taskType === 'PM' && devices.length > 3 && (
               <button
                 onClick={() => setAssetModalOpen(true)}
                 className="text-xs font-medium text-blue-500 hover:underline mt-2"
@@ -821,18 +824,18 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Broken Device Pairs (for MA only) */}
             {taskType === 'MA' && (
               <div className="mt-4 pt-4 border-t border-slate-200">
-                <label className={fieldLabel}>อุปกรณ์เสียและอุปกรณ์ที่จะเปลี่ยน *</label>
+                <label className={fieldLabel}>Broken Device and Replacement Device *</label>
 
                 {/* First broken device selection (if no pairs yet) */}
                 {brokenDevicePairs.length === 0 && (
                   <div className="space-y-3">
                     <div>
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        อุปกรณ์เสียชิ้นที่ 1 *
+                        Broken Device 1 *
                       </label>
                       {devices.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                          {!selectedContractId ? 'กรุณาเลือก Contract ก่อน' : 'ไม่พบอุปกรณ์ใน Contract นี้'}
+                          {!selectedContractId ? 'Please select Contract first' : 'No devices found in contract'}
                         </p>
                       ) : (
                         <select
@@ -848,7 +851,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           }}
                           className={selectBase}
                         >
-                          <option value="">-- เลือกอุปกรณ์เสีย --</option>
+                          <option value="">-- Select Broken Device --</option>
                           {devices.map((d) => (
                             <option key={d.id} value={String(d.id)}>
                               {d.name} {d.assetNumber ? `(${d.assetNumber})` : ''} {d.serialNumber ? `- SN: ${d.serialNumber}` : ''}
@@ -866,7 +869,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1">
                         <p className="text-xs font-semibold text-slate-700 mb-1">
-                          อุปกรณ์เสียชิ้นที่ {index + 1}: {pair.brokenDevice.name}
+                          Broken Device {index + 1}: {pair.brokenDevice.name}
                         </p>
                         <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-500">
                           <span>Type: {pair.brokenDevice.type}</span>
@@ -890,7 +893,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       {pair.loading ? (
                         <p className="text-xs text-slate-400">กำลังโหลด...</p>
                       ) : pair.replacementDevices.length === 0 ? (
-                        <p className="text-xs text-slate-400">ไม่พบอุปกรณ์ In Store</p>
+                        <p className="text-xs text-slate-400">No devices in store</p>
                       ) : (
                         <select
                           value={pair.replacementDevice?.id || ''}
@@ -900,7 +903,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           }}
                           className={selectBase}
                         >
-                          <option value="">-- เลือก Replacement Device --</option>
+                          <option value="">-- Select Replacement Device --</option>
                           {pair.replacementDevices.map((d) => (
                             <option key={d.id} value={String(d.id)}>
                               {d.name} {d.assetNumber ? `(${d.assetNumber})` : ''} {d.serialNumber ? `- SN: ${d.serialNumber}` : ''}
@@ -911,7 +914,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       {pair.replacementDevice && (
                         <div className="mt-2 p-2 bg-green-50 rounded-lg">
                           <p className="text-xs font-medium text-green-700">
-                            เลือกแล้ว: {pair.replacementDevice.name}
+                            Selected: {pair.replacementDevice.name}
                             {pair.replacementDevice.assetNumber && ` (${pair.replacementDevice.assetNumber})`}
                           </p>
                         </div>
@@ -931,7 +934,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition mt-2"
                   >
                     <Plus size={14} />
-                    เพิ่มอุปกรณ์เสียชิ้นที่ {brokenDevicePairs.length + 1}
+                    Add Broken Device {brokenDevicePairs.length + 1}
                   </button>
                 )}
               </div>
@@ -1223,7 +1226,7 @@ function AssetSelectModal({
         {/* header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h3 className="text-lg font-bold">
-            {taskType === 'MA' ? 'เลือกอุปกรณ์เสีย' : 'Select Assets'}
+            {taskType === 'MA' ? 'Select Broken Device' : 'Select Assets'}
           </h3>
           <button onClick={onClose} className="p-2 bg-slate-100 rounded-full">
             <X size={18} />
