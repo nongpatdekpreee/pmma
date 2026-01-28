@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl } from '@/lib/api';
 
 
@@ -77,6 +78,7 @@ export default function ScheduleManagement() {
   const [selectedTask, setSelectedTask] = useState<CalendarEvent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -367,9 +369,26 @@ export default function ScheduleManagement() {
       );
       setEditingEvent(null);
       setIsModalOpen(false);
+      toastSuccess(editingEvent ? 'แก้ไข Task สำเร็จ' : 'เพิ่ม Task สำเร็จ');
     } catch (error: any) {
       console.error('handleSaveFromModal error', error);
-      alert(error.message || 'บันทึก Task ไม่สำเร็จ');
+      toastError(error.message || 'บันทึก Task ไม่สำเร็จ');
+    }
+  };
+
+  // Handle delete task from detail modal
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const res = await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'ลบไม่สำเร็จ');
+      setCalendarEvents((prev) => prev.filter((e) => e.id !== taskId));
+      setIsDetailModalOpen(false);
+      setSelectedTask(null);
+      toastSuccess('ลบ Task สำเร็จ');
+    } catch (error: any) {
+      console.error('handleDeleteTask error', error);
+      toastError(error?.message || 'ลบ Task ไม่สำเร็จ');
     }
   };
 
@@ -434,9 +453,11 @@ export default function ScheduleManagement() {
       if (!json.success) {
         throw new Error(json.message || 'อัพเดทไม่สำเร็จ');
       }
+      toastSuccess('อัปเดตสถานะสำเร็จ');
       // Don't reload from API to avoid date changes - local state is already updated
     } catch (error) {
       console.error('handleTaskUpdate error', error);
+      toastError('อัปเดตสถานะไม่สำเร็จ');
       // Only reload on error to get correct state
       await loadTasksFromApi();
     }
@@ -693,7 +714,9 @@ export default function ScheduleManagement() {
           setIsDetailModalOpen(false);
           setIsModalOpen(true);
         }}
+        onDelete={handleDeleteTask}
       />
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
 }
