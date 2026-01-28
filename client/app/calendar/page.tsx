@@ -5,6 +5,7 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, useMemo, useEffect } from 'react';
 import { TaskDetailModal } from '@/components/ui/detail';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl } from '@/lib/api';
 
 interface Device {
@@ -65,6 +66,7 @@ export default function CalendarPage() {
   const [dragStartDay, setDragStartDay] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -392,11 +394,29 @@ export default function CalendarPage() {
       if (!json.success) {
         throw new Error(json.message || 'อัพเดทไม่สำเร็จ');
       }
+      toastSuccess('อัปเดตสถานะสำเร็จ');
       // Don't reload from API to avoid date changes - local state is already updated
     } catch (error) {
       console.error('handleTaskUpdate error', error);
+      toastError('อัปเดตสถานะไม่สำเร็จ');
       // Only reload on error to get correct state
       await loadTasksFromApi();
+    }
+  };
+
+  // Handle delete task from detail modal
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const res = await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || 'ลบไม่สำเร็จ');
+      await loadTasksFromApi();
+      setIsDetailModalOpen(false);
+      setSelectedTask(null);
+      toastSuccess('ลบ Task สำเร็จ');
+    } catch (error: any) {
+      console.error('handleDeleteTask error', error);
+      toastError(error?.message || 'ลบ Task ไม่สำเร็จ');
     }
   };
 
@@ -610,7 +630,7 @@ export default function CalendarPage() {
         </div>
       </main>
 
-      {/* Task Detail Modal - Allow status updates only */}
+      {/* Task Detail Modal - Allow status updates and delete */}
       <TaskDetailModal
         isOpen={isDetailModalOpen}
         onClose={() => {
@@ -619,7 +639,9 @@ export default function CalendarPage() {
         }}
         task={selectedTask}
         onUpdate={handleTaskUpdate}
+        onDelete={handleDeleteTask}
       />
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
 }
