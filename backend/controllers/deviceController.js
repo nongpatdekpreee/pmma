@@ -1635,7 +1635,7 @@ const getDevicesWithPM = async (req, res) => {
         Devices.serial,
         Devices.Vendor,
         Devices.SLid,
-        Location.lid,        
+        Location.Province,        
         Devices.Dtypeid,
         Devices.DeRoleid,
         Device_Role.name AS DeviceRole,
@@ -1644,8 +1644,8 @@ const getDevicesWithPM = async (req, res) => {
         contract_device.contract_id
       FROM contract_device
       INNER JOIN Devices ON contract_device.device_id = Devices.Did
-      LEFT JOIN evice_Role ON Devices.DeRoleid = Device_Role.DeRoleid
-      LEFT JOIN location ON location.lid = location.Province
+      LEFT JOIN Device_Role ON Devices.DeRoleid = Device_Role.DeRoleid
+      LEFT JOIN location ON location.Province = location.Province
       LEFT JOIN Sites ON Devices.SLid = Sites.Sid WHERE 1=1 
       ${searchCondition} 
       ${deviceRoleCondition} 
