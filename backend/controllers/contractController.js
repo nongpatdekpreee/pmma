@@ -29,6 +29,8 @@ const createContract = async (req, res) => {
       device_id,
       device_ids,
       site_id,
+      site_ids,
+      site_device_pairs,
       sof_name,
       sla_name,
       sla_detail,
@@ -51,15 +53,39 @@ const createContract = async (req, res) => {
       });
     }
 
-    // รองรับ device_ids (หลายตัว) หรือ device_id (ตัวเดียว) สำหรับ backward compatibility
+    // site_device_pairs: [{ site_id, device_ids }] - แต่ละ site มี devices แยกกัน
+    // หรือ device_ids + site_ids สำหรับ backward compatibility
     let deviceIdList = [];
-    if (Array.isArray(device_ids) && device_ids.length > 0) {
-      deviceIdList = [...new Set(device_ids.map((d) => parseInt(d, 10)).filter((n) => !isNaN(n)))];
-    } else if (device_id != null && device_id !== '') {
-      const single = parseInt(device_id, 10);
-      if (!isNaN(single)) deviceIdList = [single];
+    let siteIdList = [];
+    let pairs = [];
+
+    if (Array.isArray(site_device_pairs) && site_device_pairs.length > 0) {
+      pairs = site_device_pairs
+        .map((p) => ({
+          site_id: p.site_id != null ? parseInt(p.site_id, 10) : null,
+          device_ids: Array.isArray(p.device_ids)
+            ? p.device_ids.map((d) => parseInt(d, 10)).filter((n) => !isNaN(n))
+            : [],
+        }))
+        .filter((p) => p.site_id != null && !isNaN(p.site_id) && p.device_ids.length > 0);
+      deviceIdList = [...new Set(pairs.flatMap((p) => p.device_ids))];
+      siteIdList = [...new Set(pairs.map((p) => p.site_id))];
+    } else {
+      if (Array.isArray(device_ids) && device_ids.length > 0) {
+        deviceIdList = [...new Set(device_ids.map((d) => parseInt(d, 10)).filter((n) => !isNaN(n)))];
+      } else if (device_id != null && device_id !== '') {
+        const single = parseInt(device_id, 10);
+        if (!isNaN(single)) deviceIdList = [single];
+      }
+      if (Array.isArray(site_ids) && site_ids.length > 0) {
+        siteIdList = [...new Set(site_ids.map((s) => parseInt(s, 10)).filter((n) => !isNaN(n)))];
+      } else if (site_id != null && site_id !== '') {
+        const single = parseInt(site_id, 10);
+        if (!isNaN(single)) siteIdList = [single];
+      }
     }
     const firstDeviceId = deviceIdList.length > 0 ? deviceIdList[0] : null;
+    const siteId = siteIdList.length > 0 ? siteIdList[0] : null;
 
     // เช็คว่า device ที่เลือกมี contract อยู่แล้วหรือยัง (contract.device_id หรือ contract_device)
     if (deviceIdList.length > 0) {
@@ -86,8 +112,6 @@ const createContract = async (req, res) => {
         });
       }
     }
-
-    const siteId = site_id != null && site_id !== '' ? parseInt(site_id, 10) : null;
 
     const filePathsJson = Array.isArray(file_paths)
       ? JSON.stringify(file_paths)
@@ -122,29 +146,42 @@ const createContract = async (req, res) => {
 
     const contractId = result.insertId;
 
-    // บันทึกลง contract_device สำหรับทุก device ที่เลือก (หลาย device ต่อ 1 สัญญา)
-    // ต้องมีตาราง contract_device: รัน add_contract_device_table.sql ก่อน
-    // และต้องมี column SLid: รัน add_contract_device_slid.sql ก่อน
-    if (deviceIdList.length > 0) {
-      // ดึง SLid ของแต่ละ device จาก Devices table
+    // บันทึกลง contract_device: แต่ละ device เก็บ SLid ของ site ที่ผู้ใช้เลือก
+    // site_device_pairs: (contract_id, device_id, SLid) จาก site ที่เลือก
+    // backward compat: ดึง SLid จาก Devices table
+    if (pairs.length > 0) {
+      for (const p of pairs) {
+        for (const did of p.device_ids) {
+          await db.execute(
+            'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+            [contractId, did, p.site_id]
+          );
+        }
+      }
+    } else if (deviceIdList.length > 0) {
       const placeholders = deviceIdList.map(() => '?').join(',');
       const [deviceRows] = await db.execute(
         `SELECT Did, SLid FROM Devices WHERE Did IN (${placeholders})`,
         deviceIdList
       );
-      
-      // สร้าง map สำหรับค้นหา SLid ตาม Did
       const deviceSLidMap = new Map();
-      deviceRows.forEach(row => {
-        deviceSLidMap.set(row.Did, row.SLid);
-      });
-      
-      // บันทึก contract_device พร้อม SLid
+      deviceRows.forEach((row) => deviceSLidMap.set(row.Did, row.SLid));
       for (const did of deviceIdList) {
         const deviceSLid = deviceSLidMap.get(did) || null;
         await db.execute(
           'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
           [contractId, did, deviceSLid]
+        );
+      }
+    }
+
+    // บันทึกลง contract_site สำหรับทุก site ที่เลือก (1 contract มีได้หลาย site)
+    // ต้องมีตาราง contract_site: รัน add_contract_site.sql ก่อน
+    if (siteIdList.length > 0) {
+      for (const slid of siteIdList) {
+        await db.execute(
+          'INSERT IGNORE INTO contract_site (contract_id, SLid) VALUES (?, ?)',
+          [contractId, slid]
         );
       }
     }
@@ -159,7 +196,9 @@ const createContract = async (req, res) => {
 
     let message = 'Error creating contract';
     if (error.code === 'ER_NO_SUCH_TABLE') {
-      if (String(error.message || '').includes('contract_device')) {
+      if (String(error.message || '').includes('contract_site')) {
+        message = 'contract_site table does not exist, please run add_contract_site.sql';
+      } else if (String(error.message || '').includes('contract_device')) {
         message = 'contract_device table does not exist, please run add_contract_device_table.sql';
       } else if (String(error.message || '').includes('contract')) {
         message = 'contract table does not exist, please run SQL to create the table in the database';
@@ -205,12 +244,13 @@ const getContractsBySite = async (req, res) => {
       FROM contract c
       LEFT JOIN Sites s ON c.site_id = s.Sid
       LEFT JOIN contract_device cd ON c.contract_id = cd.contract_id
-      WHERE c.site_id = ? OR cd.SLid = ?
+      LEFT JOIN contract_site cs ON c.contract_id = cs.contract_id
+      WHERE c.site_id = ? OR cd.SLid = ? OR cs.SLid = ?
       ORDER BY c.contract_id DESC
     `;
 
     const siteIdNum = parseInt(siteId, 10);
-    const [rows] = await db.execute(sql, [siteIdNum, siteIdNum]);
+    const [rows] = await db.execute(sql, [siteIdNum, siteIdNum, siteIdNum]);
 
     res.status(200).json({
       success: true,
