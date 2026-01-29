@@ -124,9 +124,28 @@ const createContract = async (req, res) => {
 
     // บันทึกลง contract_device สำหรับทุก device ที่เลือก (หลาย device ต่อ 1 สัญญา)
     // ต้องมีตาราง contract_device: รัน add_contract_device_table.sql ก่อน
+    // และต้องมี column SLid: รัน add_contract_device_slid.sql ก่อน
     if (deviceIdList.length > 0) {
+      // ดึง SLid ของแต่ละ device จาก Devices table
+      const placeholders = deviceIdList.map(() => '?').join(',');
+      const [deviceRows] = await db.execute(
+        `SELECT Did, SLid FROM Devices WHERE Did IN (${placeholders})`,
+        deviceIdList
+      );
+      
+      // สร้าง map สำหรับค้นหา SLid ตาม Did
+      const deviceSLidMap = new Map();
+      deviceRows.forEach(row => {
+        deviceSLidMap.set(row.Did, row.SLid);
+      });
+      
+      // บันทึก contract_device พร้อม SLid
       for (const did of deviceIdList) {
-        await db.execute('INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)', [contractId, did]);
+        const deviceSLid = deviceSLidMap.get(did) || null;
+        await db.execute(
+          'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+          [contractId, did, deviceSLid]
+        );
       }
     }
 
@@ -174,7 +193,7 @@ const getContractsBySite = async (req, res) => {
     }
 
     const sql = `
-      SELECT 
+      SELECT DISTINCT
         c.contract_id,
         c.contract_name,
         c.start_date,
@@ -185,11 +204,13 @@ const getContractsBySite = async (req, res) => {
         s.Name AS site_name
       FROM contract c
       LEFT JOIN Sites s ON c.site_id = s.Sid
-      WHERE c.site_id = ?
+      LEFT JOIN contract_device cd ON c.contract_id = cd.contract_id
+      WHERE c.site_id = ? OR cd.SLid = ?
       ORDER BY c.contract_id DESC
     `;
 
-    const [rows] = await db.execute(sql, [parseInt(siteId, 10)]);
+    const siteIdNum = parseInt(siteId, 10);
+    const [rows] = await db.execute(sql, [siteIdNum, siteIdNum]);
 
     res.status(200).json({
       success: true,
@@ -270,7 +291,7 @@ const getDevicesByContract = async (req, res) => {
         d.Asset_Number,
         d.serial,
         d.Asset_State,
-        d.SLid,
+        COALESCE(cd.SLid, d.SLid) AS SLid,
         d.Dtypeid,
         d.DeRoleid,
         s.Name AS SiteName
@@ -278,7 +299,7 @@ const getDevicesByContract = async (req, res) => {
       INNER JOIN Devices d 
         ON cd.device_id = d.Did
       LEFT JOIN sites s 
-        ON d.SLid = s.Sid
+        ON COALESCE(cd.SLid, d.SLid) = s.Sid
       WHERE cd.contract_id = ?
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC;
     `;

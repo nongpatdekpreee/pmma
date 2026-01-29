@@ -1251,6 +1251,68 @@ const getVendors = async (req, res) => {
 };
 
 // GET - ดึง Devices ตาม site_id (= SLid, Sites_Location) สำหรับ Contract / Asset Binding
+// GET - ดึง unique Refer_SOF values จาก Devices table
+const getReferSOFList = async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT DISTINCT Refer_SOF as refer_sof
+       FROM Devices
+       WHERE Refer_SOF IS NOT NULL AND Refer_SOF != '' AND Refer_SOF != 'Not Assigned'
+       ORDER BY Refer_SOF ASC`
+    );
+    res.status(200).json({ 
+      success: true, 
+      data: rows.map(r => r.refer_sof).filter(Boolean)
+    });
+  } catch (error) {
+    console.error('Error getting Refer_SOF list:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงรายการ Refer_SOF',
+      error: error.message
+    });
+  }
+};
+
+// GET - ดึง Devices ตาม Refer_SOF และ Site (SLid)
+const getDevicesBySOFAndSite = async (req, res) => {
+  try {
+    const referSOF = req.query.refer_sof;
+    const siteId = req.query.site_id;
+    
+    if (!referSOF) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ refer_sof'
+      });
+    }
+    
+    if (!siteId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ site_id (SLid)'
+      });
+    }
+    
+    const [rows] = await db.execute(
+      `SELECT Did, CI_Name, Asset_Number, Asset_State, serial, SLid, Dtypeid, DeRoleid, Refer_SOF
+       FROM Devices
+       WHERE Refer_SOF = ? AND SLid = ?
+       ORDER BY COALESCE(CI_Name, Asset_Number, Did) ASC`,
+      [referSOF, siteId]
+    );
+    
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices by SOF and site:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Refer_SOF และ Site',
+      error: error.message
+    });
+  }
+};
+
 const getDevicesBySite = async (req, res) => {
   try {
     const siteId = req.query.site_id;
@@ -1812,6 +1874,8 @@ module.exports = {
   getDashboard,              // GET (dashboard statistics)
   getDevicesByModel,         // GET (grouped by model)
   getVendors,                // GET (distinct Project_purchase สำหรับ dropdown)
+  getReferSOFList,           // GET (unique Refer_SOF values)
+  getDevicesBySOFAndSite,    // GET (devices ตาม Refer_SOF และ site_id)
   getDevicesBySite,          // GET (devices ตาม site_id สำหรับ Asset Binding)
   getDevicesByAssetState,    // GET (devices ตาม Asset_State สำหรับ MA)
   getReplacementDevices,    // GET (devices In Store สำหรับ replacement ตาม Dtypeid และ DeRoleid)

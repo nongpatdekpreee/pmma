@@ -1,5 +1,5 @@
 'use client';
-import { X, Loader2, Paperclip, ImageIcon } from 'lucide-react';
+import { X, Loader2, Paperclip, ImageIcon, Plus, Trash2 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { apiUrl } from '@/lib/api';
 
@@ -34,15 +34,25 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   const [filePaths, setFilePaths] = useState<string[]>([]);
   const [imagePaths, setImagePaths] = useState<string[]>([]);
 
+  const [referSOFList, setReferSOFList] = useState<string[]>([]);
+  const [selectedReferSOF, setSelectedReferSOF] = useState('');
   const [sitesLocation, setSitesLocation] = useState<SiteLocation[]>([]);
-  const [selectedSiteId, setSelectedSiteId] = useState('');
+  /** รายการ Site ที่ผู้ใช้เพิ่ม (แต่ละ site เลือก device ได้) */
+  const [siteEntries, setSiteEntries] = useState<Array<{ id: string; siteId: string; siteLabel: string }>>([
+    { id: crypto.randomUUID(), siteId: '', siteLabel: '' },
+  ]);
+  /** Site ที่กำลังเปิด modal เลือก device อยู่ */
+  const [activeSiteIdForModal, setActiveSiteIdForModal] = useState<string>('');
   const [devicesBySite, setDevicesBySite] = useState<DeviceItem[]>([]);
-  const [selectedDeviceIds, setSelectedDeviceIds] = useState<string[]>([]);
+  const [selectedDevices, setSelectedDevices] = useState<Array<{ id: string; label: string }>>([]);
   const [deviceInput, setDeviceInput] = useState('');
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
+  const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
+  const [deviceFilter, setDeviceFilter] = useState('');
   const deviceInputRef = useRef<HTMLInputElement>(null);
 
   const [dataLoading, setDataLoading] = useState(false);
+  const [referSOFLoading, setReferSOFLoading] = useState(false);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [saveLoading, setSaveLoading] = useState(false);
@@ -59,15 +69,19 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
     }
   }, [startDate, duration]);
 
-  // โหลด Sites_Location (SLid) ตอนเปิด modal
+  // โหลด Refer_SOF list ตอนเปิด modal
   useEffect(() => {
     if (!isOpen) {
+      setReferSOFList([]);
+      setSelectedReferSOF('');
       setSitesLocation([]);
+      setSiteEntries([{ id: crypto.randomUUID(), siteId: '', siteLabel: '' }]);
+      setActiveSiteIdForModal('');
       setDevicesBySite([]);
-      setSelectedSiteId('');
-      setSelectedDeviceIds([]);
+      setSelectedDevices([]);
       setDeviceInput('');
       setShowDeviceDropdown(false);
+      setDeviceFilter('');
       setContractName('');
       setSofName('');
       setSlaName('');
@@ -81,6 +95,30 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setEndDate('');
       setFetchError('');
       setSaveError('');
+      return;
+    }
+    const loadReferSOF = async () => {
+      setReferSOFLoading(true);
+      setFetchError('');
+      try {
+        const res = await fetch(apiUrl('/api/devices/refer-sof'));
+        const json = await res.json();
+        if (res.ok && json.data) setReferSOFList(json.data);
+        else if (!res.ok) throw new Error(json.message || 'ดึง Refer_SOF ไม่ได้');
+      } catch (e) {
+        setFetchError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
+      } finally {
+        setReferSOFLoading(false);
+      }
+    };
+    loadReferSOF();
+  }, [isOpen]);
+
+  // โหลด Sites_Location (SLid) เมื่อเลือก Refer_SOF แล้ว
+  useEffect(() => {
+    if (!selectedReferSOF) {
+      setSitesLocation([]);
+      setDevicesBySite([]);
       return;
     }
     const load = async () => {
@@ -98,42 +136,52 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       }
     };
     load();
-  }, [isOpen]);
+  }, [selectedReferSOF]);
 
-  // โหลด devices ที่ไม่มี contract ตาม site (SLid) ที่เลือก
-  useEffect(() => {
-    if (!selectedSiteId) {
-      setDevicesBySite([]);
-      setSelectedDeviceIds([]);
-      setDeviceInput('');
-      setShowDeviceDropdown(false);
-      return;
+  // โหลด devices สำหรับ site ที่เลือก (เมื่อเปิด modal เลือก device)
+  const loadDevicesForSite = async (siteId: string): Promise<DeviceItem[]> => {
+    if (!selectedReferSOF || !siteId) return [];
+    const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedReferSOF)}&site_id=${siteId}`));
+    const json = await res.json();
+    if (res.ok && json.data) return json.data;
+    throw new Error(json.message || 'ดึง Devices ไม่ได้');
+  };
+
+  const openDeviceModalForSite = async (siteId: string, siteLabel: string) => {
+    setActiveSiteIdForModal(siteId);
+    setDevicesLoading(true);
+    setFetchError('');
+    try {
+      const devices = await loadDevicesForSite(siteId);
+      setDevicesBySite(devices);
+      setIsDeviceModalOpen(true);
+    } catch (e) {
+      setFetchError(e instanceof Error ? e.message : 'โหลด Devices ไม่สำเร็จ');
+    } finally {
+      setDevicesLoading(false);
     }
-    setSelectedDeviceIds([]);
-    setDeviceInput('');
-    setShowDeviceDropdown(false);
-    const load = async () => {
-      setDevicesLoading(true);
-      setFetchError('');
-      try {
-        const res = await fetch(apiUrl(`/api/contracts/devices/available?site_id=${selectedSiteId}`));
-        const json = await res.json();
-        if (res.ok && json.data) setDevicesBySite(json.data);
-        else if (!res.ok) throw new Error(json.message || 'ดึง Devices ไม่ได้');
-      } catch (e) {
-        setFetchError(e instanceof Error ? e.message : 'โหลด Devices ไม่สำเร็จ');
-        setDevicesBySite([]);
-      } finally {
-        setDevicesLoading(false);
-      }
-    };
-    load();
-  }, [selectedSiteId]);
+  };
+
+  const addSiteEntry = () => {
+    setSiteEntries((prev) => [...prev, { id: crypto.randomUUID(), siteId: '', siteLabel: '' }]);
+  };
+
+  const removeSiteEntry = (entryId: string) => {
+    setSiteEntries((prev) => prev.filter((e) => e.id !== entryId));
+  };
+
+  const updateSiteEntry = (entryId: string, siteId: string) => {
+    const site = sitesLocation.find((s) => String(s.SLid) === siteId);
+    const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : '';
+    setSiteEntries((prev) => prev.map((e) => (e.id === entryId ? { ...e, siteId, siteLabel } : e)));
+  };
 
   const inputBase = 'w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm';
   const labelBase = 'block text-xs font-bold text-slate-700 mb-2 uppercase';
 
-  // กรอง device (ไม่รวมที่เลือกแล้ว) ตามคำค้น — แบบ Assign Engineer ของ PM
+  const selectedDeviceIds = selectedDevices.map((d) => d.id);
+
+  // กรอง device (ไม่รวมที่เลือกแล้ว) ตามคำค้น
   const deviceInputLower = deviceInput.trim().toLowerCase();
   const filteredDevices = devicesBySite.filter((d) => {
     if (selectedDeviceIds.includes(String(d.Did))) return false;
@@ -145,28 +193,24 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
     );
   });
 
-  const getDeviceLabel = (id: string) => {
-    const d = devicesBySite.find((x) => String(x.Did) === id);
-    return d ? (d.CI_Name || d.Asset_Number || `Did ${d.Did}`) : '';
-  };
-
   const addDevice = (d: DeviceItem) => {
     const id = String(d.Did);
-    if (!selectedDeviceIds.includes(id)) setSelectedDeviceIds((prev) => [...prev, id]);
+    const label = d.CI_Name || d.Asset_Number || `Did ${d.Did}`;
+    if (!selectedDeviceIds.includes(id)) setSelectedDevices((prev) => [...prev, { id, label }]);
     setDeviceInput('');
     setShowDeviceDropdown(false);
   };
 
   const removeDevice = (id: string) => {
-    setSelectedDeviceIds((prev) => prev.filter((x) => x !== id));
+    setSelectedDevices((prev) => prev.filter((d) => d.id !== id));
   };
 
   const handleDeviceInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && filteredDevices.length > 0) {
       e.preventDefault();
       addDevice(filteredDevices[0]);
-    } else if (e.key === 'Backspace' && deviceInput === '' && selectedDeviceIds.length > 0) {
-      removeDevice(selectedDeviceIds[selectedDeviceIds.length - 1]);
+    } else if (e.key === 'Backspace' && deviceInput === '' && selectedDevices.length > 0) {
+      removeDevice(selectedDevices[selectedDevices.length - 1].id);
     }
   };
 
@@ -203,6 +247,19 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaveError('');
+    if (!selectedReferSOF) {
+      setSaveError('กรุณาเลือก Refer SOF');
+      return;
+    }
+    const hasSiteSelected = siteEntries.some((e) => e.siteId);
+    if (!hasSiteSelected) {
+      setSaveError('กรุณาเลือก Site อย่างน้อย 1 รายการ');
+      return;
+    }
+    if (selectedDevices.length === 0) {
+      setSaveError('กรุณาเลือก Device อย่างน้อย 1 รายการ');
+      return;
+    }
     if (!slaName.trim()) {
       setSaveError('กรุณากรอก sla_name (ชื่อ SLA)');
       return;
@@ -213,16 +270,17 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
     }
     setSaveLoading(true);
     try {
-      const deviceIds = selectedDeviceIds
-        .map((id) => parseInt(id, 10))
+      const deviceIds = selectedDevices
+        .map((d) => parseInt(d.id, 10))
         .filter((n) => !isNaN(n));
+      const firstSiteId = siteEntries.find((e) => e.siteId)?.siteId ?? '';
       const body = {
         contract_name: contractName.trim() || null,
         start_date: startDate || null,
         end_date: endDate || null,
         device_ids: deviceIds.length ? deviceIds : null,
-        site_id: selectedSiteId ? parseInt(selectedSiteId, 10) : null,
-        sof_name: sofName.trim() || null,
+        site_id: firstSiteId ? parseInt(firstSiteId, 10) : null,
+        sof_name: selectedReferSOF || sofName.trim() || null,
         sla_name: slaName.trim(),
         sla_detail: slaDetail.trim(),
         sale_account: saleAccount.trim() || null,
@@ -303,14 +361,24 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
             </div>
 
             <div>
-              <label className={labelBase}>SOF Name</label>
-              <input
-                type="text"
-                value={sofName}
-                onChange={(e) => setSofName(e.target.value)}
-                placeholder="ชื่อ SOF"
+              <label className={labelBase}>Refer SOF *</label>
+              <select
+                value={selectedReferSOF}
+                onChange={(e) => {
+                  setSelectedReferSOF(e.target.value);
+                  setSofName(e.target.value); // อัพเดท sofName ด้วย
+                }}
                 className={inputBase}
-              />
+                disabled={referSOFLoading}
+              >
+                <option value="">-- เลือก Refer SOF --</option>
+                {referSOFList.map((sof) => (
+                  <option key={sof} value={sof}>
+                    {sof}
+                  </option>
+                ))}
+              </select>
+              {referSOFLoading && <p className="text-sm text-slate-500 py-2">กำลังโหลด...</p>}
             </div>
 
             <div>
@@ -357,95 +425,87 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
               </div>
             </div>
 
+            {/* Site entries + ปุ่มเพิ่ม Site */}
             <div>
-              <label className={labelBase}>Site (Sites_Location)</label>
-              <select
-                value={selectedSiteId}
-                onChange={(e) => setSelectedSiteId(e.target.value)}
-                className={inputBase}
-                disabled={dataLoading}
-              >
-                <option value="">-- เลือก Site --</option>
-                {sitesLocation.map((s) => (
-                  <option key={s.SLid} value={String(s.SLid)}>
-                    {s.SiteName} – {s.Location2}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelBase}>Device (Asset)</label>
-              {!selectedSiteId ? (
-                <p className="text-sm text-slate-500 py-2">เลือก Site ก่อน</p>
-              ) : devicesLoading ? (
-                <p className="text-sm text-slate-500 py-2">กำลังโหลด...</p>
-              ) : devicesBySite.length === 0 ? (
-                <p className="text-sm text-slate-500 py-2">ไม่มี device ใน Site นี้</p>
-              ) : (
-                <div className="relative">
-                  {/* แบบ Assign Engineer ของ PM: ชิพ + อินพุตในกล่องเดียวกัน */}
+              <div className="flex items-center justify-between mb-2">
+                <label className={labelBase}>Site และ Device *</label>
+                <button
+                  type="button"
+                  onClick={addSiteEntry}
+                  disabled={!selectedReferSOF || dataLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold bg-green-500 text-white rounded-xl hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <Plus size={16} />
+                  เพิ่ม Site
+                </button>
+              </div>
+              {dataLoading && <p className="text-sm text-slate-500 py-2">กำลังโหลดรายการ Site...</p>}
+              <div className="space-y-3">
+                {siteEntries.map((entry) => (
                   <div
-                    className={`min-h-9 w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap gap-1.5 items-center ${
-                      showDeviceDropdown && filteredDevices.length > 0 ? 'ring-2 ring-blue-500 border-blue-400' : ''
-                    }`}
-                    onClick={() => deviceInputRef.current?.focus()}
+                    key={entry.id}
+                    className="flex flex-wrap items-end gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200"
                   >
-                    {selectedDeviceIds.map((id) => (
+                    <div className="flex-1 min-w-[180px]">
+                      <label className="text-[10px] font-semibold uppercase text-slate-500 mb-1 block">Site</label>
+                      <select
+                        value={entry.siteId}
+                        onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
+                        className={inputBase}
+                        disabled={dataLoading || !selectedReferSOF}
+                      >
+                        <option value="">{selectedReferSOF ? '-- เลือก Site --' : 'เลือก Refer SOF ก่อน'}</option>
+                        {sitesLocation.map((s) => (
+                          <option key={s.SLid} value={String(s.SLid)}>
+                            {s.SiteName} – {s.Location2}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => entry.siteId && openDeviceModalForSite(entry.siteId, entry.siteLabel)}
+                      disabled={!entry.siteId || devicesLoading}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-xl font-semibold text-sm hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {devicesLoading && activeSiteIdForModal === entry.siteId ? 'กำลังโหลด...' : 'เลือก Device'}
+                    </button>
+                    {siteEntries.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeSiteEntry(entry.id)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                        title="ลบ Site"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {/* สรุป Device ที่เลือกทั้งหมด */}
+              {selectedDevices.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-slate-600 mb-2">
+                    Device ที่เลือกทั้งหมด ({selectedDevices.length} รายการ)
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedDevices.map((d) => (
                       <span
-                        key={id}
+                        key={d.id}
                         className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
                       >
-                        {getDeviceLabel(id)}
+                        {d.label}
                         <button
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeDevice(id);
-                          }}
+                          onClick={() => removeDevice(d.id)}
                           className="hover:text-blue-900 focus:outline-none"
                         >
                           <X size={10} />
                         </button>
                       </span>
                     ))}
-                    <input
-                      ref={deviceInputRef}
-                      type="text"
-                      value={deviceInput}
-                      onChange={(e) => {
-                        setDeviceInput(e.target.value);
-                        setShowDeviceDropdown(true);
-                      }}
-                      onFocus={() => setShowDeviceDropdown(true)}
-                      onBlur={() => setTimeout(() => setShowDeviceDropdown(false), 200)}
-                      onKeyDown={handleDeviceInputKeyDown}
-                      placeholder={selectedDeviceIds.length === 0 ? 'พิมพ์ค้นหาหรือเลือก Device...' : ' '}
-                      className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5"
-                    />
                   </div>
-                  {showDeviceDropdown && filteredDevices.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto">
-                      {filteredDevices.map((d) => (
-                        <div
-                          key={d.Did}
-                          onClick={() => addDevice(d)}
-                          className="px-3 py-2 hover:bg-blue-50 cursor-pointer transition"
-                        >
-                          <p className="text-sm font-medium text-slate-700">
-                            {d.CI_Name || d.Asset_Number || `Did ${d.Did}`}
-                          </p>
-                          {d.Asset_Number && d.CI_Name && (
-                            <p className="text-xs text-slate-400">{d.Asset_Number}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {showDeviceDropdown && filteredDevices.length === 0 && deviceInput && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3">
-                      <p className="text-sm text-slate-400">ไม่พบ device</p>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -543,6 +603,185 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
             </div>
           </div>
         </form>
+      </div>
+
+      {/* Device Selection Modal */}
+      <DeviceSelectModal
+        isOpen={isDeviceModalOpen}
+        onClose={() => {
+          setIsDeviceModalOpen(false);
+          setDeviceFilter('');
+        }}
+        devices={devicesBySite.map(d => ({
+          id: String(d.Did),
+          name: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
+          type: '',
+          serialNumber: '',
+          site: '',
+          assetNumber: d.Asset_Number || '',
+        }))}
+        selectedIds={selectedDeviceIds}
+        filter={deviceFilter}
+        onFilterChange={setDeviceFilter}
+        onSelectAll={() => {
+          const toAdd = devicesBySite
+            .filter((d) => !selectedDeviceIds.includes(String(d.Did)))
+            .map((d) => ({ id: String(d.Did), label: d.CI_Name || d.Asset_Number || `Did ${d.Did}` }));
+          setSelectedDevices((prev) => [...prev, ...toAdd]);
+        }}
+        onClearAll={() => {
+          const idsToRemove = new Set(devicesBySite.map((d) => String(d.Did)));
+          setSelectedDevices((prev) => prev.filter((d) => !idsToRemove.has(d.id)));
+        }}
+        onToggleDevice={(deviceId) => {
+          const d = devicesBySite.find((x) => String(x.Did) === deviceId);
+          const label = d ? (d.CI_Name || d.Asset_Number || `Did ${d.Did}`) : deviceId;
+          setSelectedDevices((prev) =>
+            prev.some((x) => x.id === deviceId)
+              ? prev.filter((x) => x.id !== deviceId)
+              : [...prev, { id: deviceId, label }]
+          );
+        }}
+      />
+    </div>
+  );
+}
+
+// Device Selection Modal Component
+interface DeviceSelectModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  devices: Array<{
+    id: string;
+    name: string;
+    type?: string;
+    serialNumber?: string;
+    site?: string;
+    assetNumber?: string;
+  }>;
+  selectedIds: string[];
+  filter: string;
+  onFilterChange: (value: string) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+  onToggleDevice: (deviceId: string) => void;
+}
+
+function DeviceSelectModal({
+  isOpen,
+  onClose,
+  devices,
+  selectedIds,
+  filter,
+  onFilterChange,
+  onSelectAll,
+  onClearAll,
+  onToggleDevice,
+}: DeviceSelectModalProps) {
+  if (!isOpen) return null;
+
+  const filteredDevices = devices.filter((d) => {
+    if (!filter.trim()) return true;
+    const filterLower = filter.toLowerCase();
+    return (
+      d.name.toLowerCase().includes(filterLower) ||
+      d.assetNumber?.toLowerCase().includes(filterLower) ||
+      d.id.includes(filter)
+    );
+  });
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl flex flex-col max-h-[85vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h3 className="text-lg font-bold">เลือก Device</h3>
+          <button onClick={onClose} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-between items-center px-6 py-3 border-b">
+          <div className="flex gap-2">
+            <button
+              onClick={onSelectAll}
+              className="px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100"
+            >
+              เลือกทั้งหมด
+            </button>
+            <button
+              onClick={onClearAll}
+              className="px-3 py-1.5 text-xs font-semibold bg-slate-100 rounded-lg hover:bg-slate-200"
+            >
+              ล้างทั้งหมด
+            </button>
+          </div>
+          <span className="text-xs text-slate-400">
+            {selectedIds.length} / {devices.length} รายการ
+          </span>
+        </div>
+
+        {/* Filter */}
+        <div className="px-6 py-3 border-b">
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => onFilterChange(e.target.value)}
+            placeholder="ค้นหา Device..."
+            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        {/* Device List */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+          {filteredDevices.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-8">
+              {filter ? 'ไม่พบ Device ที่ตรงกับคำค้นหา' : 'ไม่มี Device'}
+            </p>
+          ) : (
+            filteredDevices.map((d) => {
+              const isSelected = selectedIds.includes(d.id);
+              return (
+                <label
+                  key={d.id}
+                  className="flex items-center justify-between p-3 rounded-xl border cursor-pointer hover:bg-slate-50 transition"
+                >
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-slate-700">{d.name}</p>
+                    <div className="flex gap-2 text-xs text-slate-400 mt-1">
+                      {d.assetNumber && <span>Asset: {d.assetNumber}</span>}
+                      {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
+                      {d.site && <span>| Site: {d.site}</span>}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onToggleDevice(d.id)}
+                    className="w-4 h-4 accent-blue-500"
+                  />
+                </label>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-3 px-6 py-4 border-t">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm bg-slate-100 rounded-xl hover:bg-slate-200"
+          >
+            ปิด
+          </button>
+          <button
+            onClick={onClose}
+            className="px-5 py-2 text-sm rounded-xl font-bold bg-blue-500 text-white hover:bg-blue-600"
+          >
+            ตกลง ({selectedIds.length})
+          </button>
+        </div>
       </div>
     </div>
   );

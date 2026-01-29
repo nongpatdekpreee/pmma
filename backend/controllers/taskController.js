@@ -234,6 +234,13 @@ const createTask = async (req, res) => {
             );
 
             if (existing.length > 0) {
+              // Get SLid of replacement device from Devices table
+              const [replacementDevice] = await db.execute(
+                'SELECT SLid FROM Devices WHERE Did = ?',
+                [replacementId]
+              );
+              const replacementSLid = replacementDevice.length > 0 ? replacementDevice[0].SLid : null;
+              
               // Update: Delete old device and insert new device
               await db.execute(
                 'DELETE FROM contract_device WHERE contract_id = ? AND device_id = ?',
@@ -248,10 +255,10 @@ const createTask = async (req, res) => {
               
               if (checkExisting.length === 0) {
                 await db.execute(
-                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-                  [contractIdNum, replacementId]
+                  'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                  [contractIdNum, replacementId, replacementSLid]
                 );
-                console.log(`Updated contract_device: Replaced device ${originalId} with ${replacementId} in contract ${contractIdNum}`);
+                console.log(`Updated contract_device: Replaced device ${originalId} with ${replacementId} (SLid: ${replacementSLid}) in contract ${contractIdNum}`);
               } else {
                 console.log(`Device ${replacementId} already exists in contract ${contractIdNum}, skipping insert`);
               }
@@ -455,6 +462,13 @@ const updateTask = async (req, res) => {
             );
 
             if (existingContractDevice.length > 0) {
+              // Get SLid of replacement device from Devices table
+              const [replacementDevice] = await db.execute(
+                'SELECT SLid FROM Devices WHERE Did = ?',
+                [replacementIdNum]
+              );
+              const replacementSLid = replacementDevice.length > 0 ? replacementDevice[0].SLid : null;
+              
               // Update: Delete old device and insert new device
               await db.execute(
                 'DELETE FROM contract_device WHERE contract_id = ? AND device_id = ?',
@@ -469,10 +483,10 @@ const updateTask = async (req, res) => {
               
               if (checkExisting.length === 0) {
                 await db.execute(
-                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-                  [contractIdNum, replacementIdNum]
+                  'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                  [contractIdNum, replacementIdNum, replacementSLid]
                 );
-                console.log(`Updated contract_device: Replaced device ${originalIdNum} with ${replacementIdNum} in contract ${contractIdNum}`);
+                console.log(`Updated contract_device: Replaced device ${originalIdNum} with ${replacementIdNum} (SLid: ${replacementSLid}) in contract ${contractIdNum}`);
               } else {
                 console.log(`Device ${replacementIdNum} already exists in contract ${contractIdNum}, skipping insert`);
               }
