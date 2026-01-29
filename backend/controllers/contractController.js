@@ -32,12 +32,16 @@ const createContract = async (req, res) => {
       site_ids,
       site_device_pairs,
       sof_name,
+      sof_id,
       sla_name,
       sla_detail,
       sale_account,
       coverage_scope,
       file_paths,
       image_paths,
+      pm_time_per_year,
+      contract_sign_date,
+      remark,
     } = req.body;
 
     if (!sla_name || !String(sla_name).trim()) {
@@ -124,25 +128,39 @@ const createContract = async (req, res) => {
         ? String(image_paths).trim()
         : null;
 
-    const [result] = await db.execute(
-      `INSERT INTO contract (
-        contract_name, start_date, end_date, device_id, site_id, sof_name, sla_name, sla_detail, sale_account, coverage_scope, file_paths, image_paths
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        contract_name && String(contract_name).trim() ? contract_name.trim() : null,
-        start_date || null,
-        end_date || null,
-        firstDeviceId,
-        siteId && !isNaN(siteId) ? siteId : null,
-        sof_name && String(sof_name).trim() ? sof_name.trim() : null,
-        sla_name.trim(),
-        sla_detail.trim(),
-        sale_account && String(sale_account).trim() ? sale_account.trim() : null,
-        coverage_scope && String(coverage_scope).trim() ? coverage_scope.trim() : null,
-        filePathsJson,
-        imagePathsJson,
-      ]
-    );
+    const sofValue = (sof_id != null && sof_id !== '') ? String(sof_id).trim() : (sof_name && String(sof_name).trim() ? sof_name.trim() : null);
+    const pmTime = pm_time_per_year != null && pm_time_per_year !== '' ? parseInt(pm_time_per_year, 10) : null;
+    const signDate = contract_sign_date || null;
+    const remarkVal = remark && String(remark).trim() ? remark.trim() : null;
+
+    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_name, sla_detail, sale_account, coverage_scope, file_paths, image_paths';
+    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+    const insertParams = [
+      contract_name && String(contract_name).trim() ? contract_name.trim() : null,
+      start_date || null,
+      end_date || null,
+      firstDeviceId,
+      siteId && !isNaN(siteId) ? siteId : null,
+      sofValue,
+      sla_name.trim(),
+      sla_detail.trim(),
+      sale_account && String(sale_account).trim() ? sale_account.trim() : null,
+      coverage_scope && String(coverage_scope).trim() ? coverage_scope.trim() : null,
+      filePathsJson,
+      imagePathsJson,
+    ];
+
+    // เพิ่ม column ใหม่ถ้ามี (pm_time_per_year, contract_sign_date, remark)
+    let sql = `INSERT INTO contract (${insertCols}) VALUES (${insertVals})`;
+    try {
+      const [cols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'pm_time_per_year'");
+      if (cols && cols.length > 0) {
+        sql = `INSERT INTO contract (${insertCols}, pm_time_per_year, contract_sign_date, remark) VALUES (${insertVals}, ?, ?, ?)`;
+        insertParams.push(isNaN(pmTime) ? null : pmTime, signDate, remarkVal);
+      }
+    } catch (_) { /* column ไม่มี ข้าม */ }
+
+    const [result] = await db.execute(sql, insertParams);
 
     const contractId = result.insertId;
 

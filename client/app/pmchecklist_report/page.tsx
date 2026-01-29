@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
+import { apiUrl } from '@/lib/api';
 import { 
   Upload, 
   X, 
@@ -17,68 +18,68 @@ import {
 } from 'lucide-react';
 
 // PM Templates for different equipment types
-const PM_TEMPLATES: Record<string, string[]> = {
-  'Network Switch': [
-    'ตรวจสอบสถานะ LED indicators',
-    'ตรวจสอบการเชื่อมต่อสายเคเบิล',
-    'ตรวจสอบอุณหภูมิการทำงาน',
-    'ตรวจสอบพอร์ตที่ใช้งาน',
-    'ตรวจสอบ Firmware version',
-    'ตรวจสอบ Log files',
-    'ทำความสะอาดอุปกรณ์',
-    'ตรวจสอบ Power supply'
-  ],
-  'Router': [
-    'ตรวจสอบสถานะการเชื่อมต่อ',
-    'ตรวจสอบ Routing table',
-    'ตรวจสอบ CPU และ Memory usage',
-    'ตรวจสอบ Interface status',
-    'ตรวจสอบ Firmware version',
-    'ตรวจสอบ Security logs',
-    'ทำความสะอาดอุปกรณ์',
-    'ตรวจสอบ Power supply และ Cooling'
-  ],
-  'Firewall': [
-    'ตรวจสอบ Security policies',
-    'ตรวจสอบ Firewall rules',
-    'ตรวจสอบ VPN connections',
-    'ตรวจสอบ Threat detection',
-    'ตรวจสอบ Log files',
-    'ตรวจสอบ Firmware version',
-    'ทำความสะอาดอุปกรณ์',
-    'ตรวจสอบ High availability status'
-  ],
-  'Server': [
-    'ตรวจสอบ CPU และ Memory usage',
-    'ตรวจสอบ Disk space',
-    'ตรวจสอบ System logs',
-    'ตรวจสอบ Network connectivity',
-    'ตรวจสอบ OS updates',
-    'ตรวจสอบ Backup status',
-    'ทำความสะอาดภายในเครื่อง',
-    'ตรวจสอบ Power supply และ Cooling'
-  ],
-  'Storage System': [
-    'ตรวจสอบ Disk health status',
-    'ตรวจสอบ Storage capacity',
-    'ตรวจสอบ RAID status',
-    'ตรวจสอบ Backup status',
-    'ตรวจสอบ Performance metrics',
-    'ตรวจสอบ Firmware version',
-    'ทำความสะอาดอุปกรณ์',
-    'ตรวจสอบ Power supply'
-  ],
-  'UPS': [
-    'ตรวจสอบ Battery status',
-    'ทดสอบ Battery backup',
-    'ตรวจสอบ Load capacity',
-    'ตรวจสอบ Voltage output',
-    'ตรวจสอบ Display และ Alarms',
-    'ทำความสะอาดอุปกรณ์',
-    'ตรวจสอบ Ventilation',
-    'ตรวจสอบ Connection points'
-  ]
-};
+// const PM_TEMPLATES: Record<string, string[]> = {
+//   'Network Switch': [
+//     'ตรวจสอบสถานะ LED indicators',
+//     'ตรวจสอบการเชื่อมต่อสายเคเบิล',
+//     'ตรวจสอบอุณหภูมิการทำงาน',
+//     'ตรวจสอบพอร์ตที่ใช้งาน',
+//     'ตรวจสอบ Firmware version',
+//     'ตรวจสอบ Log files',
+//     'ทำความสะอาดอุปกรณ์',
+//     'ตรวจสอบ Power supply'
+//   ],
+//   'Router': [
+//     'ตรวจสอบสถานะการเชื่อมต่อ',
+//     'ตรวจสอบ Routing table',
+//     'ตรวจสอบ CPU และ Memory usage',
+//     'ตรวจสอบ Interface status',
+//     'ตรวจสอบ Firmware version',
+//     'ตรวจสอบ Security logs',
+//     'ทำความสะอาดอุปกรณ์',
+//     'ตรวจสอบ Power supply และ Cooling'
+//   ],
+//   'Firewall': [
+//     'ตรวจสอบ Security policies',
+//     'ตรวจสอบ Firewall rules',
+//     'ตรวจสอบ VPN connections',
+//     'ตรวจสอบ Threat detection',
+//     'ตรวจสอบ Log files',
+//     'ตรวจสอบ Firmware version',
+//     'ทำความสะอาดอุปกรณ์',
+//     'ตรวจสอบ High availability status'
+//   ],
+//   'Server': [
+//     'ตรวจสอบ CPU และ Memory usage',
+//     'ตรวจสอบ Disk space',
+//     'ตรวจสอบ System logs',
+//     'ตรวจสอบ Network connectivity',
+//     'ตรวจสอบ OS updates',
+//     'ตรวจสอบ Backup status',
+//     'ทำความสะอาดภายในเครื่อง',
+//     'ตรวจสอบ Power supply และ Cooling'
+//   ],
+//   'Storage System': [
+//     'ตรวจสอบ Disk health status',
+//     'ตรวจสอบ Storage capacity',
+//     'ตรวจสอบ RAID status',
+//     'ตรวจสอบ Backup status',
+//     'ตรวจสอบ Performance metrics',
+//     'ตรวจสอบ Firmware version',
+//     'ทำความสะอาดอุปกรณ์',
+//     'ตรวจสอบ Power supply'
+//   ],
+//   'UPS': [
+//     'ตรวจสอบ Battery status',
+//     'ทดสอบ Battery backup',
+//     'ตรวจสอบ Load capacity',
+//     'ตรวจสอบ Voltage output',
+//     'ตรวจสอบ Display และ Alarms',
+//     'ทำความสะอาดอุปกรณ์',
+//     'ตรวจสอบ Ventilation',
+//     'ตรวจสอบ Connection points'
+//   ]
+// };
 
 interface ChecklistItem {
   id: string;
@@ -95,26 +96,72 @@ interface UploadedFile {
   preview?: string;
 }
 
+interface Device {
+  Did: number;
+  CI_Name?: string;
+  Asset_Number?: string;
+  serial?: string;
+  model?: string;
+  Manufacturername?: string;
+  Sitename?: string;
+}
+
 export default function PMChecklistReportPage() {
-  const [equipmentType, setEquipmentType] = useState<string>('');
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const [loadingDevices, setLoadingDevices] = useState(false);
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [pmResult, setPmResult] = useState<'pass' | 'warning' | 'fail' | ''>('');
   const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
   const [pmDate, setPmDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newChecklistTask, setNewChecklistTask] = useState('');
 
-  // Initialize checklist when equipment type changes
-  const handleEquipmentTypeChange = (type: string) => {
-    setEquipmentType(type);
-    const template = PM_TEMPLATES[type] || [];
-    setChecklistItems(
-      template.map((task, index) => ({
-        id: `item-${index}`,
-        task,
-        status: 'pending' as const,
-      }))
-    );
+  // Fetch devices from API
+  useEffect(() => {
+    const fetchDevices = async () => {
+      setLoadingDevices(true);
+      try {
+        const response = await fetch(apiUrl('/api/devices?limit=1000'));
+        const data = await response.json();
+        if (data.success && data.data) {
+          setDevices(data.data);
+        }
+      } catch (error) {
+        console.error('Error fetching devices:', error);
+      } finally {
+        setLoadingDevices(false);
+      }
+    };
+    fetchDevices();
+  }, []);
+
+  // Handle device selection change
+  const handleDeviceChange = (deviceId: string) => {
+    setSelectedDeviceId(deviceId);
+    // Optionally clear checklist when device changes
+    // setChecklistItems([]);
+  };
+
+  // Add new checklist item
+  const addChecklistItem = () => {
+    if (newChecklistTask.trim()) {
+      setChecklistItems([
+        ...checklistItems,
+        {
+          id: `item-${Date.now()}`,
+          task: newChecklistTask.trim(),
+          status: 'pending' as const,
+        },
+      ]);
+      setNewChecklistTask('');
+    }
+  };
+
+  // Remove checklist item
+  const removeChecklistItem = (id: string) => {
+    setChecklistItems(items => items.filter(item => item.id !== id));
   };
 
   // Update checklist item status
@@ -161,17 +208,20 @@ export default function PMChecklistReportPage() {
 
   // Handle save
   const handleSave = () => {
-    if (!equipmentType) {
-      alert('Please select equipment type');
+    if (!selectedDeviceId) {
+      alert('กรุณาเลือก Device');
       return;
     }
     if (!pmResult) {
-      alert('Please select PM results');
+      alert('กรุณาเลือกผลการตรวจ PM');
       return;
     }
     
+    const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
+    
     const reportData = {
-      equipmentType,
+      deviceId: selectedDeviceId,
+      device: selectedDevice,
       checklistItems,
       uploadedFiles: uploadedFiles.map(f => ({
         name: f.name,
@@ -188,12 +238,13 @@ export default function PMChecklistReportPage() {
     alert('บันทึกข้อมูล PM Checklist Report สำเร็จ');
     
     // Reset form
-    setEquipmentType('');
+    setSelectedDeviceId('');
     setChecklistItems([]);
     setUploadedFiles([]);
     setPmResult('');
     setComment('');
     setTechnicianName('');
+    setNewChecklistTask('');
   };
 
   const getStatusColor = (status: string) => {
@@ -233,21 +284,44 @@ export default function PMChecklistReportPage() {
 
         {/* Main Form */}
         <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
-          {/* Equipment Type Selection */}
+          {/* Device Selection */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
-              Equipment Type *
+              Device *
             </label>
             <select
-              value={equipmentType}
-              onChange={(e) => handleEquipmentTypeChange(e.target.value)}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+              value={selectedDeviceId}
+              onChange={(e) => handleDeviceChange(e.target.value)}
+              disabled={loadingDevices}
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="">Select...</option>
-              {Object.keys(PM_TEMPLATES).map(type => (
-                <option key={type} value={type}>{type}</option>
+              <option value="">
+                {loadingDevices ? 'กำลังโหลด...' : 'เลือก Device...'}
+              </option>
+              {devices.map(device => (
+                <option key={device.Did} value={device.Did.toString()}>
+                  {device.CI_Name || device.Asset_Number || `Device ${device.Did}`}
+                  {device.serial ? ` (${device.serial})` : ''}
+                  {device.Sitename ? ` - ${device.Sitename}` : ''}
+                </option>
               ))}
             </select>
+            {selectedDeviceId && (
+              <div className="mt-2 text-xs text-slate-500">
+                {(() => {
+                  const selected = devices.find(d => d.Did.toString() === selectedDeviceId);
+                  if (selected) {
+                    return (
+                      <>
+                        {selected.model && <span>Model: {selected.model}</span>}
+                        {selected.Manufacturername && <span className="ml-2">Manufacturer: {selected.Manufacturername}</span>}
+                      </>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
           </div>
 
           {/* PM Information */}
@@ -278,11 +352,38 @@ export default function PMChecklistReportPage() {
           </div>
 
           {/* Dynamic Checklist */}
-          {checklistItems.length > 0 && (
-            <div className="mb-6">
-              <label className="block text-sm font-bold text-slate-700 mb-3">
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <label className="block text-sm font-bold text-slate-700">
                 PM Checklist Items *
               </label>
+            </div>
+            
+            {/* Add new checklist item */}
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={newChecklistTask}
+                onChange={(e) => setNewChecklistTask(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    addChecklistItem();
+                  }
+                }}
+                placeholder="เพิ่มรายการตรวจสอบ..."
+                className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+              />
+              <button
+                onClick={addChecklistItem}
+                className="flex items-center gap-2 px-4 py-3 bg-blue-500 text-white rounded-xl hover:bg-blue-600 transition-colors text-sm font-medium"
+              >
+                <Plus size={18} />
+                เพิ่ม
+              </button>
+            </div>
+
+            {/* Checklist items list */}
+            {checklistItems.length > 0 ? (
               <div className="space-y-3">
                 {checklistItems.map((item) => (
                   <div
@@ -316,12 +417,23 @@ export default function PMChecklistReportPage() {
                           )}
                         </button>
                       ))}
+                      <button
+                        onClick={() => removeChecklistItem(item.id)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="ลบรายการ"
+                      >
+                        <Trash2 size={18} />
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="text-center py-8 text-slate-400 text-sm">
+                ยังไม่มีรายการตรวจสอบ กรุณาเพิ่มรายการตรวจสอบ
+              </div>
+            )}
+          </div>
 
           {/* File Upload Section */}
           <div className="mb-6">

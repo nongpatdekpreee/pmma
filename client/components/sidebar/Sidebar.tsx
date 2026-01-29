@@ -11,7 +11,9 @@ import {
   Menu,
   X,
   BarChart3,
-  Monitor
+  Monitor,
+  ShieldCheck,
+  FileText,
 } from 'lucide-react';
 import { useSidebar } from './SidebarContext';
 import { LucideIcon } from 'lucide-react';
@@ -22,6 +24,7 @@ type MenuItem =
 
 const menuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/' }, 
+  { icon: FileText, label: 'Add Contract', href: '/contract_editer' },
   { icon: Calendar, label: 'Calendar', href: '/calendar' },
   { icon: Users, label: 'Employee', href: '/employee' },
   { type: 'section', label: 'PM' },
@@ -29,6 +32,9 @@ const menuItems: MenuItem[] = [
   { icon: BarChart3, label: 'Report & Analytics Page', href: '/report' },
   { icon: MessageSquare, label: 'PM Checklists & Report', href: '/pmchecklist_report' },
   { icon: Monitor, label: 'Asset & Site Database', href: '/asset_site_database'},
+  // MA
+  { icon: ShieldCheck, label: 'Sla Compliance', href: '/slacompliance' },
+ 
 ];
 
 export function Sidebar() {
@@ -83,7 +89,7 @@ export function Sidebar() {
                   }
                 `}
               >
-                อะไรนิ
+                ปลาทูน่าช่างหอมอร่อยย
               </span>
             </Link>
 

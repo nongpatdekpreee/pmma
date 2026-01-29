@@ -47,6 +47,9 @@ app.use('/api/contracts', contractRoutes);
 const taskRoutes = require('./routes/taskRoutes');
 app.use('/api/tasks', taskRoutes);
 
+const employeeRoutes = require('./routes/employeeRoutes');
+app.use('/api/employees', employeeRoutes);
+
 app.get('/', (req, res) => {
   res.json({
     message: 'TCC Stock Management API',

@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { LucideIcon, UserCheck, UserRoundCog, Wrench } from "lucide-react";
-import { EMPLOYEE_DATA } from "@/data/employee.mock";
+import { apiUrl } from "@/lib/api";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";   
 
@@ -14,32 +14,50 @@ interface SummaryEM {
   growth?: string;
 }
 
-const SUMMARY_CARDS_EM: SummaryEM[] = [
-  { label: "TOTAL EMPLOYEES", value: "100", icon: UserCheck },
-  { label: "TECHNICAL", value: "500", icon: UserRoundCog, growth: "+8% this month" },
-  { label: "MANAGEMENT", value: "189", icon: Wrench  },
-];
-
 const ITEMS_PER_PAGE = 8;
 
-/* ================= prepare data ================= */
-const employees = EMPLOYEE_DATA.employees.map((emp) => ({
-  id: emp.id,
-  name: emp.displayName,
-  gmail: emp.gmail,
-  tel: emp.tel,
-  positionType: emp.positionType,
-  employmentType: emp.employmentType,
-}));
+interface Employee {
+  id: string;
+  name: string;
+  gmail: string;
+  tel: string;
+  positionType: string;
+  employmentType: string;
+}
 
 const extractNumber = (id: string) =>
   Number(id.replace(/\D/g, ""));
 
 const EmployeeManagement = () => {
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortOrder, setSortOrder] =
     useState<"newest" | "oldest">("newest");
+
+  // Fetch employees from API
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(apiUrl('/api/employees?limit=1000'));
+        const data = await response.json();
+        if (data.success && data.data) {
+          setEmployees(data.data);
+        } else {
+          console.error('Failed to fetch employees:', data.message);
+          setEmployees([]);
+        }
+      } catch (error) {
+        console.error('Error fetching employees:', error);
+        setEmployees([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchEmployees();
+  }, []);
 
   /* ================= filter ================= */
   const filteredEmployees = useMemo(() => {
@@ -92,6 +110,25 @@ const EmployeeManagement = () => {
       ? "bg-purple-100 text-purple-700"
       : "bg-gray-100 text-gray-700";
 
+  // Calculate summary statistics
+  const summaryStats = useMemo(() => {
+    const total = employees.length;
+    const technical = employees.filter(emp => emp.positionType === 'Technical').length;
+    const management = employees.filter(emp => emp.positionType === 'Management').length;
+    
+    return {
+      total: total.toString(),
+      technical: technical.toString(),
+      management: management.toString(),
+    };
+  }, [employees]);
+
+  const SUMMARY_CARDS_EM: SummaryEM[] = [
+    { label: "TOTAL EMPLOYEES", value: summaryStats.total, icon: UserCheck },
+    { label: "TECHNICAL", value: summaryStats.technical, icon: UserRoundCog },
+    { label: "MANAGEMENT", value: summaryStats.management, icon: Wrench },
+  ];
+
   return (
     <SidebarLayout>
       <DashboardHeader />
@@ -115,7 +152,7 @@ const EmployeeManagement = () => {
                         {card.label}
                       </p>
                       <div className="text-3xl font-semibold">
-                        {card.value}
+                        {loading ? "..." : card.value}
                       </div>
                     </div>
                   </div>
@@ -172,52 +209,66 @@ const EmployeeManagement = () => {
 
             {/* Table */}
             <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-400">
-                  <tr>
-                    <th className="px-6 py-4 text-center">ID</th>
-                    <th className="px-6 py-4 text-center">Name</th>
-                    <th className="px-6 py-4 text-center">Gmail</th>
-                    <th className="px-6 py-4 text-center">Phone</th>
-                    <th className="px-6 py-4 text-center">Type</th>
-                    <th className="px-6 py-4 text-center">Employment</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {paginatedEmployees.map((emp) => (
-                    <tr
-                      key={emp.id}
-                      className="border-t hover:bg-gray-50"
-                    >
-                      <td className="px-6 py-4">{emp.id}</td>
-                      <td className="px-6 py-4 font-medium">
-                        {emp.name}
-                      </td>
-                      <td className="px-6 py-4">{emp.gmail}</td>
-                      <td className="px-6 py-4">{emp.tel}</td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs ${getPositionTypeColor(
-                            emp.positionType
-                          )}`}
-                        >
-                          {emp.positionType}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs ${getEmploymentTypeColor(
-                            emp.employmentType
-                          )}`}
-                        >
-                          {emp.employmentType}
-                        </span>
-                      </td>
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-gray-400">กำลังโหลดข้อมูล...</div>
+                </div>
+              ) : (
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 text-xs uppercase text-gray-400">
+                    <tr>
+                      <th className="px-6 py-4 text-center">ID</th>
+                      <th className="px-6 py-4 text-center">Username</th>
+                      <th className="px-6 py-4 text-center">Gmail</th>
+                      <th className="px-6 py-4 text-center">Phone</th>
+                      <th className="px-6 py-4 text-center">Type</th>
+                      <th className="px-6 py-4 text-center">Employment</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+
+                  <tbody>
+                    {paginatedEmployees.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
+                          ไม่พบข้อมูล Employee
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedEmployees.map((emp) => (
+                        <tr
+                          key={emp.id}
+                          className="border-t hover:bg-gray-50"
+                        >
+                          <td className="px-6 py-4">{emp.id}</td>
+                          <td className="px-6 py-4 font-medium">
+                            {emp.name}
+                          </td>
+                          <td className="px-6 py-4">{emp.gmail || '-'}</td>
+                          <td className="px-6 py-4">{emp.tel || '-'}</td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs ${getPositionTypeColor(
+                                emp.positionType
+                              )}`}
+                            >
+                              {emp.positionType}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span
+                              className={`rounded-full px-3 py-1 text-xs ${getEmploymentTypeColor(
+                                emp.employmentType
+                              )}`}
+                            >
+                              {emp.employmentType}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             {/* Pagination */}
