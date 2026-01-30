@@ -1238,13 +1238,121 @@ const getVendors = async (req, res) => {
 };
 
 // GET - ดึง Devices ตาม site_id (= SLid, Sites_Location) สำหรับ Contract / Asset Binding
+// GET - ดึง unique Refer_SOF values จาก Devices table
+const getReferSOFList = async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT DISTINCT Refer_SOF as refer_sof
+       FROM Devices
+       WHERE Refer_SOF IS NOT NULL AND Refer_SOF != '' AND Refer_SOF != 'Not Assigned'
+       ORDER BY Refer_SOF ASC`
+    );
+    res.status(200).json({ 
+      success: true, 
+      data: rows.map(r => r.refer_sof).filter(Boolean)
+    });
+  } catch (error) {
+    console.error('Error getting Refer_SOF list:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงรายการ Refer_SOF',
+      error: error.message
+    });
+  }
+};
+
+// GET - ดึง Devices ตาม Refer_SOF และ Site (SLid)
+const getDevicesBySOFAndSite = async (req, res) => {
+  try {
+    const referSOF = req.query.refer_sof;
+    const siteId = req.query.site_id;
+    
+    if (!referSOF) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ refer_sof'
+      });
+    }
+    
+    if (!siteId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ site_id (SLid)'
+      });
+    }
+    
+    const [rows] = await db.execute(
+      `SELECT Did, CI_Name, Asset_Number, Asset_State, serial, SLid, Dtypeid, DeRoleid, Refer_SOF
+       FROM Devices
+       WHERE Refer_SOF = ? AND SLid = ?
+       ORDER BY COALESCE(CI_Name, Asset_Number, Did) ASC`,
+      [referSOF, siteId]
+    );
+    
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices by SOF and site:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Refer_SOF และ Site',
+      error: error.message
+    });
+  }
+};
+
+// GET - ดึง Devices ที่ยังไม่มีเลข SOF (Refer_SOF เป็น NULL, '' หรือ 'Not Assigned') และ Asset_State = 'In Store'
+// ไม่แสดง device ที่ผูกกับสัญญาแล้ว (contract.device_id หรือ contract_device)
+// ถ้ามี site_id = กรองตาม site นั้น; ถ้าไม่มี = แสดงทุกอันที่ SLid = 2
+const getDevicesBySiteNoSOF = async (req, res) => {
+  try {
+    const siteId = req.query.site_id;
+    let sql, params;
+    // รองรับทั้ง NULL, '', ช่องว่าง, และ 'Not Assigned' (ไม่สนใจตัวพิมพ์/ช่องว่าง)
+    const noSofCondition = `(d.Refer_SOF IS NULL OR TRIM(COALESCE(d.Refer_SOF,'')) = '' OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned')`;
+    // รองรับ 'In Store' ไม่สนใจตัวพิมพ์และช่องว่าง
+    const inStoreCondition = "LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store'";
+    const notInContract = `d.Did NOT IN (SELECT device_id FROM contract WHERE device_id IS NOT NULL)
+      AND d.Did NOT IN (SELECT device_id FROM contract_device)`;
+    
+    if (siteId) {
+      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF
+             FROM Devices d
+             WHERE d.SLid = ?
+               AND ${noSofCondition}
+               AND ${inStoreCondition}
+               AND (${notInContract})
+             ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
+      params = [siteId];
+    } else {
+      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF
+             FROM Devices d
+             WHERE d.SLid = 2
+               AND ${noSofCondition}
+               AND ${inStoreCondition}
+               AND (${notInContract})
+             ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
+      params = [];
+    }
+    
+    const [rows] = await db.execute(sql, params);
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices (no SOF):', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Devices ที่ยังไม่มี SOF',
+      error: error.message
+    });
+  }
+};
+
 const getDevicesBySite = async (req, res) => {
   try {
     const siteId = req.query.site_id;
     if (!siteId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ site_id (SLid)'
+        message: 'กรุณาระบุ site'
       });
     }
     // TccStock: Devices.SLid -> Sites_Location.SLid
@@ -1269,7 +1377,7 @@ const getDevicesBySite = async (req, res) => {
 // GET - ดึง Devices ตาม Asset_State (เช่น In Store, In Store On Site) สำหรับ MA
 const getDevicesByAssetState = async (req, res) => {
   try {
-    const statesParam = req.query.states || 'In Store,In Store On Site';
+    const statesParam = req.query.states || 'In Store';
     const search = req.query.search || '';
     const states = statesParam
       .split(',')
@@ -1799,6 +1907,9 @@ module.exports = {
   getDashboard,              // GET (dashboard statistics)
   getDevicesByModel,         // GET (grouped by model)
   getVendors,                // GET (distinct Project_purchase สำหรับ dropdown)
+  getReferSOFList,           // GET (unique Refer_SOF values)
+  getDevicesBySOFAndSite,    // GET (devices ตาม Refer_SOF และ site_id)
+  getDevicesBySiteNoSOF,     // GET (devices ตาม site_id ที่ยังไม่มี SOF)
   getDevicesBySite,          // GET (devices ตาม site_id สำหรับ Asset Binding)
   getDevicesByAssetState,    // GET (devices ตาม Asset_State สำหรับ MA)
   getReplacementDevices,    // GET (devices In Store สำหรับ replacement ตาม Dtypeid และ DeRoleid)

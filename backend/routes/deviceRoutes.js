@@ -9,6 +9,9 @@ const {
   getDashboard,
   getDevicesByModel,
   getVendors,
+  getReferSOFList,
+  getDevicesBySOFAndSite,
+  getDevicesBySiteNoSOF,
   getDevicesBySite,
   getDevicesByAssetState,
   getReplacementDevices,
@@ -31,6 +34,15 @@ router.get('/by-model', getDevicesByModel);
 
 // GET - รายการ Vendor (DISTINCT Project_purchase จาก Devices สำหรับ dropdown)
 router.get('/vendors', getVendors);
+
+// GET - รายการ Refer_SOF (unique values จาก Devices table)
+router.get('/refer-sof', getReferSOFList);
+
+// GET - Devices ตาม Refer_SOF และ site_id (สำหรับ Contract)
+router.get('/by-sof-and-site', getDevicesBySOFAndSite);
+
+// GET - Devices ตาม site_id ที่ยังไม่มี SOF (สำหรับ Contract เมื่อพิมพ์ SOF ใหม่)
+router.get('/by-site-no-sof', getDevicesBySiteNoSOF);
 
 // GET - Devices ตาม site_id (สำหรับ Asset Binding)
 router.get('/by-site', getDevicesBySite);

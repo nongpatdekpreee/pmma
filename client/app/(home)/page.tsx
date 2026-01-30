@@ -19,7 +19,7 @@ export default function DashboardPage() {
               <Link href="/" className="text-3xl font-bold text-slate-800">
                 Dashboard 
                 </Link>
-              <DateTime />
+              <DateTime />  
 
             </div>
 
