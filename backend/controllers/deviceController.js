@@ -98,7 +98,7 @@ const createDevice = async (req, res) => {
           const [result] = await db.execute(
             `INSERT INTO Devices (
               Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-               SLid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+               SLid,PO_No, Loan_Start, Request_Date, Refer_SOF, 
               Refer_Ticket, Assigned_Service, Reason, warranty, Dtypeid, DeRoleid
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -145,9 +145,8 @@ const createDevice = async (req, res) => {
             Asset_Number: device.Asset_Number,
             PR_No: device.PR_No,
             Vendor: device.Vendor,
-            Project: device.Project,
             Sid: device.Sid,
-            Location2: device.Location2,
+         
             PO_No: device.PO_No,
             Loan_Start: device.Loan_Start,
             Request_Date: device.Request_Date,
@@ -208,21 +207,12 @@ const createDevice = async (req, res) => {
           values.push(device.Vendor);
           changedFields.Vendor = device.Vendor;
         }
-        if (device.Project !== undefined) {
-          updates.push('Project = ?');
-          values.push(device.Project);
-          changedFields.Project = device.Project;
-        }
         if (device.Sid !== undefined) {
           updates.push('Sid = ?');
           values.push(device.Sid);
           changedFields.Sid = device.Sid;
         }
-        if (device.Location2 !== undefined) {
-          updates.push('Location2 = ?');
-          values.push(device.Location2);
-          changedFields.Location2 = device.Location2;
-        }
+        
         if (device.PO_No !== undefined) {
           updates.push('PO_No = ?');
           values.push(device.PO_No);
@@ -394,10 +384,9 @@ const getDevices = async (req, res) => {
         Devices.CI_Name LIKE ? OR 
         Devices.Asset_Number LIKE ? OR 
         Devices.PR_No LIKE ? OR 
-        Devices.Vendor LIKE ? OR 
-        Devices.Project LIKE ?
+        Devices.Vendor LIKE ?
       )`;
-      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
+      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // นับจำนวน records ทั้งหมด (พร้อม search)
@@ -412,8 +401,8 @@ const getDevices = async (req, res) => {
     const totalPages = Math.ceil(totalRecords / limit);
 
     // ดึงข้อมูลตาม pagination (พร้อม search)
-    const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, Project, 
-                 Devices.SLid as SLid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+    const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
+                 Devices.SLid as SLid,  PO_No, Loan_Start, Request_Date, Refer_SOF, 
                  Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
                  Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
                  FROM Devices, Device_Type, Sites, Manufacturer 
@@ -505,7 +494,7 @@ const getDevicesExcludeInStore = async (req, res) => {
 
     // ดึงข้อมูลตาม pagination (ไม่รวม "In Store" + search)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
-                 Devices.SLid as Sid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Devices.SLid as Sid,  PO_No, Loan_Start, Request_Date, Refer_SOF, 
                  Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
                  Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
                  FROM Devices, Device_Type, Sites, Manufacturer 
@@ -581,10 +570,9 @@ const getDevicesExcludeOutStore = async (req, res) => {
         Devices.CI_Name LIKE ? OR 
         Devices.Asset_Number LIKE ? OR 
         Devices.PR_No LIKE ? OR 
-        Devices.Vendor LIKE ? OR 
-        Devices.Project LIKE ?
+        Devices.Vendor LIKE ?
       )`;
-      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
+      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // นับจำนวน records ทั้งหมด (ไม่รวม "Out Store" + search)
@@ -600,8 +588,8 @@ const getDevicesExcludeOutStore = async (req, res) => {
     const totalPages = Math.ceil(totalRecords / limit);
 
     // ดึงข้อมูลตาม pagination (ไม่รวม "Out Store" + search)
-    const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, Project, 
-                 Devices.SLid as Sid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+    const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
+                 Devices.SLid as Sid, 2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
                  Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
                  Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
                  FROM Devices, Device_Type, Sites, Manufacturer 
@@ -855,7 +843,6 @@ const updateDevice = async (req, res) => {
       Asset_Number,
       PR_No,
       Vendor,
-      Project,
       Sid,
       Location2,
       PO_No,
@@ -872,7 +859,7 @@ const updateDevice = async (req, res) => {
     const hasUpdate = Asset_State !== undefined || serial !== undefined ||
       CI_Name !== undefined || Asset_Number !== undefined ||
       PR_No !== undefined || Vendor !== undefined ||
-      Project !== undefined || Sid !== undefined ||
+      Sid !== undefined ||
       Location2 !== undefined || PO_No !== undefined ||
       Loan_Start !== undefined || Request_Date !== undefined ||
       Refer_SOF !== undefined || Refer_Ticket !== undefined ||
@@ -1024,7 +1011,7 @@ const updateDevice = async (req, res) => {
 
     // ดึงข้อมูลที่อัพเดทแล้วมาแสดง (พร้อม JOIN)
     const [updated] = await db.execute(
-      `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, Project, 
+      `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
        Devices.SLid as Sid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
        Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
        Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
@@ -1485,8 +1472,8 @@ const viewDeviceHistory = async (req, res) => {
         Asset_Number: row.Asset_Number,
         PR_No: row.PR_No,
         Vendor: row.Vendor,
-        Project: row.Project,
-        Location2: row.Location2,
+        
+     
         model: row.model,
         Manufacturername: row.Manufacturername,
         Sitename: row.Sitename

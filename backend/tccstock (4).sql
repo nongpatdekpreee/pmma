@@ -10,6 +10,7 @@
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
 SET time_zone = "+00:00";
+SET FOREIGN_KEY_CHECKS=0;
 
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
@@ -26,6 +27,22 @@ SET time_zone = "+00:00";
 --
 -- Table structure for table `contract`
 --
+
+CREATE TABLE `report` (
+  `report_id` int(11) NOT NULL AUTO_INCREMENT,
+  `id` int(11) NOT NULL COMMENT 'task id',
+  `task_type` enum('PM','MA') NOT NULL DEFAULT 'PM',
+  `file_path` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  `image_path` longtext NOT NULL,
+  `sla_result` int(11) NOT NULL,
+  `status` enum('Pass','Fail') NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`report_id`),
+  KEY `idx_task_id` (`id`),
+  KEY `idx_task_type` (`task_type`),
+  CONSTRAINT `fk_report_task_id` FOREIGN KEY (`id`) REFERENCES `tasks` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 
 CREATE TABLE `contract` (
   `contract_id` int(11) NOT NULL,
@@ -793,6 +810,7 @@ ALTER TABLE `contract_device`
   ADD PRIMARY KEY (`contract_id`,`device_id`),
   ADD KEY `fk_cd_device` (`device_id`);
 
+-- report table มี FK ใน CREATE TABLE แล้ว
 --
 -- Indexes for table `devices`
 --
@@ -1027,6 +1045,8 @@ ALTER TABLE `pm_shma`
 ALTER TABLE `sites_location`
   ADD CONSTRAINT `frk11` FOREIGN KEY (`Sid`) REFERENCES `sites` (`Sid`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `frk12` FOREIGN KEY (`lid`) REFERENCES `location` (`lid`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+SET FOREIGN_KEY_CHECKS=1;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

@@ -115,10 +115,10 @@ export function DeviceSelector({
                   <table className="w-full text-left text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50/80">
-                        <th className="px-4 py-3 font-semibold text-slate-600">ลำดับ</th>
-                        <th className="px-4 py-3 font-semibold text-slate-600">ชื่ออุปกรณ์</th>
-                        <th className="px-4 py-3 font-semibold text-slate-600">เลขทรัพย์สิน</th>
-                        <th className="w-14 px-4 py-3 text-center font-semibold text-slate-600">ลบ</th>
+                        <th className="px-4 py-3 font-semibold text-slate-600">Device ID</th>
+                        <th className="px-4 py-3 font-semibold text-slate-600">Device Name</th>
+                        <th className="px-4 py-3 font-semibold text-slate-600">Asset Number</th>
+                        <th className="w-14 px-4 py-3 text-center font-semibold text-slate-600">Remove</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -129,15 +129,15 @@ export function DeviceSelector({
                         >
                           <td className="px-4 py-2.5 text-slate-600">{i + 1}</td>
                           <td className="px-4 py-2.5 font-medium text-slate-800">
-                            {d.CI_Name || d.Asset_Number || `Did ${d.Did}`}
+                            {d.CI_Name || d.serial || `Did ${d.Did}`}
                           </td>
-                          <td className="px-4 py-2.5 text-slate-600">{d.Asset_Number ?? '–'}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{d.serial ?? '–'}</td>
                           <td className="px-4 py-2.5 text-center">
                             <button
                               type="button"
                               onClick={() => onRemoveDevice(String(d.Did))}
                               className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                              title="ลบ"
+                              title="Delete"
                             >
                               <X size={16} />
                             </button>
@@ -162,10 +162,10 @@ export function DeviceSelector({
                       className="cursor-pointer px-4 py-2.5 transition-colors hover:bg-blue-50"
                     >
                       <p className="text-sm font-medium text-slate-700">
-                        {d.CI_Name || d.Asset_Number || `Did ${d.Did}`}
+                        {d.CI_Name || d.serial || `Did ${d.Did}`}
                       </p>
-                      {d.Asset_Number && d.CI_Name && (
-                        <p className="mt-0.5 text-xs text-slate-500">Asset: {d.Asset_Number}</p>
+                      {d.serial && d.CI_Name && (
+                        <p className="mt-0.5 text-xs text-slate-500">Asset: {d.serial}</p>
                       )}
                     </div>
                   ))}

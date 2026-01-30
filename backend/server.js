@@ -50,6 +50,12 @@ app.use('/api/tasks', taskRoutes);
 const employeeRoutes = require('./routes/employeeRoutes');
 app.use('/api/employees', employeeRoutes);
 
+const reportRoutes = require('./routes/reportRoutes');
+app.use('/api/reports', reportRoutes);
+// backward compatibility
+app.use('/api/pm-reports', reportRoutes);
+app.use('/api/ma-reports', reportRoutes);
+
 app.get('/', (req, res) => {
   res.json({
     message: 'TCC Stock Management API',

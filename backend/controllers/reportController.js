@@ -1,0 +1,202 @@
+/**
+ * PM/MA Checklist Report - รับ report และบันทึกลง database (table report)
+ * ใช้ไฟล์เดียวสำหรับทั้ง PM และ MA แยกด้วย reportType / type
+ */
+
+const db = require('../config/database');
+
+// ถ้าได้ตัวเลข (sla_result) ใช้เกณฑ์ > 70 = Pass, ไม่เช่นนั้นใช้ pass/fail เดิม
+function getStatusAndSlaResult(body, resultKey) {
+  const num = body.sla_result;
+  if (num !== undefined && num !== null && num !== '') {
+    const n = Number(num);
+    if (!Number.isNaN(n)) {
+      return { status: n > 70 ? 'Pass' : 'Fail', sla_result: n };
+    }
+  }
+  const result = body[resultKey] ?? body.pmResult ?? body.maResult;
+  const r = (result || '').toLowerCase();
+  if (r === 'pass') return { status: 'Pass', sla_result: 1 };
+  return { status: 'Fail', sla_result: 0 };
+}
+
+function parseJsonField(val, fallback = []) {
+  if (val == null) return fallback;
+  try {
+    return typeof val === 'string' ? JSON.parse(val) : (Array.isArray(val) ? val : fallback);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+/**
+ * POST /api/reports
+ * body: { reportType: 'PM'|'MA', taskId, deviceId, device, checklistItems, uploadedFiles, pmResult|maResult, comment, technicianName, pmDate|maDate }
+ */
+const submitReport = async (req, res) => {
+  try {
+    const body = req.body || {};
+    const reportType = (body.reportType || '').toUpperCase() === 'MA' ? 'MA' : 'PM';
+    const resultKey = reportType === 'PM' ? 'pmResult' : 'maResult';
+
+    const {
+      taskId,
+      deviceId,
+      device,
+      checklistItems = [],
+      uploadedFiles = [],
+      comment,
+      technicianName,
+      pmDate,
+      maDate,
+    } = body;
+
+    if (!taskId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาเลือก Task (taskId) ก่อนส่ง Report',
+      });
+    }
+
+    const { status, sla_result } = getStatusAndSlaResult(body, resultKey);
+    const files = uploadedFiles || [];
+    const filePaths = JSON.stringify(files.filter((f) => f.type !== 'image'));
+    const imagePaths = JSON.stringify(files.filter((f) => f.type === 'image'));
+
+    const [maxRows] = await db.execute(
+      `SELECT COALESCE(MAX(report_id), 0) + 1 AS nextId FROM report`
+    );
+    const reportId = maxRows[0]?.nextId ?? 1;
+
+    await db.execute(
+      `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [reportId, taskId, filePaths, imagePaths, sla_result, status]
+    );
+
+    const reportData = {
+      id: String(reportId),
+      report_id: reportId,
+      reportType,
+      taskId: Number(taskId),
+      deviceId,
+      device,
+      checklistItems,
+      uploadedFiles: files,
+      [resultKey]: status === 'Pass' ? 'pass' : 'fail',
+      sla_result,
+      comment,
+      technicianName,
+      pmDate: pmDate || maDate,
+      status,
+      sla_result,
+      createdAt: new Date().toISOString(),
+    };
+
+    res.status(200).json({
+      success: true,
+      message: reportType === 'PM' ? 'บันทึกข้อมูล PM Checklist Report สำเร็จ' : 'บันทึกข้อมูล MA Checklist Report สำเร็จ',
+      data: reportData,
+      list: checklistItems,
+    });
+  } catch (error) {
+    console.error('[submitReport] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการส่ง Report',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * GET /api/reports?type=PM|MA&limit=&offset=
+ */
+const getReports = async (req, res) => {
+  try {
+    const { type = '', limit = 1000, offset = 0 } = req.query;
+    const taskType = (String(type).toUpperCase() === 'MA' ? 'MA' : 'PM');
+    const limitNum = Math.min(parseInt(limit) || 1000, 1000);
+    const offsetNum = Math.max(parseInt(offset) || 0, 0);
+
+    const [rows] = await db.execute(
+      `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
+              r.sla_result, r.status,
+              t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date
+       FROM report r
+       INNER JOIN Tasks t ON t.id = r.id AND t.task_type = ?
+       ORDER BY r.report_id DESC
+       LIMIT ? OFFSET ?`,
+      [taskType, limitNum, offsetNum]
+    );
+
+    const [countRows] = await db.execute(
+      `SELECT COUNT(*) AS total FROM report r INNER JOIN Tasks t ON t.id = r.id WHERE t.task_type = ?`,
+      [taskType]
+    );
+    const total = countRows[0]?.total || 0;
+
+    const resultKey = taskType === 'PM' ? 'pmResult' : 'maResult';
+    const dateKey = taskType === 'PM' ? 'pmDate' : 'maDate';
+
+    const data = rows.map((r) => {
+      const file_path = parseJsonField(r.file_path);
+      const image_path = parseJsonField(r.image_path);
+      const assets = parseJsonField(r.assets);
+      const engineers = parseJsonField(r.engineers);
+      const firstAsset = Array.isArray(assets) && assets[0] ? assets[0] : null;
+      const firstEngineer = Array.isArray(engineers) && engineers[0] ? engineers[0] : null;
+      const deviceId = firstAsset ? String(firstAsset.id ?? firstAsset.Did ?? firstAsset.deviceId ?? '') : null;
+      const device = firstAsset
+        ? {
+            Did: firstAsset.id ?? firstAsset.Did,
+            CI_Name: firstAsset.name ?? firstAsset.CI_Name,
+            Asset_Number: firstAsset.assetNumber ?? firstAsset.Asset_Number,
+            serial: firstAsset.serialNumber ?? firstAsset.serial,
+            Sitename: firstAsset.site ?? firstAsset.Sitename,
+          }
+        : null;
+      const technicianName = firstEngineer ? (firstEngineer.name ?? firstEngineer.id ?? '') : null;
+      const reportDate = r.start_date ? (typeof r.start_date === 'string' ? r.start_date : r.start_date.toISOString?.()?.slice(0, 10)) : null;
+
+      const item = {
+        id: String(r.report_id),
+        report_id: r.report_id,
+        taskId: r.taskId,
+        task_type: taskType,
+        deviceId,
+        device,
+        checklistItems: [],
+        uploadedFiles: [...file_path, ...image_path],
+        [resultKey]: Number(r.sla_result) > 70 ? 'pass' : 'fail',
+        status: r.status,
+        sla_result: r.sla_result,
+        technicianName: technicianName || undefined,
+        [dateKey]: reportDate || undefined,
+        createdAt: undefined,
+        assets: r.assets,
+        site_name: r.site_name,
+      };
+      return item;
+    });
+
+    res.status(200).json({
+      success: true,
+      data,
+      count: data.length,
+      total,
+    });
+  } catch (error) {
+    console.error('[getReports] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Reports',
+      error: error.message,
+    });
+  }
+};
+
+module.exports = {
+  submitReport,
+  getReports,
+};

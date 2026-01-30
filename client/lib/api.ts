@@ -76,6 +76,104 @@ export async function getTasks(params?: { month?: number; year?: number }): Prom
   return res.json();
 }
 
+/** GET /api/pm-reports - ดึงรายการ PM Reports */
+export async function getPmReports(params?: { limit?: number; offset?: number }): Promise<{
+  success: boolean;
+  data?: Array<{
+    id: string;
+    deviceId: string;
+    device?: object;
+    checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
+    pmResult: 'pass' | 'warning' | 'fail';
+    technicianName?: string;
+    pmDate?: string;
+    createdAt?: string;
+  }>;
+  count?: number;
+  total?: number;
+}> {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set('limit', String(params.limit));
+  if (params?.offset) q.set('offset', String(params.offset));
+  const res = await fetch(apiUrl(`/api/pm-reports?${q.toString()}`));
+  return res.json();
+}
+
+/** POST /api/pm-reports - ส่ง PM Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
+export async function postPmReport(body: {
+  taskId: number;
+  deviceId: string;
+  device?: object;
+  checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
+  uploadedFiles?: Array<{ name: string; type: string }>;
+  sla_result: number;
+  comment?: string;
+  technicianName?: string;
+  pmDate?: string;
+  createdAt?: string;
+}): Promise<{
+  success: boolean;
+  message?: string;
+  data?: object;
+  list?: Array<{ id: string; task: string; status: string; notes?: string }>;
+}> {
+  const res = await fetch(apiUrl('/api/pm-reports'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+/** GET /api/ma-reports - ดึงรายการ MA Reports */
+export async function getMaReports(params?: { limit?: number; offset?: number }): Promise<{
+  success: boolean;
+  data?: Array<{
+    id: string;
+    deviceId: string;
+    device?: object;
+    checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
+    maResult: 'pass' | 'warning' | 'fail';
+    technicianName?: string;
+    maDate?: string;
+    createdAt?: string;
+  }>;
+  count?: number;
+  total?: number;
+}> {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set('limit', String(params.limit));
+  if (params?.offset) q.set('offset', String(params.offset));
+  const res = await fetch(apiUrl(`/api/ma-reports?${q.toString()}`));
+  return res.json();
+}
+
+/** POST /api/ma-reports - ส่ง MA Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
+export async function postMaReport(body: {
+  taskId: number;
+  deviceId: string;
+  device?: object;
+  checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
+  uploadedFiles?: Array<{ name: string; type: string }>;
+  sla_result: number;
+  comment?: string;
+  technicianName?: string;
+  maDate?: string;
+  createdAt?: string;
+}): Promise<{
+  success: boolean;
+  message?: string;
+  data?: object;
+  list?: Array<{ id: string; task: string; status: string; notes?: string }>;
+}> {
+  const res = await fetch(apiUrl('/api/ma-reports'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
 /** GET /api/devices/with-pm - ดึง Devices พร้อม PM Information สำหรับ Asset & Site Database */
 export async function getDevicesWithPM(params?: { search?: string; deviceRole?: string; site?: string }): Promise<{
   success: boolean;

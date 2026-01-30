@@ -7,5 +7,5 @@ export interface SiteLocation {
 export interface DeviceItem {
   Did: number;
   CI_Name: string | null;
-  Asset_Number: string | null;
+  serial: string | null;
 }
