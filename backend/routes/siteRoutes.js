@@ -4,6 +4,7 @@ const {
   createSite,
   getSites,
   getSitesLocation,
+  getSitesLocationBySOF,
   updateSite,
   deleteSite
 } = require('../controllers/siteController');
@@ -16,6 +17,9 @@ router.get('/', getSites);
 
 // GET - ดึง Sites_Location (SLid สำหรับ contract.site_id)
 router.get('/locations', getSitesLocation);
+
+// GET - ดึง Sites_Location เฉพาะที่มี device ที่มี Refer_SOF นี้
+router.get('/locations-by-sof', getSitesLocationBySOF);
 
 // PUT - แก้ไขข้อมูล Site
 router.put('/:id', updateSite);

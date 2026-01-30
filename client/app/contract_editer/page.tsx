@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { apiUrl } from '@/lib/api';
 
 interface Equipment {
   name: string;
@@ -29,82 +31,27 @@ interface Contract {
   formattedEndDate?: string;
 }
 
+function formatDateThai(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' | 'expired' {
+  if (!endDate) return 'pending';
+  const end = new Date(endDate);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  return end < today ? 'expired' : 'active';
+}
+
 export default function ContractEditorPage() {
   const router = useRouter();
-  const [contracts, setContracts] = useState<Contract[]>([
-    {
-      id: 'CON-2024-001',
-      name: 'สัญญาจ้างพัฒนาระบบ',
-      partner: 'บริษัท เทคโนโลยี จำกัด',
-      startDate: '2024-01-01',
-      endDate: '2024-12-31',
-      value: '2500000',
-      status: 'active',
-      formattedValue: '2,500,000',
-      formattedStartDate: '01/01/2024',
-      formattedEndDate: '31/12/2024',
-    },
-    {
-      id: 'CON-2024-002',
-      name: 'สัญญาให้บริการที่ปรึกษา',
-      partner: 'บริษัท คอนซัลติ้ง จำกัด',
-      startDate: '2024-02-15',
-      endDate: '2025-02-14',
-      value: '1200000',
-      status: 'pending',
-      formattedValue: '1,200,000',
-      formattedStartDate: '15/02/2024',
-      formattedEndDate: '14/02/2025',
-    },
-    {
-      id: 'CON-2024-003',
-      name: 'สัญญาเช่าพื้นที่สำนักงาน',
-      partner: 'บริษัท พร็อพเพอร์ตี้ จำกัด',
-      startDate: '2023-03-01',
-      endDate: '2026-02-28',
-      value: '3600000',
-      status: 'active',
-      formattedValue: '3,600,000',
-      formattedStartDate: '01/03/2023',
-      formattedEndDate: '28/02/2026',
-    },
-    {
-      id: 'CON-2023-045',
-      name: 'สัญญาจัดหาอุปกรณ์',
-      partner: 'บริษัท ซัพพลาย จำกัด',
-      startDate: '2023-06-01',
-      endDate: '2023-12-31',
-      value: '850000',
-      status: 'expired',
-      formattedValue: '850,000',
-      formattedStartDate: '01/06/2023',
-      formattedEndDate: '31/12/2023',
-    },
-    {
-      id: 'CON-2024-004',
-      name: 'สัญญาบริการ Cloud',
-      partner: 'AWS Thailand',
-      startDate: '2024-01-01',
-      endDate: '2026-12-31',
-      value: '4800000',
-      status: 'active',
-      formattedValue: '4,800,000',
-      formattedStartDate: '01/01/2024',
-      formattedEndDate: '31/12/2026',
-    },
-    {
-      id: 'CON-2024-005',
-      name: 'สัญญาจ้างทำการตลาด',
-      partner: 'บริษัท มาร์เก็ตติ้ง จำกัด',
-      startDate: '2024-02-01',
-      endDate: '2024-07-31',
-      value: '950000',
-      status: 'pending',
-      formattedValue: '950,000',
-      formattedStartDate: '01/02/2024',
-      formattedEndDate: '31/07/2024',
-    },
-  ]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [contractsLoading, setContractsLoading] = useState(true);
+  const [contractsError, setContractsError] = useState('');
 
   const [activeFilter, setActiveFilter] = useState('ทั้งหมด');
   const [searchTerm, setSearchTerm] = useState('');
@@ -135,6 +82,59 @@ export default function ContractEditorPage() {
     status: 'active' as 'active' | 'pending' | 'expired',
     description: '',
   });
+
+  const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    setContractsLoading(true);
+    setContractsError('');
+    fetch(apiUrl('/api/contracts'))
+      .then((res) => res.json())
+      .then((json) => {
+        if (cancelled) return;
+        if (!json.success || !Array.isArray(json.data)) {
+          setContracts([]);
+          setContractsError(json.message || 'โหลดรายการสัญญาไม่สำเร็จ');
+          return;
+        }
+        const list: Contract[] = json.data.map((c: {
+          contract_id: number;
+          contract_name?: string | null;
+          start_date?: string | null;
+          end_date?: string | null;
+          sale_account?: string | null;
+          site_name?: string | null;
+        }) => {
+          const endDate = c.end_date || '';
+          const status = deriveStatus(endDate);
+          return {
+            id: String(c.contract_id),
+            name: c.contract_name || '—',
+            partner: c.sale_account || c.site_name || '—',
+            startDate: c.start_date || '',
+            endDate,
+            value: '',
+            status,
+            formattedValue: '—',
+            formattedStartDate: formatDateThai(c.start_date),
+            formattedEndDate: formatDateThai(c.end_date),
+            equipment: [],
+          };
+        });
+        setContracts(list);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setContracts([]);
+          setContractsError(err?.message || 'โหลดรายการสัญญาไม่สำเร็จ');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setContractsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const filteredContracts = contracts.filter((contract) => {
     if (activeFilter !== 'ทั้งหมด') {
@@ -228,7 +228,7 @@ export default function ContractEditorPage() {
     };
 
     setContracts([newContract, ...contracts]);
-    alert(`✅ เพิ่มสัญญาบำรุงรักษาใหม่สำเร็จ!\n\nเลขที่สัญญา: ${contractId}\nจำนวนอุปกรณ์: ${currentEquipmentList.length} รายการ`);
+    toastSuccess(`เพิ่มสัญญาบำรุงรักษาใหม่สำเร็จ (เลขที่สัญญา: ${contractId}, อุปกรณ์ ${currentEquipmentList.length} รายการ)`);
     closeModal();
     setCurrentEquipmentList([]);
   };
@@ -251,7 +251,7 @@ export default function ContractEditorPage() {
     };
 
     setContracts(contracts.map((c) => (c.id === currentContract.id ? updatedContract : c)));
-    alert(`✅ แก้ไขสัญญาสำเร็จ!\n\nเลขที่สัญญา: ${currentContract.id}`);
+    toastSuccess(`แก้ไขสัญญาสำเร็จ (เลขที่สัญญา: ${currentContract.id})`);
     closeModal();
   };
 
@@ -370,12 +370,27 @@ export default function ContractEditorPage() {
         </div>
 
         {/* Stats Bar */}
+        {(() => {
+          const total = contracts.length;
+          const active = contracts.filter((c) => c.status === 'active').length;
+          const pending = contracts.filter((c) => c.status === 'pending').length;
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const in30Days = new Date(today);
+          in30Days.setDate(in30Days.getDate() + 30);
+          const nearExpiry = contracts.filter((c) => {
+            if (!c.endDate || c.status === 'expired') return false;
+            const end = new Date(c.endDate);
+            end.setHours(0, 0, 0, 0);
+            return end >= today && end <= in30Days;
+          }).length;
+          return (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
           {[
-            { number: '156', label: 'สัญญาทั้งหมด' },
-            { number: '89', label: 'สัญญาที่ใช้งาน' },
-            { number: '32', label: 'รอดำเนินการ' },
-            { number: '12', label: 'ใกล้หมดอายุ' },
+            { number: String(total), label: 'สัญญาทั้งหมด' },
+            { number: String(active), label: 'สัญญาที่ใช้งาน' },
+            { number: String(pending), label: 'รอดำเนินการ' },
+            { number: String(nearExpiry), label: 'ใกล้หมดอายุ' },
           ].map((stat, idx) => (
             <div key={idx} className="text-center relative">
               {idx < 3 && (
@@ -388,6 +403,8 @@ export default function ContractEditorPage() {
             </div>
           ))}
         </div>
+          );
+        })()}
         <div className="flex gap-4 items-center mb-6 justify-end">
           <button
             onClick={() => router.push('/contract_editer/add')}
@@ -429,7 +446,20 @@ export default function ContractEditorPage() {
         
         
 
+        {/* Loading / Error */}
+        {contractsLoading && (
+          <div className="flex items-center justify-center py-20 text-slate-500">
+            <span className="animate-pulse">กำลังโหลดรายการสัญญา...</span>
+          </div>
+        )}
+        {!contractsLoading && contractsError && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800 text-sm">
+            {contractsError}
+          </div>
+        )}
+
         {/* Contracts Grid */}
+        {!contractsLoading && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(350px,1fr))] gap-6">
           {filteredContracts.map((contract, idx) => (
             <div
@@ -495,6 +525,7 @@ export default function ContractEditorPage() {
             </div>
           ))}
         </div>
+        )}
       </div>
 
       {/* Add Contract Modal */}
@@ -1094,6 +1125,7 @@ export default function ContractEditorPage() {
           </div>
         </Modal>
       )}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
 }

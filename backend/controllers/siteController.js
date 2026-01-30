@@ -59,6 +59,38 @@ const getSitesLocation = async (req, res) => {
   }
 };
 
+// GET - ดึง Sites_Location เฉพาะที่มี device ที่มี Refer_SOF นี้ (สำหรับ dropdown Site เมื่อเลือก SOF ที่มีใน DB)
+const getSitesLocationBySOF = async (req, res) => {
+  try {
+    const referSOF = req.query.refer_sof;
+    if (!referSOF) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ refer_sof'
+      });
+    }
+    const sql = `
+      SELECT DISTINCT SL.SLid, S.Name AS SiteName, L.Location2
+      FROM Sites_Location SL
+      JOIN Sites S ON SL.Sid = S.Sid
+      JOIN Location L ON SL.lid = L.lid
+      WHERE SL.SLid IN (
+        SELECT DISTINCT SLid FROM Devices WHERE Refer_SOF = ? AND SLid IS NOT NULL
+      )
+      ORDER BY S.Name, L.Location2
+    `;
+    const [rows] = await db.execute(sql, [referSOF]);
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting sites-location by SOF:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Sites_Location ตาม SOF',
+      error: error.message
+    });
+  }
+};
+
 // GET - ดึงข้อมูล Sites
 const getSites = async (req, res) => {
   try {
@@ -197,10 +229,11 @@ const deleteSite = async (req, res) => {
 };
 
 module.exports = {
-  createSite,       // POST
-  getSites,         // GET
-  getSitesLocation, // GET /locations
-  updateSite,       // PUT
-  deleteSite        // DELETE
+  createSite,              // POST
+  getSites,                // GET
+  getSitesLocation,        // GET /locations
+  getSitesLocationBySOF,   // GET /locations-by-sof?refer_sof=XXX
+  updateSite,              // PUT
+  deleteSite               // DELETE
 };
 
