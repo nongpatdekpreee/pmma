@@ -33,7 +33,8 @@ export default function AddContractPage() {
   const [contractName, setContractName] = useState('');
   const [sofName, setSofName] = useState('');
   const [assignedService, setAssignedService] = useState('');
-  const [slaName, setSlaName] = useState('');
+  const [slaTerm, setSlaTerm] = useState('');
+  const [slaDetail, setSlaDetail] = useState('');
   const [selectedSOF, setSelectedSOF] = useState('');
   const [saleAccount, setSaleAccount] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
@@ -369,13 +370,13 @@ export default function AddContractPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaveError('');
-    if (!slaName.trim()) {
-      const msg = 'กรุณากรอก SLA Name';
+    if (!slaTerm.trim()) {
+      const msg = 'กรุณากรอก SLA Term';
       setSaveError(msg);
       toastError(msg);
       return;
     }
-    
+
     if (!selectedSOF?.trim()) {
       const msg = 'กรุณาเลือกหรือกรอก SOF (Refer SOF จาก Device)';
       setSaveError(msg);
@@ -420,7 +421,8 @@ export default function AddContractPage() {
             site_device_pairs: pairsFromOld,
             sof_name: selectedSOF.trim() || null,
             assigned_service: assignedService.trim() || null,
-            sla_name: slaName.trim(),
+            sla_term: slaTerm.trim(),
+            sla_detail: slaDetail.trim() || null,
             sale_account: saleAccount.trim() || null,
             coverage_scope: coverageScope.trim() || null,
             remark: remark.trim() || null,
@@ -519,7 +521,8 @@ export default function AddContractPage() {
         site_device_pairs,
         sof_name: selectedSOF.trim() || null,
         assigned_service: assignedService.trim() || null,
-        sla_name: slaName.trim(),
+        sla_term: slaTerm.trim(),
+        sla_detail: slaDetail.trim() || null,
         sale_account: saleAccount.trim() || null,
         coverage_scope: coverageScope.trim() || null,
         remark: remark.trim() || null,
@@ -719,26 +722,20 @@ export default function AddContractPage() {
                 {referSOFLoading && <p className="mt-1 text-xs text-slate-500">กำลังโหลด...</p>}
                 {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
                   <p className="mt-1 text-xs text-amber-600">
-                    {renewContractId ? "เลข SOF ใหม่นี้ยังไม่มีในระบบ (จะถูกสร้างใหม่)" : "เลข SOF นี้ยังไม่มีในระบบ"}
-                  </p>
-                )}
-                {renewContractId && oldContractSOF && (
-                  <p className="mt-1 text-xs text-blue-600">
-                    SOF เก่า: {oldContractSOF} → SOF ใหม่: {selectedSOF || '(กรุณาใส่)'}
+                    เลข SOF นี้ยังไม่มีในระบบ 
                   </p>
                 )}
               </FormField>
               <FormField label="SLA Term" required>
                 <input
                   type="text"
-                  value={slaName}
-                  onChange={(e) => setSlaName(e.target.value)}
+                  value={slaTerm}
+                  onChange={(e) => setSlaTerm(e.target.value)}
                   placeholder="SLA %"
                   className={inputBase}
                   required
                 />
               </FormField>
-      
               
               <FormField label="Sale Account" className="sm:col-span-2">
                 <input
@@ -891,39 +888,22 @@ export default function AddContractPage() {
                         )}
                       </div>
                       {entry.devices.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold text-slate-600">
-                            เลือกแล้ว <span className="text-blue-600">{entry.devices.length}</span> รายการ
-                          </p>
-                          <div className="overflow-x-auto rounded-xl border border-slate-200">
-                            <table className="w-full min-w-[280px] text-sm">
-                            <thead>
-                              <tr className="border-b border-slate-200 bg-slate-50/80">
-                                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">#</th>
-                                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">Device</th>
-                                <th className="w-12 px-4 py-2.5 text-right text-xs font-semibold uppercase text-slate-600">ลบ</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {entry.devices.map((d, idx) => (
-                                <tr key={d.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                                  <td className="px-4 py-2.5 text-slate-500">{idx + 1}</td>
-                                  <td className="px-4 py-2.5 font-medium text-slate-700">{d.label}</td>
-                                  <td className="px-4 py-2.5 text-right">
-                                    <button
-                                      type="button"
-                                      onClick={() => removeDeviceFromEntry(entry.id, d.id)}
-                                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 focus:outline-none"
-                                      title="ลบ"
-                                    >
-                                      <X size={16} />
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                          </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {entry.devices.map((d) => (
+                            <span
+                              key={d.id}
+                              className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
+                            >
+                              {d.label}
+                              <button
+                                type="button"
+                                onClick={() => removeDeviceFromEntry(entry.id, d.id)}
+                                className="hover:text-blue-900 focus:outline-none"
+                              >
+                                <X size={10} />
+                              </button>
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>

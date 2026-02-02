@@ -1300,17 +1300,14 @@ const getDevicesBySOFAndSite = async (req, res) => {
   }
 };
 
-// GET - ดึง Devices ที่ยังไม่มีเลข SOF (Refer_SOF เป็น NULL, '' หรือ 'Not Assigned') และ Asset_State = 'In Store'
-// ไม่แสดง device ที่ผูกกับสัญญาแล้ว (contract.device_id หรือ contract_device)
+// GET - ดึง Devices ที่ยังไม่มี SOF (Refer_SOF เป็น NULL, '' หรือ 'Not Assigned') และยังไม่มี contract
+// เงื่อนไข: ไม่มี contract (contract.device_id, contract_device) และ Refer_SOF = null หรือ 'Not Assigned'
 // ถ้ามี site_id = กรองตาม site นั้น; ถ้าไม่มี = แสดงทุกอันที่ SLid = 2
 const getDevicesBySiteNoSOF = async (req, res) => {
   try {
     const siteId = req.query.site_id;
     let sql, params;
-    // รองรับทั้ง NULL, '', ช่องว่าง, และ 'Not Assigned' (ไม่สนใจตัวพิมพ์/ช่องว่าง)
     const noSofCondition = `(d.Refer_SOF IS NULL OR TRIM(COALESCE(d.Refer_SOF,'')) = '' OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned')`;
-    // รองรับ 'In Store' ไม่สนใจตัวพิมพ์และช่องว่าง
-    const inStoreCondition = "LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store'";
     const notInContract = `d.Did NOT IN (SELECT device_id FROM contract WHERE device_id IS NOT NULL)
       AND d.Did NOT IN (SELECT device_id FROM contract_device)`;
     
@@ -1319,7 +1316,6 @@ const getDevicesBySiteNoSOF = async (req, res) => {
              FROM devices d
              WHERE d.SLid = ?
                AND ${noSofCondition}
-               AND ${inStoreCondition}
                AND (${notInContract})
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
       params = [siteId];
@@ -1328,7 +1324,6 @@ const getDevicesBySiteNoSOF = async (req, res) => {
              FROM devices d
              WHERE d.SLid = 2
                AND ${noSofCondition}
-               AND ${inStoreCondition}
                AND (${notInContract})
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
       params = [];
@@ -1421,7 +1416,9 @@ const getDevicesByAssetState = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Asset_State',
-      error: error.message
+      error: error.message,
+      sqlState: error.sqlState,
+      errno: error.errno
     });
   }
 };

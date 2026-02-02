@@ -53,7 +53,7 @@ const getSitesLocation = async (req, res) => {
     console.error('Error getting sites-location:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Sites_Location',
+      message: 'เกิดข้อผิดพลาดในการดึง sites_Location',
       error: error.message
     });
   }
@@ -85,7 +85,7 @@ const getSitesLocationBySOF = async (req, res) => {
     console.error('Error getting sites-location by SOF:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Sites_Location ตาม SOF',
+      message: 'เกิดข้อผิดพลาดในการดึง sites_Location ตาม SOF',
       error: error.message
     });
   }

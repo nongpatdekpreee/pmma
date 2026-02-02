@@ -9,7 +9,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
-import { apiUrl, getContractsBySite, getDevicesByContract } from '@/lib/api';
+import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract } from '@/lib/api';
 import { EMPLOYEE_DATA } from '@/data/employee.mock';
 
 
@@ -31,6 +31,7 @@ interface Device {
   source?: 'site' | 'available';
   Dtypeid?: number;
   DeRoleid?: number;
+  SLid?: number; // สำหรับกรองตาม site
 }
 
 interface Engineer {
@@ -53,8 +54,7 @@ interface ContractOption {
   end_date?: string;
   site_id?: number;
   site_name?: string;
-  sla_name?: string;
-  sla_detail?: string;
+  sof_name?: string;
 }
 
 /* ================= available engineers ================= */
@@ -140,26 +140,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setBrokenDevicePairs([]);
   };
 
-  const fetchSiteOptions = async () => {
-    try {
-      setLoadingSites(true);
-      const res = await fetch(apiUrl('/api/sites/locations'));
-      const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'ไม่สามารถดึงรายชื่อไซต์ได้');
-      const options: SiteOption[] = (json.data || []).map((item: any) => ({
-        id: String(item.SLid ?? item.site_id ?? item.id),
-        name: item.SiteName || item.Name || 'Unnamed Site',
-        location: item.Location2 || item.location || '',
-        label: `${item.SiteName || item.Name || 'Site'}${item.Location2 ? ` - ${item.Location2}` : ''}`,
-      }));
-      setSiteOptions(options);
-    } catch (error: any) {
-      console.error('fetchSiteOptions error:', error);
-    } finally {
-      setLoadingSites(false);
-    }
-  };
-
   const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => ({
     id: item.Did ?? item.id ?? item.Asset_Number ?? item.serial ?? crypto.randomUUID(),
     name: item.CI_Name || item.name || item.Asset_Number || 'Device',
@@ -171,19 +151,38 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     assetState: item.Asset_State || item.assetState,
     assetNumber: item.Asset_Number || item.assetNumber,
     source,
+    SLid: item.SLid != null ? Number(item.SLid) : undefined,
   });
 
-  const fetchContractsBySite = async (siteId: string) => {
-    if (!siteId) return [];
+  const fetchAllContracts = async () => {
     try {
-      const result = await getContractsBySite(siteId);
+      const result = await getContractsBySite();
       if (!result.success) {
         throw new Error('ไม่สามารถดึงข้อมูลสัญญาได้');
       }
       return result.data || [];
     } catch (error: any) {
-      console.error('fetchContractsBySite error:', error);
-      throw new Error(error.message || 'โหลดสัญญาตามไซต์ไม่สำเร็จ');
+      console.error('fetchAllContracts error:', error);
+      throw new Error(error.message || 'โหลดสัญญาไม่สำเร็จ');
+    }
+  };
+
+  const fetchSitesByContract = async (contractId: string) => {
+    if (!contractId) return [];
+    try {
+      const result = await getSitesByContract(contractId);
+      if (!result.success) {
+        throw new Error('ไม่สามารถดึง Sites ของสัญญาได้');
+      }
+      return (result.data || []).map((item: any) => ({
+        id: String(item.SLid),
+        name: item.SiteName || 'Site',
+        location: item.Location2 || '',
+        label: `${item.SiteName || 'Site'}${item.Location2 ? ` - ${item.Location2}` : ''}`,
+      }));
+    } catch (error: any) {
+      console.error('fetchSitesByContract error:', error);
+      throw new Error(error.message || 'โหลด Sites ตามสัญญาไม่สำเร็จ');
     }
   };
 
@@ -221,42 +220,56 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     return Array.from(map.values());
   };
 
-  const loadContractsForSite = async (siteId: string, preserveContractId?: string) => {
-    if (!isOpen || !siteId) {
-      setContractOptions([]);
-      if (!preserveContractId) {
-        setSelectedContractId('');
-      }
-      setDevices([]);
-      return;
-    }
+  const loadAllContracts = async () => {
+    if (!isOpen) return;
     setLoadingContracts(true);
     setDeviceError(null);
     try {
-      const contracts = await fetchContractsBySite(siteId);
+      const contracts = await fetchAllContracts();
       setContractOptions(contracts);
-      // Only reset contract selection when site changes if not preserving (i.e., not editing)
-      if (!preserveContractId) {
-        setSelectedContractId('');
-        setDevices([]);
-        setSelectedDevices([]);
-      } else {
-        // If preserving contractId, verify it exists in the new contracts list
-        const contractExists = contracts.some(c => String(c.contract_id) === String(preserveContractId));
-        if (contractExists) {
-          // Set the contractId after contracts are loaded
-          setSelectedContractId(String(preserveContractId));
-        } else {
-          // Contract doesn't exist for this site, reset it
-          setSelectedContractId('');
-        }
-      }
     } catch (error: any) {
-      console.error('loadContractsForSite error:', error);
+      console.error('loadAllContracts error:', error);
       setDeviceError(error.message || 'ไม่สามารถโหลดสัญญาได้');
       setContractOptions([]);
     } finally {
       setLoadingContracts(false);
+    }
+  };
+
+  const loadSitesForContract = async (contractId: string, preserveSiteId?: string) => {
+    if (!isOpen || !contractId) {
+      setSiteOptions([]);
+      if (!preserveSiteId) {
+        setSid('');
+        setSname('');
+      }
+      return;
+    }
+    setLoadingSites(true);
+    setDeviceError(null);
+    try {
+      const sites = await fetchSitesByContract(contractId);
+      setSiteOptions(sites);
+      if (!preserveSiteId) {
+        setSid('');
+        setSname('');
+      } else {
+        const siteExists = sites.some((s: SiteOption) => s.id === String(preserveSiteId));
+        if (siteExists) {
+          const sel = sites.find((s: SiteOption) => s.id === String(preserveSiteId));
+          setSid(String(preserveSiteId));
+          setSname(sel ? sel.label : '');
+        } else {
+          setSid('');
+          setSname('');
+        }
+      }
+    } catch (error: any) {
+      console.error('loadSitesForContract error:', error);
+      setDeviceError(error.message || 'ไม่สามารถโหลด Sites ได้');
+      setSiteOptions([]);
+    } finally {
+      setLoadingSites(false);
     }
   };
 
@@ -298,11 +311,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   /* ================= effects ================= */
-  useEffect(() => {
-    if (!isOpen) return;
-    fetchSiteOptions();
-  }, [isOpen]);
-
   useEffect(() => {
     if (!isOpen) return;
     if (editingEvent) {
@@ -405,10 +413,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   useEffect(() => {
     if (!isOpen) return;
-    // If editing, preserve the contractId when loading contracts
-    const preserveContractId = editingEvent?.contractId ? String(editingEvent.contractId) : undefined;
-    loadContractsForSite(Sid, preserveContractId);
-  }, [Sid, isOpen, editingEvent]);
+    loadAllContracts();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const preserveSiteId = editingEvent?.Sid ?? editingEvent?.siteId;
+    loadSitesForContract(selectedContractId, preserveSiteId ? String(preserveSiteId) : undefined);
+  }, [selectedContractId, isOpen, editingEvent]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -613,15 +625,25 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setSid(siteId);
     const selected = siteOptions.find((s) => s.id === siteId);
     setSname(selected ? selected.label : '');
-    // Reset contract selection when site changes
-    setSelectedContractId('');
-    setDevices([]);
-    setSelectedDevices([]);
+    // กรอง devices ตาม site - เคลียร์ selected ที่ไม่อยู่ใน site นี้
+    setSelectedDevices((prev) =>
+      siteId ? prev.filter((d) => d.SLid != null && String(d.SLid) === siteId) : []
+    );
   };
 
   const handleContractChange = (contractId: string) => {
     setSelectedContractId(contractId);
+    setSid('');
+    setSname('');
+    setDevices([]);
+    setSelectedDevices([]);
+    setBrokenDevicePairs([]);
   };
+
+  // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices)
+  const devicesToShow = Sid
+    ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid)
+    : [];
 
   const handleSave = async () => {
     if (!Sname || !startDate || selectedEngineers.length === 0) {
@@ -789,50 +811,54 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             </div>
           )}
 
-          {/* Site ID */}
+          {/* Contract & Site (เหมือน contract_editer/add: เลือก Contract ก่อน แล้วค่อย Site) */}
           <div className={sectionCard}>
-            <h3 className="text-xs font-bold text-slate-700">Site Information</h3>
+            <h3 className="text-xs font-bold text-slate-700">Contract & Site Information</h3>
 
             <div>
-              <label className={fieldLabel}>Site Name *</label>
+              <label className={fieldLabel}>Contract *</label>
               <select
-                value={Sid}
-                onChange={(e) => handleSiteChange(e.target.value)}
+                value={selectedContractId}
+                onChange={(e) => handleContractChange(e.target.value)}
                 className={selectBase}
+                disabled={loadingContracts}
               >
-                <option value="">{loadingSites ? 'Loading sites...' : 'Select Site'}</option>
-                {siteOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.id} - {s.label}
+                <option value="">
+                  {loadingContracts ? 'Loading contracts...' : 'Select Contract'}
+                </option>
+                {contractOptions.map((contract) => (
+                  <option key={contract.contract_id} value={String(contract.contract_id)}>
+                    {contract.contract_name || `Contract #${contract.contract_id}`}
+                    {contract.sof_name ? ` - ${contract.sof_name}` : ''}
                   </option>
                 ))}
               </select>
-              {loadingSites && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลไซต์...</p>}
+              {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลสัญญา...</p>}
+              {!loadingContracts && contractOptions.length === 0 && (
+                <p className="text-[10px] text-slate-400 mt-1">ไม่พบสัญญา</p>
+              )}
             </div>
 
-            {/* Contract Selection - appears after site is selected */}
-            {Sid && (
+            {/* Site Selection - appears after contract is selected */}
+            {selectedContractId && (
               <div>
-                <label className={fieldLabel}>Contract</label>
+                <label className={fieldLabel}>Site Name *</label>
                 <select
-                  value={selectedContractId}
-                  onChange={(e) => handleContractChange(e.target.value)}
+                  value={Sid}
+                  onChange={(e) => handleSiteChange(e.target.value)}
                   className={selectBase}
-                  disabled={loadingContracts}
+                  disabled={loadingSites}
                 >
-                  <option value="">
-                    {loadingContracts ? 'Loading contracts...' : 'Select Contract'}
-                  </option>
-                  {contractOptions.map((contract) => (
-                    <option key={contract.contract_id} value={String(contract.contract_id)}>
-                      {contract.contract_name || `Contract #${contract.contract_id}`}
-                      {contract.sla_name ? ` - ${contract.sla_name}` : ''}
+                  <option value="">{loadingSites ? 'Loading sites...' : 'Select Site'}</option>
+                  {siteOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
                     </option>
                   ))}
                 </select>
-                {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลสัญญา...</p>}
-                {!loadingContracts && contractOptions.length === 0 && Sid && (
-                  <p className="text-[10px] text-slate-400 mt-1">ไม่พบสัญญาในไซต์นี้</p>
+                {loadingSites && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลไซต์...</p>}
+                {!loadingSites && siteOptions.length === 0 && selectedContractId && (
+                  <p className="text-[10px] text-slate-400 mt-1">ไม่พบ Site ในสัญญานี้</p>
                 )}
               </div>
             )}
@@ -867,15 +893,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             )}
 
             {/* Device List */}
-            {devices.length === 0 && !loadingDevices && (
+            {devicesToShow.length === 0 && !loadingDevices && (
               <p className="text-xs text-slate-400">
-                {!Sid ? 'Select Site to show contracts' : !selectedContractId ? (taskType === 'MA' ? 'Select Contract to show broken devices (must be devices bound to contract)' : 'Select Contract to show bound devices') : 'No devices found in contract'}
+                {!selectedContractId
+                  ? 'เลือก Contract ก่อน'
+                  : !Sid
+                    ? 'เลือก Site เพื่อแสดงอุปกรณ์'
+                    : 'ไม่พบอุปกรณ์ที่ Site นี้'}
               </p>
             )}
 
-            {devices.length > 0 && taskType === 'PM' && (
+            {devicesToShow.length > 0 && taskType === 'PM' && (
               <div className="space-y-1.5">
-                {(showAll ? devices : devices.slice(0, 3)).map((d) => {
+                {(showAll ? devicesToShow : devicesToShow.slice(0, 3)).map((d) => {
                   const active = selectedDevices.some((x) => x.id === d.id);
                   return (
                     <div
@@ -901,7 +931,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               </div>
             )}
 
-            { taskType === 'PM' && devices.length > 3 && (
+            { taskType === 'PM' && devicesToShow.length > 3 && (
               <button
                 onClick={() => setAssetModalOpen(true)}
                 className="text-xs font-medium text-blue-500 hover:underline mt-2"
@@ -922,9 +952,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
                         Broken Device 1 *
                       </label>
-                      {devices.length === 0 ? (
+                      {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                          {!selectedContractId ? 'Please select Contract first' : 'No devices found in contract'}
+                          {!selectedContractId ? 'เลือก Contract ก่อน' : !Sid ? 'เลือก Site เพื่อแสดงอุปกรณ์' : 'ไม่พบอุปกรณ์ที่ Site นี้'}
                         </p>
                       ) : (
                         <select
@@ -932,7 +962,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           onChange={(e) => {
                             const deviceId = e.target.value;
                             if (deviceId) {
-                              const device = devices.find(d => String(d.id) === deviceId);
+                              const device = devicesToShow.find(d => String(d.id) === deviceId);
                               if (device) {
                                 addBrokenDevicePair(device);
                               }
@@ -941,7 +971,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           className={selectBase}
                         >
                           <option value="">-- Select Broken Device --</option>
-                          {devices.map((d) => (
+                          {devicesToShow.map((d) => (
                             <option key={d.id} value={String(d.id)}>
                               {d.name} {d.assetNumber ? `(${d.assetNumber})` : ''} {d.serialNumber ? `- SN: ${d.serialNumber}` : ''}
                             </option>
@@ -1171,7 +1201,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       </div>
       <AssetSelectModal
         open={assetModalOpen}
-        devices={devices.filter(d => 
+        devices={devicesToShow.filter(d => 
           taskType === 'MA' 
             ? !brokenDevicePairs.some(pair => pair.brokenDevice.id === d.id)
             : true

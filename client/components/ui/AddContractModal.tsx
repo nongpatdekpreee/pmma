@@ -30,7 +30,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   const [duration, setDuration] = useState('');
   const [endDate, setEndDate] = useState('');
   const [sofName, setSofName] = useState('');
-  const [slaName, setSlaName] = useState('');
+  const [slaTerm, setSlaTerm] = useState('');
 
   const [saleAccount, setSaleAccount] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
@@ -80,7 +80,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setDeviceFilter('');
       setContractName('');
       setSofName('');
-      setSlaName('');
+      setSlaTerm('');
   
       setSaleAccount('');
       setCoverageScope('');
@@ -124,7 +124,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         const res = await fetch(apiUrl('/api/sites/locations'));
         const json = await res.json();
         if (res.ok && json.data) setSitesLocation(json.data);
-        else if (!res.ok) throw new Error(json.message || 'ดึง Sites_Location ไม่ได้');
+        else if (!res.ok) throw new Error(json.message || 'ดึง sites_Location ไม่ได้');
       } catch (e) {
         setFetchError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
       } finally {
@@ -234,8 +234,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setSaveError('กรุณาเลือก Site และ Device อย่างน้อย 1 รายการ (เลือก Site แล้วกดเลือก Device)');
       return;
     }
-    if (!slaName.trim()) {
-      setSaveError('กรุณากรอก sla_name (ชื่อ SLA)');
+    if (!slaTerm.trim()) {
+      setSaveError('กรุณากรอก sla_term (SLA Term)');
       return;
     }
    
@@ -252,7 +252,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         end_date: endDate || null,
         site_device_pairs,
         sof_name: selectedReferSOF || sofName.trim() || null,
-        sla_name: slaName.trim(),
+        sla_term: slaTerm.trim(),
  
         sale_account: saleAccount.trim() || null,
         coverage_scope: coverageScope.trim() || null,
@@ -308,11 +308,11 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
             </div>
 
             <div>
-              <label className={labelBase}>SLA Name *</label>
+              <label className={labelBase}>SLA Term *</label>
               <input
                 type="text"
-                value={slaName}
-                onChange={(e) => setSlaName(e.target.value)}
+                value={slaTerm}
+                onChange={(e) => setSlaTerm(e.target.value)}
                 placeholder="ชื่อ SLA"
                 className={inputBase}
                 required
