@@ -2,7 +2,7 @@
 
 import { ArrowLeft, FileText, Calendar, Cpu, Paperclip, Loader2, Plus, Trash2, X } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
@@ -26,13 +26,14 @@ type SiteEntry = {
 
 export default function AddContractPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const renewContractId = searchParams?.get('renew');
 
   // Form state
   const [contractName, setContractName] = useState('');
   const [sofName, setSofName] = useState('');
   const [assignedService, setAssignedService] = useState('');
   const [slaName, setSlaName] = useState('');
-  const [slaDetail, setSlaDetail] = useState('');
   const [selectedSOF, setSelectedSOF] = useState('');
   const [saleAccount, setSaleAccount] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
@@ -44,6 +45,12 @@ export default function AddContractPage() {
   const [pmTimePerYear, setPmTimePerYear] = useState('');
   const [filePaths, setFilePaths] = useState<string[]>([]);
   const [imagePaths, setImagePaths] = useState<string[]>([]);
+
+  // สำหรับต่อสัญญา: ข้อมูลสัญญาเก่า
+  const [oldContractSOF, setOldContractSOF] = useState<string>('');
+  const [oldContractDevices, setOldContractDevices] = useState<DeviceItem[]>([]);
+  const [selectedOldDevices, setSelectedOldDevices] = useState<Set<number>>(new Set());
+  const [loadingOldContract, setLoadingOldContract] = useState(false);
 
   // SOF from devices + Site & Device (หลาย site, แต่ละ site หลาย device)
   const [referSOFList, setReferSOFList] = useState<string[]>([]);
@@ -95,6 +102,133 @@ export default function AddContractPage() {
     };
     load();
   }, []);
+
+  // โหลดข้อมูลสัญญาเก่าเมื่อมี renewContractId
+  useEffect(() => {
+    if (!renewContractId) return;
+    
+    const loadOldContract = async () => {
+      setLoadingOldContract(true);
+      setFetchError('');
+      try {
+        // โหลด sitesLocation ก่อน (ถ้ายังไม่มี)
+        if (sitesLocation.length === 0) {
+          const sitesRes = await fetch(apiUrl('/api/sites/locations'));
+          const sitesJson = await sitesRes.json();
+          if (sitesRes.ok && sitesJson.data) {
+            setSitesLocation(sitesJson.data);
+          }
+        }
+
+        // ดึงข้อมูลสัญญา
+        const contractRes = await fetch(apiUrl(`/api/contracts?site_id=`));
+        const contractJson = await contractRes.json();
+        const contract = contractJson.data?.find((c: any) => String(c.contract_id) === renewContractId);
+        
+        if (contract) {
+          if (contract.sof_name) {
+            setOldContractSOF(contract.sof_name);
+          }
+          if (contract.contract_name) {
+            setContractName(contract.contract_name);
+          }
+          if (contract.sale_account) {
+            setSaleAccount(contract.sale_account);
+          }
+          if (contract.coverage_scope) {
+            setCoverageScope(contract.coverage_scope);
+          }
+          // คำนวณวันที่ใหม่ (วันสิ้นสุดเก่า + 1 วัน เป็นวันเริ่มต้นใหม่)
+          if (contract.end_date) {
+            const oldEndDate = new Date(contract.end_date);
+            const newStartDate = new Date(oldEndDate);
+            newStartDate.setDate(newStartDate.getDate() + 1);
+            setStartDate(newStartDate.toISOString().split('T')[0]);
+            // คำนวณ end date จาก start date + duration เดิม (ถ้ามี)
+            if (contract.start_date && contract.end_date) {
+              const oldStart = new Date(contract.start_date);
+              const oldEnd = new Date(contract.end_date);
+              const monthsDiff = (oldEnd.getFullYear() - oldStart.getFullYear()) * 12 + 
+                                 (oldEnd.getMonth() - oldStart.getMonth());
+              if (monthsDiff > 0) {
+                setDuration(String(monthsDiff));
+              }
+            }
+          }
+        }
+
+        // ดึง devices จากสัญญาเก่า
+        const devicesRes = await fetch(apiUrl(`/api/contracts/${renewContractId}/devices`));
+        const devicesJson = await devicesRes.json();
+        if (devicesRes.ok && devicesJson.data) {
+          setOldContractDevices(devicesJson.data);
+          // เลือก devices ทั้งหมดโดยอัตโนมัติ
+          const allDeviceIds = new Set<number>(devicesJson.data.map((d: DeviceItem) => d.Did));
+          setSelectedOldDevices(allDeviceIds);
+        }
+      } catch (e) {
+        setFetchError(e instanceof Error ? e.message : 'โหลดข้อมูลสัญญาเก่าไม่สำเร็จ');
+      } finally {
+        setLoadingOldContract(false);
+      }
+    };
+    
+    loadOldContract();
+  }, [renewContractId]);
+
+  // สร้าง site entries จาก devices เก่าเมื่อ sitesLocation และ oldContractDevices โหลดเสร็จแล้ว
+  useEffect(() => {
+    if (!renewContractId || oldContractDevices.length === 0) return;
+    
+    // รอ sitesLocation โหลดเสร็จ (ถ้ายังไม่มีให้โหลด)
+    const setupSiteEntries = async () => {
+      let currentSites = sitesLocation;
+      if (currentSites.length === 0) {
+        const sitesRes = await fetch(apiUrl('/api/sites/locations'));
+        const sitesJson = await sitesRes.json();
+        if (sitesRes.ok && sitesJson.data) {
+          currentSites = sitesJson.data;
+          setSitesLocation(sitesJson.data);
+        }
+      }
+      
+      if (currentSites.length === 0) return;
+      
+      // จัดกลุ่ม devices ตาม SLid และสร้าง site entries
+      const devicesBySLid = new Map<number, DeviceItem[]>();
+      oldContractDevices.forEach((device) => {
+        const slid = (device as any).SLid as number | null | undefined;
+        if (slid) {
+          if (!devicesBySLid.has(slid)) {
+            devicesBySLid.set(slid, []);
+          }
+          devicesBySLid.get(slid)!.push(device);
+        }
+      });
+
+      // สร้าง site entries จาก devices เก่า
+      const newSiteEntries: SiteEntry[] = [];
+      devicesBySLid.forEach((devices, slid) => {
+        const site = currentSites.find((s) => s.SLid === slid);
+        const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : `Site ${slid}`;
+        newSiteEntries.push({
+          id: crypto.randomUUID(),
+          siteId: String(slid),
+          siteLabel,
+          devices: devices.map((d) => ({
+            id: String(d.Did),
+            label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
+          })),
+        });
+      });
+      
+      if (newSiteEntries.length > 0) {
+        setSiteEntries(newSiteEntries);
+      }
+    };
+    
+    setupSiteEntries();
+  }, [renewContractId, oldContractDevices, sitesLocation]);
 
   // โหลด Sites เมื่อมีค่า SOF (เลือกหรือพิมพ์ครบแล้ว)
   // ถ้า SOF มีใน DB → แสดงเฉพาะ site ที่มี SOF นั้น; ถ้า SOF ยังไม่มีใน DB → แสดงทุก site
@@ -241,40 +375,151 @@ export default function AddContractPage() {
       toastError(msg);
       return;
     }
-    if (!slaDetail.trim()) {
-      const msg = 'กรุณากรอก SLA Detail';
-      setSaveError(msg);
-      toastError(msg);
-      return;
-    }
+    
     if (!selectedSOF?.trim()) {
       const msg = 'กรุณาเลือกหรือกรอก SOF (Refer SOF จาก Device)';
       setSaveError(msg);
       toastError(msg);
       return;
     }
+    // รวม devices จากสัญญาเก่าที่เลือกไว้
+    const oldDeviceIds = Array.from(selectedOldDevices);
+    
+    // รวม devices จาก site entries
     const validPairs = siteEntries.filter((e) => e.siteId && e.devices.length > 0);
-    if (validPairs.length === 0) {
-      const msg = 'กรุณาเลือก Site และ Device อย่างน้อย 1 รายการ (เลือก Site แล้วกดเลือก Device)';
+    
+    // ถ้าเป็นต่อสัญญาและมี devices จากสัญญาเก่า แต่ไม่มี site entries ให้สร้าง site_device_pairs จาก devices เก่า
+    if (renewContractId && oldDeviceIds.length > 0 && validPairs.length === 0) {
+      // จัดกลุ่ม devices ตาม SLid
+      const devicesBySLid = new Map<number, number[]>();
+      oldContractDevices.forEach((device) => {
+        if (selectedOldDevices.has(device.Did)) {
+          const slid = (device as any).SLid as number | null | undefined;
+          if (slid) {
+            if (!devicesBySLid.has(slid)) {
+              devicesBySLid.set(slid, []);
+            }
+            devicesBySLid.get(slid)!.push(device.Did);
+          }
+        }
+      });
+
+      // สร้าง site_device_pairs จาก devices เก่า
+      const pairsFromOld = Array.from(devicesBySLid.entries()).map(([slid, deviceIds]) => ({
+        site_id: slid,
+        device_ids: deviceIds,
+      }));
+
+      if (pairsFromOld.length > 0) {
+        setSaveLoading(true);
+        try {
+          const body = {
+            contract_name: contractName.trim() || null,
+            start_date: startDate || null,
+            end_date: endDate || null,
+            site_device_pairs: pairsFromOld,
+            sof_name: selectedSOF.trim() || null,
+            assigned_service: assignedService.trim() || null,
+            sla_name: slaName.trim(),
+            sale_account: saleAccount.trim() || null,
+            coverage_scope: coverageScope.trim() || null,
+            remark: remark.trim() || null,
+            contract_sign_date: contractSignDate || null,
+            pm_time_per_year: pmTimePerYear ? parseInt(pmTimePerYear, 10) : null,
+            file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
+            image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
+            old_contract_id: renewContractId ? parseInt(renewContractId, 10) : null,
+            old_sof: renewContractId && oldContractSOF ? oldContractSOF : null,
+          };
+          const res = await fetch(apiUrl('/api/contracts'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.message || data.error || 'บันทึกไม่สำเร็จ');
+          toastSuccess(`ต่อสัญญาสำเร็จ (SOF เก่า: ${oldContractSOF} → SOF ใหม่: ${selectedSOF})`);
+          router.push('/contract_editer');
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'บันทึกไม่สำเร็จ';
+          setSaveError(msg);
+          toastError(msg);
+        } finally {
+          setSaveLoading(false);
+        }
+        return;
+      }
+    }
+
+    // ถ้ามีทั้ง devices จากสัญญาเก่าและ site entries ใหม่
+    if (validPairs.length === 0 && oldDeviceIds.length === 0) {
+      const msg = renewContractId 
+        ? 'กรุณาเลือก Device อย่างน้อย 1 รายการ (จากสัญญาเก่าหรือเพิ่มใหม่)'
+        : 'กรุณาเลือก Site และ Device อย่างน้อย 1 รายการ (เลือก Site แล้วกดเลือก Device)';
       setSaveError(msg);
       toastError(msg);
       return;
     }
+
     setSaveLoading(true);
     try {
-      const site_device_pairs = validPairs.map((e) => ({
-        site_id: parseInt(e.siteId, 10),
-        device_ids: e.devices.map((d) => parseInt(d.id, 10)).filter((n) => !isNaN(n)),
+      // รวม devices จากสัญญาเก่าเข้ากับ site_device_pairs
+      type SiteDevicePair = { site_id: number; device_ids: number[] };
+      const allPairs: SiteDevicePair[] = validPairs.map((p) => ({
+        site_id: parseInt(p.siteId, 10),
+        device_ids: p.devices.map((d) => parseInt(d.id, 10)).filter((n) => !isNaN(n)),
       }));
+      
+      // เพิ่ม devices จากสัญญาเก่าที่ยังไม่มีใน site entries
+      if (oldDeviceIds.length > 0) {
+        const devicesInPairs = new Set(allPairs.flatMap((p) => p.device_ids));
+        const remainingOldDevices = oldContractDevices.filter(
+          (d) => selectedOldDevices.has(d.Did) && !devicesInPairs.has(d.Did)
+        );
+
+        // จัดกลุ่ม devices ที่เหลือตาม SLid
+        const remainingBySLid = new Map<number, number[]>();
+        remainingOldDevices.forEach((device) => {
+          const slid = (device as any).SLid as number | null | undefined;
+          if (slid) {
+            if (!remainingBySLid.has(slid)) {
+              remainingBySLid.set(slid, []);
+            }
+            remainingBySLid.get(slid)!.push(device.Did);
+          }
+        });
+
+        // เพิ่ม pairs จาก devices เก่าที่เหลือ
+        remainingBySLid.forEach((deviceIds, slid) => {
+          const existingPair = allPairs.find((p) => p.site_id === slid);
+          if (existingPair) {
+            // รวม devices เข้ากับ pair ที่มีอยู่
+            existingPair.device_ids = [...new Set([...existingPair.device_ids, ...deviceIds])];
+          } else {
+            // สร้าง pair ใหม่
+            allPairs.push({
+              site_id: slid,
+              device_ids: deviceIds,
+            });
+          }
+        });
+      }
+
+      const site_device_pairs = allPairs.map((e) => ({
+        site_id: e.site_id,
+        device_ids: Array.isArray(e.device_ids) 
+          ? e.device_ids.filter((n: number) => !isNaN(n))
+          : [],
+      }));
+
       const body = {
         contract_name: contractName.trim() || null,
         start_date: startDate || null,
         end_date: endDate || null,
         site_device_pairs,
         sof_name: selectedSOF.trim() || null,
-        assigned_service: sofName.trim() || null,
+        assigned_service: assignedService.trim() || null,
         sla_name: slaName.trim(),
-        sla_detail: slaDetail.trim(),
         sale_account: saleAccount.trim() || null,
         coverage_scope: coverageScope.trim() || null,
         remark: remark.trim() || null,
@@ -282,6 +527,8 @@ export default function AddContractPage() {
         pm_time_per_year: pmTimePerYear ? parseInt(pmTimePerYear, 10) : null,
         file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
         image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
+        old_contract_id: renewContractId ? parseInt(renewContractId, 10) : null,
+        old_sof: renewContractId && oldContractSOF ? oldContractSOF : null,
       };
       const res = await fetch(apiUrl('/api/contracts'), {
         method: 'POST',
@@ -290,7 +537,10 @@ export default function AddContractPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || 'บันทึกไม่สำเร็จ');
-      toastSuccess('บันทึกสัญญาใหม่สำเร็จ');
+      toastSuccess(renewContractId 
+        ? `ต่อสัญญาสำเร็จ (SOF เก่า: ${oldContractSOF} → SOF ใหม่: ${selectedSOF})`
+        : 'บันทึกสัญญาใหม่สำเร็จ'
+      );
       router.push('/contract_editer');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'บันทึกไม่สำเร็จ';
@@ -345,6 +595,81 @@ export default function AddContractPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Section สำหรับต่อสัญญา: แสดงข้อมูลสัญญาเก่า */}
+          {renewContractId && (
+            <FormSection
+              title="ข้อมูลสัญญาเก่า"
+              description="ข้อมูลจากสัญญาที่ต้องการต่ออายุ"
+              icon={FileText}
+              emoji="🔄"
+              gradient="from-amber-50 to-orange-50"
+            >
+              {loadingOldContract ? (
+                <p className="text-sm text-slate-500">กำลังโหลดข้อมูลสัญญาเก่า...</p>
+              ) : (
+                <>
+                  {oldContractSOF && (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FormField label="SOF เก่า (Old SOF)">
+                        <input
+                          type="text"
+                          value={oldContractSOF}
+                          readOnly
+                          className={`${inputBase} bg-slate-100 cursor-not-allowed`}
+                        />
+                        <p className="mt-1 text-xs text-amber-600">SOF จากสัญญาเก่า (จะถูกเก็บไว้ในฐานข้อมูล)</p>
+                      </FormField>
+                      {selectedSOF && (
+                        <FormField label="SOF ใหม่ (New SOF)">
+                          <input
+                            type="text"
+                            value={selectedSOF}
+                            readOnly
+                            className={`${inputBase} bg-blue-50 cursor-not-allowed`}
+                          />
+                          <p className="mt-1 text-xs text-blue-600">SOF ใหม่สำหรับสัญญานี้</p>
+                        </FormField>
+                      )}
+                    </div>
+                  )}
+                  {oldContractDevices.length > 0 && (
+                    <div className="mt-4">
+                      <FormField label={`Devices จากสัญญาเก่า (${oldContractDevices.length} รายการ)`}>
+                        <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-slate-50">
+                          {oldContractDevices.map((device) => (
+                            <label key={device.Did} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={selectedOldDevices.has(device.Did)}
+                                onChange={(e) => {
+                                  const newSet = new Set(selectedOldDevices);
+                                  if (e.target.checked) {
+                                    newSet.add(device.Did);
+                                  } else {
+                                    newSet.delete(device.Did);
+                                  }
+                                  setSelectedOldDevices(newSet);
+                                }}
+                                className="w-4 h-4 text-blue-600"
+                              />
+                              <span className="text-sm text-slate-700">
+                                {device.CI_Name || device.Asset_Number || `Device #${device.Did}`}
+                                {device.Asset_Number && ` (${device.Asset_Number})`}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          เลือก devices ที่ต้องการนำมาใช้ในสัญญาใหม่ (ส่วนใหญ่จะเป็น devices เดิม)
+                        </p>
+                      </FormField>
+                    </div>
+                  )}
+                </>
+              )}
+            </FormSection>
+          )}
+
           {/* Section 1: ข้อมูลพื้นฐาน */}
           <FormSection
             title="ข้อมูลพื้นฐาน"
@@ -372,7 +697,7 @@ export default function AddContractPage() {
                   className={inputBase}
                 />
               </FormField>
-              <FormField label="SOF (Refer SOF จาก Device)" required>
+              <FormField label={renewContractId ? "SOF ใหม่ (New SOF)" : "SOF (Refer SOF จาก Device)"} required>
                 <input
                   type="text"
                   list="sof-list"
@@ -381,7 +706,7 @@ export default function AddContractPage() {
                     setSelectedSOF(e.target.value);
                     setSofName(e.target.value);
                   }}
-                  placeholder="เลือกจากรายการหรือพิมพ์เลข SOF (เช่น 89100XXXXX)"
+                  placeholder={renewContractId ? "ใส่เลข SOF ใหม่ (เช่น 89100XXXXX)" : "เลือกจากรายการหรือพิมพ์เลข SOF (เช่น 89100XXXXX)"}
                   className={inputBase}
                   disabled={referSOFLoading}
                   required
@@ -394,7 +719,12 @@ export default function AddContractPage() {
                 {referSOFLoading && <p className="mt-1 text-xs text-slate-500">กำลังโหลด...</p>}
                 {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
                   <p className="mt-1 text-xs text-amber-600">
-                    เลข SOF นี้ยังไม่มีในระบบ 
+                    {renewContractId ? "เลข SOF ใหม่นี้ยังไม่มีในระบบ (จะถูกสร้างใหม่)" : "เลข SOF นี้ยังไม่มีในระบบ"}
+                  </p>
+                )}
+                {renewContractId && oldContractSOF && (
+                  <p className="mt-1 text-xs text-blue-600">
+                    SOF เก่า: {oldContractSOF} → SOF ใหม่: {selectedSOF || '(กรุณาใส่)'}
                   </p>
                 )}
               </FormField>
@@ -408,16 +738,7 @@ export default function AddContractPage() {
                   required
                 />
               </FormField>
-              <FormField label="SLA Detail" required>
-                <input
-                  type="text"
-                  value={slaDetail}
-                  onChange={(e) => setSlaDetail(e.target.value)}
-                  placeholder="เช่น ระยะเวลาการตอบกลับ 24/7"
-                  className={inputBase}
-                  required
-                />
-              </FormField>
+      
               
               <FormField label="Sale Account" className="sm:col-span-2">
                 <input
@@ -570,22 +891,39 @@ export default function AddContractPage() {
                         )}
                       </div>
                       {entry.devices.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {entry.devices.map((d) => (
-                            <span
-                              key={d.id}
-                              className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
-                            >
-                              {d.label}
-                              <button
-                                type="button"
-                                onClick={() => removeDeviceFromEntry(entry.id, d.id)}
-                                className="hover:text-blue-900 focus:outline-none"
-                              >
-                                <X size={10} />
-                              </button>
-                            </span>
-                          ))}
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-slate-600">
+                            เลือกแล้ว <span className="text-blue-600">{entry.devices.length}</span> รายการ
+                          </p>
+                          <div className="overflow-x-auto rounded-xl border border-slate-200">
+                            <table className="w-full min-w-[280px] text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-200 bg-slate-50/80">
+                                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">#</th>
+                                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">Device</th>
+                                <th className="w-12 px-4 py-2.5 text-right text-xs font-semibold uppercase text-slate-600">ลบ</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {entry.devices.map((d, idx) => (
+                                <tr key={d.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                                  <td className="px-4 py-2.5 text-slate-500">{idx + 1}</td>
+                                  <td className="px-4 py-2.5 font-medium text-slate-700">{d.label}</td>
+                                  <td className="px-4 py-2.5 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => removeDeviceFromEntry(entry.id, d.id)}
+                                      className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 focus:outline-none"
+                                      title="ลบ"
+                                    >
+                                      <X size={16} />
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          </div>
                         </div>
                       )}
                     </div>

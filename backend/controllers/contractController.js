@@ -19,7 +19,7 @@ const uploadContractFile = (req, res) => {
 };
 
 // POST - สร้าง Contract ใหม่ (ตรงตามตาราง contract ใน TccStock)
-// ฟิลด์: contract_name, start_date, end_date, device_id, site_id(SLid), sof_name, sla_name, sla_detail, sale_account
+// ฟิลด์: contract_name, start_date, end_date, device_id, site_id(SLid), sof_name, sla_name, sale_account
 const createContract = async (req, res) => {
   try {
     const {
@@ -35,7 +35,7 @@ const createContract = async (req, res) => {
       sof_id,
       assigned_service,
       sla_name,
-      sla_detail,
+      sla_term,
       sale_account,
       coverage_scope,
       file_paths,
@@ -43,21 +43,23 @@ const createContract = async (req, res) => {
       pm_time_per_year,
       contract_sign_date,
       remark,
+      old_contract_id,
+      old_sof,
     } = req.body;
 
-    if (!sla_name || !String(sla_name).trim()) {
+    // sla_term (int) หรือ sla_name (รองรับทั้งสอง)
+    const slaTermVal = sla_term != null && sla_term !== ''
+      ? (parseInt(sla_term, 10) || 1)
+      : (sla_name != null && String(sla_name).trim() !== ''
+        ? (parseInt(sla_name, 10) || 1)
+        : null);
+    if (slaTermVal === null) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter sla_name (required)'
+        message: 'กรุณากรอก sla_term หรือ sla_name (required)'
       });
     }
-    if (!sla_detail || !String(sla_detail).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please enter sla_detail (required)'
-      });
-    }
-
+    
     // site_device_pairs: [{ site_id, device_ids }] - แต่ละ site มี devices แยกกัน
     // หรือ device_ids + site_ids สำหรับ backward compatibility
     let deviceIdList = [];
@@ -99,7 +101,8 @@ const createContract = async (req, res) => {
     const siteId = siteIdList.length > 0 ? siteIdList[0] : null;
 
     // เช็คว่า device ที่เลือกมี contract อยู่แล้วหรือยัง (contract.device_id หรือ contract_device)
-    if (deviceIdList.length > 0) {
+    // แต่ถ้าเป็นการต่อสัญญา (มี old_contract_id) ให้ข้ามการตรวจสอบนี้
+    if (deviceIdList.length > 0 && !old_contract_id) {
       const placeholders = deviceIdList.map(() => '?').join(',');
       const [inContractCol] = await db.execute(
         `SELECT device_id FROM contract WHERE device_id IN (${placeholders}) AND device_id IS NOT NULL`,
@@ -140,8 +143,12 @@ const createContract = async (req, res) => {
     const signDate = contract_sign_date || null;
     const remarkVal = remark && String(remark).trim() ? remark.trim() : null;
 
-    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_name, sla_detail, sale_account, coverage_scope, file_paths, image_paths';
-    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+    const assignedServiceVal = assigned_service && String(assigned_service).trim() ? assigned_service.trim() : null;
+    const oldContractIdVal = old_contract_id != null && old_contract_id !== '' ? parseInt(old_contract_id, 10) : null;
+    const oldSofVal = old_sof && String(old_sof).trim() ? old_sof.trim() : null;
+    
+    let insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, coverage_scope, file_paths, image_paths';
+    let insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
     const insertParams = [
       contract_name && String(contract_name).trim() ? contract_name.trim() : null,
       start_date || null,
@@ -149,23 +156,33 @@ const createContract = async (req, res) => {
       firstDeviceId,
       siteId && !isNaN(siteId) ? siteId : null,
       sofValue,
-      sla_name.trim(),
-      sla_detail.trim(),
+      slaTermVal,
+      assignedServiceVal,
       sale_account && String(sale_account).trim() ? sale_account.trim() : null,
       coverage_scope && String(coverage_scope).trim() ? coverage_scope.trim() : null,
       filePathsJson,
-      imagePathsJson,
+      imagePathsJson
     ];
 
-    // เพิ่ม column ใหม่ถ้ามี (pm_time_per_year, contract_sign_date, remark)
+    // เพิ่ม pm_time_per_year ถ้ามี column (ตาม schema)
     let insertContractSql = `INSERT INTO contract (${insertCols}) VALUES (${insertVals})`;
     try {
-      const [cols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'pm_time_per_year'");
-      if (cols && cols.length > 0) {
-        insertContractSql = `INSERT INTO contract (${insertCols}, pm_time_per_year, contract_sign_date, remark) VALUES (${insertVals}, ?, ?, ?)`;
-        insertParams.push(isNaN(pmTime) ? null : pmTime, signDate, remarkVal);
+      const [pmCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'pm_time_per_year'");
+      if (pmCols && pmCols.length > 0) {
+        insertCols += ', pm_time_per_year';
+        insertVals += ', ?';
+        insertParams.push(isNaN(pmTime) ? 2 : pmTime); // default 2 ตาม schema
       }
-    } catch (_) { /* column ไม่มี ข้าม */ }
+    } catch (_) { /* ข้าม */ }
+
+    insertContractSql = `INSERT INTO contract (${insertCols}) VALUES (${insertVals})`;
+    try {
+      const [cols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'contract_sign_date'");
+      if (cols && cols.length > 0) {
+        insertContractSql = `INSERT INTO contract (${insertCols}, contract_sign_date, remark) VALUES (${insertVals}, ?, ?)`;
+        insertParams.push(signDate, remarkVal);
+      }
+    } catch (_) { /* ข้าม */ }
 
     // TccStock (7): contract_device อาจมีแค่ (contract_id, device_id) ไม่มี SLid — ตรวจก่อน insert
     let contractDeviceHasSLid = false;
@@ -180,30 +197,141 @@ const createContract = async (req, res) => {
       conn = await db.getConnection();
       await conn.beginTransaction();
 
-      // 1. INSERT contract
-      const [result] = await conn.execute(insertContractSql, insertParams);
-      contractId = result.insertId;
+      // ถ้าเป็นการต่อสัญญา (มี old_contract_id) ให้ UPDATE แทน INSERT
+      if (oldContractIdVal) {
+        // ตรวจสอบว่าสัญญาเก่ามีอยู่จริง
+        const [existingContract] = await conn.execute(
+          'SELECT contract_id, sof_name, start_date, end_date FROM contract WHERE contract_id = ?',
+          [oldContractIdVal]
+        );
 
-      // 2. บันทึก contract_site (ทุก site ที่เลือก)
-      if (siteIdList.length > 0) {
-        for (const slid of siteIdList) {
-          await conn.execute(
-            'INSERT IGNORE INTO contract_site (contract_id, SLid) VALUES (?, ?)',
-            [contractId, slid]
-          );
+        if (existingContract.length === 0) {
+          await conn.rollback();
+          return res.status(404).json({
+            success: false,
+            message: 'ไม่พบสัญญาเก่าที่ต้องการต่ออายุ'
+          });
         }
-      }
 
-      // 3. บันทึก contract_device (รองรับทั้งมี SLid และไม่มี SLid ตาม TccStock (7))
-      if (pairs.length > 0) {
-        for (const p of pairs) {
-          for (const did of p.device_ids) {
-            if (contractDeviceHasSLid) {
+        const oldContract = existingContract[0];
+        const oldSofFromDb = oldContract.sof_name || oldSofVal;
+
+        // สร้าง UPDATE statement
+        const updateFields = [];
+        const updateValues = [];
+
+        if (contract_name) {
+          updateFields.push('contract_name = ?');
+          updateValues.push(contract_name.trim());
+        }
+        if (start_date) {
+          updateFields.push('start_date = ?');
+          updateValues.push(start_date);
+        }
+        if (end_date) {
+          updateFields.push('end_date = ?');
+          updateValues.push(end_date);
+        }
+        if (sofValue) {
+          updateFields.push('sof_name = ?');
+          updateValues.push(sofValue);
+        }
+        if (assignedServiceVal) {
+          updateFields.push('Assigned_Service = ?');
+          updateValues.push(assignedServiceVal);
+        }
+        if (sale_account) {
+          updateFields.push('sale_account = ?');
+          updateValues.push(sale_account.trim());
+        }
+        if (coverage_scope !== undefined) {
+          updateFields.push('coverage_scope = ?');
+          updateValues.push(coverage_scope ? coverage_scope.trim() : null);
+        }
+        if (filePathsJson !== undefined) {
+          updateFields.push('file_paths = ?');
+          updateValues.push(filePathsJson);
+        }
+        if (imagePathsJson !== undefined) {
+          updateFields.push('image_paths = ?');
+          updateValues.push(imagePathsJson);
+        }
+        if (pmTime !== null && pmTime !== undefined) {
+          updateFields.push('pm_time_per_year = ?');
+          updateValues.push(pmTime);
+        }
+
+        // เพิ่ม contract_sign_date และ remark ถ้ามี column
+        try {
+          const [cols] = await conn.execute("SHOW COLUMNS FROM contract LIKE 'contract_sign_date'");
+          if (cols && cols.length > 0) {
+            if (signDate !== null && signDate !== undefined) {
+              updateFields.push('contract_sign_date = ?');
+              updateValues.push(signDate);
+            }
+            if (remarkVal !== null && remarkVal !== undefined) {
+              updateFields.push('remark = ?');
+              updateValues.push(remarkVal);
+            }
+          }
+        } catch (_) { /* ข้าม */ }
+
+        if (updateFields.length === 0) {
+          await conn.rollback();
+          return res.status(400).json({
+            success: false,
+            message: 'ไม่มีข้อมูลที่จะอัพเดท'
+          });
+        }
+
+        updateValues.push(oldContractIdVal);
+        const updateSql = `UPDATE contract SET ${updateFields.join(', ')} WHERE contract_id = ?`;
+        await conn.execute(updateSql, updateValues);
+
+        contractId = oldContractIdVal;
+
+        // อัพเดท contract_device (ลบเก่าและเพิ่มใหม่)
+        // ลบ devices เก่าออก
+        await conn.execute(
+          'DELETE FROM contract_device WHERE contract_id = ?',
+          [contractId]
+        );
+
+        // เพิ่ม devices ใหม่
+        if (pairs.length > 0) {
+          for (const p of pairs) {
+            for (const did of p.device_ids) {
+              if (contractDeviceHasSLid) {
+                await conn.execute(
+                  'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                  [contractId, did, p.site_id]
+                );
+              } else {
+                await conn.execute(
+                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                  [contractId, did]
+                );
+              }
+            }
+          }
+        } else if (deviceIdList.length > 0) {
+          if (contractDeviceHasSLid) {
+            const placeholders = deviceIdList.map(() => '?').join(',');
+            const [deviceRows] = await conn.execute(
+              `SELECT Did, SLid FROM devices WHERE Did IN (${placeholders})`,
+              deviceIdList
+            );
+            const deviceSLidMap = new Map();
+            (deviceRows || []).forEach((row) => deviceSLidMap.set(row.Did, row.SLid));
+            for (const did of deviceIdList) {
+              const deviceSLid = deviceSLidMap.get(did) ?? null;
               await conn.execute(
                 'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-                [contractId, did, p.site_id]
+                [contractId, did, deviceSLid]
               );
-            } else {
+            }
+          } else {
+            for (const did of deviceIdList) {
               await conn.execute(
                 'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
                 [contractId, did]
@@ -211,67 +339,86 @@ const createContract = async (req, res) => {
             }
           }
         }
-      } else if (deviceIdList.length > 0) {
-        if (contractDeviceHasSLid) {
-          const placeholders = deviceIdList.map(() => '?').join(',');
-          const [deviceRows] = await conn.execute(
-            `SELECT Did, SLid FROM devices WHERE Did IN (${placeholders})`,
-            deviceIdList
-          );
-          const deviceSLidMap = new Map();
-          (deviceRows || []).forEach((row) => deviceSLidMap.set(row.Did, row.SLid));
-          for (const did of deviceIdList) {
-            const deviceSLid = deviceSLidMap.get(did) ?? null;
+
+        // อัพเดท contract_site
+        await conn.execute(
+          'DELETE FROM contract_site WHERE contract_id = ?',
+          [contractId]
+        );
+        if (siteIdList.length > 0) {
+          for (const slid of siteIdList) {
             await conn.execute(
-              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-              [contractId, did, deviceSLid]
-            );
-          }
-        } else {
-          for (const did of deviceIdList) {
-            await conn.execute(
-              'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-              [contractId, did]
+              'INSERT INTO contract_site (contract_id, SLid) VALUES (?, ?)',
+              [contractId, slid]
             );
           }
         }
-      }
 
-      // 4. อัปเดต Assigned_Service
-      const assignedServiceValue = assigned_service && String(assigned_service).trim() ? assigned_service.trim() : null;
-      if (assignedServiceValue && deviceIdList.length > 0) {
-        const placeholders = deviceIdList.map(() => '?').join(',');
-        await conn.execute(
-          `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
-          [assignedServiceValue, ...deviceIdList]
-        );
-      }
+        // บันทึกประวัติการต่อสัญญา (ใช้ contract_id เดิม)
+        try {
+          await conn.execute(
+            'INSERT INTO contract_history (contract_id, old_contract_id, old_sof, new_sof, renewed_at) VALUES (?, ?, ?, ?, NOW())',
+            [contractId, contractId, oldSofFromDb, sofValue]
+          );
+        } catch (historyErr) {
+          console.error('Error saving contract history:', historyErr);
+        }
+      } else {
+        // สร้างสัญญาใหม่ (ไม่มี old_contract_id)
+        // 1. INSERT contract
+        const [result] = await conn.execute(insertContractSql, insertParams);
+        contractId = result.insertId;
 
-      // 5. SOF ยังไม่มีในระบบ: อัปเดต Refer_SOF, SLid, Asset_State
-      if (sofValue && deviceIdList.length > 0) {
-        const [referSOFRows] = await conn.execute(
-          `SELECT DISTINCT Refer_SOF FROM devices WHERE Refer_SOF = ? AND Refer_SOF IS NOT NULL AND Refer_SOF != '' AND Refer_SOF != 'Not Assigned' LIMIT 1`,
-          [sofValue]
-        );
-        const sofExistsInDb = referSOFRows && referSOFRows.length > 0;
+        // 2. บันทึก contract_site (ทุก site ที่เลือก)
+        if (siteIdList.length > 0) {
+          for (const slid of siteIdList) {
+            await conn.execute(
+              'INSERT IGNORE INTO contract_site (contract_id, SLid) VALUES (?, ?)',
+              [contractId, slid]
+            );
+          }
+        }
 
-        if (!sofExistsInDb) {
-          if (pairs.length > 0) {
-            for (const p of pairs) {
-              if (p.device_ids.length > 0 && p.site_id) {
-                const placeholders = p.device_ids.map(() => '?').join(',');
+        // 3. บันทึก contract_device (รองรับทั้งมี SLid และไม่มี SLid ตาม TccStock (7))
+        if (pairs.length > 0) {
+          for (const p of pairs) {
+            for (const did of p.device_ids) {
+              if (contractDeviceHasSLid) {
                 await conn.execute(
-                  `UPDATE devices SET Refer_SOF = ?, SLid = ?, Asset_State = 'In Use' WHERE Did IN (${placeholders})`,
-                  [sofValue, p.site_id, ...p.device_ids]
+                  'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                  [contractId, did, p.site_id]
+                );
+              } else {
+                await conn.execute(
+                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                  [contractId, did]
                 );
               }
             }
-          } else if (siteId) {
+          }
+        } else if (deviceIdList.length > 0) {
+          if (contractDeviceHasSLid) {
             const placeholders = deviceIdList.map(() => '?').join(',');
-            await conn.execute(
-              `UPDATE devices SET Refer_SOF = ?, SLid = ?, Asset_State = 'In Use' WHERE Did IN (${placeholders})`,
-              [sofValue, siteId, ...deviceIdList]
+            const [deviceRows] = await conn.execute(
+              `SELECT Did, SLid FROM devices WHERE Did IN (${placeholders})`,
+              deviceIdList
             );
+            const deviceSLidMap = new Map();
+            (deviceRows || []).forEach((row) => deviceSLidMap.set(row.Did, row.SLid));
+            for (const did of deviceIdList) {
+              const deviceSLid = deviceSLidMap.get(did) ?? null;
+              await conn.execute(
+                'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                [contractId, did, deviceSLid]
+              );
+            }
+          } else {
+            for (const did of deviceIdList) {
+              await conn.execute(
+                'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                [contractId, did]
+              );
+            }
           }
         }
       }
@@ -288,7 +435,7 @@ const createContract = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Contract created successfully',
+      message: oldContractIdVal ? 'ต่อสัญญาสำเร็จ' : 'สร้าง Contract สำเร็จ',
       data: { contract_id: contractId }
     });
   } catch (error) {
@@ -337,8 +484,7 @@ const getContractsBySite = async (req, res) => {
         c.start_date,
         c.end_date,
         c.site_id,
-        c.sla_name,
-        c.sla_detail,
+        c.sla_term,
         c.sale_account,
         c.sof_name,
         s.Name AS site_name
@@ -346,6 +492,7 @@ const getContractsBySite = async (req, res) => {
       LEFT JOIN sites_location sl ON c.site_id = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN contract_device cd ON c.contract_id = cd.contract_id
+      LEFT JOIN devices d ON cd.device_id = d.Did
       LEFT JOIN contract_site cs ON c.contract_id = cs.contract_id
     `;
 
@@ -354,7 +501,7 @@ const getContractsBySite = async (req, res) => {
 
     if (siteId) {
       const siteIdNum = parseInt(siteId, 10);
-      sql = `${baseSelect} WHERE c.site_id = ? OR cd.SLid = ? OR cs.SLid = ? ORDER BY c.contract_id DESC`;
+      sql = `${baseSelect} WHERE c.site_id = ? OR d.SLid = ? OR cs.SLid = ? ORDER BY c.contract_id DESC`;
       params = [siteIdNum, siteIdNum, siteIdNum];
     } else {
       sql = `${baseSelect} ORDER BY c.contract_id DESC`;
@@ -443,13 +590,13 @@ const getDevicesByContract = async (req, res) => {
         d.Asset_Number,
         d.serial,
         d.Asset_State,
-        COALESCE(cd.SLid, d.SLid) AS SLid,
+        d.SLid,
         d.Dtypeid,
         d.DeRoleid,
         s.Name AS SiteName
       FROM contract_device cd
       INNER JOIN devices d ON cd.device_id = d.Did
-      LEFT JOIN sites_location sl ON COALESCE(cd.SLid, d.SLid) = sl.SLid
+      LEFT JOIN sites_location sl ON d.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       WHERE cd.contract_id = ?
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC;
@@ -512,4 +659,54 @@ const getVendorStatistics = async (req, res) => {
   }
 };
 
-module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getDevicesByContract, getVendorStatistics };
+// GET - ดึงประวัติการต่อสัญญา (contract_history)
+const getContractHistory = async (req, res) => {
+  try {
+    const contractId = req.params.id;
+
+    if (!contractId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ contract_id'
+      });
+    }
+
+    const sql = `
+      SELECT 
+        ch.history_id,
+        ch.contract_id,
+        ch.old_contract_id,
+        ch.old_sof,
+        ch.new_sof,
+        ch.renewed_at,
+        ch.created_at,
+        c_old.sof_name AS old_contract_sof,
+        c_old.contract_name AS old_contract_name,
+        c_old.start_date AS old_start_date,
+        c_old.end_date AS old_end_date,
+        c_new.sof_name AS new_contract_sof,
+        c_new.contract_name AS new_contract_name
+      FROM contract_history ch
+      LEFT JOIN contract c_old ON ch.old_contract_id = c_old.contract_id
+      LEFT JOIN contract c_new ON ch.contract_id = c_new.contract_id
+      WHERE ch.contract_id = ? OR ch.old_contract_id = ?
+      ORDER BY ch.renewed_at DESC
+    `;
+
+    const [rows] = await db.execute(sql, [parseInt(contractId, 10), parseInt(contractId, 10)]);
+
+    res.status(200).json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    console.error('Error getting contract history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงประวัติการต่อสัญญา',
+      error: error.message
+    });
+  }
+};
+
+module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getDevicesByContract, getVendorStatistics, getContractHistory };

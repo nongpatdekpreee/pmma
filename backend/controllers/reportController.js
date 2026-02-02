@@ -124,14 +124,14 @@ const getReports = async (req, res) => {
               r.sla_result, r.status,
               t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date
        FROM report r
-       INNER JOIN Tasks t ON t.id = r.id AND t.task_type = ?
+       INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
        ORDER BY r.report_id DESC
        LIMIT ? OFFSET ?`,
       [taskType, limitNum, offsetNum]
     );
 
     const [countRows] = await db.execute(
-      `SELECT COUNT(*) AS total FROM report r INNER JOIN Tasks t ON t.id = r.id WHERE t.task_type = ?`,
+      `SELECT COUNT(*) AS total FROM report r INNER JOIN tasks t ON t.id = r.id WHERE t.task_type = ?`,
       [taskType]
     );
     const total = countRows[0]?.total || 0;

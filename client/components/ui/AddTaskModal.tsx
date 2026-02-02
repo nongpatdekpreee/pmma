@@ -99,11 +99,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   }
   const [brokenDevicePairs, setBrokenDevicePairs] = useState<BrokenDevicePair[]>([]);
 
-  /* ===== Travel fields ===== */
-  const [travelMethod, setTravelMethod] = useState('');
-  const [travelCost, setTravelCost] = useState('');
-
-
   /* ===== asset ===== */
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
   const [loadingSites, setLoadingSites] = useState(false);
@@ -134,8 +129,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setVendorName('');
     setDuration('');
     setAssetBinding('');
-    setTravelMethod('');
-    setTravelCost('');
     setContractOptions([]);
     setSelectedContractId('');
     setDevices([]);
@@ -329,8 +322,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setVendorName(editingEvent.vendorName || '');
       setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
       setAssetBinding(editingEvent.assetBinding || '');
-      setTravelMethod(editingEvent.travelMethod || '');
-      setTravelCost(editingEvent.travelCost ? String(editingEvent.travelCost) : '');
       const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
       setSelectedContractId(contractId);
       // Store editing assets to preserve them after devices are loaded
@@ -708,9 +699,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       vendorName: taskType === 'MA' ? vendorName : null,
       assetBinding: taskType === 'MA' ? assetBinding : null,
       replacementDeviceId: maReplacementDeviceId,
-      // Travel fields (ใช้ร่วมกันทั้ง PM และ MA)
-      travelMethod,
-      travelCost,
       status: editingEvent?.status || 'not-started',
     };
 
@@ -1162,36 +1150,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 className={`${inputBase} resize-none h-auto py-2`}
                 placeholder="Describe scope of work"
               />
-            </div>
-
-            {/* Travel Information */}
-            <div className="pt-2 border-t border-slate-200">
-              <h4 className="text-[10px] font-bold text-slate-600 mb-2 uppercase">Travel Information</h4>
-
-              <div>
-                <label className={fieldLabel}>Travel Method</label>
-                <select value={travelMethod} onChange={(e) => setTravelMethod(e.target.value)} className={selectBase}>
-                  <option value="">Select...</option>
-                  <option value="airplane">Airplane</option>
-                  <option value="bus">Bus</option>
-                  <option value="private-car">Private Car</option>
-                  <option value="train">Train</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label className={fieldLabel}>Travel Cost</label>
-                <input
-                  type="number"
-                  value={travelCost}
-                  onChange={(e) => setTravelCost(e.target.value)}
-                  placeholder="e.g. 5000"
-                  min="0"
-                  step="0.01"
-                  className={inputBase}
-                />
-              </div>
             </div>
           </div>
         </div>

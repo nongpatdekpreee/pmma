@@ -1,16 +1,15 @@
 -- phpMyAdmin SQL Dump
--- version 5.2.1
+-- version 5.2.3
 -- https://www.phpmyadmin.net/
 --
--- Host: 127.0.0.1
--- Generation Time: Jan 27, 2026 at 04:44 AM
--- Server version: 10.4.32-MariaDB
--- PHP Version: 8.2.12
+-- Host: db:3306
+-- Generation Time: Feb 02, 2026 at 07:52 AM
+-- Server version: 11.3.2-MariaDB-1:11.3.2+maria~ubu2204
+-- PHP Version: 8.3.26
 
 SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
 START TRANSACTION;
 SET time_zone = "+00:00";
-SET FOREIGN_KEY_CHECKS=0;
 
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
@@ -19,7 +18,7 @@ SET FOREIGN_KEY_CHECKS=0;
 /*!40101 SET NAMES utf8mb4 */;
 
 --
--- Database: `tccstock`
+-- Database: `app_db`
 --
 
 -- --------------------------------------------------------
@@ -28,45 +27,22 @@ SET FOREIGN_KEY_CHECKS=0;
 -- Table structure for table `contract`
 --
 
-CREATE TABLE `report` (
-  `report_id` int(11) NOT NULL AUTO_INCREMENT,
-  `id` int(11) NOT NULL COMMENT 'task id',
-  `task_type` enum('PM','MA') NOT NULL DEFAULT 'PM',
-  `file_path` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `image_path` longtext NOT NULL,
-  `sla_result` int(11) NOT NULL,
-  `status` enum('Pass','Fail') NOT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  PRIMARY KEY (`report_id`),
-  KEY `idx_task_id` (`id`),
-  KEY `idx_task_type` (`task_type`),
-  CONSTRAINT `fk_report_task_id` FOREIGN KEY (`id`) REFERENCES `tasks` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
-
 CREATE TABLE `contract` (
   `contract_id` int(11) NOT NULL,
   `contract_name` varchar(255) DEFAULT NULL,
   `start_date` date DEFAULT NULL,
   `end_date` date DEFAULT NULL,
-  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> Devices(Did)',
-  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> Sites_Location(SLid)',
+  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> devices(Did)',
+  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> sites_location(SLid)',
   `sof_name` varchar(255) DEFAULT NULL,
-  `sla_name` varchar(255) NOT NULL,
-  `sla_detail` varchar(255) NOT NULL COMMENT 'เช่น ระยะเวลาการตอบกลับ 24/7',
+  `sla_term` int(255) NOT NULL,
+  `Assigned_Service` varchar(100) DEFAULT NULL,
+  `pm_time_per_year` enum('1','2','3','4','5') NOT NULL DEFAULT '2',
   `sale_account` varchar(255) DEFAULT NULL,
   `coverage_scope` text DEFAULT NULL COMMENT 'มีไว้ทำไมไม่รู้แต่ต้องมีนะ',
   `file_paths` text DEFAULT NULL COMMENT 'JSON array of file paths',
   `image_paths` text DEFAULT NULL COMMENT 'JSON array of image paths'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `contract`
---
-
-INSERT INTO `contract` (`contract_id`, `contract_name`, `start_date`, `end_date`, `device_id`, `site_id`, `sof_name`, `sla_name`, `sla_detail`, `sale_account`, `coverage_scope`, `file_paths`, `image_paths`) VALUES
-(7, 'ๆไำ', '2026-01-29', '2026-04-29', 11, 1, 'ๆไำ', 'ๆไำ', 'ๆไำ', 'ๆไำ', 'ๆไำ', NULL, NULL),
-(8, 'ๆๅๅๅๅๅีีีีีีี', '2026-01-30', '2028-01-30', 7, 1, 'ราัีา', 'นนสนนนน', 'สนสนสนส', 'ัีาัาีาสมนา ทท', 'ๆไำๆไำ', NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -79,15 +55,35 @@ CREATE TABLE `contract_device` (
   `device_id` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- --------------------------------------------------------
+
 --
--- Dumping data for table `contract_device`
+-- Table structure for table `contract_history`
 --
 
-INSERT INTO `contract_device` (`contract_id`, `device_id`) VALUES
-(7, 1),
-(7, 3),
-(7, 4),
-(8, 11);
+CREATE TABLE `contract_history` (
+  `history_id` int(11) NOT NULL AUTO_INCREMENT,
+  `contract_id` int(11) NOT NULL COMMENT 'FK -> contract(contract_id) - สัญญาใหม่',
+  `old_contract_id` int(11) DEFAULT NULL COMMENT 'FK -> contract(contract_id) - สัญญาเก่าที่ต่ออายุ',
+  `old_sof` varchar(255) DEFAULT NULL COMMENT 'SOF จากสัญญาเก่า',
+  `new_sof` varchar(255) DEFAULT NULL COMMENT 'SOF ของสัญญาใหม่',
+  `renewed_at` datetime DEFAULT CURRENT_TIMESTAMP COMMENT 'วันที่ต่อสัญญา',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`history_id`),
+  KEY `idx_contract_id` (`contract_id`),
+  KEY `idx_old_contract_id` (`old_contract_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ประวัติการต่อสัญญา';
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `contract_site`
+--
+
+CREATE TABLE `contract_site` (
+  `contract_id` int(11) NOT NULL,
+  `SLid` int(11) NOT NULL COMMENT 'FK -> sites_location(SLid)'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -128,12 +124,12 @@ CREATE TABLE `devices` (
 
 INSERT INTO `devices` (`Did`, `Asset_State`, `serial`, `CI_Name`, `Asset_Number`, `PR_No`, `Vendor`, `Project_purchase`, `SLid`, `PO_No`, `Loan_Start`, `Request_Date`, `Refer_SOF`, `Refer_Ticket`, `Assigned_Service`, `Reason`, `Dtypeid`, `DeRoleid`, `Project_code_purchase`, `Waranty_start`, `Waranty_end`, `Received_date`, `Asset_Type`, `Owner`) VALUES
 (1, 'In Use', 'FGL2314A91L', 'AIR-AP3802I-S-K9 / FGL2314A91L', '4300000627', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(2, 'In Use', 'FGL2314A91M', 'AIR-AP3802I-S-K9 / FGL2314A91M', '4300000579', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(2, 'In Store', 'FGL2314A91M', 'AIR-AP3802I-S-K9 / FGL2314A91M', '4300000579', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (3, 'In Use', 'FGL2314A91N', 'AIR-AP3802I-S-K9 / FGL2314A91N', '4300000580', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 3, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(4, 'In Use', 'FGL2314A91P', 'AIR-AP3802I-S-K9 / FGL2314A91P', '4300000581', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(4, 'In Use', 'FGL2314A91P', 'AIR-AP3802I-S-K9 / FGL2314A91P', '4300000581', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 2, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (5, 'In Use', 'FGL2314A91Q', 'AIR-AP3802I-S-K9 / FGL2314A91Q', '4300000582', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 4, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(6, 'In Use', 'FGL2314A91R', 'AIR-AP3802I-S-K9 / FGL2314A91R', '4300000583', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(7, 'In use', 'FGL2314A91S', 'AIR-AP3802I-S-K9 / FGL2314A91S', '4300000584', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(6, 'In Store', 'FGL2314A91R', 'AIR-AP3802I-S-K9 / FGL2314A91R', '4300000583', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 3, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(7, 'In Use', 'FGL2314A91S', 'AIR-AP3802I-S-K9 / FGL2314A91S', '4300000584', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (8, 'In Use', 'FGL2314A91T', 'AIR-AP3802I-S-K9 / FGL2314A91T', '4300000585', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (9, 'In Use', 'FGL2314A91U', 'AIR-AP3802I-S-K9 / FGL2314A91U', '4300000586', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (10, 'In Use', 'FGL2314A91V', 'AIR-AP3802I-S-K9 / FGL2314A91V', '4300000587', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
@@ -146,44 +142,44 @@ INSERT INTO `devices` (`Did`, `Asset_State`, `serial`, `CI_Name`, `Asset_Number`
 (17, 'In Use', 'FGL2322A8D1', 'AIR-AP3802I-S-K9 / FGL2322A8D1', '4300000632', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 3, '8931006625', 'Not Assigned', '21-09-2023', '8910019218', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (18, 'In Use', 'FGL2322A8D2', 'AIR-AP3802I-S-K9 / FGL2322A8D2', '4300000633', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 3, '8931006625', 'Not Assigned', '21-09-2023', '8910019218', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (19, 'In Use', 'C17366663000006171', 'AIR-PWRINJ6 / C17366663000006171', '4300000615', '/PR8911007271', 'NETWORK SURE', 'Beerthip Bang Ban', 4, '8931006624', 'Not Assigned', '14-ต.ค.-25', '8910018077', NULL, 'Device Network Manage Service', 'Replacement', 2, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(20, 'In Store', 'PHI2326015W', 'AIR-PWRINJ6 / PHI2326015W', '4300000620', '/PR8911007271', 'NETWORK SURE', 'Beerthip Bang Ban', 2, '8931006624', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 2, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(20, 'In Store', 'PHI2326015W', 'AIR-PWRINJ6 / PHI2326015W', '4300000620', '/PR8911007271', 'NETWORK SURE', 'Beerthip Bang Ban', 1, '8931006624', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 2, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (21, 'In Use', 'FGL2322A8DL', 'AIR-AP3802I-S-K9 / FGL2322A8DL', '4300000636', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 3, '8931006625', 'Not Assigned', '21-09-2023', '8910019218', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (22, 'In Use', 'FGL2322A8DM', 'AIR-AP3802I-S-K9 / FGL2322A8DM', '4300000637', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 3, '8931006625', 'Not Assigned', '21-09-2023', '8910019218', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (23, 'Waiting to sell', 'FGL2322A8DQ', 'AIR-AP3802I-S-K9 / FGL2322A8DQ', '4300000638', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 3, '8931006625', 'Not Assigned', '21-09-2023', '8910019218', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(24, 'In Store', 'FCW2106B5E3', 'WS-C2960X-24PS-L / FCW2106B5E3', '4300000641', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 2, '8931006625', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 3, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(25, 'In Store On Site', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 5, '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(24, 'In Use', 'FCW2106B5E3', 'WS-C2960X-24PS-L / FCW2106B5E3', '4300000641', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 1, '8931006625', 'Not Assigned', 'Not Assigned', 'test', NULL, 'test', 'Not Assigned', 3, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(25, 'In Store', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 2, '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned\r\n', NULL, '', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (26, 'In Store On Site', 'KWC24230DGN', 'AIR-AP1852I-E-K9 / KWC24230DGN', '4300000361', '8911006695', 'NETWORK SURE', 'MA Thaibev', 6, '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (27, 'In Store On Site', 'KWC24230DGS', 'AIR-AP1852I-E-K9 / KWC24230DGS', '4300000362', '8911006695', 'NETWORK SURE', 'MA Thaibev', 7, '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (28, 'In Use', 'KWC24230DGZ', 'AIR-AP1852I-E-K9 / KWC24230DGZ', '4300000363', '8911006695', 'NETWORK SURE', 'MA Thaibev', 8, '8931006091', 'Not Assigned', '21-พ.ค.-24', '8910018437', NULL, 'Device Network Rental Service', 'Replacement', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (29, 'Waiting to sell', 'KWC210607J0', 'AIR-AP1852I-S-K9 / KWC210607J0', '4200022757', '8911005365', 'NETWORK SURE', 'บริษัท ทิพย์พิจิตร ไฮบริดเอนเนอยี่ จำกัด', 9, '8931004691', 'Not Assigned', '30-03-23', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (30, 'In Use', 'KWC2135031K', 'AIR-AP1852I-S-K9 / KWC2135031K', '4200022757', '8911006857', 'NETWORK SURE', 'MA Thaibev', 10, '8931006149', 'Not Assigned', '16-06-23', 'Not Assigned', NULL, 'Device Network Manage Service', 'Replacement', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(31, 'In Use', 'KWC214705XW', 'AIR-AP1852I-S-K9 / KWC214705XW', '4300000344', '8911006857', 'NETWORK SURE', 'MA Thaibev', 11, '8931006149', 'Not Assigned', '6-พ.ย.-23', 'Not Assigned', NULL, 'Network as a Service', 'Replacement', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(31, 'In Store', 'KWC214705XW', 'AIR-AP1852I-S-K9 / KWC214705XW', '4300000344', '8911006857', 'NETWORK SURE', 'MA Thaibev', 11, '8931006149', 'Not Assigned', '6-พ.ย.-23', 'Not Assigned', NULL, 'Network as a Service', 'Replacement', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (32, 'Waiting to sell', 'KWC214705ZL', 'AIR-AP1852I-S-K9 / KWC214705ZL', '4300000045', '8911005365', 'NETWORK SURE', 'บริษัท ทิพย์พิจิตร ไฮบริดเอนเนอยี่ จำกัด', 11, '8931004691', 'Not Assigned', '9-พ.ค.-22', '8910014954', NULL, 'Not Assigned', 'Not Assigned', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (33, 'In Use', 'KWC214705ZX', 'AIR-AP1852I-S-K9 / KWC214705ZX', '4300000046', '8911005365', 'NETWORK SURE', 'บริษัท ทิพย์พิจิตร ไฮบริดเอนเนอยี่ จำกัด', 11, '8931004691', 'Not Assigned', '9-พ.ค.-22', '8910014954', NULL, 'Network as a Service', 'New Installation', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (34, 'In Use', 'KWC214901DK', 'AIR-AP1852I-S-K9 / KWC214901DK', '4300000109', '8911005825', 'NETWORK SURE', 'C A C Co., Ltd', 12, '8931005120', 'Not Assigned', '31-10-22', '8910016691', NULL, 'Not Assigned', 'Not Assigned', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (35, 'In Use', 'KWC222803UY', 'AIR-AP1852I-S-K9 / KWC222803UY', '4300000530', '8911007225', 'NETWORK SURE', 'Cyber World Bldg.', 13, '8931006527', 'Not Assigned', '7-ส.ค.-23', '8910019823', NULL, 'Not Assigned', 'Not Assigned', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (36, 'In Use', 'KWC222803ZU', 'AIR-AP1852I-S-K9 / KWC222803ZU', '4300000531', '8911007225', 'NETWORK SURE', 'Cyber World Bldg.', 13, '8931006527', 'Not Assigned', '7-ส.ค.-23', '8910019823', NULL, 'Not Assigned', 'Not Assigned', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(37, 'In Use', 'KWC22290C2Y', 'AIR-AP1852I-S-K9 / KWC22290C2Y', '4300000176', '8911006660', 'Network Sure', 'Surawong AP Rental', 14, '8931005955', 'Not Assigned', '25-03-23', '8910018437', NULL, 'Device Network Rental Service', 'New Installation', 5, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(37, 'In Use', 'KWC22290C2Y', 'AIR-AP1852I-S-K9 / KWC22290C2Y', '4300000176', '8911006660', 'Network Sure', 'Surawong AP Rental', 14, '8931005955', 'Not Assigned', '25-03-23', '8910018437', NULL, '8910018437', 'New Installation', 5, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (38, 'In Use', 'KWC2447074U', 'AIR-AP1852I-S-K9 / KWC2447074U', '4300000177', '8911006660', 'Network Sure', 'Surawong AP Rental', 15, '8931005955', 'Not Assigned', '7-ส.ค.-24', '8910020956', NULL, 'Not Assigned', 'Not Assigned', 5, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (39, 'In Use', 'KWC2230004B', 'AIR-AP1852I-S-K9 / KWC2230004B', '4300000532', '8911007225', 'NETWORK SURE', 'Cyber World Bldg.', 13, '8931006527', 'Not Assigned', '7-ส.ค.-23', '8910019823', NULL, 'Not Assigned', 'Not Assigned', 5, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (40, 'In Use', 'KWC223205F7', 'AIR-AP1852I-S-K9 / KWC223205F7', '4300000178', '8911006660', 'Network Sure', 'Surawong AP Rental', 16, '8931005955', 'Not Assigned', '25-03-23', '8910017548', NULL, 'Not Assigned', 'Not Assigned', 5, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (41, 'In Use', 'KWC223206E0', 'AIR-AP1852I-S-K9 / KWC223206E0', '4300000179', '8911006660', 'Network Sure', 'Surawong AP Rental', 17, '8931005955', 'Not Assigned', '25-03-23', '8910018437', NULL, 'Device Network Rental Service', 'New Installation', 5, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (42, 'In Use', 'KWC223208C5', 'AIR-AP1852I-S-K9 / KWC223208C5', '4300000345', '8911006857', 'NETWORK SURE', 'MA Thaibev', 11, '8931006149', 'Not Assigned', '22-05-23', 'Not Assigned', NULL, 'Network as a Service', 'Replacement', 5, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (43, 'In Use', 'UPS01', 'Easy UPS SRV RM 1000VA Rack / UPS01', '4300000670', 'PR8911007855', 'เวเปอร์ เทค จำกัด', 'ASMM Silom Edge 20th Fl.', 18, '8931007223', 'Not Assigned', '22-ต.ค.-23', '8910021263', NULL, 'Network as a Service', 'New Installation', 6, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(44, 'In Use', 'FGT61FTK20027631', 'FG-61F-BDL-950-36 / FGT61FTK20027631', '4300000001', '8911003902', 'เอ็นทีที (ประเทศไทย)', 'TBL_Wangnoi', 19, '8931003422', 'Not Assigned', '22-04-22', '8910011992', NULL, 'Network as a Service', 'New Installation', 7, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(45, 'In Use', 'FGT61FTK20028094', 'FG-61F-BDL-950-36 / FGT61FTK20028094', '4300000002', '8911003902', 'เอ็นทีที (ประเทศไทย)', 'TBL_Wangnoi', 19, '8931003422', 'Not Assigned', '22-04-22', '8910011992', NULL, 'Network as a Service', 'New Installation', 7, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(44, 'In Use', 'FGT61FTK20027631', 'FG-61F-BDL-950-36 / FGT61FTK20027631', '4300000001', '8911003902', 'เอ็นทีที (ประเทศไทย)', 'TBL_Wangnoi', 19, '8931003422', 'Not Assigned', '22-04-22', '8910011992', NULL, '8910011992', 'New Installation', 7, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(45, 'In Use', 'FGT61FTK20028094', 'FG-61F-BDL-950-36 / FGT61FTK20028094', '4300000002', '8911003902', 'เอ็นทีที (ประเทศไทย)', 'TBL_Wangnoi', 19, '8931003422', 'Not Assigned', '22-04-22', '8910011992', NULL, '8910011992', 'New Installation', 7, 2, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (46, 'In Use', 'FGT61FTK23003621', 'Firewall FortiGate 61F FG-61F / FGT61FTK23003621', '4200026511', NULL, 'เอ็นทีที (ประเทศไทย)', 'บริษัท โออิชิ เทรดดิ้ง จำกัด', 20, '8931007187', 'Not Assigned', '23/11/23', 'Not Assigned', NULL, 'Network as a Service', 'New Installation', 8, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (47, 'In Use', 'FGT61FTK23003917', 'Firewall FortiGate 61F FG-61F / FGT61FTK23003917', '4200026510', NULL, 'เอ็นทีที (ประเทศไทย)', 'บริษัท โออิชิ เทรดดิ้ง จำกัด', 21, '8931007186', 'Not Assigned', '23/11/23', 'Not Assigned', NULL, 'Network as a Service', 'New Installation', 8, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (48, 'In Use', 'FGT61FTK23004452', 'Firewall FortiGate 61F FG-61F / FGT61FTK23004452', '4200026512', NULL, 'เอ็นทีที (ประเทศไทย)', 'บริษัท โออิชิ เทรดดิ้ง จำกัด', 22, '8931007188', 'Not Assigned', '23/11/23', 'Not Assigned', NULL, 'Network as a Service', 'New Installation', 8, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (49, 'In Use', 'FGT61FTK22063593', 'Firewall,FG-61F 10xGE RJ45 ports,128GB / FGT61FTK22063593', '4300000473', '8911006833', 'ทรานซิสชั่น ซิสเต็มส์ แอนด์ เน็ทเวอร์คส', 'Project ASSC : [ThaiBev-SilomEdge]', 23, '8931006111', 'Not Assigned', 'Not Assigned', '8910018855', NULL, 'Network as a Service', 'New Installation', 9, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (50, 'In Use', 'AC8BA9D33B6D', 'UQT-U6-MESH Access point / AC8BA9D33B6D', '4300000889', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 24, '8931007727', 'Not Assigned', '15-ม.ค.-24', 'รอ SOF', NULL, 'Network as a Service', 'New Installation', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
 (51, 'In Use', 'AC8BA9D32875', 'UQT-U6-MESH Access point / AC8BA9D32875', '4300000874', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 2, '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(52, 'In Use', 'AC8BA9D2DAE5', 'UQT-U6-MESH Access point / AC8BA9D2DAE5', '4300000877', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 2, '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(53, 'In Use', 'AC8BA9D2D8DD', 'UQT-U6-MESH Access point / AC8BA9D2D8DD', '4300000884', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 25, '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(54, 'In Use', 'FOC0821Z2SE', 'Access Switch WS-C2950C-24 / FOC0821Z2SE', '4300000946', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(55, 'In Use', 'FAB0545W29X', 'Access Switch WS-C2950C-24 / FAB0545W29X', '4300000947', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(56, 'In Use', 'FOC0932Z544', 'Access Switch WS-C2950C-24 / FOC0932Z544', '4300000948', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
-(57, 'In Use', 'FAB0545W2AD', 'Access Switch WS-C2950C-24 / FAB0545W2AD', '4300000949', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL);
+(52, 'In Use', 'AC8BA9D2DAE5', 'UQT-U6-MESH Access point / AC8BA9D2DAE5', '4300000877', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 9, '8931007727', 'Not Assigned', 'Not Assigned', 'asd', NULL, 'asd', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(53, 'In Use', 'AC8BA9D2D8DD', 'UQT-U6-MESH Access point / AC8BA9D2D8DD', '4300000884', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 6, '8931007727', 'Not Assigned', 'Not Assigned', 'asd', NULL, 'asd', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(54, 'In Use', 'FOC0821Z2SE', 'Access Switch WS-C2950C-24 / FOC0821Z2SE', '4300000946', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 1, NULL, 'Not Assigned', 'Not Assigned', 'test', NULL, 'test', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(55, 'In Store', 'FAB0545W29X', 'Access Switch WS-C2950C-24 / FAB0545W29X', '4300000947', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(56, 'In Use', 'FOC0932Z544', 'Access Switch WS-C2950C-24 / FOC0932Z544', '4300000948', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 1, NULL, 'Not Assigned', 'Not Assigned', 'test', NULL, 'test', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL),
+(57, 'In Store', 'FAB0545W2AD', 'Access Switch WS-C2950C-24 / FAB0545W2AD', '4300000949', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, NULL, 'Not Assigned', 'Not Assigned', '', NULL, '', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-18 17:55:41', NULL, NULL);
 
 --
 -- Triggers `devices`
@@ -195,15 +191,15 @@ CREATE TRIGGER `trg_devices_insert` AFTER INSERT ON `devices` FOR EACH ROW BEGIN
 
     -- Get Sid and Location2 from SLid
     IF NEW.SLid IS NOT NULL THEN
-        SELECT SL.Sid, L.Location2
+        SELECT `SL`.`Sid`, `L`.`Location2`
         INTO v_sid, v_location2
-        FROM Sites_Location SL
-        JOIN Location L ON SL.lid = L.lid
-        WHERE SL.SLid = NEW.SLid
+        FROM `sites_location` AS `SL`
+        JOIN `location` AS `L` ON `SL`.`lid` = `L`.`lid`
+        WHERE `SL`.`SLid` = NEW.`SLid`
         LIMIT 1;
     END IF;
 
-    INSERT INTO Devices_History (
+    INSERT INTO devices_history (
         action_type,
         changed_at,
         Did,
@@ -272,15 +268,15 @@ CREATE TRIGGER `trg_devices_update` AFTER UPDATE ON `devices` FOR EACH ROW BEGIN
 
     -- Get Sid and Location2 from SLid (use OLD.SLid for history)
     IF OLD.SLid IS NOT NULL THEN
-        SELECT SL.Sid, L.Location2
+        SELECT `SL`.`Sid`, `L`.`Location2`
         INTO v_sid, v_location2
-        FROM Sites_Location SL
-        JOIN Location L ON SL.lid = L.lid
-        WHERE SL.SLid = OLD.SLid
+        FROM `sites_location` AS `SL`
+        JOIN `location` AS `L` ON `SL`.`lid` = `L`.`lid`
+        WHERE `SL`.`SLid` = OLD.`SLid`
         LIMIT 1;
     END IF;
 
-    INSERT INTO Devices_History (
+    INSERT INTO devices_history (
         action_type,
         changed_at,
         Did,
@@ -472,7 +468,72 @@ INSERT INTO `devices_history` (`log_id`, `action_type`, `changed_at`, `Did`, `As
 (84, 'UPDATE', '2026-01-27 09:38:49', 11, 'In Store', 'FGL2314A91W', 'AIR-AP3802I-S-K9 / FGL2314A91W', '4300000588', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
 (85, 'UPDATE', '2026-01-27 09:38:49', 7, 'In Use', 'FGL2314A91S', 'AIR-AP3802I-S-K9 / FGL2314A91S', '4300000584', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
 (86, 'UPDATE', '2026-01-27 09:54:56', 11, 'In Use', 'FGL2314A91W', 'AIR-AP3802I-S-K9 / FGL2314A91W', '4300000588', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
-(87, 'UPDATE', '2026-01-27 10:09:00', 7, 'In Store', 'FGL2314A91S', 'AIR-AP3802I-S-K9 / FGL2314A91S', '4300000584', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel');
+(87, 'UPDATE', '2026-01-27 10:09:00', 7, 'In Store', 'FGL2314A91S', 'AIR-AP3802I-S-K9 / FGL2314A91S', '4300000584', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(88, 'UPDATE', '2026-01-27 11:03:20', 6, 'In Use', 'FGL2314A91R', 'AIR-AP3802I-S-K9 / FGL2314A91R', '4300000583', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(89, 'UPDATE', '2026-01-27 11:04:07', 2, 'In Use', 'FGL2314A91M', 'AIR-AP3802I-S-K9 / FGL2314A91M', '4300000579', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(90, 'UPDATE', '2026-01-27 11:04:39', 6, 'In Use', 'FGL2314A91R', 'AIR-AP3802I-S-K9 / FGL2314A91R', '4300000583', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 3, 2, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(91, 'UPDATE', '2026-01-27 11:05:26', 2, 'In store', 'FGL2314A91M', 'AIR-AP3802I-S-K9 / FGL2314A91M', '4300000579', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(92, 'UPDATE', '2026-01-27 11:05:26', 1, 'In Use', 'FGL2314A91L', 'AIR-AP3802I-S-K9 / FGL2314A91L', '4300000627', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(93, 'UPDATE', '2026-01-28 11:01:49', 11, 'In Store', 'FGL2314A91W', 'AIR-AP3802I-S-K9 / FGL2314A91W', '4300000588', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(94, 'UPDATE', '2026-01-28 11:01:49', 4, 'In Use', 'FGL2314A91P', 'AIR-AP3802I-S-K9 / FGL2314A91P', '4300000581', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(95, 'UPDATE', '2026-01-28 11:05:42', 2, 'In Use', 'FGL2314A91M', 'AIR-AP3802I-S-K9 / FGL2314A91M', '4300000579', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(96, 'UPDATE', '2026-01-28 11:05:42', 1, 'In Store', 'FGL2314A91L', 'AIR-AP3802I-S-K9 / FGL2314A91L', '4300000627', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(97, 'UPDATE', '2026-01-28 11:05:42', 1, 'In Use', 'FGL2314A91L', 'AIR-AP3802I-S-K9 / FGL2314A91L', '4300000627', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(98, 'UPDATE', '2026-01-28 11:09:36', 4, 'In Store', 'FGL2314A91P', 'AIR-AP3802I-S-K9 / FGL2314A91P', '4300000581', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(99, 'UPDATE', '2026-01-28 11:09:36', 11, 'In Use', 'FGL2314A91W', 'AIR-AP3802I-S-K9 / FGL2314A91W', '4300000588', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(100, 'UPDATE', '2026-01-28 11:10:13', 2, 'In Store', 'FGL2314A91M', 'AIR-AP3802I-S-K9 / FGL2314A91M', '4300000579', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(101, 'UPDATE', '2026-01-28 11:10:22', 2, 'In use', 'FGL2314A91M', 'AIR-AP3802I-S-K9 / FGL2314A91M', '4300000579', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(102, 'UPDATE', '2026-01-28 11:10:33', 7, 'In use', 'FGL2314A91S', 'AIR-AP3802I-S-K9 / FGL2314A91S', '4300000584', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(103, 'UPDATE', '2026-01-28 11:16:13', 1, 'In Store', 'FGL2314A91L', 'AIR-AP3802I-S-K9 / FGL2314A91L', '4300000627', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(104, 'UPDATE', '2026-01-28 11:16:13', 2, 'In Use', 'FGL2314A91M', 'AIR-AP3802I-S-K9 / FGL2314A91M', '4300000579', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 2, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(105, 'UPDATE', '2026-01-29 15:49:42', 25, 'In Store On Site', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 4, 'ศูนย์ย่อยนครสวรรค์', '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(106, 'UPDATE', '2026-01-29 15:50:14', 25, 'In Store', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 4, 'ศูนย์ย่อยนครสวรรค์', '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(107, 'UPDATE', '2026-01-29 16:04:28', 25, 'In Store', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 4, 'ศูนย์ย่อยนครสวรรค์', '8931006091', 'Not Assigned', 'Not Assigned', '', NULL, 'Not Assigned', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(108, 'UPDATE', '2026-01-29 16:21:47', 55, 'In Use', 'FAB0545W29X', 'Access Switch WS-C2950C-24 / FAB0545W29X', '4300000947', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(109, 'UPDATE', '2026-01-29 16:21:47', 57, 'In Use', 'FAB0545W2AD', 'Access Switch WS-C2950C-24 / FAB0545W2AD', '4300000949', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(110, 'UPDATE', '2026-01-29 16:43:51', 6, 'In store', 'FGL2314A91R', 'AIR-AP3802I-S-K9 / FGL2314A91R', '4300000583', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 3, 2, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(111, 'UPDATE', '2026-01-29 16:55:35', 20, 'In Store', 'PHI2326015W', 'AIR-PWRINJ6 / PHI2326015W', '4300000620', '/PR8911007271', 'NETWORK SURE', 'Beerthip Bang Ban', 2, 'BNDC 4110', '8931006624', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 2, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(112, 'UPDATE', '2026-01-29 16:57:17', 20, 'In Store', 'PHI2326015W', 'AIR-PWRINJ6 / PHI2326015W', '4300000620', '/PR8911007271', 'NETWORK SURE', 'Beerthip Bang Ban', 1, 'Beer Thai', '8931006624', 'Not Assigned', 'Not Assigned', '8910021267', NULL, 'Not Assigned', 'Not Assigned', 2, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(113, 'UPDATE', '2026-01-29 17:00:16', 24, 'In Store', 'FCW2106B5E3', 'WS-C2960X-24PS-L / FCW2106B5E3', '4300000641', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 2, 'BNDC 4110', '8931006625', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 3, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(114, 'UPDATE', '2026-01-29 17:06:58', 57, 'In Use', 'FAB0545W2AD', 'Access Switch WS-C2950C-24 / FAB0545W2AD', '4300000949', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 1, 'Beer Thai', NULL, 'Not Assigned', 'Not Assigned', '8910019552', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(115, 'UPDATE', '2026-01-29 17:08:49', 25, 'In Store', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 4, 'ศูนย์ย่อยนครสวรรค์', '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(116, 'UPDATE', '2026-01-29 17:09:51', 24, 'In Use', 'FCW2106B5E3', 'WS-C2960X-24PS-L / FCW2106B5E3', '4300000641', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 1, 'Beer Thai', '8931006625', 'Not Assigned', 'Not Assigned', '8910021269', NULL, 'Not Assigned', 'Not Assigned', 3, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(117, 'UPDATE', '2026-01-29 17:10:34', 24, 'In Store', 'FCW2106B5E3', 'WS-C2960X-24PS-L / FCW2106B5E3', '4300000641', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 1, 'Beer Thai', '8931006625', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 3, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(118, 'UPDATE', '2026-01-29 17:14:21', 25, 'In Store', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 2, 'BNDC 4110', '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(119, 'UPDATE', '2026-01-29 17:14:21', 25, 'In Store', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 2, 'BNDC 4110', '8931006091', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, '1234567890', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(120, 'UPDATE', '2026-01-29 17:16:31', 25, 'In Use', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 1, 'Beer Thai', '8931006091', 'Not Assigned', 'Not Assigned', '1234567890', NULL, '1234567890', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(121, 'UPDATE', '2026-01-29 17:28:59', 25, 'In Store', 'KWC24230DGM', 'AIR-AP1852I-E-K9 / KWC24230DGM', '4300000360', '8911006695', 'NETWORK SURE', 'MA Thaibev', 2, 'BNDC 4110', '8931006091', 'Not Assigned', 'Not Assigned', '', NULL, '', 'Not Assigned', 4, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(122, 'UPDATE', '2026-01-30 09:51:13', 37, 'In Use', 'KWC22290C2Y', 'AIR-AP1852I-S-K9 / KWC22290C2Y', '4300000176', '8911006660', 'Network Sure', 'Surawong AP Rental', 9, 'TCB FL2', '8931005955', 'Not Assigned', '25-03-23', '8910018437', NULL, 'Device Network Rental Service', 'New Installation', 5, 2, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(123, 'UPDATE', '2026-01-30 10:00:15', 56, 'In Use', 'FOC0932Z544', 'Access Switch WS-C2950C-24 / FOC0932Z544', '4300000948', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(124, 'UPDATE', '2026-01-30 10:00:54', 55, 'In Use', 'FAB0545W29X', 'Access Switch WS-C2950C-24 / FAB0545W29X', '4300000947', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 1, 'Beer Thai', NULL, 'Not Assigned', 'Not Assigned', '8910019552', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(125, 'UPDATE', '2026-01-30 10:02:36', 31, 'In Use', 'KWC214705XW', 'AIR-AP1852I-S-K9 / KWC214705XW', '4300000344', '8911006857', 'NETWORK SURE', 'MA Thaibev', 6, 'โรงไฟฟ้าพิจิตร', '8931006149', 'Not Assigned', '6-พ.ย.-23', 'Not Assigned', NULL, 'Network as a Service', 'Replacement', 5, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(126, 'UPDATE', '2026-01-30 10:15:49', 54, 'In Use', 'FOC0821Z2SE', 'Access Switch WS-C2950C-24 / FOC0821Z2SE', '4300000946', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(127, 'UPDATE', '2026-01-30 10:17:21', 53, 'In Use', 'AC8BA9D2D8DD', 'UQT-U6-MESH Access point / AC8BA9D2D8DD', '4300000884', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 16, 'Borrowไป SCI', '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(128, 'UPDATE', '2026-01-30 10:17:36', 52, 'In Use', 'AC8BA9D2DAE5', 'UQT-U6-MESH Access point / AC8BA9D2DAE5', '4300000877', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 2, 'BNDC 4110', '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(129, 'UPDATE', '2026-01-30 10:47:54', 54, 'In Store', 'FOC0821Z2SE', 'Access Switch WS-C2950C-24 / FOC0821Z2SE', '4300000946', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(130, 'UPDATE', '2026-01-30 10:47:54', 57, 'In Store', 'FAB0545W2AD', 'Access Switch WS-C2950C-24 / FAB0545W2AD', '4300000949', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel');
+INSERT INTO `devices_history` (`log_id`, `action_type`, `changed_at`, `Did`, `Asset_State`, `serial`, `CI_Name`, `Asset_Number`, `PR_No`, `Vendor`, `Project_purchase`, `Sid`, `Location2`, `PO_No`, `Loan_Start`, `Request_Date`, `Refer_SOF`, `Refer_Ticket`, `Assigned_Service`, `Reason`, `Dtypeid`, `DeRoleid`, `Project_code_purchase`, `Waranty_start`, `Waranty_end`, `Received_date`, `Asset_Type`, `Owner`, `Description`) VALUES
+(131, 'UPDATE', '2026-01-30 10:47:54', 57, 'In Store', 'FAB0545W2AD', 'Access Switch WS-C2950C-24 / FAB0545W2AD', '4300000949', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, '1234567890', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(132, 'UPDATE', '2026-01-30 10:47:54', 54, 'In Store', 'FOC0821Z2SE', 'Access Switch WS-C2950C-24 / FOC0821Z2SE', '4300000946', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, '1234567890', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(133, 'UPDATE', '2026-01-30 11:35:51', 4, 'In Use', 'FGL2314A91P', 'AIR-AP3802I-S-K9 / FGL2314A91P', '4300000581', '/PR8911007272', 'NETWORK SURE', 'บริษัท เบียร์ไทย (1991) จำกัด (มหาชน)', 1, 'Beer Thai', '8931006623', 'Not Assigned', '29-09-23', '8910019553', NULL, 'Network as a Service', 'New Installation', 1, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(134, 'UPDATE', '2026-01-30 13:22:57', 52, 'In Store', 'AC8BA9D2DAE5', 'UQT-U6-MESH Access point / AC8BA9D2DAE5', '4300000877', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 2, 'BNDC 4110', '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(135, 'UPDATE', '2026-01-30 13:22:57', 53, 'In Store', 'AC8BA9D2D8DD', 'UQT-U6-MESH Access point / AC8BA9D2D8DD', '4300000884', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 2, 'BNDC 4110', '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(136, 'UPDATE', '2026-01-30 13:22:57', 56, 'In Store', 'FOC0932Z544', 'Access Switch WS-C2950C-24 / FOC0932Z544', '4300000948', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(137, 'UPDATE', '2026-01-30 13:22:57', 53, 'In Store', 'AC8BA9D2D8DD', 'UQT-U6-MESH Access point / AC8BA9D2D8DD', '4300000884', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 2, 'BNDC 4110', '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'asd', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(138, 'UPDATE', '2026-01-30 13:22:57', 56, 'In Store', 'FOC0932Z544', 'Access Switch WS-C2950C-24 / FOC0932Z544', '4300000948', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'asd', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(139, 'UPDATE', '2026-01-30 13:22:57', 52, 'In Store', 'AC8BA9D2DAE5', 'UQT-U6-MESH Access point / AC8BA9D2DAE5', '4300000877', '/PR8911008377', 'SiS Distribution (Thailand) PLC.', 'SATHORN1', 2, 'BNDC 4110', '8931007727', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'asd', 'Not Assigned', 10, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(140, 'UPDATE', '2026-01-30 15:32:03', 56, 'In Use', 'FOC0932Z544', 'Access Switch WS-C2950C-24 / FOC0932Z544', '4300000948', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 9, 'TCC FL6', NULL, 'Not Assigned', 'Not Assigned', 'asd', NULL, 'asd', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(141, 'UPDATE', '2026-01-30 15:32:47', 57, 'In Use', 'FAB0545W2AD', 'Access Switch WS-C2950C-24 / FAB0545W2AD', '4300000949', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 1, 'Beer Thai', NULL, 'Not Assigned', 'Not Assigned', '1234567890', NULL, '1234567890', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(142, 'UPDATE', '2026-01-30 15:33:02', 55, 'In Store', 'FAB0545W29X', 'Access Switch WS-C2950C-24 / FAB0545W29X', '4300000947', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 1, 'Beer Thai', NULL, 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(143, 'UPDATE', '2026-01-30 15:33:25', 54, 'In Use', 'FOC0821Z2SE', 'Access Switch WS-C2950C-24 / FOC0821Z2SE', '4300000946', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 1, 'คอสมอส', NULL, 'Not Assigned', 'Not Assigned', '1234567890', NULL, '1234567890', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(144, 'UPDATE', '2026-01-30 15:36:43', 44, 'In Use', 'FGT61FTK20027631', 'FG-61F-BDL-950-36 / FGT61FTK20027631', '4300000001', '8911003902', 'เอ็นทีที (ประเทศไทย)', 'TBL_Wangnoi', 10, 'Wang Noi Ayutaya', '8931003422', 'Not Assigned', '22-04-22', '8910011992', NULL, 'Network as a Service', 'New Installation', 7, 2, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(145, 'UPDATE', '2026-01-30 15:36:43', 45, 'In Use', 'FGT61FTK20028094', 'FG-61F-BDL-950-36 / FGT61FTK20028094', '4300000002', '8911003902', 'เอ็นทีที (ประเทศไทย)', 'TBL_Wangnoi', 10, 'Wang Noi Ayutaya', '8931003422', 'Not Assigned', '22-04-22', '8910011992', NULL, 'Network as a Service', 'New Installation', 7, 2, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(146, 'UPDATE', '2026-02-02 10:15:30', 24, 'In Store', 'FCW2106B5E3', 'WS-C2960X-24PS-L / FCW2106B5E3', '4300000641', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 2, 'BNDC 4110', '8931006625', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'Not Assigned', 'Not Assigned', 3, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(147, 'UPDATE', '2026-02-02 10:15:30', 54, 'In Store', 'FOC0821Z2SE', 'Access Switch WS-C2950C-24 / FOC0821Z2SE', '4300000946', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', '', NULL, '', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(148, 'UPDATE', '2026-02-02 10:15:30', 56, 'In Store', 'FOC0932Z544', 'Access Switch WS-C2950C-24 / FOC0932Z544', '4300000948', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', '', NULL, 'asd', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(149, 'UPDATE', '2026-02-02 10:15:30', 24, 'In Store', 'FCW2106B5E3', 'WS-C2960X-24PS-L / FCW2106B5E3', '4300000641', '/PR8911007273', 'NETWORK SURE', 'Cosmos', 2, 'BNDC 4110', '8931006625', 'Not Assigned', 'Not Assigned', 'Not Assigned', NULL, 'test', 'Not Assigned', 3, 1, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(150, 'UPDATE', '2026-02-02 10:15:30', 54, 'In Store', 'FOC0821Z2SE', 'Access Switch WS-C2950C-24 / FOC0821Z2SE', '4300000946', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', '', NULL, 'test', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel'),
+(151, 'UPDATE', '2026-02-02 10:15:30', 56, 'In Store', 'FOC0932Z544', 'Access Switch WS-C2950C-24 / FOC0932Z544', '4300000948', '/Ref SOF 8910018076', 'SiS Distribution (Thailand) PLC.', 'MA Thaibev', 2, 'BNDC 4110', NULL, 'Not Assigned', 'Not Assigned', '', NULL, 'test', 'Not Assigned', 11, 3, '', '2026-01-18', '2026-01-18', '2026-01-19', NULL, NULL, 'Update from Excel');
 
 -- --------------------------------------------------------
 
@@ -605,10 +666,10 @@ CREATE TABLE `ma_shpm` (
   `ma_id` int(11) NOT NULL,
   `start_date` date DEFAULT NULL,
   `end_date` date DEFAULT NULL,
-  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> Devices(Did)',
+  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> devices(Did)',
   `new_device_id` int(11) DEFAULT NULL,
   `eng_id` int(11) DEFAULT NULL COMMENT 'Engineer (optional FK -> User)',
-  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> Sites_Location(SLid)',
+  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> sites_location(SLid)',
   `contract_id` int(11) DEFAULT NULL COMMENT 'FK -> contract; PM/MA ดึงจาก contract',
   `sla_status` enum('Pass','Fail') DEFAULT NULL COMMENT 'ผ่าน/ตก',
   `travel_how` varchar(255) DEFAULT NULL,
@@ -640,8 +701,8 @@ CREATE TABLE `pm_shma` (
   `pm_id` int(11) NOT NULL,
   `start_date` date DEFAULT NULL COMMENT 'เดิน ไป',
   `end_date` date DEFAULT NULL COMMENT 'กลับ',
-  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> Devices(Did)',
-  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> Sites_Location(SLid)',
+  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> devices(Did)',
+  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> sites_location(SLid)',
   `eng_id` int(11) DEFAULT NULL COMMENT 'Engineer (optional FK -> User)',
   `contract_id` int(11) DEFAULT NULL COMMENT 'FK -> contract; PM/MA ดึงจาก contract',
   `status` varchar(100) DEFAULT NULL COMMENT 'ไม่ชัวร์ เหมือนจะได้ใช้',
@@ -762,15 +823,6 @@ CREATE TABLE `tasks` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `tasks`
---
-
-INSERT INTO `tasks` (`id`, `task_type`, `contract_id`, `assets`, `replacement_device_id`, `site_id`, `site_name`, `vendor_name`, `duration`, `sla_term`, `coverage_scope`, `priority`, `start_date`, `end_date`, `travel_method`, `travel_cost`, `engineers`, `asset_binding`, `status`, `actually_went`, `notes`, `photos`, `created_at`, `updated_at`) VALUES
-(9, 'MA', 7, '[{\"id\":11,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91W\",\"Dtypeid\":1,\"DeRoleid\":1,\"type\":\"Device\",\"serialNumber\":\"FGL2314A91W\",\"site\":\"Thai Beverage Public Company Limited\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000588\",\"source\":\"site\"}]', 4, 1, 'Thai Beverage Public Company Limited - Beer Thai', 'dd', NULL, NULL, 'o', NULL, '2026-01-23', '2026-01-23', 'airplane', 6.98, '[{\"id\":\"ENG001\",\"name\":\"Yotsawan\"}]', NULL, 'done', 0, NULL, NULL, '2026-01-23 10:07:31', '2026-01-27 03:36:53'),
-(10, 'PM', 8, '[{\"id\":7,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91S\",\"Dtypeid\":1,\"DeRoleid\":1,\"type\":\"Device\",\"serialNumber\":\"FGL2314A91S\",\"site\":\"Thai Beverage Public Company Limited\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000584\",\"source\":\"site\"}]', NULL, 1, 'Thai Beverage Public Company Limited - Beer Thai', NULL, NULL, NULL, 'q', NULL, '2026-01-21', '2026-01-21', 'train', 23.00, '[{\"id\":\"ENG001\",\"name\":\"Yotsawan\"}]', NULL, 'not-started', 0, NULL, NULL, '2026-01-26 08:34:09', '2026-01-27 02:47:28'),
-(12, 'PM', 8, '[{\"id\":11,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91W\",\"Dtypeid\":1,\"DeRoleid\":1,\"type\":\"Device\",\"serialNumber\":\"FGL2314A91W\",\"site\":\"Thai Beverage Public Company Limited\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000588\",\"source\":\"site\"}]', NULL, 1, 'Thai Beverage Public Company Limited - Beer Thai', NULL, NULL, NULL, 'we', NULL, '2026-02-02', '2026-02-03', 'private-car', 12.00, '[{\"id\":\"ENG001\",\"name\":\"Yotsawan\"}]', NULL, 'not-started', 0, NULL, NULL, '2026-01-27 02:48:01', '2026-01-27 02:55:32');
-
 -- --------------------------------------------------------
 
 --
@@ -810,7 +862,13 @@ ALTER TABLE `contract_device`
   ADD PRIMARY KEY (`contract_id`,`device_id`),
   ADD KEY `fk_cd_device` (`device_id`);
 
--- report table มี FK ใน CREATE TABLE แล้ว
+--
+-- Indexes for table `contract_site`
+--
+ALTER TABLE `contract_site`
+  ADD PRIMARY KEY (`contract_id`,`SLid`),
+  ADD KEY `fk_cs_slid` (`SLid`);
+
 --
 -- Indexes for table `devices`
 --
@@ -910,7 +968,7 @@ ALTER TABLE `user`
 -- AUTO_INCREMENT for table `contract`
 --
 ALTER TABLE `contract`
-  MODIFY `contract_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+  MODIFY `contract_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
 
 --
 -- AUTO_INCREMENT for table `devices`
@@ -922,7 +980,7 @@ ALTER TABLE `devices`
 -- AUTO_INCREMENT for table `devices_history`
 --
 ALTER TABLE `devices_history`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=88;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=152;
 
 --
 -- AUTO_INCREMENT for table `device_role`
@@ -982,7 +1040,7 @@ ALTER TABLE `sites_location`
 -- AUTO_INCREMENT for table `tasks`
 --
 ALTER TABLE `tasks`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=13;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- AUTO_INCREMENT for table `user`
@@ -1007,6 +1065,13 @@ ALTER TABLE `contract`
 ALTER TABLE `contract_device`
   ADD CONSTRAINT `fk_cd_contract` FOREIGN KEY (`contract_id`) REFERENCES `contract` (`contract_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fk_cd_device` FOREIGN KEY (`device_id`) REFERENCES `devices` (`Did`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `contract_site`
+--
+ALTER TABLE `contract_site`
+  ADD CONSTRAINT `fk_cs_contract` FOREIGN KEY (`contract_id`) REFERENCES `contract` (`contract_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_cs_slid` FOREIGN KEY (`SLid`) REFERENCES `sites_location` (`SLid`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `devices`
@@ -1045,8 +1110,6 @@ ALTER TABLE `pm_shma`
 ALTER TABLE `sites_location`
   ADD CONSTRAINT `frk11` FOREIGN KEY (`Sid`) REFERENCES `sites` (`Sid`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `frk12` FOREIGN KEY (`lid`) REFERENCES `location` (`lid`) ON DELETE CASCADE ON UPDATE CASCADE;
-
-SET FOREIGN_KEY_CHECKS=1;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

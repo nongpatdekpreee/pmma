@@ -20,6 +20,8 @@ interface DeviceItem {
   Did: number;
   CI_Name: string | null;
   Asset_Number: string | null;
+  typeModel?: string | null;
+  roleName?: string | null;
 }
 
 export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
@@ -29,7 +31,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   const [endDate, setEndDate] = useState('');
   const [sofName, setSofName] = useState('');
   const [slaName, setSlaName] = useState('');
-  const [slaDetail, setSlaDetail] = useState('');
+
   const [saleAccount, setSaleAccount] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
   const [filePaths, setFilePaths] = useState<string[]>([]);
@@ -79,7 +81,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setContractName('');
       setSofName('');
       setSlaName('');
-      setSlaDetail('');
+  
       setSaleAccount('');
       setCoverageScope('');
       setFilePaths([]);
@@ -236,10 +238,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setSaveError('กรุณากรอก sla_name (ชื่อ SLA)');
       return;
     }
-    if (!slaDetail.trim()) {
-      setSaveError('กรุณากรอก sla_detail (รายละเอียด SLA)');
-      return;
-    }
+   
     setSaveLoading(true);
     try {
       // site_device_pairs: แต่ละ site มี devices ของตัวเอง แยกกัน
@@ -254,7 +253,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         site_device_pairs,
         sof_name: selectedReferSOF || sofName.trim() || null,
         sla_name: slaName.trim(),
-        sla_detail: slaDetail.trim(),
+ 
         sale_account: saleAccount.trim() || null,
         coverage_scope: coverageScope.trim() || null,
         file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
@@ -320,18 +319,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
               />
             </div>
 
-            <div>
-              <label className={labelBase}>SLA Detail * (เช่น ระยะเวลาการตอบกลับ 24/7)</label>
-              <input
-                type="text"
-                value={slaDetail}
-                onChange={(e) => setSlaDetail(e.target.value)}
-                placeholder="รายละเอียด SLA เช่น 24/7, 8x5"
-                className={inputBase}
-                required
-              />
-            </div>
-
+           
             <div>
               <label className={labelBase}>Refer SOF *</label>
               <select
@@ -584,7 +572,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         devices={devicesBySite.map((d) => ({
           id: String(d.Did),
           name: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
-          type: '',
+          type: d.typeModel || '',
+          role: d.roleName || '',
           serialNumber: '',
           site: '',
           assetNumber: d.Asset_Number || '',

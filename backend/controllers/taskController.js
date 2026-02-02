@@ -1,9 +1,9 @@
 const db = require('../config/database');
 
-// Ensure Tasks table exists (MariaDB 10.4 compatible)
+// Ensure tasks table exists (MariaDB 10.4 compatible)
 const ensureTaskTable = async () => {
   const sql = `
-    CREATE TABLE IF NOT EXISTS Tasks (
+    CREATE TABLE IF NOT EXISTS tasks (
       id INT AUTO_INCREMENT PRIMARY KEY,
       task_type ENUM('PM','MA') NOT NULL,
       contract_id INT NULL,
@@ -33,7 +33,7 @@ const ensureTaskTable = async () => {
   
   // Add contract_id column if it doesn't exist (for existing tables)
   try {
-    await db.execute('ALTER TABLE Tasks ADD COLUMN contract_id INT NULL AFTER task_type');
+    await db.execute('ALTER TABLE tasks ADD COLUMN contract_id INT NULL AFTER task_type');
   } catch (error) {
     // Column already exists, ignore error
     if (!error.message.includes('Duplicate column name')) {
@@ -43,7 +43,7 @@ const ensureTaskTable = async () => {
   
   // Add replacement_device_id column if it doesn't exist (for existing tables)
   try {
-    await db.execute('ALTER TABLE Tasks ADD COLUMN replacement_device_id INT NULL AFTER contract_id');
+    await db.execute('ALTER TABLE tasks ADD COLUMN replacement_device_id INT NULL AFTER contract_id');
   } catch (error) {
     // Column already exists, ignore error
     if (!error.message.includes('Duplicate column name')) {
@@ -54,7 +54,7 @@ const ensureTaskTable = async () => {
 
 // Run table creation when controller is loaded
 ensureTaskTable().catch((err) => {
-  console.error('Error ensuring Tasks table:', err.message);
+  console.error('Error ensuring tasks table:', err.message);
 });
 
 const mapTaskRow = (row) => ({
@@ -87,7 +87,7 @@ const mapTaskRow = (row) => ({
 const updateDeviceAssetState = async (deviceId, newState, user = null) => {
   try {
     // Get current state
-    const [current] = await db.execute('SELECT Asset_State FROM Devices WHERE Did = ?', [deviceId]);
+    const [current] = await db.execute('SELECT Asset_State FROM devices WHERE Did = ?', [deviceId]);
     if (current.length === 0) {
       throw new Error(`Device ${deviceId} not found`);
     }
@@ -95,17 +95,17 @@ const updateDeviceAssetState = async (deviceId, newState, user = null) => {
     
     if (oldState !== newState) {
       // Update device
-      await db.execute('UPDATE Devices SET Asset_State = ? WHERE Did = ?', [newState, deviceId]);
+      await db.execute('UPDATE devices SET Asset_State = ? WHERE Did = ?', [newState, deviceId]);
       
-      // Log history if Device_History table exists
+      // Log history if devices_history table exists
       try {
         await db.execute(
-          `INSERT INTO Device_History (Did, Action, Old_Value, New_Value, User, Created_At) 
+          `INSERT INTO devices_history (Did, Action, Old_Value, New_Value, User, Created_At) 
            VALUES (?, 'ASSET_STATE_CHANGE', ?, ?, ?, NOW())`,
           [deviceId, oldState, newState, user]
         );
       } catch (error) {
-        // Device_History table might not exist, ignore
+        // devices_history table might not exist, ignore
         console.warn('Could not log device history:', error.message);
       }
     }
@@ -151,7 +151,7 @@ const createTask = async (req, res) => {
     await ensureTaskTable();
 
     const insertSql = `
-      INSERT INTO Tasks (
+      INSERT INTO tasks (
         task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name, 
         coverage_scope, priority, start_date, end_date, 
         travel_method, travel_cost, engineers, assets, status, actually_went, notes, photos
@@ -236,7 +236,7 @@ const createTask = async (req, res) => {
             if (existing.length > 0) {
               // Get SLid of replacement device from Devices table
               const [replacementDevice] = await db.execute(
-                'SELECT SLid FROM Devices WHERE Did = ?',
+                'SELECT SLid FROM devices WHERE Did = ?',
                 [replacementId]
               );
               const replacementSLid = replacementDevice.length > 0 ? replacementDevice[0].SLid : null;
@@ -276,7 +276,7 @@ const createTask = async (req, res) => {
       }
     }
 
-    const [rows] = await db.execute('SELECT * FROM Tasks WHERE id = ?', [result.insertId]);
+    const [rows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [result.insertId]);
     return res.status(201).json({
       success: true,
       message: 'สร้าง Task สำเร็จ',
@@ -299,7 +299,7 @@ const createTask = async (req, res) => {
 const getTasks = async (_req, res) => {
   try {
     await ensureTaskTable();
-    const [rows] = await db.execute('SELECT * FROM Tasks ORDER BY start_date DESC, id DESC');
+    const [rows] = await db.execute('SELECT * FROM tasks ORDER BY start_date DESC, id DESC');
     res.status(200).json({
       success: true,
       count: rows.length,
@@ -319,7 +319,7 @@ const getTasks = async (_req, res) => {
 const getTaskById = async (req, res) => {
   try {
     const { id } = req.params;
-    const [rows] = await db.execute('SELECT * FROM Tasks WHERE id = ?', [id]);
+    const [rows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     if (!rows[0]) {
       return res.status(404).json({ success: false, message: 'ไม่พบ Task' });
     }
@@ -360,7 +360,7 @@ const updateTask = async (req, res) => {
       photos,
     } = req.body;
 
-    const [existing] = await db.execute('SELECT * FROM Tasks WHERE id = ?', [id]);
+    const [existing] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     if (!existing[0]) {
       return res.status(404).json({ success: false, message: 'ไม่พบ Task สำหรับอัพเดท' });
     }
@@ -408,7 +408,7 @@ const updateTask = async (req, res) => {
     }
 
     values.push(id);
-    const updateSql = `UPDATE Tasks SET ${updates.join(', ')} WHERE id = ?`;
+    const updateSql = `UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`;
     await db.execute(updateSql, values);
 
     // Handle replacement device asset state changes and contract_device update
@@ -464,7 +464,7 @@ const updateTask = async (req, res) => {
             if (existingContractDevice.length > 0) {
               // Get SLid of replacement device from Devices table
               const [replacementDevice] = await db.execute(
-                'SELECT SLid FROM Devices WHERE Did = ?',
+                'SELECT SLid FROM devices WHERE Did = ?',
                 [replacementIdNum]
               );
               const replacementSLid = replacementDevice.length > 0 ? replacementDevice[0].SLid : null;
@@ -511,7 +511,7 @@ const updateTask = async (req, res) => {
       }
     }
 
-    const [rows] = await db.execute('SELECT * FROM Tasks WHERE id = ?', [id]);
+    const [rows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     res.status(200).json({
       success: true,
       message: 'อัพเดท Task สำเร็จ',
@@ -533,13 +533,13 @@ const deleteTask = async (req, res) => {
     const { id } = req.params;
     
     // Check if task exists
-    const [existing] = await db.execute('SELECT * FROM Tasks WHERE id = ?', [id]);
+    const [existing] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     if (!existing[0]) {
       return res.status(404).json({ success: false, message: 'ไม่พบ Task สำหรับลบ' });
     }
 
     // Delete the task
-    await db.execute('DELETE FROM Tasks WHERE id = ?', [id]);
+    await db.execute('DELETE FROM tasks WHERE id = ?', [id]);
     
     res.status(200).json({
       success: true,

@@ -3,7 +3,7 @@ const db = require('../config/database');
 // Helper function - บันทึกประวัติการเปลี่ยนแปลง Device
 const logDeviceHistory = async (deviceId, action, oldValue = null, newValue = null, changedFields = null, user = null) => {
   try {
-    const historySql = `INSERT INTO Device_History (
+    const historySql = `INSERT INTO devices_history (
       Did, Action, Old_Value, New_Value, Changed_Fields, User
     ) VALUES (?, ?, ?, ?, ?, ?)`;
 
@@ -58,7 +58,7 @@ const createDevice = async (req, res) => {
     let existingAssetsMap = new Map();
     if (assetNumbers.length > 0) {
       const placeholders = assetNumbers.map(() => '?').join(',');
-      const checkSql = `SELECT Did, Asset_Number FROM Devices WHERE Asset_Number IN (${placeholders})`;
+      const checkSql = `SELECT Did, Asset_Number FROM devices WHERE Asset_Number IN (${placeholders})`;
       const [existing] = await db.execute(checkSql, assetNumbers);
 
       // สร้าง map สำหรับค้นหาเร็ว
@@ -96,7 +96,7 @@ const createDevice = async (req, res) => {
       for (const device of devicesToInsert) {
         try {
           const [result] = await db.execute(
-            `INSERT INTO Devices (
+            `INSERT INTO devices (
               Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
                SLid,PO_No, Loan_Start, Request_Date, Refer_SOF, 
               Refer_Ticket, Assigned_Service, Reason, warranty, Dtypeid, DeRoleid
@@ -173,7 +173,7 @@ const createDevice = async (req, res) => {
       try {
         // ดึงข้อมูลเดิมก่อน update เพื่อตรวจสอบการเปลี่ยนแปลง Asset_State
         const [oldDeviceData] = await db.execute(
-          'SELECT Asset_State FROM Devices WHERE Did = ?',
+          'SELECT Asset_State FROM devices WHERE Did = ?',
           [device._id]
         );
         const oldAssetState = oldDeviceData[0]?.Asset_State || null;
@@ -266,7 +266,7 @@ const createDevice = async (req, res) => {
 
         if (updates.length > 0) {
           values.push(device._id);
-          const updateSql = `UPDATE Devices SET ${updates.join(', ')} WHERE Did = ?`;
+          const updateSql = `UPDATE devices SET ${updates.join(', ')} WHERE Did = ?`;
           await db.execute(updateSql, values);
 
           const newAssetState = device.Asset_State !== undefined ? device.Asset_State : oldAssetState;
@@ -379,22 +379,22 @@ const getDevices = async (req, res) => {
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `AND (
-        Devices.Asset_State LIKE ? OR 
-        Devices.serial LIKE ? OR 
-        Devices.CI_Name LIKE ? OR 
-        Devices.Asset_Number LIKE ? OR 
-        Devices.PR_No LIKE ? OR 
-        Devices.Vendor LIKE ?
+        devices.Asset_State LIKE ? OR 
+        devices.serial LIKE ? OR 
+        devices.CI_Name LIKE ? OR 
+        devices.Asset_Number LIKE ? OR 
+        devices.PR_No LIKE ? OR 
+        devices.Vendor LIKE ?
       )`;
       searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // นับจำนวน records ทั้งหมด (พร้อม search)
     const countSql = `SELECT COUNT(*) as total 
-                      FROM Devices, Device_Type, Sites, Manufacturer 
-                      WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                      AND Device_Type.Mid = Manufacturer.Mid 
-                      AND Devices.SLid = Sites.Sid 
+                      FROM devices, device_type, sites, manufacturer 
+                      WHERE device_type.Dtypeid = devices.Dtypeid 
+                      AND device_type.Mid = manufacturer.Mid 
+                      AND devices.SLid = sites.Sid 
                       ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
@@ -402,13 +402,13 @@ const getDevices = async (req, res) => {
 
     // ดึงข้อมูลตาม pagination (พร้อม search)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-                 Devices.SLid as SLid,  PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
-                 Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
-                 FROM Devices, Device_Type, Sites, Manufacturer 
-                 WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                 AND Device_Type.Mid = Manufacturer.Mid 
-                 AND Devices.SLid = Sites.Sid 
+                 devices.SLid as SLid,  PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+                 device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
+                 FROM devices, device_type, sites, manufacturer 
+                 WHERE device_type.Dtypeid = devices.Dtypeid 
+                 AND device_type.Mid = manufacturer.Mid 
+                 AND devices.SLid = sites.Sid 
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
@@ -418,13 +418,13 @@ const getDevices = async (req, res) => {
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
     let assetStateStats = [];
     if (search) {
-      const assetStateSql = `SELECT Devices.Asset_State, COUNT(*) AS total
-                             FROM Devices, Device_Type, Sites, Manufacturer 
-                             WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                             AND Device_Type.Mid = Manufacturer.Mid 
-                             AND Devices.SLid = Sites.Sid 
+      const assetStateSql = `SELECT devices.Asset_State, COUNT(*) AS total
+                             FROM devices, device_type, sites, manufacturer 
+                             WHERE device_type.Dtypeid = devices.Dtypeid 
+                             AND device_type.Mid = manufacturer.Mid 
+                             AND devices.SLid = sites.Sid 
                              ${searchCondition}
-                             GROUP BY Devices.Asset_State`;
+                             GROUP BY devices.Asset_State`;
       const [assetStateResult] = await db.execute(assetStateSql, searchParams);
       assetStateStats = assetStateResult;
     }
@@ -470,23 +470,23 @@ const getDevicesExcludeInStore = async (req, res) => {
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `AND (
-        Devices.Asset_State LIKE ? OR 
-        Devices.serial LIKE ? OR 
-        Devices.CI_Name LIKE ? OR 
-        Devices.Asset_Number LIKE ? OR 
-        Devices.PR_No LIKE ? OR 
-        Devices.Vendor LIKE ? 
+        devices.Asset_State LIKE ? OR 
+        devices.serial LIKE ? OR 
+        devices.CI_Name LIKE ? OR 
+        devices.Asset_Number LIKE ? OR 
+        devices.PR_No LIKE ? OR 
+        devices.Vendor LIKE ? 
       )`;
       searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // นับจำนวน records ทั้งหมด (ไม่รวม "In Store" + search)
     const countSql = `SELECT COUNT(*) as total 
-                      FROM Devices, Device_Type, Sites, Manufacturer 
-                      WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                      AND Device_Type.Mid = Manufacturer.Mid 
-                      AND Devices.SLid = Sites.Sid 
-                      AND (Devices.Asset_State IS NULL OR Devices.Asset_State != 'In Store')
+                      FROM devices, device_type, sites, manufacturer 
+                      WHERE device_type.Dtypeid = devices.Dtypeid 
+                      AND device_type.Mid = manufacturer.Mid 
+                      AND devices.SLid = sites.Sid 
+                      AND (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
                       ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
@@ -494,14 +494,14 @@ const getDevicesExcludeInStore = async (req, res) => {
 
     // ดึงข้อมูลตาม pagination (ไม่รวม "In Store" + search)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
-                 Devices.SLid as Sid,  PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
-                 Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
-                 FROM Devices, Device_Type, Sites, Manufacturer 
-                 WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                 AND Device_Type.Mid = Manufacturer.Mid 
-                 AND Devices.SLid = Sites.Sid 
-                 AND (Devices.Asset_State IS NULL OR Devices.Asset_State != 'In Store')
+                 devices.SLid as Sid,  PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+                 device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
+                 FROM devices, device_type, sites, manufacturer 
+                 WHERE device_type.Dtypeid = devices.Dtypeid 
+                 AND device_type.Mid = manufacturer.Mid 
+                 AND devices.SLid = sites.Sid 
+                 AND (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
@@ -511,14 +511,14 @@ const getDevicesExcludeInStore = async (req, res) => {
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
     let assetStateStats = [];
     if (search) {
-      const assetStateSql = `SELECT Devices.Asset_State, COUNT(*) AS total
-                             FROM Devices, Device_Type, Sites, Manufacturer 
-                             WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                             AND Device_Type.Mid = Manufacturer.Mid 
-                             AND Devices.SLid = Sites.Sid 
-                             AND (Devices.Asset_State IS NULL OR Devices.Asset_State != 'In Store')
+      const assetStateSql = `SELECT devices.Asset_State, COUNT(*) AS total
+                             FROM devices, device_type, sites, manufacturer 
+                             WHERE device_type.Dtypeid = devices.Dtypeid 
+                             AND device_type.Mid = manufacturer.Mid 
+                             AND devices.SLid = sites.Sid 
+                             AND (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
                              ${searchCondition}
-                             GROUP BY Devices.Asset_State`;
+                             GROUP BY devices.Asset_State`;
       const [assetStateResult] = await db.execute(assetStateSql, searchParams);
       assetStateStats = assetStateResult;
     }
@@ -565,23 +565,23 @@ const getDevicesExcludeOutStore = async (req, res) => {
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `AND (
-        Devices.Asset_State LIKE ? OR 
-        Devices.serial LIKE ? OR 
-        Devices.CI_Name LIKE ? OR 
-        Devices.Asset_Number LIKE ? OR 
-        Devices.PR_No LIKE ? OR 
-        Devices.Vendor LIKE ?
+        devices.Asset_State LIKE ? OR 
+        devices.serial LIKE ? OR 
+        devices.CI_Name LIKE ? OR 
+        devices.Asset_Number LIKE ? OR 
+        devices.PR_No LIKE ? OR 
+        devices.Vendor LIKE ?
       )`;
       searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // นับจำนวน records ทั้งหมด (ไม่รวม "Out Store" + search)
     const countSql = `SELECT COUNT(*) as total 
-                      FROM Devices, Device_Type, Sites, Manufacturer 
-                      WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                      AND Device_Type.Mid = Manufacturer.Mid 
-                      AND Devices.SLid = Sites.Sid 
-                      AND (Devices.Asset_State IS NULL OR Devices.Asset_State != 'Out Store')
+                      FROM devices, device_type, sites, manufacturer 
+                      WHERE device_type.Dtypeid = devices.Dtypeid 
+                      AND device_type.Mid = manufacturer.Mid 
+                      AND devices.SLid = sites.Sid 
+                      AND (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
                       ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
@@ -589,14 +589,14 @@ const getDevicesExcludeOutStore = async (req, res) => {
 
     // ดึงข้อมูลตาม pagination (ไม่รวม "Out Store" + search)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-                 Devices.SLid as Sid, 2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
-                 Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
-                 FROM Devices, Device_Type, Sites, Manufacturer 
-                 WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                 AND Device_Type.Mid = Manufacturer.Mid 
-                 AND Devices.SLid = Sites.Sid 
-                 AND (Devices.Asset_State IS NULL OR Devices.Asset_State != 'Out Store')
+                 devices.SLid as Sid, 2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+                 device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
+                 FROM devices, device_type, sites, manufacturer 
+                 WHERE device_type.Dtypeid = devices.Dtypeid 
+                 AND device_type.Mid = manufacturer.Mid 
+                 AND devices.SLid = sites.Sid 
+                 AND (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
@@ -606,14 +606,14 @@ const getDevicesExcludeOutStore = async (req, res) => {
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
     let assetStateStats = [];
     if (search) {
-      const assetStateSql = `SELECT Devices.Asset_State, COUNT(*) AS total
-                             FROM Devices, Device_Type, Sites, Manufacturer 
-                             WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-                             AND Device_Type.Mid = Manufacturer.Mid 
-                             AND Devices.SLid = Sites.Sid 
-                             AND (Devices.Asset_State IS NULL OR Devices.Asset_State != 'Out Store')
+      const assetStateSql = `SELECT devices.Asset_State, COUNT(*) AS total
+                             FROM devices, device_type, sites, manufacturer 
+                             WHERE device_type.Dtypeid = devices.Dtypeid 
+                             AND device_type.Mid = manufacturer.Mid 
+                             AND devices.SLid = sites.Sid 
+                             AND (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
                              ${searchCondition}
-                             GROUP BY Devices.Asset_State`;
+                             GROUP BY devices.Asset_State`;
       const [assetStateResult] = await db.execute(assetStateSql, searchParams);
       assetStateStats = assetStateResult;
     }
@@ -649,18 +649,18 @@ const getDeviceById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Get Location2 from Location table via JOIN (Devices table may not have Location2 column)
+    // Get Location2 from location table via JOIN (Devices table may not have Location2 column)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
-                 Devices.SLid as Sid, L.Location2 as Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
-                 Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
-                 FROM Devices
-                 LEFT JOIN Device_Type ON Device_Type.Dtypeid = Devices.Dtypeid 
-                 LEFT JOIN Manufacturer ON Device_Type.Mid = Manufacturer.Mid 
-                 LEFT JOIN Sites ON Devices.SLid = Sites.Sid 
-                 LEFT JOIN Sites_Location SL ON Devices.SLid = SL.SLid
-                 LEFT JOIN Location L ON SL.lid = L.lid
-                 WHERE Devices.Did = ? 
+                 devices.SLid as Sid, L.Location2 as Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+                 device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
+                 FROM devices
+                 LEFT JOIN device_type ON device_type.Dtypeid = devices.Dtypeid 
+                 LEFT JOIN manufacturer ON device_type.Mid = manufacturer.Mid 
+                 LEFT JOIN sites ON devices.SLid = sites.Sid 
+                 LEFT JOIN sites_location SL ON devices.SLid = SL.SLid
+                 LEFT JOIN location L ON SL.lid = L.lid
+                 WHERE devices.Did = ? 
                  ORDER BY Did DESC`;
 
     const [rows] = await db.execute(sql, [id]);
@@ -722,12 +722,12 @@ const updateAssetState = async (req, res) => {
 
     // ดึงข้อมูลเดิมทั้งหมด (batch query)
     const placeholders = deviceIds.map(() => '?').join(',');
-    const checkSql = `SELECT Did, Asset_State FROM Devices WHERE Did IN (${placeholders})`;
+    const checkSql = `SELECT Did, Asset_State FROM devices WHERE Did IN (${placeholders})`;
     const [existingDevices] = await db.execute(checkSql, deviceIds);
 
     // สร้าง map สำหรับค้นหาเร็ว
     const existingMap = new Map();
-    existingDevices.forEach(device => {
+    existingdevices.forEach(device => {
       existingMap.set(device.Did, device.Asset_State);
     });
 
@@ -753,7 +753,7 @@ const updateAssetState = async (req, res) => {
 
         // อัพเดทเฉพาะถ้า Asset_State เปลี่ยน
         if (oldAssetState !== newAssetState) {
-          const updateSql = 'UPDATE Devices SET Asset_State = ? WHERE Did = ?';
+          const updateSql = 'UPDATE devices SET Asset_State = ? WHERE Did = ?';
           await db.execute(updateSql, [newAssetState, deviceId]);
 
           // บันทึกประวัติ ASSET_STATE_CHANGE
@@ -874,7 +874,7 @@ const updateDevice = async (req, res) => {
     }
 
     // ตรวจสอบว่า Device มีอยู่จริงหรือไม่ และดึงข้อมูลเดิม
-    const checkSql = 'SELECT Did, Asset_State FROM Devices WHERE Did = ?';
+    const checkSql = 'SELECT Did, Asset_State FROM devices WHERE Did = ?';
     const [existing] = await db.execute(checkSql, [id]);
 
     if (existing.length === 0) {
@@ -979,7 +979,7 @@ const updateDevice = async (req, res) => {
 
     values.push(id);
 
-    const sql = `UPDATE Devices SET ${updates.join(', ')} WHERE Did = ?`;
+    const sql = `UPDATE devices SET ${updates.join(', ')} WHERE Did = ?`;
     await db.execute(sql, values);
 
     // บันทึกประวัติ ASSET_STATE_CHANGE ถ้า Asset_State เปลี่ยน
@@ -1012,14 +1012,14 @@ const updateDevice = async (req, res) => {
     // ดึงข้อมูลที่อัพเดทแล้วมาแสดง (พร้อม JOIN)
     const [updated] = await db.execute(
       `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-       Devices.SLid as Sid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
-       Refer_Ticket, Assigned_Service, Reason, Devices.Dtypeid as Dtypeid, 
-       Device_Type.model, Manufacturer.name as Manufacturername, Sites.Name as Sitename 
-       FROM Devices, Device_Type, Sites, Manufacturer 
-       WHERE Device_Type.Dtypeid = Devices.Dtypeid 
-       AND Device_Type.Mid = Manufacturer.Mid 
-       AND Devices.SLid = Sites.Sid 
-       AND Devices.Did = ?`,
+       devices.SLid as Sid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+       Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+       device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
+       FROM devices, device_type, sites, manufacturer 
+       WHERE device_type.Dtypeid = devices.Dtypeid 
+       AND device_type.Mid = manufacturer.Mid 
+       AND devices.SLid = sites.Sid 
+       AND devices.Did = ?`,
       [id]
     );
 
@@ -1044,7 +1044,7 @@ const deleteDevice = async (req, res) => {
     const { id } = req.params;
 
     // ตรวจสอบว่า Device มีอยู่จริงหรือไม่
-    const checkSql = 'SELECT Did, CI_Name FROM Devices WHERE Did = ?';
+    const checkSql = 'SELECT Did, CI_Name FROM devices WHERE Did = ?';
     const [existing] = await db.execute(checkSql, [id]);
 
     if (existing.length === 0) {
@@ -1055,7 +1055,7 @@ const deleteDevice = async (req, res) => {
     }
 
     // ลบข้อมูล
-    const sql = 'DELETE FROM Devices WHERE Did = ?';
+    const sql = 'DELETE FROM devices WHERE Did = ?';
     await db.execute(sql, [id]);
 
     res.status(200).json({
@@ -1081,48 +1081,48 @@ const getDashboard = async (req, res) => {
   try {
     // 1. จำนวน Devices ต่อ Site
     const siteStatsSql = `SELECT s.Name AS site_name, COUNT(*) AS total
-                          FROM Devices d
-                          JOIN Sites s ON d.SLid = s.Sid
+                          FROM devices d
+                          JOIN sites s ON d.SLid = s.Sid
                           GROUP BY s.Name`;
     const [siteStats] = await db.execute(siteStatsSql);
 
     // 2. จำนวน Devices ทั้งหมด
-    const totalDevicesSql = `SELECT COUNT(*) AS total_devices FROM Devices`;
+    const totalDevicesSql = `SELECT COUNT(*) AS total_devices FROM devices`;
     const [totalDevicesResult] = await db.execute(totalDevicesSql);
     const totalDevices = totalDevicesResult[0].total_devices;
 
     // 3. จำนวน Devices ต่อ Asset_State
     const assetStateSql = `SELECT Asset_State, COUNT(*) AS total
-                           FROM Devices
+                           FROM devices
                            GROUP BY Asset_State`;
     const [assetStateStats] = await db.execute(assetStateSql);
 
     // 4. จำนวน Devices ที่ available (Request_Date IS NULL)
     const availableSql = `SELECT COUNT(*) AS available_devices
-                         FROM Devices
+                         FROM devices
                          WHERE Request_Date IS NULL`;
     const [availableResult] = await db.execute(availableSql);
     const availableDevices = availableResult[0].available_devices;
 
     // 5. จำนวน Devices ที่ requested (Request_Date IS NOT NULL)
     const requestedSql = `SELECT COUNT(*) AS requested_devices
-                         FROM Devices
+                         FROM devices
                          WHERE Request_Date IS NOT NULL`;
     const [requestedResult] = await db.execute(requestedSql);
     const requestedDevices = requestedResult[0].requested_devices;
 
     // 6. จำนวน Devices ต่อ Model
     const modelStatsSql = `SELECT dt.model, COUNT(*) AS total
-                          FROM Devices d
-                          JOIN Device_Type dt ON d.Dtypeid = dt.Dtypeid
+                          FROM devices d
+                          JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
                           GROUP BY dt.model`;
     const [modelStats] = await db.execute(modelStatsSql);
 
-    // 7. จำนวน Devices ต่อ Manufacturer
+    // 7. จำนวน Devices ต่อ manufacturer
     const manufacturerStatsSql = `SELECT m.name AS manufacturer, COUNT(*) AS total
-                                 FROM Devices d
-                                 JOIN Device_Type dt ON d.Dtypeid = dt.Dtypeid
-                                 JOIN Manufacturer m ON dt.Mid = m.Mid
+                                 FROM devices d
+                                 JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+                                 JOIN manufacturer m ON dt.Mid = m.Mid
                                  GROUP BY m.name`;
     const [manufacturerStats] = await db.execute(manufacturerStatsSql);
 
@@ -1148,17 +1148,17 @@ const getDashboard = async (req, res) => {
   }
 };
 
-// GET - ดึงข้อมูล Devices แยกตาม Model (พร้อม Asset_State breakdown และ Manufacturer)
+// GET - ดึงข้อมูล Devices แยกตาม Model (พร้อม Asset_State breakdown และ manufacturer)
 const getDevicesByModel = async (req, res) => {
   try {
     // ดึงข้อมูล model, manufacturer, และจำนวนทั้งหมด
     const modelSql = `SELECT 
                       dt.model,
-                      m.name AS Manufacturername,
+                      m.name AS manufacturername,
                       COUNT(*) AS total
-                      FROM Devices d
-                      JOIN Device_Type dt ON d.Dtypeid = dt.Dtypeid
-                      JOIN Manufacturer m ON dt.Mid = m.Mid
+                      FROM devices d
+                      JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+                      JOIN manufacturer m ON dt.Mid = m.Mid
                       GROUP BY dt.model, m.name
                       ORDER BY dt.model`;
 
@@ -1169,8 +1169,8 @@ const getDevicesByModel = async (req, res) => {
                           dt.model,
                           d.Asset_State,
                           COUNT(*) AS count
-                          FROM Devices d
-                          JOIN Device_Type dt ON d.Dtypeid = dt.Dtypeid
+                          FROM devices d
+                          JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
                           GROUP BY dt.model, d.Asset_State
                           ORDER BY dt.model, d.Asset_State`;
 
@@ -1187,7 +1187,7 @@ const getDevicesByModel = async (req, res) => {
 
       return {
         model: model.model,
-        Manufacturername: model.Manufacturername,
+        manufacturername: model.manufacturername,
         total: model.total,
         assetStates: assetStates
       };
@@ -1208,20 +1208,20 @@ const getDevicesByModel = async (req, res) => {
   }
 };
 
-// GET - รายการ Vendor สำหรับ dropdown (DISTINCT จาก Devices.Project_purchase, ORDER BY Project_purchase ASC)
+// GET - รายการ Vendor สำหรับ dropdown (DISTINCT จาก devices.Project_purchase, ORDER BY Project_purchase ASC)
 // ถ้า Project_purchase ไม่มีใช้ Vendor แทน
 const getVendors = async (req, res) => {
   try {
     let rows;
     try {
       [rows] = await db.execute(
-        `SELECT DISTINCT Project_purchase AS name FROM Devices
+        `SELECT DISTINCT Project_purchase AS name FROM devices
          WHERE Project_purchase IS NOT NULL AND TRIM(Project_purchase) != ''
          ORDER BY Project_purchase ASC`
       );
     } catch (e) {
       [rows] = await db.execute(
-        `SELECT DISTINCT Vendor AS name FROM Devices
+        `SELECT DISTINCT Vendor AS name FROM devices
          WHERE Vendor IS NOT NULL AND TRIM(Vendor) != ''
          ORDER BY Vendor ASC`
       );
@@ -1237,13 +1237,13 @@ const getVendors = async (req, res) => {
   }
 };
 
-// GET - ดึง Devices ตาม site_id (= SLid, Sites_Location) สำหรับ Contract / Asset Binding
+// GET - ดึง Devices ตาม site_id (= SLid, sites_location) สำหรับ Contract / Asset Binding
 // GET - ดึง unique Refer_SOF values จาก Devices table
 const getReferSOFList = async (req, res) => {
   try {
     const [rows] = await db.execute(
       `SELECT DISTINCT Refer_SOF as refer_sof
-       FROM Devices
+       FROM devices
        WHERE Refer_SOF IS NOT NULL AND Refer_SOF != '' AND Refer_SOF != 'Not Assigned'
        ORDER BY Refer_SOF ASC`
     );
@@ -1283,7 +1283,7 @@ const getDevicesBySOFAndSite = async (req, res) => {
     
     const [rows] = await db.execute(
       `SELECT Did, CI_Name, Asset_Number, Asset_State, serial, SLid, Dtypeid, DeRoleid, Refer_SOF
-       FROM Devices
+       FROM devices
        WHERE Refer_SOF = ? AND SLid = ?
        ORDER BY COALESCE(CI_Name, Asset_Number, Did) ASC`,
       [referSOF, siteId]
@@ -1316,7 +1316,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
     
     if (siteId) {
       sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF
-             FROM Devices d
+             FROM devices d
              WHERE d.SLid = ?
                AND ${noSofCondition}
                AND ${inStoreCondition}
@@ -1325,7 +1325,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
       params = [siteId];
     } else {
       sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF
-             FROM Devices d
+             FROM devices d
              WHERE d.SLid = 2
                AND ${noSofCondition}
                AND ${inStoreCondition}
@@ -1355,10 +1355,10 @@ const getDevicesBySite = async (req, res) => {
         message: 'กรุณาระบุ site'
       });
     }
-    // TccStock: Devices.SLid -> Sites_Location.SLid
+    // TccStock: devices.SLid -> sites_location.SLid
     const [rows] = await db.execute(
       `SELECT Did, CI_Name, Asset_Number, Asset_State, serial, SLid, Dtypeid, DeRoleid
-       FROM Devices
+       FROM devices
        WHERE SLid = ?
        ORDER BY COALESCE(CI_Name, Asset_Number, Did) ASC`,
       [siteId]
@@ -1407,7 +1407,7 @@ const getDevicesByAssetState = async (req, res) => {
 
     const sql = `
       SELECT Did, CI_Name, Asset_Number, Asset_State, serial, SLid, Dtypeid, DeRoleid
-      FROM Devices
+      FROM devices
       WHERE Asset_State IN (${placeholders})
       ${searchSql}
       ORDER BY COALESCE(CI_Name, Asset_Number, Did) ASC
@@ -1449,7 +1449,7 @@ const getReplacementDevices = async (req, res) => {
         d.DeRoleid,
         d.SLid,
         s.Name AS SiteName
-      FROM Devices d
+      FROM devices d
       LEFT JOIN sites s ON d.SLid = s.Sid
       WHERE d.Asset_State = 'In Store'
         AND d.Dtypeid = ?
@@ -1521,11 +1521,11 @@ const viewDeviceHistory = async (req, res) => {
 
     // นับจำนวน records ทั้งหมด
     const countSql = `SELECT COUNT(*) as total 
-                      FROM Device_History dh
-                      JOIN Devices d ON dh.Did = d.Did
-                      JOIN Device_Type dt ON d.Dtypeid = dt.Dtypeid
-                      JOIN Manufacturer m ON dt.Mid = m.Mid
-                      LEFT JOIN Sites s ON d.Sid = s.Sid
+                      FROM devices_history dh
+                      JOIN devices d ON dh.Did = d.Did
+                      JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+                      JOIN manufacturer m ON dt.Mid = m.Mid
+                      LEFT JOIN sites s ON d.Sid = s.Sid
                       ${whereClause}`;
     const [countResult] = await db.execute(countSql, params);
     const totalRecords = countResult[0].total;
@@ -1550,13 +1550,13 @@ const viewDeviceHistory = async (req, res) => {
                   d.Project,
                   d.Location2,
                   dt.model,
-                  m.name AS Manufacturername,
+                  m.name AS manufacturername,
                   s.Name AS Sitename
-                  FROM Device_History dh
-                  JOIN Devices d ON dh.Did = d.Did
-                  JOIN Device_Type dt ON d.Dtypeid = dt.Dtypeid
-                  JOIN Manufacturer m ON dt.Mid = m.Mid
-                  LEFT JOIN Sites s ON d.Sid = s.Sid
+                  FROM devices_history dh
+                  JOIN devices d ON dh.Did = d.Did
+                  JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+                  JOIN manufacturer m ON dt.Mid = m.Mid
+                  LEFT JOIN sites s ON d.Sid = s.Sid
                   ${whereClause}
                   ORDER BY dh.Created_At DESC
                   LIMIT ? OFFSET ?`;
@@ -1583,7 +1583,7 @@ const viewDeviceHistory = async (req, res) => {
         
      
         model: row.model,
-        Manufacturername: row.Manufacturername,
+        manufacturername: row.manufacturername,
         Sitename: row.Sitename
       }
     }));
@@ -1623,7 +1623,7 @@ const getDeviceHistory = async (req, res) => {
     const { action } = req.query; // Filter by action (INSERT, UPDATE, ASSET_STATE_CHANGE)
 
     // ตรวจสอบว่า Device มีอยู่จริงหรือไม่
-    const checkSql = 'SELECT Did FROM Devices WHERE Did = ?';
+    const checkSql = 'SELECT Did FROM devices WHERE Did = ?';
     const [existing] = await db.execute(checkSql, [id]);
 
     if (existing.length === 0) {
@@ -1646,7 +1646,7 @@ const getDeviceHistory = async (req, res) => {
     const sql = `SELECT 
                   Historyid, Did, Action, Old_Value, New_Value, 
                   Changed_Fields, Created_At, User
-                  FROM Device_History
+                  FROM devices_history
                   WHERE Did = ? ${actionCondition}
                   ORDER BY Created_At DESC`;
 
@@ -1693,11 +1693,11 @@ const getDevicesWithPM = async (req, res) => {
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `AND (
-        Devices.CI_Name LIKE ? OR 
-        Devices.Asset_Number LIKE ? OR 
-        Devices.serial LIKE ? OR 
-        Devices.Vendor LIKE ? OR
-        Sites.Name LIKE ?
+        devices.CI_Name LIKE ? OR 
+        devices.Asset_Number LIKE ? OR 
+        devices.serial LIKE ? OR 
+        devices.Vendor LIKE ? OR
+        sites.Name LIKE ?
       )`;
       searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
@@ -1705,14 +1705,14 @@ const getDevicesWithPM = async (req, res) => {
     // Build device role filter
     let deviceRoleCondition = '';
     if (filterDeviceRole && filterDeviceRole !== 'all') {
-      deviceRoleCondition = 'AND Device_Role.name = ?';
+      deviceRoleCondition = 'AND device_role.name = ?';
       searchParams.push(filterDeviceRole);
     }
 
     // Build site filter
     let siteCondition = '';
     if (filterSite && filterSite !== 'all') {
-      siteCondition = 'AND Sites.Name = ?';
+      siteCondition = 'AND sites.Name = ?';
       searchParams.push(filterSite);
     }
 // yyyyyyydqw
@@ -1720,38 +1720,38 @@ const getDevicesWithPM = async (req, res) => {
 
     // Get devices that exist in contract_device table
     // Note: Devices table uses SLid (not Sid) to reference Sites
-    // Use Device_Role.name instead of Device_Type.model
+    // Use device_role.name instead of device_type.model
     const devicesSql = `
       SELECT DISTINCT
-        Devices.Did,
-        Devices.CI_Name,
-        Devices.Asset_Number,
-        Devices.Asset_State,
-        Devices.serial,
-        Devices.Vendor,
-        Devices.SLid,
-        Location.Province,        
-        Devices.Dtypeid,
-        Devices.DeRoleid,
-        Device_Role.name AS DeviceRole,
-        Sites.Name AS SiteName,
-        Location.Province,
+        devices.Did,
+        devices.CI_Name,
+        devices.Asset_Number,
+        devices.Asset_State,
+        devices.serial,
+        devices.Vendor,
+        devices.SLid,
+        location.Province,        
+        devices.Dtypeid,
+        devices.DeRoleid,
+        device_role.name AS DeviceRole,
+        sites.Name AS SiteName,
+        location.Province,
         contract_device.contract_id
       FROM contract_device
-      INNER JOIN Devices ON contract_device.device_id = Devices.Did
-      LEFT JOIN Device_Role ON Devices.DeRoleid = Device_Role.DeRoleid
+      INNER JOIN devices ON contract_device.device_id = devices.Did
+      LEFT JOIN device_role ON devices.DeRoleid = device_role.DeRoleid
       LEFT JOIN location ON location.Province = location.Province
-      LEFT JOIN Sites ON Devices.SLid = Sites.Sid WHERE 1=1 
+      LEFT JOIN sites ON devices.SLid = sites.Sid WHERE 1=1 
       ${searchCondition} 
       ${deviceRoleCondition} 
       ${siteCondition}
-       ORDER BY Devices.Did DESC`;
+       ORDER BY devices.Did DESC`;
     const [devices] = await db.execute(devicesSql, searchParams);
 
     // Get all PM tasks (task_type = 'PM')
     const [pmTasks] = await db.execute(`
       SELECT id, assets, start_date, end_date, status, engineers, notes
-      FROM Tasks
+      FROM tasks
       WHERE task_type = 'PM'
       ORDER BY start_date DESC
     `);
@@ -1836,7 +1836,7 @@ const getDevicesWithPM = async (req, res) => {
       // Sort PM history by date descending
       pmHistory.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-      // Use Device_Role.name as device role
+      // Use device_role.name as device role
       const deviceRoleName = device.DeviceRole || 'Unknown';
 
       return {
