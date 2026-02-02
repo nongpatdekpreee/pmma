@@ -19,7 +19,7 @@ const uploadContractFile = (req, res) => {
 };
 
 // POST - สร้าง Contract ใหม่ (ตรงตามตาราง contract ใน TccStock)
-// ฟิลด์: contract_name, start_date, end_date, device_id, site_id(SLid), sof_name, sla_name, sla_detail, sale_account
+// ฟิลด์: contract_name, start_date, end_date, device_id, site_id(SLid), sof_name, sla_term, sla_detail, sale_account
 const createContract = async (req, res) => {
   try {
     const {
@@ -34,8 +34,7 @@ const createContract = async (req, res) => {
       sof_name,
       sof_id,
       assigned_service,
-      sla_name,
-      sla_detail,
+      sla_term,
       sale_account,
       coverage_scope,
       file_paths,
@@ -47,19 +46,12 @@ const createContract = async (req, res) => {
       old_sof,
     } = req.body;
 
-    if (!sla_name || !String(sla_name).trim()) {
+    if (!sla_term || !String(sla_term).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter sla_name (required)'
+        message: 'Please enter sla_term (required)'
       });
     }
-    if (!sla_detail || !String(sla_detail).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please enter sla_detail (required)'
-      });
-    }
-    
     // site_device_pairs: [{ site_id, device_ids }] - แต่ละ site มี devices แยกกัน
     // หรือ device_ids + site_ids สำหรับ backward compatibility
     let deviceIdList = [];
@@ -143,8 +135,18 @@ const createContract = async (req, res) => {
     const assignedServiceVal = assigned_service && String(assigned_service).trim() ? assigned_service.trim() : '';
     const pmTimeVal = pm_time_per_year != null && String(pm_time_per_year).trim() !== '' ? String(pm_time_per_year).trim() : null;
     const pmTimeEnum = pmTimeVal && ['1', '2', '3', '4', '5'].includes(pmTimeVal) ? pmTimeVal : '2';
+    const pmTime = pmTimeEnum ? parseInt(pmTimeEnum, 10) : null;
+    const remarkVal = remark && String(remark).trim() ? remark.trim() : null;
+    const oldContractIdVal = old_contract_id != null && old_contract_id !== '' ? parseInt(old_contract_id, 10) : null;
+    const oldSofVal = old_sof && String(old_sof).trim() ? old_sof.trim() : null;
 
-    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_name, sla_detail, sale_account, coverage_scope, file_paths, image_paths';
+    // app_db: contract มี sla_term int(255) NOT NULL, ไม่มี sla_detail
+    const slaTermInt = (() => {
+      const v = sla_term != null && String(sla_term).trim() !== '' ? parseInt(String(sla_term).trim(), 10) : NaN;
+      return isNaN(v) ? 2 : v;
+    })();
+
+    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, coverage_scope, file_paths, image_paths';
     const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
     const insertParams = [
       contract_name && String(contract_name).trim() ? contract_name.trim() : null,
@@ -153,25 +155,25 @@ const createContract = async (req, res) => {
       firstDeviceId,
       siteId && !isNaN(siteId) ? siteId : null,
       sofValue,
-      sla_name.trim(),
-      sla_detail.trim(),
+      slaTermInt,
+      assignedServiceVal || null,
       sale_account && String(sale_account).trim() ? sale_account.trim() : null,
       coverage_scope && String(coverage_scope).trim() ? coverage_scope.trim() : null,
       filePathsJson,
       imagePathsJson
     ];
 
-    // เพิ่ม column ใหม่ถ้ามี (pm_time_per_year, contract_sign_date, remark)
+    // app_db: มี pm_time_per_year enum('1','2','3','4','5') NOT NULL DEFAULT '2'
+    // contract_sign_date, remark อาจไม่มี (จาก add_contract_pm_sign_remark.sql)
     let insertContractSql = `INSERT INTO contract (${insertCols}) VALUES (${insertVals})`;
-    const extraCols = [];
-    const extraVals = [];
     try {
-      const [cols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'pm_time_per_year'");
-      if (cols && cols.length > 0) {
-        insertContractSql = `INSERT INTO contract (${insertCols}, pm_time_per_year, contract_sign_date, remark) VALUES (${insertVals}, ?, ?, ?)`;
-        insertParams.push(isNaN(pmTime) ? null : pmTime, signDate, remarkVal);
+      const [pmCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'pm_time_per_year'");
+      if (pmCols && pmCols.length > 0) {
+        insertContractSql = `INSERT INTO contract (${insertCols}, pm_time_per_year) VALUES (${insertVals}, ?)`;
+        insertParams.push(pmTimeEnum || '2');
       }
     } catch (_) { /* column ไม่มี ข้าม */ }
+
 
     // TccStock (7): contract_device อาจมีแค่ (contract_id, device_id) ไม่มี SLid — ตรวจก่อน insert
     let contractDeviceHasSLid = false;
@@ -225,6 +227,13 @@ const createContract = async (req, res) => {
           updateFields.push('sof_name = ?');
           updateValues.push(sofValue);
         }
+        if (sla_term != null && String(sla_term).trim() !== '') {
+          const st = parseInt(String(sla_term).trim(), 10);
+          if (!isNaN(st)) {
+            updateFields.push('sla_term = ?');
+            updateValues.push(st);
+          }
+        }
         if (assignedServiceVal) {
           updateFields.push('Assigned_Service = ?');
           updateValues.push(assignedServiceVal);
@@ -245,9 +254,9 @@ const createContract = async (req, res) => {
           updateFields.push('image_paths = ?');
           updateValues.push(imagePathsJson);
         }
-        if (pmTime !== null && pmTime !== undefined) {
+        if (pmTimeEnum) {
           updateFields.push('pm_time_per_year = ?');
-          updateValues.push(pmTime);
+          updateValues.push(pmTimeEnum);
         }
 
         // เพิ่ม contract_sign_date และ remark ถ้ามี column
@@ -258,7 +267,7 @@ const createContract = async (req, res) => {
               updateFields.push('contract_sign_date = ?');
               updateValues.push(signDate);
             }
-            if (remarkVal !== null && remarkVal !== undefined) {
+            if (remarkVal != null) {
               updateFields.push('remark = ?');
               updateValues.push(remarkVal);
             }
@@ -450,6 +459,8 @@ const createContract = async (req, res) => {
         }
       }
 
+      } // end else (สร้างสัญญาใหม่)
+
       await conn.commit();
     } catch (err) {
       if (conn) {
@@ -597,6 +608,56 @@ const getAvailableDevices = async (req, res) => {
   }
 };
 
+// GET - ดึง Sites ที่ผูกกับ Contract (จาก contract_site + contract.site_id)
+const getSitesByContract = async (req, res) => {
+  try {
+    const contractId = req.params.id;
+    if (!contractId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ contract_id'
+      });
+    }
+
+    const cid = parseInt(contractId, 10);
+    if (isNaN(cid)) {
+      return res.status(400).json({
+        success: false,
+        message: 'contract_id ไม่ถูกต้อง'
+      });
+    }
+
+    // ดึง sites จาก contract_site และ contract.site_id (ถ้ามี)
+    // TccStock (7): sites_location, sites, location
+    const sql = `
+      SELECT DISTINCT sl.SLid, s.Name AS SiteName, l.Location2
+      FROM (
+        SELECT SLid FROM contract_site WHERE contract_id = ?
+        UNION
+        SELECT site_id AS SLid FROM contract WHERE contract_id = ? AND site_id IS NOT NULL
+      ) AS site_ids
+      INNER JOIN sites_location sl ON site_ids.SLid = sl.SLid
+      LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN location l ON sl.lid = l.lid
+      ORDER BY s.Name, l.Location2
+    `;
+
+    const [rows] = await db.execute(sql, [cid, cid]);
+
+    res.status(200).json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    console.error('Error getting sites by contract:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Sites ตามสัญญา',
+      error: error.message
+    });
+  }
+};
+
 // GET - ดึง Devices ที่ผูกกับ Contract (จาก contract_device)
 const getDevicesByContract = async (req, res) => {
   try {
@@ -645,6 +706,47 @@ const getDevicesByContract = async (req, res) => {
   }
 };
 
+// GET - ดึงประวัติการต่อสัญญา (contract_history)
+const getContractHistory = async (req, res) => {
+  try {
+    const contractId = req.params.id;
+    if (!contractId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ contract_id'
+      });
+    }
+
+    const sql = `
+      SELECT 
+        history_id,
+        contract_id,
+        old_contract_id,
+        old_sof,
+        new_sof,
+        renewed_at,
+        created_at
+      FROM contract_history
+      WHERE contract_id = ? OR old_contract_id = ?
+      ORDER BY renewed_at DESC, created_at DESC
+    `;
+
+    const [rows] = await db.execute(sql, [parseInt(contractId, 10), parseInt(contractId, 10)]);
+
+    res.status(200).json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    console.error('Error getting contract history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงประวัติการต่อสัญญา',
+      error: error.message
+    });
+  }
+};
+
 // GET - ดึง Vendor Statistics จาก Devices ที่มี Contract
 const getVendorStatistics = async (req, res) => {
   try {
@@ -686,4 +788,4 @@ const getVendorStatistics = async (req, res) => {
   }
 };
 
-module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getDevicesByContract, getVendorStatistics };
+module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory };
