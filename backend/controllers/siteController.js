@@ -14,7 +14,7 @@ const createSite = async (req, res) => {
     }
 
     // SQL Query
-    const sql = 'INSERT INTO Sites (Name, Slug, Status) VALUES (?, ?, ?)';
+    const sql = 'INSERT INTO sites (Name, Slug, Status) VALUES (?, ?, ?)';
     const [result] = await db.execute(sql, [name, slug, status]);
 
     res.status(201).json({
@@ -42,9 +42,9 @@ const getSitesLocation = async (req, res) => {
   try {
     const sql = `
       SELECT SL.SLid, S.Name AS SiteName, L.Location2
-      FROM Sites_Location SL
-      JOIN Sites S ON SL.Sid = S.Sid
-      JOIN Location L ON SL.lid = L.lid
+      FROM sites_location SL
+      JOIN sites S ON SL.Sid = S.Sid
+      JOIN location L ON SL.lid = L.lid
       ORDER BY S.Name, L.Location2
     `;
     const [rows] = await db.execute(sql);
@@ -53,7 +53,7 @@ const getSitesLocation = async (req, res) => {
     console.error('Error getting sites-location:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Sites_Location',
+      message: 'เกิดข้อผิดพลาดในการดึง sites_Location',
       error: error.message
     });
   }
@@ -71,11 +71,11 @@ const getSitesLocationBySOF = async (req, res) => {
     }
     const sql = `
       SELECT DISTINCT SL.SLid, S.Name AS SiteName, L.Location2
-      FROM Sites_Location SL
-      JOIN Sites S ON SL.Sid = S.Sid
-      JOIN Location L ON SL.lid = L.lid
+      FROM sites_location SL
+      JOIN sites S ON SL.Sid = S.Sid
+      JOIN location L ON SL.lid = L.lid
       WHERE SL.SLid IN (
-        SELECT DISTINCT SLid FROM Devices WHERE Refer_SOF = ? AND SLid IS NOT NULL
+        SELECT DISTINCT SLid FROM devices WHERE Refer_SOF = ? AND SLid IS NOT NULL
       )
       ORDER BY S.Name, L.Location2
     `;
@@ -85,7 +85,7 @@ const getSitesLocationBySOF = async (req, res) => {
     console.error('Error getting sites-location by SOF:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Sites_Location ตาม SOF',
+      message: 'เกิดข้อผิดพลาดในการดึง sites_Location ตาม SOF',
       error: error.message
     });
   }
@@ -103,8 +103,9 @@ const getSites = async (req, res) => {
         s.Slug, 
         s.Status,
         COUNT(d.Did) AS device_count
-      FROM Sites s
-      LEFT JOIN Devices d ON s.Sid = d.SLid
+      FROM sites s
+      LEFT JOIN sites_location sl ON sl.Sid = s.Sid
+      LEFT JOIN devices d ON d.SLid = sl.SLid
       GROUP BY s.Sid, s.Name, s.Slug, s.Status
       ORDER BY s.Sid DESC
     `;
@@ -140,7 +141,7 @@ const updateSite = async (req, res) => {
     }
 
     // ตรวจสอบว่า Site มีอยู่จริงหรือไม่
-    const checkSql = 'SELECT Sid FROM Sites WHERE Sid = ?';
+    const checkSql = 'SELECT Sid FROM sites WHERE Sid = ?';
     const [existing] = await db.execute(checkSql, [id]);
 
     if (existing.length === 0) {
@@ -173,7 +174,7 @@ const updateSite = async (req, res) => {
     await db.execute(sql, values);
 
     // ดึงข้อมูลที่อัพเดทแล้วมาแสดง
-    const [updated] = await db.execute('SELECT Sid, Name, Slug, Status FROM Sites WHERE Sid = ?', [id]);
+    const [updated] = await db.execute('SELECT Sid, Name, Slug, Status FROM sites WHERE Sid = ?', [id]);
 
     res.status(200).json({
       success: true,
@@ -207,7 +208,7 @@ const deleteSite = async (req, res) => {
     }
 
     // ลบข้อมูล
-    const sql = 'DELETE FROM Sites WHERE Sid = ?';
+    const sql = 'DELETE FROM sites WHERE Sid = ?';
     await db.execute(sql, [id]);
 
     res.status(200).json({

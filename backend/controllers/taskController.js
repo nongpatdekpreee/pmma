@@ -87,7 +87,7 @@ const mapTaskRow = (row) => ({
 const updateDeviceAssetState = async (deviceId, newState, user = null) => {
   try {
     // Get current state
-    const [current] = await db.execute('SELECT Asset_State FROM Devices WHERE Did = ?', [deviceId]);
+    const [current] = await db.execute('SELECT Asset_State FROM devices WHERE Did = ?', [deviceId]);
     if (current.length === 0) {
       throw new Error(`Device ${deviceId} not found`);
     }
@@ -95,17 +95,17 @@ const updateDeviceAssetState = async (deviceId, newState, user = null) => {
     
     if (oldState !== newState) {
       // Update device
-      await db.execute('UPDATE Devices SET Asset_State = ? WHERE Did = ?', [newState, deviceId]);
+      await db.execute('UPDATE devices SET Asset_State = ? WHERE Did = ?', [newState, deviceId]);
       
-      // Log history if Device_History table exists
+      // Log history if devices_history table exists (app_db schema)
       try {
         await db.execute(
-          `INSERT INTO Device_History (Did, Action, Old_Value, New_Value, User, Created_At) 
-           VALUES (?, 'ASSET_STATE_CHANGE', ?, ?, ?, NOW())`,
-          [deviceId, oldState, newState, user]
+          `INSERT INTO devices_history (action_type, changed_at, Did, Asset_State, Description) 
+           VALUES ('UPDATE', NOW(), ?, ?, ?)`,
+          [deviceId, newState, `Asset state: ${oldState || 'NULL'} -> ${newState} (by ${user || 'system'})`]
         );
       } catch (error) {
-        // Device_History table might not exist, ignore
+        // devices_history table might not exist or schema differs, ignore
         console.warn('Could not log device history:', error.message);
       }
     }
@@ -217,11 +217,17 @@ const createTask = async (req, res) => {
         if (!isNaN(replacementId)) {
           // Update replacement device: In Store -> In Use
           await updateDeviceAssetState(replacementId, 'In Use', req.user?.username || req.user?.id || null);
+          // อัปเดต SLid ของอุปกรณ์ทดแทนเป็น site ของ task (สถานที่ติดตั้ง)
+          const taskSiteId = safeParseInt(siteId);
+          if (taskSiteId) {
+            await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [taskSiteId, replacementId]);
+          }
         }
         
         if (!isNaN(originalId)) {
-          // Update original device: current state -> In Store
+          // Update original device: current state -> In Store, ย้ายไป SLid = 2 (คลัง)
           await updateDeviceAssetState(originalId, 'In Store', req.user?.username || req.user?.id || null);
+          await db.execute('UPDATE devices SET SLid = 2 WHERE Did = ?', [originalId]);
         }
 
         // Update contract_device: replace broken device with replacement device
@@ -234,20 +240,12 @@ const createTask = async (req, res) => {
             );
 
             if (existing.length > 0) {
-              // Get SLid of replacement device from Devices table
-              const [replacementDevice] = await db.execute(
-                'SELECT SLid FROM Devices WHERE Did = ?',
-                [replacementId]
-              );
-              const replacementSLid = replacementDevice.length > 0 ? replacementDevice[0].SLid : null;
-              
-              // Update: Delete old device and insert new device
+              // Update contract_device: delete old device, insert replacement (ไม่เปลี่ยน devices.SLid)
               await db.execute(
                 'DELETE FROM contract_device WHERE contract_id = ? AND device_id = ?',
                 [contractIdNum, originalId]
               );
               
-              // Insert replacement device (only if not already exists)
               const [checkExisting] = await db.execute(
                 'SELECT * FROM contract_device WHERE contract_id = ? AND device_id = ?',
                 [contractIdNum, replacementId]
@@ -255,12 +253,21 @@ const createTask = async (req, res) => {
               
               if (checkExisting.length === 0) {
                 await db.execute(
-                  'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-                  [contractIdNum, replacementId, replacementSLid]
+                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                  [contractIdNum, replacementId]
                 );
-                console.log(`Updated contract_device: Replaced device ${originalId} with ${replacementId} (SLid: ${replacementSLid}) in contract ${contractIdNum}`);
+                console.log(`Updated contract_device: Replaced device ${originalId} with ${replacementId} in contract ${contractIdNum}`);
               } else {
                 console.log(`Device ${replacementId} already exists in contract ${contractIdNum}, skipping insert`);
+              }
+              
+              // Ensure task site (SLid) is in contract_site
+              const taskSiteId = safeParseInt(siteId);
+              if (taskSiteId) {
+                await db.execute(
+                  'INSERT IGNORE INTO contract_site (contract_id, SLid) VALUES (?, ?)',
+                  [contractIdNum, taskSiteId]
+                );
               }
             } else {
               console.log(`Device ${originalId} not found in contract_device for contract ${contractIdNum}, skipping update`);
@@ -419,14 +426,22 @@ const updateTask = async (req, res) => {
     
     if (newReplacementDeviceId && newAssets && newAssets.length > 0 && currentTaskType === 'MA') {
       try {
-        // Revert old replacement device if changed (In Use -> In Store)
+        // Revert old replacement device if changed (In Use -> In Store, เคลียร์ SLid)
         if (oldReplacementDeviceId && oldReplacementDeviceId !== newReplacementDeviceId) {
           await updateDeviceAssetState(oldReplacementDeviceId, 'In Store', req.user?.username || req.user?.id || null);
+          await db.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
         }
         
-        // Update new replacement device: In Store -> In Use
+        // Update new replacement device: In Store -> In Use, อัปเดต SLid เป็น site ของ task
+        const taskSiteId = siteId !== undefined ? safeParseInt(siteId) : existing[0].site_id;
         if (newReplacementDeviceId !== oldReplacementDeviceId) {
           await updateDeviceAssetState(newReplacementDeviceId, 'In Use', req.user?.username || req.user?.id || null);
+          if (taskSiteId) {
+            await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [taskSiteId, newReplacementDeviceId]);
+          }
+        } else if (taskSiteId && newReplacementDeviceId) {
+          // Same replacement device but site might have changed
+          await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [taskSiteId, newReplacementDeviceId]);
         }
         
         // Get new original device ID
@@ -438,14 +453,15 @@ const updateTask = async (req, res) => {
           const oldFirstAsset = oldAssets[0];
           const oldOriginalDeviceId = typeof oldFirstAsset === 'object' ? (oldFirstAsset.id || oldFirstAsset.Did || oldFirstAsset) : oldFirstAsset;
           if (oldOriginalDeviceId && oldOriginalDeviceId !== newOriginalDeviceId) {
-            // Only revert if it's a different device
             await updateDeviceAssetState(oldOriginalDeviceId, 'In Store', req.user?.username || req.user?.id || null);
+            await db.execute('UPDATE devices SET SLid = 2 WHERE Did = ?', [oldOriginalDeviceId]);
           }
         }
         
-        // Update new original device: current state -> In Store
+        // Update new original device: current state -> In Store, ย้ายไป SLid = 2 (คลัง)
         if (newOriginalDeviceId) {
           await updateDeviceAssetState(newOriginalDeviceId, 'In Store', req.user?.username || req.user?.id || null);
+          await db.execute('UPDATE devices SET SLid = 2 WHERE Did = ?', [newOriginalDeviceId]);
         }
 
         // Update contract_device: replace broken device with replacement device
@@ -462,20 +478,12 @@ const updateTask = async (req, res) => {
             );
 
             if (existingContractDevice.length > 0) {
-              // Get SLid of replacement device from Devices table
-              const [replacementDevice] = await db.execute(
-                'SELECT SLid FROM Devices WHERE Did = ?',
-                [replacementIdNum]
-              );
-              const replacementSLid = replacementDevice.length > 0 ? replacementDevice[0].SLid : null;
-              
-              // Update: Delete old device and insert new device
+              // Update contract_device: delete old device, insert replacement (ไม่เปลี่ยน devices.SLid)
               await db.execute(
                 'DELETE FROM contract_device WHERE contract_id = ? AND device_id = ?',
                 [contractIdNum, originalIdNum]
               );
               
-              // Insert replacement device (only if not already exists)
               const [checkExisting] = await db.execute(
                 'SELECT * FROM contract_device WHERE contract_id = ? AND device_id = ?',
                 [contractIdNum, replacementIdNum]
@@ -483,12 +491,20 @@ const updateTask = async (req, res) => {
               
               if (checkExisting.length === 0) {
                 await db.execute(
-                  'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-                  [contractIdNum, replacementIdNum, replacementSLid]
+                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                  [contractIdNum, replacementIdNum]
                 );
-                console.log(`Updated contract_device: Replaced device ${originalIdNum} with ${replacementIdNum} (SLid: ${replacementSLid}) in contract ${contractIdNum}`);
+                console.log(`Updated contract_device: Replaced device ${originalIdNum} with ${replacementIdNum} in contract ${contractIdNum}`);
               } else {
                 console.log(`Device ${replacementIdNum} already exists in contract ${contractIdNum}, skipping insert`);
+              }
+              
+              // Ensure task site (SLid) is in contract_site
+              if (taskSiteId) {
+                await db.execute(
+                  'INSERT IGNORE INTO contract_site (contract_id, SLid) VALUES (?, ?)',
+                  [contractIdNum, taskSiteId]
+                );
               }
             } else {
               console.log(`Device ${originalIdNum} not found in contract_device for contract ${contractIdNum}, skipping update`);
@@ -503,9 +519,10 @@ const updateTask = async (req, res) => {
         // Continue even if asset state update fails
       }
     } else if (oldReplacementDeviceId && (!newReplacementDeviceId || newAssets.length === 0)) {
-      // If replacement device is removed, revert it back to In Store
+      // If replacement device is removed, revert it back to In Store and เคลียร์ SLid
       try {
         await updateDeviceAssetState(oldReplacementDeviceId, 'In Store', req.user?.username || req.user?.id || null);
+        await db.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
       } catch (error) {
         console.error('Error reverting replacement device:', error);
       }

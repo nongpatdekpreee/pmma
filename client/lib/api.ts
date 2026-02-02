@@ -19,12 +19,22 @@ export async function getDevicesBySite(siteId: number | string): Promise<{ succe
   return res.json();
 }
 
-/** GET /api/contracts?site_id=xxx - รายการ Contract ตาม site_id */
-export async function getContractsBySite(siteId: number | string): Promise<{
+/** GET /api/contracts?site_id=xxx - รายการ Contract ตาม site_id (ไม่ส่ง site_id = ดึงทั้งหมด) */
+export async function getContractsBySite(siteId?: number | string | null): Promise<{
   success: boolean;
-  data: { contract_id: number; contract_name?: string; start_date?: string; end_date?: string; site_id?: number; site_name?: string; sla_name?: string; sla_detail?: string }[];
+  data: { contract_id: number; contract_name?: string; start_date?: string; end_date?: string; site_id?: number; site_name?: string; sla_term?: string }[];
 }> {
-  const res = await fetch(apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteId))}`));
+  const url = siteId ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteId))}`) : apiUrl('/api/contracts');
+  const res = await fetch(url);
+  return res.json();
+}
+
+/** GET /api/contracts/:id/sites - Sites ที่ผูกกับ Contract */
+export async function getSitesByContract(contractId: number | string): Promise<{
+  success: boolean;
+  data: { SLid: number; SiteName: string; Location2?: string }[];
+}> {
+  const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/sites`));
   return res.json();
 }
 

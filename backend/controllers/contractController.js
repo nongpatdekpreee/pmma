@@ -19,7 +19,7 @@ const uploadContractFile = (req, res) => {
 };
 
 // POST - สร้าง Contract ใหม่ (ตรงตามตาราง contract ใน TccStock)
-// ฟิลด์: contract_name, start_date, end_date, device_id, site_id(SLid), sof_name, sla_name, sla_detail, sale_account
+// ฟิลด์: contract_name, start_date, end_date, device_id, site_id(SLid), sof_name, sla_term, sale_account
 const createContract = async (req, res) => {
   try {
     const {
@@ -34,8 +34,7 @@ const createContract = async (req, res) => {
       sof_name,
       sof_id,
       assigned_service,
-      sla_name,
-      sla_detail,
+      sla_term,
       sale_account,
       coverage_scope,
       file_paths,
@@ -45,16 +44,10 @@ const createContract = async (req, res) => {
       remark,
     } = req.body;
 
-    if (!sla_name || !String(sla_name).trim()) {
+    if (!sla_term || !String(sla_term).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter sla_name (required)'
-      });
-    }
-    if (!sla_detail || !String(sla_detail).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please enter sla_detail (required)'
+        message: 'Please enter sla_term (required)'
       });
     }
 
@@ -136,11 +129,12 @@ const createContract = async (req, res) => {
         : null;
 
     const sofValue = (sof_id != null && sof_id !== '') ? String(sof_id).trim() : (sof_name && String(sof_name).trim() ? sof_name.trim() : null);
-    const pmTime = pm_time_per_year != null && pm_time_per_year !== '' ? parseInt(pm_time_per_year, 10) : null;
     const signDate = contract_sign_date || null;
-    const remarkVal = remark && String(remark).trim() ? remark.trim() : null;
+    const assignedServiceVal = assigned_service && String(assigned_service).trim() ? assigned_service.trim() : '';
+    const pmTimeVal = pm_time_per_year != null && String(pm_time_per_year).trim() !== '' ? String(pm_time_per_year).trim() : null;
+    const pmTimeEnum = pmTimeVal && ['1', '2', '3', '4', '5'].includes(pmTimeVal) ? pmTimeVal : '2';
 
-    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_name, sla_detail, sale_account, coverage_scope, file_paths, image_paths';
+    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, coverage_scope, file_paths, image_paths';
     const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
     const insertParams = [
       contract_name && String(contract_name).trim() ? contract_name.trim() : null,
@@ -149,23 +143,42 @@ const createContract = async (req, res) => {
       firstDeviceId,
       siteId && !isNaN(siteId) ? siteId : null,
       sofValue,
-      sla_name.trim(),
-      sla_detail.trim(),
+      String(sla_term).trim(),
+      assignedServiceVal,
       sale_account && String(sale_account).trim() ? sale_account.trim() : null,
       coverage_scope && String(coverage_scope).trim() ? coverage_scope.trim() : null,
       filePathsJson,
       imagePathsJson,
     ];
 
-    // เพิ่ม column ใหม่ถ้ามี (pm_time_per_year, contract_sign_date, remark)
     let insertContractSql = `INSERT INTO contract (${insertCols}) VALUES (${insertVals})`;
+    const extraCols = [];
+    const extraVals = [];
     try {
-      const [cols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'pm_time_per_year'");
-      if (cols && cols.length > 0) {
-        insertContractSql = `INSERT INTO contract (${insertCols}, pm_time_per_year, contract_sign_date, remark) VALUES (${insertVals}, ?, ?, ?)`;
-        insertParams.push(isNaN(pmTime) ? null : pmTime, signDate, remarkVal);
+      const [pmCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'pm_time_per_year'");
+      if (pmCols && pmCols.length > 0) {
+        extraCols.push('pm_time_per_year');
+        extraVals.push(pmTimeEnum);
       }
     } catch (_) { /* column ไม่มี ข้าม */ }
+    try {
+      const [signCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'contract_sign_date'");
+      if (signCols && signCols.length > 0) {
+        extraCols.push('contract_sign_date');
+        extraVals.push(signDate);
+      }
+    } catch (_) { /* column ไม่มี ข้าม */ }
+    try {
+      const [remarkCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'remark'");
+      if (remarkCols && remarkCols.length > 0) {
+        extraCols.push('remark');
+        extraVals.push(remark && String(remark).trim() ? remark.trim() : null);
+      }
+    } catch (_) { /* column ไม่มี ข้าม */ }
+    if (extraCols.length > 0) {
+      insertContractSql = `INSERT INTO contract (${insertCols}, ${extraCols.join(', ')}) VALUES (${insertVals}, ${extraCols.map(() => '?').join(', ')})`;
+      insertParams.push(...extraVals);
+    }
 
     // TccStock (7): contract_device อาจมีแค่ (contract_id, device_id) ไม่มี SLid — ตรวจก่อน insert
     let contractDeviceHasSLid = false;
@@ -247,7 +260,7 @@ const createContract = async (req, res) => {
         );
       }
 
-      // 5. SOF ยังไม่มีในระบบ: อัปเดต Refer_SOF, SLid, Asset_State
+      // 5. SOF ยังไม่มีในระบบ: อัปเดตเฉพาะ Refer_SOF (Asset_State และ SLid ไม่เปลี่ยน)
       if (sofValue && deviceIdList.length > 0) {
         const [referSOFRows] = await conn.execute(
           `SELECT DISTINCT Refer_SOF FROM devices WHERE Refer_SOF = ? AND Refer_SOF IS NOT NULL AND Refer_SOF != '' AND Refer_SOF != 'Not Assigned' LIMIT 1`,
@@ -256,23 +269,11 @@ const createContract = async (req, res) => {
         const sofExistsInDb = referSOFRows && referSOFRows.length > 0;
 
         if (!sofExistsInDb) {
-          if (pairs.length > 0) {
-            for (const p of pairs) {
-              if (p.device_ids.length > 0 && p.site_id) {
-                const placeholders = p.device_ids.map(() => '?').join(',');
-                await conn.execute(
-                  `UPDATE devices SET Refer_SOF = ?, SLid = ?, Asset_State = 'In Use' WHERE Did IN (${placeholders})`,
-                  [sofValue, p.site_id, ...p.device_ids]
-                );
-              }
-            }
-          } else if (siteId) {
-            const placeholders = deviceIdList.map(() => '?').join(',');
-            await conn.execute(
-              `UPDATE devices SET Refer_SOF = ?, SLid = ?, Asset_State = 'In Use' WHERE Did IN (${placeholders})`,
-              [sofValue, siteId, ...deviceIdList]
-            );
-          }
+          const placeholders = deviceIdList.map(() => '?').join(',');
+          await conn.execute(
+            `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
+            [sofValue, ...deviceIdList]
+          );
         }
       }
 
@@ -337,8 +338,7 @@ const getContractsBySite = async (req, res) => {
         c.start_date,
         c.end_date,
         c.site_id,
-        c.sla_name,
-        c.sla_detail,
+        c.sla_term,
         c.sale_account,
         c.sof_name,
         s.Name AS site_name
@@ -443,16 +443,16 @@ const getDevicesByContract = async (req, res) => {
         d.Asset_Number,
         d.serial,
         d.Asset_State,
-        COALESCE(cd.SLid, d.SLid) AS SLid,
+        d.SLid,
         d.Dtypeid,
         d.DeRoleid,
         s.Name AS SiteName
       FROM contract_device cd
       INNER JOIN devices d ON cd.device_id = d.Did
-      LEFT JOIN sites_location sl ON COALESCE(cd.SLid, d.SLid) = sl.SLid
+      LEFT JOIN sites_location sl ON d.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       WHERE cd.contract_id = ?
-      ORDER BY d.CI_Name ASC, d.Asset_Number ASC;
+      ORDER BY d.CI_Name ASC, d.Asset_Number ASC
     `;
 
     const [rows] = await db.execute(sql, [parseInt(contractId, 10)]);
@@ -512,4 +512,53 @@ const getVendorStatistics = async (req, res) => {
   }
 };
 
-module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getDevicesByContract, getVendorStatistics };
+// GET - ดึง Sites ที่ผูกกับ Contract (จาก contract.site_id, contract_site, contract_device+devices)
+const getSitesByContract = async (req, res) => {
+  try {
+    const contractId = req.params.id;
+
+    if (!contractId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ contract_id'
+      });
+    }
+
+    const contractIdNum = parseInt(contractId, 10);
+
+    // TccStock (7): sites_location, sites, location
+    const sql = `
+      SELECT DISTINCT sl.SLid, s.Name AS SiteName, COALESCE(l.Location2, '') AS Location2
+      FROM (
+        SELECT c.site_id AS SLid FROM contract c WHERE c.contract_id = ? AND c.site_id IS NOT NULL
+        UNION
+        SELECT cs.SLid FROM contract_site cs WHERE cs.contract_id = ?
+        UNION
+        SELECT DISTINCT d.SLid
+        FROM contract_device cd
+        INNER JOIN devices d ON cd.device_id = d.Did
+        WHERE cd.contract_id = ? AND d.SLid IS NOT NULL
+      ) AS site_ids
+      INNER JOIN sites_location sl ON site_ids.SLid = sl.SLid
+      LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN location l ON sl.lid = l.lid
+      ORDER BY s.Name, l.Location2
+    `;
+
+    const [rows] = await db.execute(sql, [contractIdNum, contractIdNum, contractIdNum]);
+
+    res.status(200).json({
+      success: true,
+      data: rows
+    });
+  } catch (error) {
+    console.error('Error getting sites by contract:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Sites ตาม Contract',
+      error: error.message
+    });
+  }
+};
+
+module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getDevicesByContract, getSitesByContract, getVendorStatistics };

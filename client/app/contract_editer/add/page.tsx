@@ -31,8 +31,7 @@ export default function AddContractPage() {
   const [contractName, setContractName] = useState('');
   const [sofName, setSofName] = useState('');
   const [assignedService, setAssignedService] = useState('');
-  const [slaName, setSlaName] = useState('');
-  const [slaDetail, setSlaDetail] = useState('');
+  const [slaTerm, setSlaTerm] = useState('');
   const [selectedSOF, setSelectedSOF] = useState('');
   const [saleAccount, setSaleAccount] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
@@ -235,14 +234,8 @@ export default function AddContractPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaveError('');
-    if (!slaName.trim()) {
-      const msg = 'กรุณากรอก SLA Name';
-      setSaveError(msg);
-      toastError(msg);
-      return;
-    }
-    if (!slaDetail.trim()) {
-      const msg = 'กรุณากรอก SLA Detail';
+    if (!slaTerm.trim()) {
+      const msg = 'กรุณากรอก SLA Term';
       setSaveError(msg);
       toastError(msg);
       return;
@@ -273,12 +266,11 @@ export default function AddContractPage() {
         site_device_pairs,
         sof_name: selectedSOF.trim() || null,
         assigned_service: sofName.trim() || null,
-        sla_name: slaName.trim(),
-        sla_detail: slaDetail.trim(),
+        sla_term: slaTerm.trim(),
         sale_account: saleAccount.trim() || null,
         coverage_scope: coverageScope.trim() || null,
         remark: remark.trim() || null,
-        contract_sign_date: contractSignDate || null,
+        
         pm_time_per_year: pmTimePerYear ? parseInt(pmTimePerYear, 10) : null,
         file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
         image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
@@ -401,19 +393,9 @@ export default function AddContractPage() {
               <FormField label="SLA Term" required>
                 <input
                   type="text"
-                  value={slaName}
-                  onChange={(e) => setSlaName(e.target.value)}
-                  placeholder="SLA %"
-                  className={inputBase}
-                  required
-                />
-              </FormField>
-              <FormField label="SLA Detail" required>
-                <input
-                  type="text"
-                  value={slaDetail}
-                  onChange={(e) => setSlaDetail(e.target.value)}
-                  placeholder="เช่น ระยะเวลาการตอบกลับ 24/7"
+                  value={slaTerm}
+                  onChange={(e) => setSlaTerm(e.target.value)}
+                  placeholder="SLA % หรือ เช่น Standard, Premium"
                   className={inputBase}
                   required
                 />
