@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 export interface DeviceSelectModalDevice {
@@ -36,6 +38,9 @@ export function DeviceSelectModal({
   onClearAll,
   onToggleDevice,
 }: DeviceSelectModalProps) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   if (!isOpen) return null;
 
   const filteredDevices = devices.filter((d) => {
@@ -48,8 +53,8 @@ export function DeviceSelectModal({
     );
   });
 
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+  const modalContent = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-3xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b px-6 py-4">
           <h3 className="text-lg font-bold">{title}</h3>
@@ -128,4 +133,9 @@ export function DeviceSelectModal({
       </div>
     </div>
   );
+
+  if (mounted && typeof document !== 'undefined') {
+    return createPortal(modalContent, document.body);
+  }
+  return null;
 }

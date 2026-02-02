@@ -6,6 +6,7 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl } from '@/lib/api';
+import Link from 'next/link';
 
 interface Equipment {
   name: string;
@@ -278,27 +279,9 @@ export default function ContractEditorPage() {
   };
 
   const renewContract = (contract: Contract) => {
-    if (confirm(`คุณต้องการต่ออายุสัญญา ${contract.id} หรือไม่?\n\nระบบจะเปิดฟอร์มแก้ไขให้คุณปรับวันที่ใหม่`)) {
-      const oldEndDate = new Date(contract.endDate);
-      const newStartDate = new Date(oldEndDate);
-      newStartDate.setDate(newStartDate.getDate() + 1);
-      const newEndDate = new Date(newStartDate);
-      newEndDate.setFullYear(newEndDate.getFullYear() + 1);
-
-      setCurrentContract(contract);
-      setFormType('edit');
-      setCurrentEquipmentList(contract.equipment || []);
-      setContractForm({
-        name: contract.name,
-        partner: contract.partner,
-        maintenanceType: contract.maintenanceType || '',
-        startDate: newStartDate.toISOString().split('T')[0],
-        endDate: newEndDate.toISOString().split('T')[0],
-        value: contract.value,
-        status: 'active',
-        description: contract.description || '',
-      });
-      setShowEditModal(true);
+    if (confirm(`คุณต้องการต่ออายุสัญญา ${contract.id} หรือไม่?\n\nระบบจะเปิดฟอร์มต่อสัญญาให้คุณ`)) {
+      // Redirect ไปหน้าเพิ่มสัญญาใหม่พร้อม contract_id เพื่อโหลดข้อมูลสัญญาเก่า
+      router.push(`/contract_editer/add?renew=${contract.id}`);
     }
   };
 

@@ -270,10 +270,11 @@ export default function CalendarPage() {
 
        
       {/* Footer Folders */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
         <Link href="/schedule_management"><FolderCard title="Schedule Management" pages={5} color="text-amber-500" /></Link>
         <FolderCard title="Asset & Site Database" pages={8} color="text-green-500" />
-        <FolderCard title="PM Checklists & Report" pages={2} color="text-blue-400" />
+        <Link href="/pmchecklist_report"><FolderCard title="Report PM" pages={2} color="text-blue-400" /></Link>
+        <Link href="/pmchecklist_report?tab=ma"><FolderCard title="Report MA" pages={2} color="text-blue-400" /></Link>
         <FolderCard title="Report & Analytics Page" pages={5} color="text-purple-500" />
       </div>
       </div>

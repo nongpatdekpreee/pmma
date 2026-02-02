@@ -20,6 +20,8 @@ interface DeviceItem {
   Did: number;
   CI_Name: string | null;
   Asset_Number: string | null;
+  typeModel?: string | null;
+  roleName?: string | null;
 }
 
 export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
@@ -28,7 +30,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   const [duration, setDuration] = useState('');
   const [endDate, setEndDate] = useState('');
   const [sofName, setSofName] = useState('');
-  const [slaTerm, setSlaTerm] = useState('');
+  const [slaName, setSlaName] = useState('');
+
   const [saleAccount, setSaleAccount] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
   const [filePaths, setFilePaths] = useState<string[]>([]);
@@ -77,7 +80,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setDeviceFilter('');
       setContractName('');
       setSofName('');
-      setSlaTerm('');
+      setSlaName('');
+  
       setSaleAccount('');
       setCoverageScope('');
       setFilePaths([]);
@@ -230,10 +234,11 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setSaveError('กรุณาเลือก Site และ Device อย่างน้อย 1 รายการ (เลือก Site แล้วกดเลือก Device)');
       return;
     }
-    if (!slaTerm.trim()) {
-      setSaveError('กรุณากรอก SLA Term');
+    if (!slaName.trim()) {
+      setSaveError('กรุณากรอก sla_name (ชื่อ SLA)');
       return;
     }
+   
     setSaveLoading(true);
     try {
       // site_device_pairs: แต่ละ site มี devices ของตัวเอง แยกกัน
@@ -247,7 +252,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         end_date: endDate || null,
         site_device_pairs,
         sof_name: selectedReferSOF || sofName.trim() || null,
-        sla_term: slaTerm.trim(),
+        sla_name: slaName.trim(),
+ 
         sale_account: saleAccount.trim() || null,
         coverage_scope: coverageScope.trim() || null,
         file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
@@ -305,14 +311,15 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
               <label className={labelBase}>SLA Term *</label>
               <input
                 type="text"
-                value={slaTerm}
-                onChange={(e) => setSlaTerm(e.target.value)}
-                placeholder="SLA % หรือ เช่น Standard, Premium"
+                value={slaName}
+                onChange={(e) => setSlaName(e.target.value)}
+                placeholder="ชื่อ SLA"
                 className={inputBase}
                 required
               />
             </div>
 
+           
             <div>
               <label className={labelBase}>Refer SOF *</label>
               <select
@@ -565,7 +572,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         devices={devicesBySite.map((d) => ({
           id: String(d.Did),
           name: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
-          type: '',
+          type: d.typeModel || '',
+          role: d.roleName || '',
           serialNumber: '',
           site: '',
           assetNumber: d.Asset_Number || '',

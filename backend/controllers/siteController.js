@@ -104,8 +104,7 @@ const getSites = async (req, res) => {
         s.Status,
         COUNT(d.Did) AS device_count
       FROM sites s
-      LEFT JOIN sites_location sl ON sl.Sid = s.Sid
-      LEFT JOIN devices d ON d.SLid = sl.SLid
+      LEFT JOIN devices d ON s.Sid = d.SLid
       GROUP BY s.Sid, s.Name, s.Slug, s.Status
       ORDER BY s.Sid DESC
     `;
@@ -170,7 +169,7 @@ const updateSite = async (req, res) => {
 
     values.push(id);
 
-    const sql = `UPDATE Sites SET ${updates.join(', ')} WHERE Sid = ?`;
+    const sql = `UPDATE sites SET ${updates.join(', ')} WHERE Sid = ?`;
     await db.execute(sql, values);
 
     // ดึงข้อมูลที่อัพเดทแล้วมาแสดง
@@ -197,7 +196,7 @@ const deleteSite = async (req, res) => {
     const { id } = req.params;
 
     // ตรวจสอบว่า Site มีอยู่จริงหรือไม่
-    const checkSql = 'SELECT Sid, Name FROM Sites WHERE Sid = ?';
+    const checkSql = 'SELECT Sid, Name FROM sites WHERE Sid = ?';
     const [existing] = await db.execute(checkSql, [id]);
 
     if (existing.length === 0) {

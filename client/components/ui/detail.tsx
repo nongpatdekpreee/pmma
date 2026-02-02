@@ -1,7 +1,7 @@
 'use client';
 
-import { X, Camera, CheckCircle2, XCircle, Upload, Image as ImageIcon, Trash2 } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { X, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 interface Device {
   id: string;
@@ -62,55 +62,20 @@ interface Props {
 }
 
 export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete }: Props) {
-  const [actuallyWent, setActuallyWent] = useState<boolean | null>(task?.actuallyWent ?? null);
-  const [photos, setPhotos] = useState<string[]>(task?.photos || []);
-  const [notes, setNotes] = useState(task?.notes || '');
   const [status, setStatus] = useState<'done' | 'working' | 'stuck' | 'not-started'>(task?.status || 'not-started');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Update local state when task changes
   useEffect(() => {
     if (task) {
-      setActuallyWent(task.actuallyWent ?? null);
-      setPhotos(task.photos || []);
-      setNotes(task.notes || '');
       setStatus(task.status || 'not-started');
     }
   }, [task]);
 
   if (!isOpen || !task) return null;
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    Array.from(files).forEach((file) => {
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64String = reader.result as string;
-          setPhotos((prev) => [...prev, base64String]);
-        };
-        reader.readAsDataURL(file);
-      }
-    });
-
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const removePhoto = (index: number) => {
-    setPhotos((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const handleSave = () => {
     const updatedTask: TaskDetail = {
       ...task,
-      actuallyWent: actuallyWent ?? undefined,
-      photos,
-      notes,
       status,
     };
 
@@ -370,98 +335,6 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             </div>
           </div>
 
-          {/* Technician Confirmation Section */}
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-200">
-            <h3 className="text-sm font-bold text-slate-700 mb-4 flex items-center gap-2">
-              <Camera size={16} className="text-blue-500" />
-              Technician Confirmation
-            </h3>
-
-            {/* Actually Went Confirmation */}
-            {/* <div className="mb-4">
-              <label className="text-xs font-semibold text-slate-700 mb-2 block">
-                Did you actually go to the site? *
-              </label>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setActuallyWent(true)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
-                    actuallyWent === true
-                      ? 'bg-green-500 text-white shadow-md'
-                      : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-green-300'
-                  }`}
-                >
-                  <CheckCircle2 size={18} />
-                  Yes, I went
-                </button>
-                <button
-                  onClick={() => setActuallyWent(false)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
-                    actuallyWent === false
-                      ? 'bg-red-500 text-white shadow-md'
-                      : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-red-300'
-                  }`}
-                >
-                  <XCircle size={18} />
-                  No, I didn't go
-                </button>
-              </div>
-            </div> */}
-
-            {/* Photo Upload */}
-            <div className="mb-4">
-              <label className="text-xs font-semibold text-slate-700 mb-2 block">Upload Photos</label>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handlePhotoUpload}
-                className="hidden"
-                id="photo-upload"
-              />
-              <label
-                htmlFor="photo-upload"
-                className="flex items-center justify-center gap-2 py-3 px-4 bg-white border-2 border-dashed border-slate-300 rounded-xl cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
-              >
-                <Upload size={18} className="text-slate-500" />
-                <span className="text-sm font-medium text-slate-600">Click to upload photos</span>
-              </label>
-
-              {/* Photo Preview */}
-              {photos.length > 0 && (
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {photos.map((photo, index) => (
-                    <div key={index} className="relative group">
-                      <img
-                        src={photo}
-                        alt={`Upload ${index + 1}`}
-                        className="w-full h-24 object-cover rounded-lg border border-slate-200"
-                      />
-                      <button
-                        onClick={() => removePhoto(index)}
-                        className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="text-xs font-semibold text-slate-700 mb-2 block">Additional Notes</label>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-                placeholder="Add any additional notes or comments..."
-                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400 resize-none"
-              />
-            </div>
-          </div>
         </div>
 
         {/* Footer */}

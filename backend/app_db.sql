@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: db:3306
--- Generation Time: Feb 02, 2026 at 07:47 AM
+-- Generation Time: Feb 02, 2026 at 07:52 AM
 -- Server version: 11.3.2-MariaDB-1:11.3.2+maria~ubu2204
 -- PHP Version: 8.3.26
 
@@ -32,11 +32,11 @@ CREATE TABLE `contract` (
   `contract_name` varchar(255) DEFAULT NULL,
   `start_date` date DEFAULT NULL,
   `end_date` date DEFAULT NULL,
-  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> Devices(Did)',
-  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> Sites_Location(SLid)',
+  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> devices(Did)',
+  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> sites_location(SLid)',
   `sof_name` varchar(255) DEFAULT NULL,
   `sla_term` int(255) NOT NULL,
-  `Assigned_Service` varchar(100) NOT NULL,
+  `Assigned_Service` varchar(100) DEFAULT NULL,
   `pm_time_per_year` enum('1','2','3','4','5') NOT NULL DEFAULT '2',
   `sale_account` varchar(255) DEFAULT NULL,
   `coverage_scope` text DEFAULT NULL COMMENT 'มีไว้ทำไมไม่รู้แต่ต้องมีนะ',
@@ -58,12 +58,31 @@ CREATE TABLE `contract_device` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `contract_history`
+--
+
+CREATE TABLE `contract_history` (
+  `history_id` int(11) NOT NULL AUTO_INCREMENT,
+  `contract_id` int(11) NOT NULL COMMENT 'FK -> contract(contract_id) - สัญญาใหม่',
+  `old_contract_id` int(11) DEFAULT NULL COMMENT 'FK -> contract(contract_id) - สัญญาเก่าที่ต่ออายุ',
+  `old_sof` varchar(255) DEFAULT NULL COMMENT 'SOF จากสัญญาเก่า',
+  `new_sof` varchar(255) DEFAULT NULL COMMENT 'SOF ของสัญญาใหม่',
+  `renewed_at` datetime DEFAULT CURRENT_TIMESTAMP COMMENT 'วันที่ต่อสัญญา',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`history_id`),
+  KEY `idx_contract_id` (`contract_id`),
+  KEY `idx_old_contract_id` (`old_contract_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ประวัติการต่อสัญญา';
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `contract_site`
 --
 
 CREATE TABLE `contract_site` (
   `contract_id` int(11) NOT NULL,
-  `SLid` int(11) NOT NULL COMMENT 'FK -> Sites_Location(SLid)'
+  `SLid` int(11) NOT NULL COMMENT 'FK -> sites_location(SLid)'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -172,11 +191,11 @@ CREATE TRIGGER `trg_devices_insert` AFTER INSERT ON `devices` FOR EACH ROW BEGIN
 
     -- Get Sid and Location2 from SLid
     IF NEW.SLid IS NOT NULL THEN
-        SELECT SL.Sid, L.Location2
+        SELECT `SL`.`Sid`, `L`.`Location2`
         INTO v_sid, v_location2
-        FROM sites_location SL
-        JOIN location L ON SL.lid = L.lid
-        WHERE SL.SLid = NEW.SLid
+        FROM `sites_location` AS `SL`
+        JOIN `location` AS `L` ON `SL`.`lid` = `L`.`lid`
+        WHERE `SL`.`SLid` = NEW.`SLid`
         LIMIT 1;
     END IF;
 
@@ -249,11 +268,11 @@ CREATE TRIGGER `trg_devices_update` AFTER UPDATE ON `devices` FOR EACH ROW BEGIN
 
     -- Get Sid and Location2 from SLid (use OLD.SLid for history)
     IF OLD.SLid IS NOT NULL THEN
-        SELECT SL.Sid, L.Location2
+        SELECT `SL`.`Sid`, `L`.`Location2`
         INTO v_sid, v_location2
-        FROM sites_location SL
-        JOIN location L ON SL.lid = L.lid
-        WHERE SL.SLid = OLD.SLid
+        FROM `sites_location` AS `SL`
+        JOIN `location` AS `L` ON `SL`.`lid` = `L`.`lid`
+        WHERE `SL`.`SLid` = OLD.`SLid`
         LIMIT 1;
     END IF;
 
@@ -647,10 +666,10 @@ CREATE TABLE `ma_shpm` (
   `ma_id` int(11) NOT NULL,
   `start_date` date DEFAULT NULL,
   `end_date` date DEFAULT NULL,
-  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> Devices(Did)',
+  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> devices(Did)',
   `new_device_id` int(11) DEFAULT NULL,
   `eng_id` int(11) DEFAULT NULL COMMENT 'Engineer (optional FK -> User)',
-  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> Sites_Location(SLid)',
+  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> sites_location(SLid)',
   `contract_id` int(11) DEFAULT NULL COMMENT 'FK -> contract; PM/MA ดึงจาก contract',
   `sla_status` enum('Pass','Fail') DEFAULT NULL COMMENT 'ผ่าน/ตก',
   `travel_how` varchar(255) DEFAULT NULL,
@@ -682,8 +701,8 @@ CREATE TABLE `pm_shma` (
   `pm_id` int(11) NOT NULL,
   `start_date` date DEFAULT NULL COMMENT 'เดิน ไป',
   `end_date` date DEFAULT NULL COMMENT 'กลับ',
-  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> Devices(Did)',
-  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> Sites_Location(SLid)',
+  `device_id` int(11) DEFAULT NULL COMMENT 'FK -> devices(Did)',
+  `site_id` int(11) DEFAULT NULL COMMENT 'FK -> sites_location(SLid)',
   `eng_id` int(11) DEFAULT NULL COMMENT 'Engineer (optional FK -> User)',
   `contract_id` int(11) DEFAULT NULL COMMENT 'FK -> contract; PM/MA ดึงจาก contract',
   `status` varchar(100) DEFAULT NULL COMMENT 'ไม่ชัวร์ เหมือนจะได้ใช้',
@@ -803,51 +822,6 @@ CREATE TABLE `tasks` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `tasks`
---
-
-INSERT INTO `tasks` (`id`, `task_type`, `contract_id`, `assets`, `replacement_device_id`, `site_id`, `site_name`, `vendor_name`, `duration`, `sla_term`, `coverage_scope`, `priority`, `start_date`, `end_date`, `travel_method`, `travel_cost`, `engineers`, `asset_binding`, `status`, `actually_went`, `notes`, `photos`, `created_at`, `updated_at`) VALUES
-(9, 'MA', 7, '[{\"id\":11,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91W\",\"Dtypeid\":1,\"DeRoleid\":1,\"type\":\"Device\",\"serialNumber\":\"FGL2314A91W\",\"site\":\"Thai Beverage Public Company Limited\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000588\",\"source\":\"site\"}]', 4, 1, 'Thai Beverage Public Company Limited - Beer Thai', 'dd', NULL, NULL, 'o', NULL, '2026-01-23', '2026-01-23', 'airplane', 6.98, '[{\"id\":\"ENG001\",\"name\":\"Yotsawan\"}]', NULL, 'done', 0, NULL, NULL, '2026-01-23 10:07:31', '2026-01-27 03:36:53'),
-(10, 'PM', 8, '[{\"id\":7,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91S\",\"Dtypeid\":1,\"DeRoleid\":1,\"type\":\"Device\",\"serialNumber\":\"FGL2314A91S\",\"site\":\"Thai Beverage Public Company Limited\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000584\",\"source\":\"site\"}]', NULL, 1, 'Thai Beverage Public Company Limited - Beer Thai', NULL, NULL, NULL, 'q', NULL, '2026-01-21', '2026-01-21', 'train', 23.00, '[{\"id\":\"ENG001\",\"name\":\"Yotsawan\"}]', NULL, 'not-started', 0, NULL, NULL, '2026-01-26 08:34:09', '2026-01-27 02:47:28'),
-(14, 'PM', 7, '[{\"id\":4,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91P\",\"Dtypeid\":1,\"DeRoleid\":1,\"type\":\"Device\",\"serialNumber\":\"FGL2314A91P\",\"site\":\"Thai Beverage Public Company Limited\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000581\",\"source\":\"site\"}]', NULL, 1, 'Thai Beverage Public Company Limited - Beer Thai', NULL, NULL, NULL, 'zz', NULL, '2026-01-13', '2026-01-13', 'private-car', 1.99, '[{\"id\":\"EMP001\",\"name\":\"Somsak\",\"lastName\":\"Prasert\"}]', NULL, 'not-started', 0, NULL, NULL, '2026-01-28 03:01:24', '2026-01-28 03:01:24'),
-(15, 'MA', 7, '[{\"id\":4,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91P\",\"Dtypeid\":1,\"DeRoleid\":1,\"type\":\"Device\",\"serialNumber\":\"FGL2314A91P\",\"site\":\"Thai Beverage Public Company Limited\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000581\",\"source\":\"site\"}]', 11, 1, 'Thai Beverage Public Company Limited - Beer Thai', 'dvvv', NULL, NULL, 'cv', NULL, '2026-01-30', '2026-01-30', 'airplane', 55.00, '[{\"id\":\"EMP003\",\"name\":\"Chai\",\"lastName\":\"Wongsakul\"}]', NULL, 'not-started', 0, NULL, NULL, '2026-01-28 04:01:49', '2026-01-28 04:01:49'),
-(16, 'MA', 8, '[{\"id\":11,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91W\",\"Dtypeid\":1,\"type\":\"AIR-AP3802I-S-K9\",\"serialNumber\":\"FGL2314A91W\",\"assetState\":\"In Store\",\"assetNumber\":\"4300000588\",\"source\":\"site\"}]', 4, 1, 'Thai Beverage Public Company Limited - Beer Thai', 'ดเ', NULL, NULL, 'ำ', NULL, '2026-01-08', '2026-01-08', 'other', 5.00, '[{\"id\":\"EMP003\",\"name\":\"Chai\",\"lastName\":\"Wongsakul\"}]', NULL, 'not-started', 0, NULL, NULL, '2026-01-28 04:09:36', '2026-01-29 03:29:37'),
-(17, 'MA', 7, '[{\"id\":2,\"name\":\"AIR-AP3802I-S-K9 / FGL2314A91M\",\"Dtypeid\":2,\"DeRoleid\":3,\"type\":\"Device\",\"serialNumber\":\"FGL2314A91M\",\"site\":\"Thai Beverage Public Company Limited\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000579\",\"source\":\"site\"}]', 1, 1, 'Thai Beverage Public Company Limited - Beer Thai', 'r', NULL, NULL, 'r', NULL, '2026-01-08', '2026-01-08', 'bus', 66.00, '[{\"id\":\"EMP001\",\"name\":\"Somsak\",\"lastName\":\"Prasert\"}]', NULL, 'not-started', 0, NULL, NULL, '2026-01-28 04:16:13', '2026-01-29 03:29:39'),
-(18, 'PM', 23, '[{\"id\":44,\"name\":\"FG-61F-BDL-950-36 / FGT61FTK20027631\",\"Dtypeid\":7,\"DeRoleid\":2,\"type\":\"Device\",\"serialNumber\":\"FGT61FTK20027631\",\"site\":\"บริษัท ไทยเบฟเวอเรจ โลจิสติก จำกัด (Head Office)\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000001\",\"source\":\"site\",\"SLid\":19},{\"id\":45,\"name\":\"FG-61F-BDL-950-36 / FGT61FTK20028094\",\"Dtypeid\":7,\"DeRoleid\":2,\"type\":\"Device\",\"serialNumber\":\"FGT61FTK20028094\",\"site\":\"บริษัท ไทยเบฟเวอเรจ โลจิสติก จำกัด (Head Office)\",\"assetState\":\"In Use\",\"assetNumber\":\"4300000002\",\"source\":\"site\",\"SLid\":19}]', NULL, 19, 'บริษัท ไทยเบฟเวอเรจ โลจิสติก จำกัด (Head Office) - Wang Noi Ayutaya', NULL, NULL, NULL, 'ไๆำ', NULL, '2026-02-02', '2026-02-02', 'airplane', 12.00, '[{\"id\":\"EMP001\",\"name\":\"Somsak\",\"lastName\":\"Prasert\"}]', NULL, 'not-started', 0, NULL, NULL, '2026-02-02 02:40:50', '2026-02-02 02:48:59');
-
--- --------------------------------------------------------
-
---
--- Table structure for table `Tasks`
---
-
-CREATE TABLE `Tasks` (
-  `id` int(11) NOT NULL,
-  `task_type` enum('PM','MA') NOT NULL,
-  `contract_id` int(11) DEFAULT NULL,
-  `replacement_device_id` int(11) DEFAULT NULL,
-  `site_id` int(11) DEFAULT NULL,
-  `site_name` varchar(255) DEFAULT NULL,
-  `vendor_name` varchar(255) DEFAULT NULL,
-  `duration` int(11) DEFAULT NULL,
-  `sla_term` varchar(255) DEFAULT NULL,
-  `coverage_scope` text DEFAULT NULL,
-  `priority` varchar(50) DEFAULT NULL,
-  `start_date` date NOT NULL,
-  `end_date` date NOT NULL,
-  `travel_method` varchar(100) DEFAULT NULL,
-  `travel_cost` decimal(12,2) DEFAULT NULL,
-  `engineers` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`engineers`)),
-  `assets` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`assets`)),
-  `status` enum('not-started','working','stuck','done') DEFAULT 'not-started',
-  `actually_went` tinyint(1) DEFAULT 0,
-  `notes` text DEFAULT NULL,
-  `photos` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`photos`)),
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -1000,7 +974,7 @@ ALTER TABLE `user`
 -- AUTO_INCREMENT for table `contract`
 --
 ALTER TABLE `contract`
-  MODIFY `contract_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
+  MODIFY `contract_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=28;
 
 --
 -- AUTO_INCREMENT for table `devices`
@@ -1073,12 +1047,6 @@ ALTER TABLE `sites_location`
 --
 ALTER TABLE `tasks`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
-
---
--- AUTO_INCREMENT for table `Tasks`
---
-ALTER TABLE `Tasks`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `user`
