@@ -61,7 +61,7 @@ export function DeviceSelector({
           className={inputBase}
           disabled={dataLoading}
         >
-          <option value="">-- เลือก Site --</option>
+          <option value="">-- Select Site --</option>
           {sitesLocation.map((s) => (
             <option key={s.SLid} value={String(s.SLid)}>
               {s.SiteName} – {s.Location2}
@@ -72,20 +72,20 @@ export function DeviceSelector({
 
       <div>
         <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-          อุปกรณ์ <span className="font-normal text-slate-400">({selectedDeviceIds.length} รายการ)</span>
+          Device <span className="font-normal text-slate-400">({selectedDeviceIds.length} items)</span>
         </label>
         {!selectedSiteId ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-500">
-            <span>เลือก Site ก่อนเพื่อดูรายการอุปกรณ์</span>
+            <span>Select Site before viewing device list</span>
           </div>
         ) : devicesLoading ? (
           <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-slate-50/50 py-8 text-sm text-slate-500">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
-            <span>กำลังโหลดอุปกรณ์...</span>
+            <span>Loading devices...</span>
           </div>
         ) : devicesBySite.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-500">
-            <span>ไม่มีอุปกรณ์ใน Site นี้</span>
+            <span>No devices in this site</span>
           </div>
         ) : (
           <div className={`relative z-50 space-y-3 ${showDeviceDropdown ? 'mb-72' : ''}`}>
@@ -105,7 +105,7 @@ export function DeviceSelector({
                 onFocus={onDeviceInputFocus}
                 onBlur={onDeviceInputBlur}
                 onKeyDown={onDeviceInputKeyDown}
-                placeholder={selectedDeviceIds.length === 0 ? 'พิมพ์ค้นหาหรือเลือกอุปกรณ์...' : 'พิมพ์เพื่อค้นหาเพิ่มเติม...'}
+                placeholder={selectedDeviceIds.length === 0 ? 'Type to search or select device...' : 'Type to search for more...'}
                 className="min-h-[2rem] w-full bg-transparent py-1 text-sm outline-none placeholder:text-slate-400"
               />
             </div>
@@ -115,10 +115,10 @@ export function DeviceSelector({
                   <table className="w-full text-left text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50/80">
-                        <th className="px-4 py-3 font-semibold text-slate-600">ลำดับ</th>
-                        <th className="px-4 py-3 font-semibold text-slate-600">ชื่ออุปกรณ์</th>
-                        <th className="px-4 py-3 font-semibold text-slate-600">เลขทรัพย์สิน</th>
-                        <th className="w-14 px-4 py-3 text-center font-semibold text-slate-600">ลบ</th>
+                        <th className="px-4 py-3 font-semibold text-slate-600">Order</th>
+                        <th className="px-4 py-3 font-semibold text-slate-600">Device Name</th>
+                        <th className="px-4 py-3 font-semibold text-slate-600">Asset Number</th>
+                        <th className="w-14 px-4 py-3 text-center font-semibold text-slate-600">Delete</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -137,7 +137,7 @@ export function DeviceSelector({
                               type="button"
                               onClick={() => onRemoveDevice(String(d.Did))}
                               className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                              title="ลบ"
+                              title="Delete"
                             >
                               <X size={16} />
                             </button>
@@ -152,7 +152,7 @@ export function DeviceSelector({
             {showDeviceDropdown && filteredDevices.length > 0 && (
               <div className="absolute left-0 right-0 z-[9999] mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-blue-300 bg-white shadow-2xl">
                 <div className="sticky top-0 z-10 border-b border-blue-200 bg-blue-50 px-4 py-2.5 text-xs font-bold uppercase text-blue-700">
-                  เลือกอุปกรณ์ ({filteredDevices.length} รายการ)
+                  Select Device ({filteredDevices.length} items)
                 </div>
                 <div className="divide-y divide-slate-100">
                   {filteredDevices.map((d) => (
@@ -175,7 +175,7 @@ export function DeviceSelector({
             {showDeviceDropdown && filteredDevices.length === 0 && deviceInput && (
               <div className="absolute left-0 right-0 z-[9999] mt-2 w-full rounded-xl border border-amber-300 bg-white p-3 shadow-xl">
                 <p className="text-sm text-amber-600">
-                  ไม่พบอุปกรณ์ที่ตรงกับการค้นหา
+                  No devices found matching the search
                 </p>
               </div>
             )}

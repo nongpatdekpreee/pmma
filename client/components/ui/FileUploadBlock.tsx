@@ -24,7 +24,7 @@ export function FileUploadBlock({
       <div className="flex flex-wrap gap-3">
         <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50/30 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:scale-105 hover:border-blue-300 hover:bg-blue-50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50">
           <Paperclip size={18} />
-          <span>อัปโหลดไฟล์</span>
+          <span>Upload File</span>
           <input
             type="file"
             multiple
@@ -36,7 +36,7 @@ export function FileUploadBlock({
         </label>
         <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-purple-50/30 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:scale-105 hover:border-purple-300 hover:bg-purple-50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50">
           <ImageIcon size={18} />
-          <span>อัปโหลดรูปภาพ</span>
+          <span>Upload Image</span>
           <input
             type="file"
             multiple
@@ -49,7 +49,7 @@ export function FileUploadBlock({
         {uploading && (
           <span className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-600">
             <span className="h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
-            <span>กำลังอัปโหลด...</span>
+            <span>Uploading...</span>
           </span>
         )}
       </div>
@@ -60,7 +60,7 @@ export function FileUploadBlock({
             <div>
               <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase text-slate-500">
                 <span>📎</span>
-                <span>ไฟล์แนบ</span>
+                <span>Attached File</span>
               </p>
               <ul className="space-y-2">
                 {filePaths.map((p, i) => (
@@ -80,7 +80,7 @@ export function FileUploadBlock({
                       type="button"
                       onClick={() => onRemoveFile(i)}
                       className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ลบ"
+                      title="Delete"
                     >
                       <X size={14} />
                     </button>
@@ -92,7 +92,7 @@ export function FileUploadBlock({
           {imagePaths.length > 0 && (
             <div>
               <p className="mb-2 text-xs font-semibold uppercase text-slate-500">
-                รูปภาพ
+                Image
               </p>
               <ul className="space-y-2">
                 {imagePaths.map((p, i) => (
@@ -113,7 +113,7 @@ export function FileUploadBlock({
                       type="button"
                       onClick={() => onRemoveImage(i)}
                       className="shrink-0 rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ลบ"
+                      title="Delete"
                     >
                       <X size={14} />
                     </button>

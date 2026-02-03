@@ -7,6 +7,11 @@ import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl } from '@/lib/api';
 import Link from 'next/link';
+import { 
+  FileText, Calendar, DollarSign, Building2, Cpu, MapPin, 
+  Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
+  ImageIcon, History, X, Edit, Loader2 
+} from 'lucide-react';
 
 interface Equipment {
   name: string;
@@ -30,6 +35,53 @@ interface Contract {
   formattedValue?: string;
   formattedStartDate?: string;
   formattedEndDate?: string;
+  deviceCount?: number;
+}
+
+interface FullContractDetails {
+  contract_id: number;
+  contract_name?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  site_id?: number | null;
+  sla_term?: number | null;
+  sale_account?: string | null;
+  sof_name?: string | null;
+  contract_value?: number | null;
+  Assigned_Service?: string | null;
+  coverage_scope?: string | null;
+  file_paths?: string | null;
+  image_paths?: string | null;
+  pm_time_per_year?: number | null;
+  contract_sign_date?: string | null;
+  remark?: string | null;
+  site_name?: string | null;
+  devices?: Array<{
+    Did: number;
+    CI_Name?: string | null;
+    Asset_Number?: string | null;
+    serial?: string | null;
+    Asset_State?: string | null;
+    SLid?: number | null;
+    SiteName?: string | null;
+    Location2?: string | null;
+    type_name?: string | null;
+    roleName?: string | null;
+  }>;
+  sites?: Array<{
+    SLid: number;
+    SiteName?: string | null;
+    Location2?: string | null;
+  }>;
+  history?: Array<{
+    history_id: number;
+    contract_id: number;
+    old_contract_id?: number | null;
+    old_sof?: string | null;
+    new_sof?: string | null;
+    renewed_at?: string | null;
+    created_at?: string | null;
+  }>;
 }
 
 function formatDateThai(dateStr: string | null | undefined): string {
@@ -54,13 +106,15 @@ export default function ContractEditorPage() {
   const [contractsLoading, setContractsLoading] = useState(true);
   const [contractsError, setContractsError] = useState('');
 
-  const [activeFilter, setActiveFilter] = useState('ทั้งหมด');
+  const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEquipmentModal, setShowEquipmentModal] = useState(false);
   const [currentContract, setCurrentContract] = useState<Contract | null>(null);
+  const [fullContractDetails, setFullContractDetails] = useState<FullContractDetails | null>(null);
+  const [loadingContractDetails, setLoadingContractDetails] = useState(false);
   const [currentEquipmentList, setCurrentEquipmentList] = useState<Equipment[]>([]);
   const [editingEquipmentIndex, setEditingEquipmentIndex] = useState<number | null>(null);
   const [equipmentForm, setEquipmentForm] = useState<Equipment>({
@@ -96,7 +150,7 @@ export default function ContractEditorPage() {
         if (cancelled) return;
         if (!json.success || !Array.isArray(json.data)) {
           setContracts([]);
-          setContractsError(json.message || 'โหลดรายการสัญญาไม่สำเร็จ');
+          setContractsError(json.message || 'Failed to load contract list');
           return;
         }
         const list: Contract[] = json.data.map((c: {
@@ -106,21 +160,26 @@ export default function ContractEditorPage() {
           end_date?: string | null;
           sale_account?: string | null;
           site_name?: string | null;
+          device_count?: number | null;
+          contract_value?: number | null;
         }) => {
           const endDate = c.end_date || '';
           const status = deriveStatus(endDate);
+          const contractValue = c.contract_value != null ? c.contract_value : 0;
+          const formattedValue = contractValue > 0 ? contractValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
           return {
             id: String(c.contract_id),
             name: c.contract_name || '—',
             partner: c.sale_account || c.site_name || '—',
             startDate: c.start_date || '',
             endDate,
-            value: '',
+            value: String(contractValue),
             status,
-            formattedValue: '—',
+            formattedValue,
             formattedStartDate: formatDateThai(c.start_date),
             formattedEndDate: formatDateThai(c.end_date),
             equipment: [],
+            deviceCount: c.device_count || 0,
           };
         });
         setContracts(list);
@@ -128,7 +187,7 @@ export default function ContractEditorPage() {
       .catch((err) => {
         if (!cancelled) {
           setContracts([]);
-          setContractsError(err?.message || 'โหลดรายการสัญญาไม่สำเร็จ');
+          setContractsError(err?.message || 'Failed to load contract list');
         }
       })
       .finally(() => {
@@ -138,11 +197,11 @@ export default function ContractEditorPage() {
   }, []);
 
   const filteredContracts = contracts.filter((contract) => {
-    if (activeFilter !== 'ทั้งหมด') {
+    if (activeFilter !== 'All') {
       const statusMap: Record<string, string> = {
-        'ใช้งาน': 'active',
-        'รอดำเนินการ': 'pending',
-        'หมดอายุ': 'expired',
+        'Active': 'active',
+        'Pending': 'pending',
+        'Expired': 'expired',
       };
       if (contract.status !== statusMap[activeFilter]) return false;
     }
@@ -179,6 +238,7 @@ export default function ContractEditorPage() {
     setShowDetailModal(false);
     setShowEquipmentModal(false);
     setCurrentContract(null);
+    setFullContractDetails(null);
     setEditingEquipmentIndex(null);
   };
 
@@ -207,7 +267,7 @@ export default function ContractEditorPage() {
   };
 
   const removeEquipment = (index: number) => {
-    if (confirm('คุณต้องการลบอุปกรณ์นี้หรือไม่?')) {
+    if (confirm('Do you want to delete this equipment?')) {
       setCurrentEquipmentList(currentEquipmentList.filter((_, i) => i !== index));
     }
   };
@@ -229,7 +289,7 @@ export default function ContractEditorPage() {
     };
 
     setContracts([newContract, ...contracts]);
-    toastSuccess(`เพิ่มสัญญาบำรุงรักษาใหม่สำเร็จ (เลขที่สัญญา: ${contractId}, อุปกรณ์ ${currentEquipmentList.length} รายการ)`);
+    toastSuccess(`New maintenance contract added successfully (Contract ID: ${contractId}, Equipment ${currentEquipmentList.length} items)`);
     closeModal();
     setCurrentEquipmentList([]);
   };
@@ -252,34 +312,38 @@ export default function ContractEditorPage() {
     };
 
     setContracts(contracts.map((c) => (c.id === currentContract.id ? updatedContract : c)));
-    toastSuccess(`แก้ไขสัญญาสำเร็จ (เลขที่สัญญา: ${currentContract.id})`);
+    toastSuccess(`Contract updated successfully (Contract ID: ${currentContract.id})`);
     closeModal();
   };
 
-  const viewContractDetails = (contract: Contract) => {
+  const viewContractDetails = async (contract: Contract) => {
     setCurrentContract(contract);
     setShowDetailModal(true);
+    setLoadingContractDetails(true);
+    setFullContractDetails(null);
+    
+    try {
+      const res = await fetch(apiUrl(`/api/contracts/${contract.id}`));
+      const json = await res.json();
+      if (res.ok && json.data) {
+        setFullContractDetails(json.data);
+      } else {
+        console.error('Failed to load contract details:', json.message);
+      }
+    } catch (err) {
+      console.error('Error loading contract details:', err);
+    } finally {
+      setLoadingContractDetails(false);
+    }
   };
 
   const editContract = (contract: Contract) => {
-    setCurrentContract(contract);
-    setFormType('edit');
-    setCurrentEquipmentList(contract.equipment || []);
-    setContractForm({
-      name: contract.name,
-      partner: contract.partner,
-      maintenanceType: contract.maintenanceType || '',
-      startDate: contract.startDate,
-      endDate: contract.endDate,
-      value: contract.value,
-      status: contract.status,
-      description: contract.description || '',
-    });
-    setShowEditModal(true);
+    // Redirect ไปหน้าแก้ไข
+    router.push(`/contract_editer/add?edit=${contract.id}`);
   };
 
   const renewContract = (contract: Contract) => {
-    if (confirm(`คุณต้องการต่ออายุสัญญา ${contract.id} หรือไม่?\n\nระบบจะเปิดฟอร์มต่อสัญญาให้คุณ`)) {
+    if (confirm(`Do you want to renew contract ${contract.id}?\n\nThe system will open the renewal form for you`)) {
       // Redirect ไปหน้าเพิ่มสัญญาใหม่พร้อม contract_id เพื่อโหลดข้อมูลสัญญาเก่า
       router.push(`/contract_editer/add?renew=${contract.id}`);
     }
@@ -292,13 +356,13 @@ export default function ContractEditorPage() {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
-      return `หมดอายุแล้ว ${Math.abs(diffDays)} วัน`;
+      return `Expired ${Math.abs(diffDays)} days`;
     } else if (diffDays === 0) {
-      return 'หมดอายุวันนี้';
+      return 'Expired today';
     } else if (diffDays <= 30) {
-      return `เหลืออีก ${diffDays} วัน ⚠️`;
+      return `Remaining ${diffDays} days ⚠️`;
     } else {
-      return `เหลืออีก ${diffDays} วัน`;
+      return `Remaining ${diffDays} days`;
     }
   };
 
@@ -318,11 +382,11 @@ export default function ContractEditorPage() {
   const getStatusText = (status: string) => {
     switch (status) {
       case 'active':
-        return 'ใช้งาน';
+        return 'Active';
       case 'pending':
-        return 'รอดำเนินการ';
+        return 'Pending';
       case 'expired':
-        return 'หมดอายุ';
+        return 'Expired';
       default:
         return status;
     }
@@ -345,10 +409,10 @@ export default function ContractEditorPage() {
         {/* Hero Section */}
         <div>
           <h1 className="text-3xl font-bold text-slate-800">
-            ระบบจัดการสัญญาบำรุงรักษา
+            Maintenance Contract System
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            จัดการสัญญาบำรุงรักษาอุปกรณ์และเครื่องจักร ติดตามกำหนดการบำรุงรักษา อุปกรณ์ที่อยู่ในสัญญา และรายละเอียดสำคัญได้อย่างมีประสิทธิภาพ
+            Manage maintenance contracts for equipment and machines, track maintenance schedules, equipment under contract, and important details efficiently
           </p>
         </div>
 
@@ -370,10 +434,10 @@ export default function ContractEditorPage() {
           return (
         <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
           {[
-            { number: String(total), label: 'สัญญาทั้งหมด' },
-            { number: String(active), label: 'สัญญาที่ใช้งาน' },
-            { number: String(pending), label: 'รอดำเนินการ' },
-            { number: String(nearExpiry), label: 'ใกล้หมดอายุ' },
+            { number: String(total), label: 'All Contracts' },
+            { number: String(active), label: 'Active Contracts' },
+            { number: String(pending), label: 'Pending Contracts' },
+            { number: String(nearExpiry), label: 'Expiring Contracts' },
           ].map((stat, idx) => (
             <div key={idx} className="text-center relative">
               {idx < 3 && (
@@ -401,7 +465,7 @@ export default function ContractEditorPage() {
         {/* Filters */}
         <div className="flex gap-4 flex-wrap items-center">
           <div className="flex gap-2">
-            {['ทั้งหมด', 'ใช้งาน', 'รอดำเนินการ', 'หมดอายุ'].map((filter) => (
+            {['All', 'Active', 'Pending', 'Expired'].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setActiveFilter(filter)}
@@ -419,7 +483,7 @@ export default function ContractEditorPage() {
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl">🔍</span>
             <input
               type="text"
-              placeholder="ค้นหาสัญญา..."
+              placeholder="Search contract..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full py-2.5 pl-12 pr-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
@@ -432,7 +496,7 @@ export default function ContractEditorPage() {
         {/* Loading / Error */}
         {contractsLoading && (
           <div className="flex items-center justify-center py-20 text-slate-500">
-            <span className="animate-pulse">กำลังโหลดรายการสัญญา...</span>
+            <span className="animate-pulse">Loading contract list...</span>
           </div>
         )}
         {!contractsLoading && contractsError && (
@@ -463,46 +527,46 @@ export default function ContractEditorPage() {
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-blue-600 font-semibold min-w-[20px]">📋</span>
-                <span className="text-slate-500 min-w-[100px]">ชื่อสัญญา:</span>
+                <span className="text-slate-500 min-w-[100px]">Contract Name:</span>
                 <span className="text-slate-700 font-medium">{contract.name}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-blue-600 font-semibold min-w-[20px]">🏢</span>
-                <span className="text-slate-500 min-w-[100px]">คู่สัญญา:</span>
+                <span className="text-slate-500 min-w-[100px]">Contract Partner:</span>
                 <span className="text-slate-700 font-medium">{contract.partner}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-blue-600 font-semibold min-w-[20px]">📅</span>
-                <span className="text-slate-500 min-w-[100px]">วันเริ่มต้น:</span>
+                <span className="text-slate-500 min-w-[100px]">Start Date:</span>
                 <span className="text-slate-700 font-medium">{contract.formattedStartDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-blue-600 font-semibold min-w-[20px]">⏰</span>
-                <span className="text-slate-500 min-w-[100px]">วันสิ้นสุด:</span>
+                <span className="text-slate-500 min-w-[100px]">End Date:</span>
                 <span className="text-slate-700 font-medium">{contract.formattedEndDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-blue-600 font-semibold min-w-[20px]">💰</span>
-                <span className="text-slate-500 min-w-[100px]">มูลค่า:</span>
+                <span className="text-slate-500 min-w-[100px]">Value:</span>
                 <span className="text-slate-700 font-medium">฿{contract.formattedValue}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-blue-600 font-semibold min-w-[20px]">🔧</span>
-                <span className="text-slate-500 min-w-[100px]">อุปกรณ์:</span>
-                <span className="text-slate-700 font-medium">{contract.equipment?.length || 0} รายการ</span>
+                <span className="text-slate-500 min-w-[100px]">Equipment:</span>
+                <span className="text-slate-700 font-medium">{contract.deviceCount || 0} List Items</span>
               </div>
               <div className="flex gap-3 mt-6 pt-6 border-t border-slate-200">
                 <button
                   onClick={() => viewContractDetails(contract)}
                   className="flex-1 py-2.5 px-5 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
                 >
-                  ดูรายละเอียด
+                  View Details
                 </button>
                 <button
                   onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
                   className="flex-1 py-2.5 px-5 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-transparent text-slate-700 border border-slate-200 hover:border-blue-500 hover:text-blue-600"
                 >
-                  {contract.status === 'expired' ? 'ต่ออายุ' : 'แก้ไข'}
+                  {contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
                 </button>
               </div>
             </div>
@@ -516,7 +580,7 @@ export default function ContractEditorPage() {
         <Modal onClose={closeModal}>
           <div className="bg-white rounded-[2rem] p-10 max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-800">เพิ่มสัญญาใหม่</h2>
+              <h2 className="text-2xl font-bold text-slate-800">Add New Contract</h2>
               <button onClick={closeModal} className="text-2xl cursor-pointer text-slate-500 hover:text-slate-700 transition-colors duration-300 p-2">
                 ✕
               </button>
@@ -530,7 +594,7 @@ export default function ContractEditorPage() {
                   type="text"
                   id="contractName"
                   required
-                  placeholder="เช่น สัญญาบำรุงรักษาเครื่องจักร"
+                  placeholder="e.g. Maintenance Contract for Machine"
                   value={contractForm.name}
                   onChange={(e) => setContractForm({ ...contractForm, name: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
@@ -538,13 +602,13 @@ export default function ContractEditorPage() {
               </div>
               <div className="mb-6">
                 <label htmlFor="contractPartner" className="block mb-2 text-slate-700 font-semibold text-sm">
-                  คู่สัญญา/ผู้ให้บริการ *
+                  Contract Partner/Service Provider *
                 </label>
                 <input
                   type="text"
                   id="contractPartner"
                   required
-                  placeholder="ระบุชื่อบริษัทผู้ให้บริการบำรุงรักษา"
+                  placeholder="Enter the name of the service provider"
                   value={contractForm.partner}
                   onChange={(e) => setContractForm({ ...contractForm, partner: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
@@ -552,7 +616,7 @@ export default function ContractEditorPage() {
               </div>
               <div className="mb-6">
                 <label htmlFor="maintenanceType" className="block mb-2 text-slate-700 font-semibold text-sm">
-                  ประเภทการบำรุงรักษา *
+                  Maintenance Type *
                 </label>
                 <select
                   id="maintenanceType"
@@ -561,7 +625,7 @@ export default function ContractEditorPage() {
                   onChange={(e) => setContractForm({ ...contractForm, maintenanceType: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 >
-                  <option value="">เลือกประเภท</option>
+                  <option value="">Select...</option>
                   <option value="preventive">Preventive Maintenance (PM)</option>
                   <option value="corrective">Corrective Maintenance</option>
                   <option value="predictive">Predictive Maintenance</option>
@@ -571,7 +635,7 @@ export default function ContractEditorPage() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                   <label htmlFor="startDate" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    วันเริ่มต้น *
+                    Start Date *
                   </label>
                   <input
                     type="date"
@@ -584,7 +648,7 @@ export default function ContractEditorPage() {
                 </div>
                 <div>
                   <label htmlFor="endDate" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    วันสิ้นสุด *
+                    End Date *
                   </label>
                   <input
                     type="date"
@@ -599,7 +663,7 @@ export default function ContractEditorPage() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                   <label htmlFor="contractValue" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    มูลค่าสัญญา (บาท) *
+                    Contract Value (THB) *
                   </label>
                   <input
                     type="number"
@@ -614,7 +678,7 @@ export default function ContractEditorPage() {
                 </div>
                 <div>
                   <label htmlFor="contractStatus" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    สถานะ *
+                    Status *
                   </label>
                   <select
                     id="contractStatus"
@@ -623,9 +687,9 @@ export default function ContractEditorPage() {
                     onChange={(e) => setContractForm({ ...contractForm, status: e.target.value as 'active' | 'pending' | 'expired' })}
                     className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   >
-                    <option value="active">ใช้งาน</option>
-                    <option value="pending">รอดำเนินการ</option>
-                    <option value="expired">หมดอายุ</option>
+                    <option value="active">Active</option>
+                    <option value="pending">Pending</option>
+                    <option value="expired">Expired</option>
                   </select>
                 </div>
               </div>
@@ -635,14 +699,14 @@ export default function ContractEditorPage() {
                 </label>
                 <textarea
                   id="contractDescription"
-                  placeholder="ระบุรายละเอียดสัญญา เงื่อนไข SLA หรือข้อกำหนดพิเศษ"
+                  placeholder="Enter contract details, SLA terms, or special requirements"
                   value={contractForm.description}
                   onChange={(e) => setContractForm({ ...contractForm, description: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[100px] resize-y"
                 />
               </div>
               <div className="mb-6">
-                <label className="block mb-2 text-slate-700 font-semibold text-sm">อุปกรณ์ที่อยู่ในสัญญา</label>
+                <label className="block mb-2 text-slate-700 font-semibold text-sm">Equipment Under Contract</label>
                 <div className="mt-4">
                   {currentEquipmentList.map((equipment, idx) => (
                     <div key={idx} className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-3 flex justify-between items-center hover:border-blue-500 hover:bg-white transition-all duration-300">
@@ -660,14 +724,14 @@ export default function ContractEditorPage() {
                           onClick={() => openEquipmentModal(idx)}
                           className="px-3 py-1.5 text-sm rounded-md border border-slate-200 bg-white cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
                         >
-                          แก้ไข
+                          Edit
                         </button>
                         <button
                           type="button"
                           onClick={() => removeEquipment(idx)}
                           className="px-3 py-1.5 text-sm rounded-md border border-slate-200 bg-white cursor-pointer transition-all duration-300 hover:border-red-500 hover:text-red-500"
                         >
-                          ลบ
+                          Delete
                         </button>
                       </div>
                     </div>
@@ -678,7 +742,7 @@ export default function ContractEditorPage() {
                   onClick={() => openEquipmentModal()}
                   className="w-full py-3 border-2 border-dashed border-slate-200 bg-transparent rounded-lg text-slate-500 cursor-pointer transition-all duration-300 font-medium hover:border-blue-500 hover:text-blue-600 hover:bg-slate-50"
                 >
-                  ➕ เพิ่มอุปกรณ์
+                  ➕ Add Equipment
                 </button>
               </div>
               <div className="flex gap-4 mt-8 pt-6 border-t border-slate-200">
@@ -687,13 +751,13 @@ export default function ContractEditorPage() {
                   onClick={closeModal}
                   className="flex-1 py-3.5 px-8 bg-transparent text-slate-700 border border-slate-200 rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
                 >
-                  ยกเลิก
+                  Cancel
                 </button>
                 <button
                   type="submit"
                   className="flex-1 py-3.5 px-8 bg-blue-600 text-white border-none rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
                 >
-                  บันทึกสัญญา
+                  Save Contract
                 </button>
               </div>
             </form>
@@ -706,7 +770,7 @@ export default function ContractEditorPage() {
         <Modal onClose={closeModal}>
           <div className="bg-white rounded-[2rem] p-10 max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-800">แก้ไขสัญญา</h2>
+              <h2 className="text-2xl font-bold text-slate-800">Edit Contract</h2>
               <button onClick={closeModal} className="text-2xl cursor-pointer text-slate-500 hover:text-slate-700 transition-colors duration-300 p-2">
                 ✕
               </button>
@@ -714,13 +778,13 @@ export default function ContractEditorPage() {
             <form onSubmit={handleEditContract}>
               <div className="mb-6">
                 <label htmlFor="editContractName" className="block mb-2 text-slate-700 font-semibold text-sm">
-                  ชื่อสัญญา *
+                  Contract Name *
                 </label>
                 <input
                   type="text"
                   id="editContractName"
                   required
-                  placeholder="ระบุชื่อสัญญา"
+                  placeholder="Enter contract name"
                   value={contractForm.name}
                   onChange={(e) => setContractForm({ ...contractForm, name: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
@@ -728,13 +792,13 @@ export default function ContractEditorPage() {
               </div>
               <div className="mb-6">
                 <label htmlFor="editContractPartner" className="block mb-2 text-slate-700 font-semibold text-sm">
-                  คู่สัญญา/ผู้ให้บริการ *
+                  Contract Partner/Service Provider *
                 </label>
                 <input
                   type="text"
                   id="editContractPartner"
                   required
-                  placeholder="ระบุชื่อบริษัทผู้ให้บริการบำรุงรักษา"
+                  placeholder="Enter the name of the service provider"
                   value={contractForm.partner}
                   onChange={(e) => setContractForm({ ...contractForm, partner: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
@@ -742,7 +806,7 @@ export default function ContractEditorPage() {
               </div>
               <div className="mb-6">
                 <label htmlFor="editMaintenanceType" className="block mb-2 text-slate-700 font-semibold text-sm">
-                  ประเภทการบำรุงรักษา *
+                  Maintenance Type *
                 </label>
                 <select
                   id="editMaintenanceType"
@@ -751,7 +815,7 @@ export default function ContractEditorPage() {
                   onChange={(e) => setContractForm({ ...contractForm, maintenanceType: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 >
-                  <option value="">เลือกประเภท</option>
+                  <option value="">Select...</option>
                   <option value="preventive">Preventive Maintenance (PM)</option>
                   <option value="corrective">Corrective Maintenance</option>
                   <option value="predictive">Predictive Maintenance</option>
@@ -761,7 +825,7 @@ export default function ContractEditorPage() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                   <label htmlFor="editStartDate" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    วันเริ่มต้น *
+                    Start Date *
                   </label>
                   <input
                     type="date"
@@ -894,118 +958,374 @@ export default function ContractEditorPage() {
       {/* Detail Modal */}
       {showDetailModal && currentContract && (
         <Modal onClose={closeModal}>
-          <div className="bg-white rounded-[2rem] p-10 max-w-[800px] w-[90%] max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
-              <h2 className=" text-3xl text-slate-800">
-                รายละเอียดสัญญา: {currentContract.id}
-              </h2>
-              <button onClick={closeModal} className="text-2xl cursor-pointer text-slate-500 hover:text-blue-600 transition-colors duration-300 p-2">
-                ✕
-              </button>
-            </div>
-            <div className="mb-8">
-              <h3 className=" text-2xl text-slate-800 mb-4 pb-2 border-b-2 border-blue-200">
-                ข้อมูลทั่วไป
-              </h3>
-              <div className="grid grid-cols-2 gap-6 mb-6">
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">เลขที่สัญญา</span>
-                  <span className="text-base text-slate-700 font-medium">{currentContract.id}</span>
+          <div className="bg-white rounded-2xl shadow-xl max-w-[1000px] w-[90%] max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="px-8 py-6 border-b border-slate-200 bg-white">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800 mb-1">
+                    📄 รายละเอียดสัญญา
+                  </h2>
+                  <p className="text-slate-500 text-sm">Contract ID: {currentContract.id}</p>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">สถานะ</span>
-                  <span className="text-base text-slate-700 font-medium">
-                    {currentContract.status === 'active' && '✅ ใช้งาน'}
-                    {currentContract.status === 'pending' && '⏳ รอดำเนินการ'}
-                    {currentContract.status === 'expired' && '❌ หมดอายุ'}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">ชื่อสัญญา</span>
-                  <span className="text-base text-slate-700 font-medium">{currentContract.name}</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">คู่สัญญา</span>
-                  <span className="text-base text-slate-700 font-medium">{currentContract.partner}</span>
-                </div>
+                <button 
+                  onClick={closeModal} 
+                  className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
-            <div className="mb-8">
-              <h3 className=" text-2xl text-slate-800 mb-4 pb-2 border-b-2 border-blue-200">
-                ระยะเวลาและมูลค่า
-              </h3>
-              <div className="grid grid-cols-2 gap-6 mb-6">
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">วันเริ่มต้น</span>
-                  <span className="text-base text-slate-700 font-medium">{currentContract.formattedStartDate}</span>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-8 bg-slate-50">
+              {loadingContractDetails ? (
+                <div className="flex flex-col items-center justify-center py-20">
+                  <Loader2 className="w-8 h-8 text-slate-400 animate-spin mb-3" />
+                  <div className="text-slate-500">กำลังโหลดข้อมูล...</div>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">วันสิ้นสุด</span>
-                  <span className="text-base text-slate-700 font-medium">{currentContract.formattedEndDate}</span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">มูลค่าสัญญา</span>
-                  <span className="text-3xl text-blue-600 font-bold">
-                    ฿{currentContract.formattedValue}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">ระยะเวลาคงเหลือ</span>
-                  <span className="text-base text-slate-700 font-medium">{calculateRemainingDays(currentContract.endDate)}</span>
-                </div>
-              </div>
-            </div>
-            <div className="mb-8">
-              <h3 className=" text-2xl text-slate-800 mb-4 pb-2 border-b-2 border-blue-200">
-                รายละเอียดเพิ่มเติม
-              </h3>
-              <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 leading-relaxed text-slate-700">
-                {currentContract.description || 'ไม่มีรายละเอียดเพิ่มเติม'}
-              </div>
-            </div>
-            <div className="mb-8">
-              <h3 className=" text-2xl text-slate-800 mb-4 pb-2 border-b-2 border-blue-200">
-                อุปกรณ์ที่อยู่ในสัญญา{' '}
-                <span className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100 rounded-md text-sm text-slate-800 font-semibold">
-                  {currentContract.equipment?.length || 0} รายการ
-                </span>
-              </h3>
-              <div className="mt-4">
-                {currentContract.equipment && currentContract.equipment.length > 0 ? (
-                  currentContract.equipment.map((equipment, idx) => (
-                    <div key={idx} className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-3">
-                      <div className="font-semibold text-slate-800 mb-1">🔧 {equipment.name}</div>
-                      <div className="text-sm text-slate-500">
-                        {equipment.model && `รุ่น: ${equipment.model}`}
-                        {equipment.serial && ` | S/N: ${equipment.serial}`}
-                        {equipment.location && ` | สถานที่: ${equipment.location}`}
+              ) : fullContractDetails ? (
+                <div className="space-y-6">
+                  {/* ข้อมูลทั่วไป */}
+                  <div className="bg-white rounded-lg border border-slate-200">
+                    <div className="px-6 py-4 border-b border-slate-200">
+                      <h3 className="text-lg font-semibold text-slate-800">📋 ข้อมูลทั่วไป</h3>
+                    </div>
+                    <div className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">🆔 เลขที่สัญญา</span>
+                          <span className="text-base font-semibold text-slate-800">{fullContractDetails.contract_id}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">📊 สถานะ</span>
+                          <span className="inline-block mt-1">
+                            {currentContract.status === 'active' && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-green-50 text-green-700 text-sm font-medium border border-green-200">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                ✅ ใช้งาน
+                              </span>
+                            )}
+                            {currentContract.status === 'pending' && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-yellow-50 text-yellow-700 text-sm font-medium border border-yellow-200">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                ⏳ รอดำเนินการ
+                              </span>
+                            )}
+                            {currentContract.status === 'expired' && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-50 text-red-700 text-sm font-medium border border-red-200">
+                                <XCircle className="w-3.5 h-3.5" />
+                                ❌ หมดอายุ
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">📝 ชื่อสัญญา</span>
+                          <span className="text-base text-slate-700">{fullContractDetails.contract_name || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">🔢 SOF</span>
+                          <span className="text-base text-blue-600 font-medium">{fullContractDetails.sof_name || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">👤 Sale Account</span>
+                          <span className="text-base text-slate-700">{fullContractDetails.sale_account || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">⚙️ Assigned Service</span>
+                          <span className="text-base text-slate-700">{fullContractDetails.Assigned_Service || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">📈 SLA Term</span>
+                          <span className="text-base font-semibold text-slate-800">
+                            {fullContractDetails.sla_term != null ? `${fullContractDetails.sla_term}%` : '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">🔧 PM Time Per Year</span>
+                          <span className="text-base text-slate-700">
+                            {fullContractDetails.pm_time_per_year != null ? `${fullContractDetails.pm_time_per_year} ครั้ง/ปี` : '—'}
+                          </span>
+                        </div>
                       </div>
-                      {equipment.notes && (
-                        <div className="text-sm text-slate-500 mt-1">หมายเหตุ: {equipment.notes}</div>
+                    </div>
+                  </div>
+
+                  {/* ระยะเวลาและมูลค่า */}
+                  <div className="bg-white rounded-lg border border-slate-200">
+                    <div className="px-6 py-4 border-b border-slate-200">
+                      <h3 className="text-lg font-semibold text-slate-800">📅 ระยะเวลาและมูลค่า</h3>
+                    </div>
+                    <div className="p-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">📆 วันเริ่มต้น</span>
+                          <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.start_date)}</span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">⏰ วันสิ้นสุด</span>
+                          <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.end_date)}</span>
+                        </div>
+                        {fullContractDetails.contract_sign_date && (
+                          <div>
+                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">✍️ วันลงนามสัญญา</span>
+                            <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.contract_sign_date)}</span>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">⏳ ระยะเวลาคงเหลือ</span>
+                          <span className="text-base text-slate-700">
+                            {fullContractDetails.end_date ? calculateRemainingDays(fullContractDetails.end_date) : '—'}
+                          </span>
+                        </div>
+                      </div>
+                      {fullContractDetails.contract_value != null && (
+                        <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-2">💰 มูลค่าสัญญา</span>
+                          <span className="text-3xl font-bold text-slate-800">
+                            ฿{fullContractDetails.contract_value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
                       )}
                     </div>
-                  ))
-                ) : (
-                  <p className="text-slate-500 text-center py-8">ไม่มีอุปกรณ์ในสัญญานี้</p>
-                )}
-              </div>
+                  </div>
+
+                  {/* Sites */}
+                  {fullContractDetails.sites && fullContractDetails.sites.length > 0 && (
+                    <div className="bg-white rounded-lg border border-slate-200">
+                      <div className="px-6 py-4 border-b border-slate-200">
+                        <h3 className="text-lg font-semibold text-slate-800">
+                          🏢 Sites ที่เกี่ยวข้อง
+                          <span className="ml-2 text-sm font-normal text-slate-500">({fullContractDetails.sites.length} แห่ง)</span>
+                        </h3>
+                      </div>
+                      <div className="p-6">
+                        <div className="space-y-3">
+                          {fullContractDetails.sites.map((site) => (
+                            <div key={site.SLid} className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                              <div className="font-medium text-slate-800 mb-1">
+                                📍 {site.SiteName || `Site ${site.SLid}`}
+                              </div>
+                              {site.Location2 && (
+                                <div className="text-sm text-slate-600 mb-1">{site.Location2}</div>
+                              )}
+                              <div className="text-xs text-slate-500">Site ID: {site.SLid}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Devices */}
+                  {fullContractDetails.devices && fullContractDetails.devices.length > 0 && (
+                    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="px-6 py-4 border-b border-slate-200">
+                        <h3 className="text-lg font-semibold text-slate-800">
+                          💻 อุปกรณ์ที่อยู่ในสัญญา
+                          <span className="ml-2 text-sm font-normal text-slate-500">({fullContractDetails.devices.length} รายการ)</span>
+                        </h3>
+                      </div>
+                      <div className="max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-slate-50 sticky top-0">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">#</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">ชื่ออุปกรณ์</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Asset Number</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Serial</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Site</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Type</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Role</th>
+                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">สถานะ</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {fullContractDetails.devices.map((device, idx) => (
+                              <tr key={device.Did} className="border-b border-slate-100 hover:bg-slate-50">
+                                <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
+                                <td className="px-4 py-3 font-medium text-slate-700">{device.CI_Name || '—'}</td>
+                                <td className="px-4 py-3 text-slate-600">{device.Asset_Number || '—'}</td>
+                                <td className="px-4 py-3 text-slate-600 font-mono text-xs">{device.serial || '—'}</td>
+                                <td className="px-4 py-3 text-slate-600">
+                                  {device.SiteName ? `${device.SiteName}${device.Location2 ? ` – ${device.Location2}` : ''}` : '—'}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">{device.type_name || '—'}</td>
+                                <td className="px-4 py-3">
+                                  {device.roleName ? (
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-xs font-medium text-blue-700 border border-blue-200">
+                                      {device.roleName}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-slate-400">—</span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600 text-xs">{device.Asset_State || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Coverage Scope */}
+                  {fullContractDetails.coverage_scope && (
+                    <div className="bg-white rounded-lg border border-slate-200">
+                      <div className="px-6 py-4 border-b border-slate-200">
+                        <h3 className="text-lg font-semibold text-slate-800">📋 Coverage Scope</h3>
+                      </div>
+                      <div className="p-6">
+                        <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                          {fullContractDetails.coverage_scope}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Remark */}
+                  {fullContractDetails.remark && (
+                    <div className="bg-white rounded-lg border border-slate-200">
+                      <div className="px-6 py-4 border-b border-slate-200">
+                        <h3 className="text-lg font-semibold text-slate-800">📝 หมายเหตุ</h3>
+                      </div>
+                      <div className="p-6">
+                        <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                          {fullContractDetails.remark}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Files */}
+                  {(fullContractDetails.file_paths || fullContractDetails.image_paths) && (
+                    <div className="bg-white rounded-lg border border-slate-200">
+                      <div className="px-6 py-4 border-b border-slate-200">
+                        <h3 className="text-lg font-semibold text-slate-800">📎 ไฟล์แนบ</h3>
+                      </div>
+                      <div className="p-6 space-y-4">
+                        {fullContractDetails.file_paths && (() => {
+                          try {
+                            const files = JSON.parse(fullContractDetails.file_paths);
+                            return Array.isArray(files) && files.length > 0 ? (
+                              <div>
+                                <h4 className="text-sm font-medium text-slate-600 mb-3">📄 เอกสาร ({files.length} ไฟล์)</h4>
+                                <div className="space-y-2">
+                                  {files.map((file: string, idx: number) => (
+                                    <a 
+                                      key={idx} 
+                                      href={file} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                                    >
+                                      <FileIcon className="w-4 h-4 text-slate-400" />
+                                      <span className="text-sm text-blue-600 flex-1 truncate hover:underline">
+                                        {file.split('/').pop() || file}
+                                      </span>
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null;
+                          } catch {
+                            return null;
+                          }
+                        })()}
+                        {fullContractDetails.image_paths && (() => {
+                          try {
+                            const images = JSON.parse(fullContractDetails.image_paths);
+                            return Array.isArray(images) && images.length > 0 ? (
+                              <div>
+                                <h4 className="text-sm font-medium text-slate-600 mb-3">🖼️ รูปภาพ ({images.length} ไฟล์)</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                  {images.map((image: string, idx: number) => (
+                                    <a 
+                                      key={idx} 
+                                      href={image} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="rounded-lg border border-slate-200 overflow-hidden hover:border-slate-300 transition-colors"
+                                    >
+                                      <img src={image} alt={`Image ${idx + 1}`} className="w-full h-auto" />
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null;
+                          } catch {
+                            return null;
+                          }
+                        })()}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Contract History */}
+                  {fullContractDetails.history && fullContractDetails.history.length > 0 && (
+                    <div className="bg-white rounded-lg border border-slate-200">
+                      <div className="px-6 py-4 border-b border-slate-200">
+                        <h3 className="text-lg font-semibold text-slate-800">
+                          ประวัติการต่อสัญญา
+                          <span className="ml-2 text-sm font-normal text-slate-500">({fullContractDetails.history.length} รายการ)</span>
+                        </h3>
+                      </div>
+                      <div className="p-6">
+                        <div className="space-y-3">
+                          {fullContractDetails.history.map((hist) => (
+                            <div key={hist.history_id} className="p-4 rounded-lg border border-slate-200 bg-slate-50">
+                              <div className="text-sm font-medium text-slate-800 mb-1">
+                                {hist.old_sof && hist.new_sof ? (
+                                  <>
+                                    SOF: {hist.old_sof} → {hist.new_sof}
+                                  </>
+                                ) : (
+                                  <>Contract ID: {hist.contract_id}</>
+                                )}
+                              </div>
+                              {hist.renewed_at && (
+                                <div className="text-xs text-slate-500">
+                                  ต่อสัญญาเมื่อ: {formatDateThai(hist.renewed_at)}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg border border-slate-200 p-12">
+                  <div className="text-center py-8">
+                    <AlertCircle className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+                    <div className="text-slate-600">ไม่สามารถโหลดข้อมูลสัญญาได้</div>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex gap-4 mt-8 pt-6 border-t border-slate-200">
+
+            {/* Footer */}
+            <div className="bg-white border-t border-slate-200 px-8 py-6 flex gap-4">
               <button
                 onClick={closeModal}
-                className="flex-1 py-3.5 px-8 bg-transparent text-slate-700 border border-slate-200 rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
+                className="flex-1 py-3 px-6 bg-white text-slate-700 border border-slate-300 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors"
               >
                 ปิด
               </button>
-              <button
-                onClick={() => {
-                  closeModal();
-                  editContract(currentContract);
-                }}
-                className="flex-1 py-3.5 px-8 bg-blue-600 text-white border-none rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
-              >
-                แก้ไขสัญญา
-              </button>
+              {currentContract && (
+                <button
+                  onClick={() => {
+                    closeModal();
+                    editContract(currentContract);
+                  }}
+                  className="flex-1 py-3 px-6 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Edit className="w-4 h-4" />
+                  แก้ไขสัญญา
+                </button>
+              )}
             </div>
           </div>
         </Modal>
