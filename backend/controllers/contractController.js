@@ -175,13 +175,7 @@ const createContract = async (req, res) => {
     } catch (_) { /* column ไม่มี ข้าม */ }
 
 
-    // TccStock (7): contract_device อาจมีแค่ (contract_id, device_id) ไม่มี SLid — ตรวจก่อน insert
-    let contractDeviceHasSLid = false;
-    try {
-      const [cdCols] = await db.execute("SHOW COLUMNS FROM contract_device LIKE 'SLid'");
-      contractDeviceHasSLid = cdCols && cdCols.length > 0;
-    } catch (_) { /* ตารางไม่มีหรือ error ข้าม */ }
-
+    // app_db: contract_device มีแค่ (contract_id, device_id) ไม่มี SLid
     let contractId;
     let conn;
     try {
@@ -299,42 +293,18 @@ const createContract = async (req, res) => {
         if (pairs.length > 0) {
           for (const p of pairs) {
             for (const did of p.device_ids) {
-              if (contractDeviceHasSLid) {
-                await conn.execute(
-                  'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-                  [contractId, did, p.site_id]
-                );
-              } else {
-                await conn.execute(
-                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-                  [contractId, did]
-                );
-              }
-            }
-          }
-        } else if (deviceIdList.length > 0) {
-          if (contractDeviceHasSLid) {
-            const placeholders = deviceIdList.map(() => '?').join(',');
-            const [deviceRows] = await conn.execute(
-              `SELECT Did, SLid FROM devices WHERE Did IN (${placeholders})`,
-              deviceIdList
-            );
-            const deviceSLidMap = new Map();
-            (deviceRows || []).forEach((row) => deviceSLidMap.set(row.Did, row.SLid));
-            for (const did of deviceIdList) {
-              const deviceSLid = deviceSLidMap.get(did) ?? null;
-              await conn.execute(
-                'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-                [contractId, did, deviceSLid]
-              );
-            }
-          } else {
-            for (const did of deviceIdList) {
               await conn.execute(
                 'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
                 [contractId, did]
               );
             }
+          }
+        } else if (deviceIdList.length > 0) {
+          for (const did of deviceIdList) {
+            await conn.execute(
+              'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+              [contractId, did]
+            );
           }
         }
 
@@ -377,46 +347,22 @@ const createContract = async (req, res) => {
           }
         }
 
-      // 3. บันทึก contract_device (รองรับทั้งมี SLid และไม่มี SLid ตาม TccStock (7))
+      // 3. บันทึก contract_device (app_db: contract_id, device_id เท่านั้น)
       if (pairs.length > 0) {
         for (const p of pairs) {
           for (const did of p.device_ids) {
-            if (contractDeviceHasSLid) {
-              await conn.execute(
-                'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-                [contractId, did, p.site_id]
-              );
-            } else {
-              await conn.execute(
-                'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-                [contractId, did]
-              );
-            }
-          }
-        }
-      } else if (deviceIdList.length > 0) {
-        if (contractDeviceHasSLid) {
-          const placeholders = deviceIdList.map(() => '?').join(',');
-          const [deviceRows] = await conn.execute(
-            `SELECT Did, SLid FROM devices WHERE Did IN (${placeholders})`,
-            deviceIdList
-          );
-          const deviceSLidMap = new Map();
-          (deviceRows || []).forEach((row) => deviceSLidMap.set(row.Did, row.SLid));
-          for (const did of deviceIdList) {
-            const deviceSLid = deviceSLidMap.get(did) ?? null;
-            await conn.execute(
-              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-              [contractId, did, deviceSLid]
-            );
-          }
-        } else {
-          for (const did of deviceIdList) {
             await conn.execute(
               'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
               [contractId, did]
             );
           }
+        }
+      } else if (deviceIdList.length > 0) {
+        for (const did of deviceIdList) {
+          await conn.execute(
+            'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+            [contractId, did]
+          );
         }
       }
 
@@ -494,8 +440,6 @@ const createContract = async (req, res) => {
         message = 'file_paths or image_paths column does not exist, please run add_contract_file_image_paths.sql';
       } else if (errMsg.includes('coverage_scope')) {
         message = 'coverage_scope column does not exist, please run: ALTER TABLE contract ADD COLUMN coverage_scope TEXT DEFAULT NULL;';
-      } else if (errMsg.includes('contract_device') && errMsg.includes('SLid')) {
-        message = 'ตาราง contract_device ยังไม่มีคอลัมน์ SLid — รัน migrations/apply_tccstock7_compat.sql หรือ ALTER TABLE contract_device ADD COLUMN SLid INT(11) DEFAULT NULL AFTER device_id;';
       } else {
         message = `คอลัมน์ในตารางไม่ตรงกับที่ระบบใช้: ${errMsg}`;
       }

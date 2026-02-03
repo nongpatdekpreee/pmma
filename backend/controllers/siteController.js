@@ -94,8 +94,7 @@ const getSitesLocationBySOF = async (req, res) => {
 // GET - ดึงข้อมูล Sites
 const getSites = async (req, res) => {
   try {
-    // ดึงข้อมูล Sites ทั้งหมด พร้อมนับจำนวน Device ของแต่ละ Site
-    // เรียงตาม Sid จากมากไปน้อย
+    // app_db: devices.SLid = sites_location.SLid, sites_location.Sid = sites.Sid
     const sql = `
       SELECT 
         s.Sid, 
@@ -104,7 +103,8 @@ const getSites = async (req, res) => {
         s.Status,
         COUNT(d.Did) AS device_count
       FROM sites s
-      LEFT JOIN devices d ON s.Sid = d.SLid
+      LEFT JOIN sites_location sl ON sl.Sid = s.Sid
+      LEFT JOIN devices d ON d.SLid = sl.SLid
       GROUP BY s.Sid, s.Name, s.Slug, s.Status
       ORDER BY s.Sid DESC
     `;

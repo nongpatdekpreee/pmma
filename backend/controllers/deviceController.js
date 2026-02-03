@@ -1,27 +1,7 @@
 const db = require('../config/database');
 
-// Helper function - บันทึกประวัติการเปลี่ยนแปลง Device
-const logDeviceHistory = async (deviceId, action, oldValue = null, newValue = null, changedFields = null, user = null) => {
-  try {
-    const historySql = `INSERT INTO devices_history (
-      Did, Action, Old_Value, New_Value, Changed_Fields, User
-    ) VALUES (?, ?, ?, ?, ?, ?)`;
-
-    const changedFieldsJson = changedFields ? JSON.stringify(changedFields) : null;
-
-    await db.execute(historySql, [
-      deviceId,
-      action,
-      oldValue,
-      newValue,
-      changedFieldsJson,
-      user
-    ]);
-  } catch (error) {
-    // Log error แต่ไม่ throw เพื่อไม่ให้กระทบการทำงานหลัก
-    console.error('Error logging device history:', error);
-  }
-};
+// devices_history is populated by DB triggers (trg_devices_insert, trg_devices_update)
+// ไม่ต้อง insert จาก application
 
 // POST - สร้าง Device ใหม่ (รองรับทั้ง 1 device และหลาย devices)
 // ถ้ามี Asset_Number และมีอยู่ใน database แล้ว จะ update แทน insert
@@ -97,10 +77,11 @@ const createDevice = async (req, res) => {
         try {
           const [result] = await db.execute(
             `INSERT INTO devices (
-              Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-               SLid,PO_No, Loan_Start, Request_Date, Refer_SOF, 
-              Refer_Ticket, Assigned_Service, Reason, warranty, Dtypeid, DeRoleid
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
+              Project_purchase, SLid, PO_No, Loan_Start, Request_Date, Refer_SOF,
+              Refer_Ticket, Assigned_Service, Reason, Dtypeid, DeRoleid,
+              Project_code_purchase, Waranty_start, Waranty_end, Received_date, Asset_Type, Owner
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               device.Asset_State || null,
               device.serial || null,
@@ -108,8 +89,8 @@ const createDevice = async (req, res) => {
               device.Asset_Number || null,
               device.PR_No || null,
               device.Vendor || null,
+              device.Project_purchase || null,
               device.SLid || null,
-              device.Location2 || null,
               device.PO_No || null,
               device.Loan_Start || null,
               device.Request_Date || null,
@@ -117,23 +98,18 @@ const createDevice = async (req, res) => {
               device.Refer_Ticket || null,
               device.Assigned_Service || null,
               device.Reason || null,
-              device.warranty || null,
               device.Dtypeid,
-              device.DeRoleid || null
+              device.DeRoleid || null,
+              device.Project_code_purchase || null,
+              device.Waranty_start || null,
+              device.Waranty_end || null,
+              device.Received_date || null,
+              device.Asset_Type || null,
+              device.Owner || null
             ]
           );
 
           const deviceId = result.insertId;
-
-          // บันทึกประวัติ INSERT
-          await logDeviceHistory(
-            deviceId,
-            'INSERT',
-            null,
-            device.Asset_State || null,
-            device,
-            req.user?.username || req.user?.id || null
-          );
 
           insertedDevices.push({
             id: result.insertId,
@@ -145,8 +121,7 @@ const createDevice = async (req, res) => {
             Asset_Number: device.Asset_Number,
             PR_No: device.PR_No,
             Vendor: device.Vendor,
-            Sid: device.Sid,
-         
+            SLid: device.SLid,
             PO_No: device.PO_No,
             Loan_Start: device.Loan_Start,
             Request_Date: device.Request_Date,
@@ -154,7 +129,6 @@ const createDevice = async (req, res) => {
             Refer_Ticket: device.Refer_Ticket,
             Assigned_Service: device.Assigned_Service,
             Reason: device.Reason,
-            warranty: device.warranty,
             Dtypeid: device.Dtypeid,
             DeRoleid: device.DeRoleid
           });
@@ -207,12 +181,16 @@ const createDevice = async (req, res) => {
           values.push(device.Vendor);
           changedFields.Vendor = device.Vendor;
         }
-        if (device.Sid !== undefined) {
-          updates.push('Sid = ?');
-          values.push(device.Sid);
-          changedFields.Sid = device.Sid;
+        if (device.SLid !== undefined) {
+          updates.push('SLid = ?');
+          values.push(device.SLid);
+          changedFields.SLid = device.SLid;
         }
-        
+        if (device.Project_purchase !== undefined) {
+          updates.push('Project_purchase = ?');
+          values.push(device.Project_purchase);
+          changedFields.Project_purchase = device.Project_purchase;
+        }
         if (device.PO_No !== undefined) {
           updates.push('PO_No = ?');
           values.push(device.PO_No);
@@ -270,31 +248,6 @@ const createDevice = async (req, res) => {
           await db.execute(updateSql, values);
 
           const newAssetState = device.Asset_State !== undefined ? device.Asset_State : oldAssetState;
-
-          // บันทึกประวัติ ASSET_STATE_CHANGE ถ้า Asset_State เปลี่ยน
-          if (device.Asset_State !== undefined && oldAssetState !== newAssetState) {
-            await logDeviceHistory(
-              device._id,
-              'ASSET_STATE_CHANGE',
-              oldAssetState,
-              newAssetState,
-              null,
-              req.user?.username || req.user?.id || null
-            );
-          }
-
-          // บันทึกประวัติ UPDATE (ถ้าไม่ใช่แค่เปลี่ยน Asset_State)
-          if (Object.keys(changedFields).length > 0 &&
-            (Object.keys(changedFields).length > 1 || !changedFields.Asset_State)) {
-            await logDeviceHistory(
-              device._id,
-              'UPDATE',
-              null,
-              null,
-              changedFields,
-              req.user?.username || req.user?.id || null
-            );
-          }
 
           updatedDevices.push({
             id: device._id,
@@ -389,27 +342,28 @@ const getDevices = async (req, res) => {
       searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
-    // นับจำนวน records ทั้งหมด (พร้อม search)
+    // app_db: devices.SLid = sites_location.SLid, sites_location.Sid = sites.Sid
     const countSql = `SELECT COUNT(*) as total 
-                      FROM devices, device_type, sites, manufacturer 
-                      WHERE device_type.Dtypeid = devices.Dtypeid 
-                      AND device_type.Mid = manufacturer.Mid 
-                      AND devices.SLid = sites.Sid 
-                      ${searchCondition}`;
+                      FROM devices
+                      JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                      JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                      LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                      LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                      WHERE 1=1 ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
-    // ดึงข้อมูลตาม pagination (พร้อม search)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-                 devices.SLid as SLid,  PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+                 devices.SLid, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
-                 FROM devices, device_type, sites, manufacturer 
-                 WHERE device_type.Dtypeid = devices.Dtypeid 
-                 AND device_type.Mid = manufacturer.Mid 
-                 AND devices.SLid = sites.Sid 
-                 ${searchCondition}
+                 FROM devices
+                 JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                 JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                 LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                 LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                 WHERE 1=1 ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
 
@@ -419,11 +373,12 @@ const getDevices = async (req, res) => {
     let assetStateStats = [];
     if (search) {
       const assetStateSql = `SELECT devices.Asset_State, COUNT(*) AS total
-                             FROM devices, device_type, sites, manufacturer 
-                             WHERE device_type.Dtypeid = devices.Dtypeid 
-                             AND device_type.Mid = manufacturer.Mid 
-                             AND devices.SLid = sites.Sid 
-                             ${searchCondition}
+                             FROM devices
+                             JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                             JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                             LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                             LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                             WHERE 1=1 ${searchCondition}
                              GROUP BY devices.Asset_State`;
       const [assetStateResult] = await db.execute(assetStateSql, searchParams);
       assetStateStats = assetStateResult;
@@ -475,33 +430,33 @@ const getDevicesExcludeInStore = async (req, res) => {
         devices.CI_Name LIKE ? OR 
         devices.Asset_Number LIKE ? OR 
         devices.PR_No LIKE ? OR 
-        devices.Vendor LIKE ? 
+        devices.Vendor LIKE ?
       )`;
-      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
+      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
-    // นับจำนวน records ทั้งหมด (ไม่รวม "In Store" + search)
     const countSql = `SELECT COUNT(*) as total 
-                      FROM devices, device_type, sites, manufacturer 
-                      WHERE device_type.Dtypeid = devices.Dtypeid 
-                      AND device_type.Mid = manufacturer.Mid 
-                      AND devices.SLid = sites.Sid 
-                      AND (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
+                      FROM devices
+                      JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                      JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                      LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                      LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                      WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
                       ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
-    // ดึงข้อมูลตาม pagination (ไม่รวม "In Store" + search)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
-                 devices.SLid as Sid,  PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+                 devices.SLid, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
-                 FROM devices, device_type, sites, manufacturer 
-                 WHERE device_type.Dtypeid = devices.Dtypeid 
-                 AND device_type.Mid = manufacturer.Mid 
-                 AND devices.SLid = sites.Sid 
-                 AND (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
+                 FROM devices
+                 JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                 JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                 LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                 LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                 WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
@@ -512,11 +467,12 @@ const getDevicesExcludeInStore = async (req, res) => {
     let assetStateStats = [];
     if (search) {
       const assetStateSql = `SELECT devices.Asset_State, COUNT(*) AS total
-                             FROM devices, device_type, sites, manufacturer 
-                             WHERE device_type.Dtypeid = devices.Dtypeid 
-                             AND device_type.Mid = manufacturer.Mid 
-                             AND devices.SLid = sites.Sid 
-                             AND (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
+                             FROM devices
+                             JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                             JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                             LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                             LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                             WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
                              ${searchCondition}
                              GROUP BY devices.Asset_State`;
       const [assetStateResult] = await db.execute(assetStateSql, searchParams);
@@ -587,16 +543,16 @@ const getDevicesExcludeOutStore = async (req, res) => {
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
-    // ดึงข้อมูลตาม pagination (ไม่รวม "Out Store" + search)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-                 devices.SLid as Sid, 2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+                 devices.SLid, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
-                 FROM devices, device_type, sites, manufacturer 
-                 WHERE device_type.Dtypeid = devices.Dtypeid 
-                 AND device_type.Mid = manufacturer.Mid 
-                 AND devices.SLid = sites.Sid 
-                 AND (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
+                 FROM devices
+                 JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                 JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                 LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                 LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                 WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
@@ -607,11 +563,12 @@ const getDevicesExcludeOutStore = async (req, res) => {
     let assetStateStats = [];
     if (search) {
       const assetStateSql = `SELECT devices.Asset_State, COUNT(*) AS total
-                             FROM devices, device_type, sites, manufacturer 
-                             WHERE device_type.Dtypeid = devices.Dtypeid 
-                             AND device_type.Mid = manufacturer.Mid 
-                             AND devices.SLid = sites.Sid 
-                             AND (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
+                             FROM devices
+                             JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                             JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                             LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                             LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                             WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
                              ${searchCondition}
                              GROUP BY devices.Asset_State`;
       const [assetStateResult] = await db.execute(assetStateSql, searchParams);
@@ -649,19 +606,17 @@ const getDeviceById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Get Location2 from location table via JOIN (Devices table may not have Location2 column)
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
-                 devices.SLid as Sid, L.Location2 as Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+                 devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
                  FROM devices
-                 LEFT JOIN device_type ON device_type.Dtypeid = devices.Dtypeid 
+                 LEFT JOIN device_type ON devices.Dtypeid = device_type.Dtypeid 
                  LEFT JOIN manufacturer ON device_type.Mid = manufacturer.Mid 
-                 LEFT JOIN sites ON devices.SLid = sites.Sid 
-                 LEFT JOIN sites_location SL ON devices.SLid = SL.SLid
-                 LEFT JOIN location L ON SL.lid = L.lid
-                 WHERE devices.Did = ? 
-                 ORDER BY Did DESC`;
+                 LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
+                 LEFT JOIN sites ON sl.Sid = sites.Sid
+                 LEFT JOIN location L ON sl.lid = L.lid
+                 WHERE devices.Did = ?`;
 
     const [rows] = await db.execute(sql, [id]);
 
@@ -727,7 +682,7 @@ const updateAssetState = async (req, res) => {
 
     // สร้าง map สำหรับค้นหาเร็ว
     const existingMap = new Map();
-    existingdevices.forEach(device => {
+    existingDevices.forEach(device => {
       existingMap.set(device.Did, device.Asset_State);
     });
 
@@ -843,8 +798,8 @@ const updateDevice = async (req, res) => {
       Asset_Number,
       PR_No,
       Vendor,
-      Sid,
-      Location2,
+      Project_purchase,
+      SLid,
       PO_No,
       Loan_Start,
       Request_Date,
@@ -852,19 +807,21 @@ const updateDevice = async (req, res) => {
       Refer_Ticket,
       Assigned_Service,
       Reason,
-      Dtypeid
+      Dtypeid,
+      DeRoleid,
+      Waranty_start,
+      Waranty_end,
     } = req.body;
 
-    // ตรวจสอบว่ามีข้อมูลที่จะอัพเดทหรือไม่
     const hasUpdate = Asset_State !== undefined || serial !== undefined ||
       CI_Name !== undefined || Asset_Number !== undefined ||
       PR_No !== undefined || Vendor !== undefined ||
-      Sid !== undefined ||
-      Location2 !== undefined || PO_No !== undefined ||
-      Loan_Start !== undefined || Request_Date !== undefined ||
+      Project_purchase !== undefined || SLid !== undefined ||
+      PO_No !== undefined || Loan_Start !== undefined || Request_Date !== undefined ||
       Refer_SOF !== undefined || Refer_Ticket !== undefined ||
       Assigned_Service !== undefined || Reason !== undefined ||
-      Dtypeid !== undefined;
+      Dtypeid !== undefined || DeRoleid !== undefined ||
+      Waranty_start !== undefined || Waranty_end !== undefined;
 
     if (!hasUpdate) {
       return res.status(400).json({
@@ -976,50 +933,40 @@ const updateDevice = async (req, res) => {
       values.push(Dtypeid);
       changedFields.Dtypeid = Dtypeid;
     }
+    if (DeRoleid !== undefined) {
+      updates.push('DeRoleid = ?');
+      values.push(DeRoleid);
+      changedFields.DeRoleid = DeRoleid;
+    }
+    if (Waranty_start !== undefined) {
+      updates.push('Waranty_start = ?');
+      values.push(Waranty_start);
+      changedFields.Waranty_start = Waranty_start;
+    }
+    if (Waranty_end !== undefined) {
+      updates.push('Waranty_end = ?');
+      values.push(Waranty_end);
+      changedFields.Waranty_end = Waranty_end;
+    }
 
     values.push(id);
 
     const sql = `UPDATE devices SET ${updates.join(', ')} WHERE Did = ?`;
     await db.execute(sql, values);
 
-    // บันทึกประวัติ ASSET_STATE_CHANGE ถ้า Asset_State เปลี่ยน
-    if (Asset_State !== undefined && oldAssetState !== Asset_State) {
-      await logDeviceHistory(
-        id,
-        'ASSET_STATE_CHANGE',
-        oldAssetState,
-        Asset_State,
-        null,
-        req.user?.username || req.user?.id || null
-      );
-    }
-
-    // บันทึกประวัติ UPDATE (ถ้ามีการเปลี่ยนแปลงฟิลด์อื่นๆ)
-    const otherChangedFields = { ...changedFields };
-    delete otherChangedFields.Asset_State;
-
-    if (Object.keys(otherChangedFields).length > 0) {
-      await logDeviceHistory(
-        id,
-        'UPDATE',
-        null,
-        null,
-        otherChangedFields,
-        req.user?.username || req.user?.id || null
-      );
-    }
-
     // ดึงข้อมูลที่อัพเดทแล้วมาแสดง (พร้อม JOIN)
     const [updated] = await db.execute(
       `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-       devices.SLid as Sid, Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
-       Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid as Dtypeid, 
+       devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+       Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
        device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
-       FROM devices, device_type, sites, manufacturer 
-       WHERE device_type.Dtypeid = devices.Dtypeid 
-       AND device_type.Mid = manufacturer.Mid 
-       AND devices.SLid = sites.Sid 
-       AND devices.Did = ?`,
+       FROM devices
+       LEFT JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+       LEFT JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+       LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
+       LEFT JOIN sites ON sl.Sid = sites.Sid
+       LEFT JOIN location L ON sl.lid = L.lid
+       WHERE devices.Did = ?`,
       [id]
     );
 
@@ -1447,7 +1394,8 @@ const getReplacementDevices = async (req, res) => {
         d.SLid,
         s.Name AS SiteName
       FROM devices d
-      LEFT JOIN sites s ON d.SLid = s.Sid
+      LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+      LEFT JOIN sites s ON sl.Sid = s.Sid
       WHERE d.Asset_State = 'In Store'
         AND d.Dtypeid = ?
         AND d.DeRoleid = ?
@@ -1516,13 +1464,13 @@ const viewDeviceHistory = async (req, res) => {
       ? `WHERE ${whereConditions.join(' AND ')}`
       : '';
 
-    // นับจำนวน records ทั้งหมด
     const countSql = `SELECT COUNT(*) as total 
                       FROM devices_history dh
                       JOIN devices d ON dh.Did = d.Did
                       JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
                       JOIN manufacturer m ON dt.Mid = m.Mid
-                      LEFT JOIN sites s ON d.Sid = s.Sid
+                      LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+                      LEFT JOIN sites s ON sl.Sid = s.Sid
                       ${whereClause}`;
     const [countResult] = await db.execute(countSql, params);
     const totalRecords = countResult[0].total;
@@ -1560,16 +1508,12 @@ const viewDeviceHistory = async (req, res) => {
 
     const [rows] = await db.execute(sql, [...params, limit, offset]);
 
-    // Parse Changed_Fields JSON
     const history = rows.map(row => ({
-      Historyid: row.Historyid,
+      logId: row.log_id,
+      actionType: row.action_type,
+      changedAt: row.changed_at,
       Did: row.Did,
-      Action: row.Action,
-      Old_Value: row.Old_Value,
-      New_Value: row.New_Value,
-      Changed_Fields: row.Changed_Fields ? JSON.parse(row.Changed_Fields) : null,
-      Created_At: row.Created_At,
-      User: row.User,
+      description: row.Description,
       Device: {
         Asset_State: row.Asset_State,
         serial: row.serial,
@@ -1577,8 +1521,7 @@ const viewDeviceHistory = async (req, res) => {
         Asset_Number: row.Asset_Number,
         PR_No: row.PR_No,
         Vendor: row.Vendor,
-        
-     
+        Project_purchase: row.Project_purchase,
         model: row.model,
         manufacturername: row.manufacturername,
         Sitename: row.Sitename
@@ -1649,10 +1592,16 @@ const getDeviceHistory = async (req, res) => {
 
     const [rows] = await db.execute(sql, params);
 
-    // Parse Changed_Fields JSON
     const history = rows.map(row => ({
-      ...row,
-      Changed_Fields: row.Changed_Fields ? JSON.parse(row.Changed_Fields) : null
+      logId: row.log_id,
+      actionType: row.action_type,
+      changedAt: row.changed_at,
+      Did: row.Did,
+      Asset_State: row.Asset_State,
+      serial: row.serial,
+      CI_Name: row.CI_Name,
+      Asset_Number: row.Asset_Number,
+      description: row.Description
     }));
 
     res.status(200).json({
@@ -1727,7 +1676,6 @@ const getDevicesWithPM = async (req, res) => {
         devices.serial,
         devices.Vendor,
         devices.SLid,
-        location.Province,        
         devices.Dtypeid,
         devices.DeRoleid,
         device_role.name AS DeviceRole,
@@ -1737,12 +1685,14 @@ const getDevicesWithPM = async (req, res) => {
       FROM contract_device
       INNER JOIN devices ON contract_device.device_id = devices.Did
       LEFT JOIN device_role ON devices.DeRoleid = device_role.DeRoleid
-      LEFT JOIN location ON location.Province = location.Province
-      LEFT JOIN sites ON devices.SLid = sites.Sid WHERE 1=1 
+      LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
+      LEFT JOIN sites ON sl.Sid = sites.Sid
+      LEFT JOIN location ON sl.lid = location.lid
+      WHERE 1=1 
       ${searchCondition} 
       ${deviceRoleCondition} 
       ${siteCondition}
-       ORDER BY devices.Did DESC`;
+      ORDER BY devices.Did DESC`;
     const [devices] = await db.execute(devicesSql, searchParams);
 
     // Get all PM tasks (task_type = 'PM')
