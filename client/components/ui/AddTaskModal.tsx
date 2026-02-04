@@ -77,9 +77,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [showEngineerDropdown, setShowEngineerDropdown] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [priority, setPriority] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
-  const [slaTerm, setSlaTerm] = useState('');
   const [assetModalOpen, setAssetModalOpen] = useState(false);
 
   /* ===== MA Contract fields (เหมือน PM) ===== */
@@ -123,9 +121,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setShowEngineerDropdown(false);
     setStartDate('');
     setEndDate('');
-    setPriority('');
     setCoverageScope('');
-    setSlaTerm('');
     setVendorName('');
     setDuration('');
     setAssetBinding('');
@@ -323,10 +319,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setSelectedEngineers(editingEvent.Eng_ids || editingEvent.engineers || []);
       setStartDate(editingEvent.startDate || '');
       setEndDate(editingEvent.endDate || '');
-      setPriority(editingEvent.priority || '');
       setCoverageScope(editingEvent.coverageScope || '');
-      // Set SLA Term - check multiple possible field names
-      setSlaTerm(editingEvent.slaTerm || (editingEvent as any).sla_term || '');
       setVendorName(editingEvent.vendorName || '');
       setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
       setAssetBinding(editingEvent.assetBinding || '');
@@ -465,7 +458,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setVendorName('');
       setDuration('');
       setAssetBinding('');
-      setSlaTerm('');
       setReplacementDevices([]);
       setSelectedReplacementDevice(null);
       setBrokenDevicePairs([]);
@@ -653,8 +645,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
     // MA-specific validation (เหมือน PM)
     if (taskType === 'MA') {
-      if (!vendorName || !startDate ||  !slaTerm) {
-        alert('Please fill required MA fields: Vendor Name, Start Date,  and SLA Term');
+      if (!vendorName || !startDate) {
+        alert('Please fill required MA fields: Vendor Name and Start Date');
         return;
       }
       // Contract is required for MA because broken devices must come from contract
@@ -711,10 +703,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       siteName: Sname,
       Eng_id: selectedEngineers.map((e) => e.id),
       Eng_ids: selectedEngineers,
-      startDate,
-      endDate,
-      priority,
-      slaTerm: taskType === 'MA' ? slaTerm : null,
+      // Task ที่เป็น Done แล้วไม่ส่ง startDate/endDate เพื่อป้องกันการแก้ไข
+      ...(editingEvent?.status !== 'done' && { startDate, endDate }),
       coverageScope,
       assets: maAssets,
       // MA Contract fields (เหมือน PM)
@@ -795,19 +785,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   className={inputBase}
                 />
               </div>
-
-              <div>
-                <label className={fieldLabel}>SLA Term *</label>
-                <input
-                  type="text"
-                  value={slaTerm}
-                  onChange={(e) => setSlaTerm(e.target.value)}
-                  placeholder="Enter vendor name"
-                  className={inputBase}
-                />
-              </div>
-
-              
             </div>
           )}
 
@@ -892,17 +869,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               </div>
             )}
 
-            {/* Device List */}
-            {devicesToShow.length === 0 && !loadingDevices && (
-              <p className="text-xs text-slate-400">
-                {!selectedContractId
-                  ? 'เลือก Contract ก่อน'
-                  : !Sid
-                    ? 'เลือก Site เพื่อแสดงอุปกรณ์'
-                    : 'ไม่พบอุปกรณ์ที่ Site นี้'}
-              </p>
-            )}
-
             {devicesToShow.length > 0 && taskType === 'PM' && (
               <div className="space-y-1.5">
                 {(showAll ? devicesToShow : devicesToShow.slice(0, 3)).map((d) => {
@@ -942,7 +908,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
             {/* Broken Device Pairs (for MA only) */}
             {taskType === 'MA' && (
-              <div className="mt-4 pt-4 border-t border-slate-200">
+              <div className="border-slate-200">
                 <label className={fieldLabel}>Broken Device and Replacement Device *</label>
 
                 {/* First broken device selection (if no pairs yet) */}
@@ -954,7 +920,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       </label>
                       {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                          {!selectedContractId ? 'เลือก Contract ก่อน' : !Sid ? 'เลือก Site เพื่อแสดงอุปกรณ์' : 'ไม่พบอุปกรณ์ที่ Site นี้'}
+                          {!selectedContractId ? 'เลือก Contract' : !Sid ? 'เลือก Site เพื่อแสดงอุปกรณ์' : 'ไม่พบอุปกรณ์ที่ Site นี้'}
                         </p>
                       ) : (
                         <select
@@ -1149,25 +1115,29 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
           <div className={sectionCard}>
             <h3 className="text-sm font-bold text-slate-700">Schedule</h3>
-
+            {editingEvent?.status === 'done' && (
+              <p className="text-xs text-amber-600 mb-2">Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้</p>
+            )}
             <div className={taskType === 'MA' ? 'grid grid-cols-2 gap-4' : 'grid grid-cols-2 gap-4'}>
               <div>
                 <label className={fieldLabel}>Start Date</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputBase} />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  disabled={editingEvent?.status === 'done'}
+                  className={`${inputBase} ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : ''}`}
+                />
               </div>
-          
-              
               <div>
                 <label className={fieldLabel}>End Date</label>
-                {taskType === 'MA' ? (
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)} className={inputBase}
-                  />
-                ) : (
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputBase} />
-                )}
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  disabled={editingEvent?.status === 'done'}
+                  className={`${inputBase} ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : ''}`}
+                />
               </div>
             </div>
 

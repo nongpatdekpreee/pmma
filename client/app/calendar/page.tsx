@@ -109,11 +109,11 @@ export default function CalendarPage() {
       Eng_ids: engineers,
       startDate: start,
       endDate: end,
-      priority: task.priority,
+      ...(task.priority ? { priority: task.priority } : {}),
       coverageScope: task.coverageScope,
       assets: task.assets || [],
       vendorName: task.vendorName || task.vendor_name,
-      slaTerm: task.slaTerm || task.sla_term,
+      ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
       assetBinding: task.assetBinding || task.asset_binding,
       travelMethod: task.travelMethod || task.travel_method,
@@ -273,6 +273,7 @@ export default function CalendarPage() {
   const handleDrop = async (e: React.DragEvent, day: number | null) => {
     e.preventDefault();
     if (!day || !draggedEvent) return;
+    if (draggedEvent.status === 'done') return; // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
 
     // Calculate duration from original startDate and endDate
     const originalStart = draggedEvent.startDate 
@@ -405,20 +406,7 @@ export default function CalendarPage() {
   };
 
   // Handle delete task from detail modal
-  const handleDeleteTask = async (taskId: string) => {
-    try {
-      const res = await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'ลบไม่สำเร็จ');
-      await loadTasksFromApi();
-      setIsDetailModalOpen(false);
-      setSelectedTask(null);
-      toastSuccess('ลบ Task สำเร็จ');
-    } catch (error: any) {
-      console.error('handleDeleteTask error', error);
-      toastError(error?.message || 'ลบ Task ไม่สำเร็จ');
-    }
-  };
+ 
 
   /* ================= Render ================= */
   return (
@@ -574,14 +562,15 @@ export default function CalendarPage() {
                                 return 'border-gray-400';
                               };
 
+                              const isDone = currentStatus === 'done';
                               return (
                                 <div
                                   key={ev.id}
-                                  draggable
-                                  onDragStart={(e) => handleDragStart(e, ev)}
+                                  draggable={!isDone}
+                                  onDragStart={(e) => !isDone && handleDragStart(e, ev)}
                                   onDragEnd={handleDragEnd}
                                   onClick={() => handleTaskClick(ev)}
-                                  className={`mt-1 p-1.5 bg-white ${borderColor} border-l-[4px] rounded-xl shadow-sm cursor-move hover:shadow-lg ${hoverBg} transition-all ${
+                                  className={`mt-1 p-1.5 bg-white ${borderColor} border-l-[4px] rounded-xl shadow-sm ${isDone ? 'cursor-pointer' : 'cursor-move'} hover:shadow-lg ${hoverBg} transition-all ${
                                     draggedEvent?.id === ev.id ? 'opacity-50' : ''
                                   }`}
                                 >
@@ -639,7 +628,7 @@ export default function CalendarPage() {
         }}
         task={selectedTask}
         onUpdate={handleTaskUpdate}
-        onDelete={handleDeleteTask}
+        
       />
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>

@@ -121,11 +121,11 @@ export default function ScheduleManagement() {
       Eng_ids: engineers,
       startDate: start,
       endDate: end,
-      priority: task.priority,
+      ...(task.priority ? { priority: task.priority } : {}),
       coverageScope: task.coverageScope,
       assets: task.assets || [],
       vendorName: task.vendorName || task.vendor_name,
-      slaTerm: task.slaTerm || task.sla_term,
+      ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
       assetBinding: task.assetBinding || task.asset_binding,
       travelMethod: task.travelMethod || task.travel_method,
@@ -252,6 +252,7 @@ export default function ScheduleManagement() {
   const handleDrop = async (e: React.DragEvent, day: number | null) => {
     e.preventDefault();
     if (!day || !draggedEvent) return;
+    if (draggedEvent.status === 'done') return; // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
 
     // Calculate duration from original startDate and endDate
     const originalStart = draggedEvent.startDate 
@@ -334,9 +335,8 @@ export default function ScheduleManagement() {
       siteId: data.siteId || (data.Sid ? Number(data.Sid) : null),
       siteName: data.Sname || data.siteName,
       vendorName: data.vendorName,
-      slaTerm: data.slaTerm,
+      ...(data.slaTerm ? { slaTerm: data.slaTerm } : {}),
       coverageScope: data.coverageScope,
-      priority: data.priority,
       startDate: data.startDate,
       endDate: data.endDate,
       travelMethod: data.travelMethod,
@@ -628,14 +628,15 @@ export default function ScheduleManagement() {
                                 return 'border-gray-400';
                               };
 
+                              const isDone = currentStatus === 'done';
                               return (
                                 <div
                                   key={ev.id}
-                                  draggable
-                                  onDragStart={() => setDraggedEvent(ev)}
+                                  draggable={!isDone}
+                                  onDragStart={() => !isDone && setDraggedEvent(ev)}
                                   onDragEnd={handleDragEnd}
                                   onClick={() => handleTaskClick(ev)}
-                                  className={`mt-1 p-1.5 bg-white ${borderColor} border-l-[4px] rounded-xl shadow-sm cursor-pointer hover:shadow-lg ${hoverBg} transition-all ${draggedEvent?.id === ev.id ? 'opacity-50' : ''
+                                  className={`mt-1 p-1.5 bg-white ${borderColor} border-l-[4px] rounded-xl shadow-sm ${isDone ? 'cursor-pointer' : 'cursor-move'} hover:shadow-lg ${hoverBg} transition-all ${draggedEvent?.id === ev.id ? 'opacity-50' : ''
                                     }`}
                                 >
                                   <div className="flex items-center gap-2">

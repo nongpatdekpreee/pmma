@@ -38,6 +38,15 @@ export async function getSitesByContract(contractId: number | string): Promise<{
   return res.json();
 }
 
+/** GET /api/contracts/:id - ดึง Contract เดียว (สำหรับ fallback sla_term) */
+export async function getContractById(contractId: number | string): Promise<{
+  success: boolean;
+  data?: { contract_id: number; contract_name?: string; sla_term?: number | string };
+}> {
+  const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}`));
+  return res.json();
+}
+
 /** GET /api/contracts/:id/devices - Devices ที่ผูกกับ Contract (จาก contract_device) */
 export async function getDevicesByContract(contractId: number | string): Promise<{
   success: boolean;

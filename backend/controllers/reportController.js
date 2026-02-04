@@ -5,13 +5,14 @@
 
 const db = require('../config/database');
 
-// ถ้าได้ตัวเลข (sla_result) ใช้เกณฑ์ > 70 = Pass, ไม่เช่นนั้นใช้ pass/fail เดิม
-function getStatusAndSlaResult(body, resultKey) {
+// ถ้าได้ตัวเลข (sla_result) ใช้เกณฑ์ Pass/Fail
+// MA: อิงตาม sla_term จาก contract (ผ่าน task), PM: ใช้ 70
+function getStatusAndSlaResult(body, resultKey, slaThreshold = 70) {
   const num = body.sla_result;
   if (num !== undefined && num !== null && num !== '') {
     const n = Number(num);
     if (!Number.isNaN(n)) {
-      return { status: n > 70 ? 'Pass' : 'Fail', sla_result: n };
+      return { status: n > slaThreshold ? 'Pass' : 'Fail', sla_result: n };
     }
   }
   const result = body[resultKey] ?? body.pmResult ?? body.maResult;
@@ -58,7 +59,23 @@ const submitReport = async (req, res) => {
       });
     }
 
-    const { status, sla_result } = getStatusAndSlaResult(body, resultKey);
+    // PM/MA: ดึง sla_term จาก table contract (ผ่าน task.contract_id) เพื่อใช้เป็นเกณฑ์ Pass/Fail
+    let slaThreshold = 70;
+    try {
+      const [rows] = await db.execute(
+        'SELECT c.sla_term FROM tasks t INNER JOIN contract c ON t.contract_id = c.contract_id WHERE t.id = ?',
+        [taskId]
+      );
+      const st = rows[0]?.sla_term;
+      if (st != null && String(st).trim() !== '') {
+        const n = parseInt(String(st).trim(), 10);
+        if (!Number.isNaN(n)) slaThreshold = n;
+      }
+    } catch (err) {
+      console.warn('[submitReport] Could not fetch contract sla_term:', err.message);
+    }
+
+    const { status, sla_result } = getStatusAndSlaResult(body, resultKey, slaThreshold);
     const files = uploadedFiles || [];
     const filePaths = JSON.stringify(files.filter((f) => f.type !== 'image'));
     const imagePaths = JSON.stringify(files.filter((f) => f.type === 'image'));
@@ -168,7 +185,7 @@ const getReports = async (req, res) => {
         device,
         checklistItems: [],
         uploadedFiles: [...file_path, ...image_path],
-        [resultKey]: Number(r.sla_result) > 70 ? 'pass' : 'fail',
+        [resultKey]: r.status === 'Pass' ? 'pass' : 'fail',
         status: r.status,
         sla_result: r.sla_result,
         technicianName: technicianName || undefined,

@@ -531,13 +531,13 @@ const getDevicesExcludeOutStore = async (req, res) => {
       searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
-    // นับจำนวน records ทั้งหมด (ไม่รวม "Out Store" + search)
     const countSql = `SELECT COUNT(*) as total 
-                      FROM devices, device_type, sites, manufacturer 
-                      WHERE device_type.Dtypeid = devices.Dtypeid 
-                      AND device_type.Mid = manufacturer.Mid 
-                      AND devices.SLid = sites.Sid 
-                      AND (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
+                      FROM devices
+                      JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
+                      JOIN manufacturer ON device_type.Mid = manufacturer.Mid
+                      LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
+                      LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                      WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
                       ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
@@ -1026,10 +1026,10 @@ const deleteDevice = async (req, res) => {
 // GET - Dashboard Statistics
 const getDashboard = async (req, res) => {
   try {
-    // 1. จำนวน Devices ต่อ Site
     const siteStatsSql = `SELECT s.Name AS site_name, COUNT(*) AS total
                           FROM devices d
-                          JOIN sites s ON d.SLid = s.Sid
+                          JOIN sites_location sl ON d.SLid = sl.SLid
+                          JOIN sites s ON sl.Sid = s.Sid
                           GROUP BY s.Name`;
     const [siteStats] = await db.execute(siteStatsSql);
 

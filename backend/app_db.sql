@@ -74,11 +74,11 @@ CREATE TABLE `contract_history` (
   KEY `idx_old_contract_id` (`old_contract_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ประวัติการต่อสัญญา';
 
--- --------------------------------------------------------
+-- -------------------------------------------------------- 
 
 --
 -- Table structure for table `contract_site`
---
+--    
 
 CREATE TABLE `contract_site` (
   `contract_id` int(11) NOT NULL,
@@ -117,6 +117,19 @@ CREATE TABLE `devices` (
   `Asset_Type` varchar(100) DEFAULT NULL,
   `Owner` varchar(100) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `report` (
+  `report_id` int(11) NOT NULL,
+  `id` int(11) NOT NULL COMMENT 'task id',
+  `file_path` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`file_path`)),
+  `image_path` longtext NOT NULL,
+  `sla_result` int(11) NOT NULL,
+  `status` enum('Pass','Fail') NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+ALTER TABLE `report`
+  ADD KEY `fk_task_id` (`id`);
+ALTER TABLE `report`
+  ADD CONSTRAINT `fk_task_id` FOREIGN KEY (`id`) REFERENCES `tasks` (`id`);
 
 --
 -- Dumping data for table `devices`
@@ -805,7 +818,6 @@ CREATE TABLE `tasks` (
   `site_id` int(11) DEFAULT NULL,
   `site_name` varchar(255) DEFAULT NULL,
   `vendor_name` varchar(255) DEFAULT NULL,
-  `sla_term` varchar(255) DEFAULT NULL,
   `coverage_scope` text DEFAULT NULL,
   `start_date` date NOT NULL,
   `end_date` date NOT NULL,

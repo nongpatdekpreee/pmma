@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
-import { apiUrl, postPmReport, getTasks } from '@/lib/api';
+import { apiUrl, postPmReport, getTasks, getPmReports, getContractById } from '@/lib/api';
 import { 
   Upload, 
   X, 
@@ -77,19 +77,30 @@ export default function AddPMReportPage() {
   const [donePMTasks, setDonePMTasks] = useState<any[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [checkingTasks, setCheckingTasks] = useState(true);
+  const [reportedTaskIds, setReportedTaskIds] = useState<Set<number>>(new Set());
+  const [contractSlaMap, setContractSlaMap] = useState<Record<number, number>>({});
 
-  // Check if there are done PM tasks
+  // Check if there are done PM tasks (แสดงทุก Task ที่ Done รวมถึงที่เคยทำ Report แล้ว)
   useEffect(() => {
     const checkDoneTasks = async () => {
       setCheckingTasks(true);
       try {
-        const res = await getTasks();
-        if (res.success && res.data) {
-          const done = res.data.filter(
+        const [tasksRes, reportsRes] = await Promise.all([
+          getTasks(),
+          getPmReports({ limit: 5000 }),
+        ]);
+        if (tasksRes.success && tasksRes.data) {
+          const done = tasksRes.data.filter(
             (task: any) => task.status === 'done' && task.taskType === 'PM'
           );
           setHasDonePMTasks(done.length > 0);
           setDonePMTasks(done);
+        }
+        if (reportsRes.success && reportsRes.data) {
+          const ids = new Set(
+            (reportsRes.data as any[]).map((r: any) => Number(r.taskId)).filter((n: number) => !Number.isNaN(n))
+          );
+          setReportedTaskIds(ids);
         }
       } catch (error) {
         console.error('Error checking tasks:', error);
@@ -99,6 +110,32 @@ export default function AddPMReportPage() {
     };
     checkDoneTasks();
   }, [router]);
+
+  // Fallback: เมื่อ Task มี contractId แต่ไม่มี slaTerm ให้ดึง sla_term จาก Contract
+  useEffect(() => {
+    const toFetch = donePMTasks
+      .filter((t: any) => t.contractId != null && (t.slaTerm == null || String(t.slaTerm).trim() === ''))
+      .map((t: any) => Number(t.contractId))
+      .filter((n: number) => !Number.isNaN(n));
+    const uniqueIds = [...new Set(toFetch)];
+    if (uniqueIds.length === 0) return;
+    const fetchAll = async () => {
+      const map: Record<number, number> = {};
+      await Promise.all(
+        uniqueIds.map(async (cid) => {
+          try {
+            const res = await getContractById(cid);
+            if (res.success && res.data?.sla_term != null) {
+              const n = typeof res.data.sla_term === 'number' ? res.data.sla_term : parseInt(String(res.data.sla_term), 10);
+              if (!Number.isNaN(n)) map[cid] = n;
+            }
+          } catch (_) {}
+        })
+      );
+      setContractSlaMap((prev: Record<number, number>) => ({ ...prev, ...map }));
+    };
+    fetchAll();
+  }, [donePMTasks]);
 
   // Fetch devices from API
   useEffect(() => {
@@ -164,6 +201,20 @@ export default function AddPMReportPage() {
       setSelectedDeviceId('');
     }
   }, [allowedDevices, selectedDeviceId]);
+
+  // sla_term จาก Contract (ผ่าน Task ที่เลือก) ใช้เป็นเกณฑ์ Pass/Fail
+  // Fallback: ถ้า Task ไม่มี slaTerm แต่มี contractId ให้ใช้จาก contractSlaMap
+  const slaThreshold = useMemo(() => {
+    const task = selectedTaskId != null ? donePMTasks.find((t: any) => t.id === selectedTaskId) : null;
+    if (!task) return 70;
+    let st = task.slaTerm ?? task.sla_term;
+    if ((st == null || String(st).trim() === '') && task.contractId != null) {
+      st = contractSlaMap[Number(task.contractId)];
+    }
+    if (st == null || String(st).trim() === '') return 70;
+    const n = typeof st === 'number' ? st : parseInt(String(st).trim(), 10);
+    return Number.isNaN(n) ? 70 : n;
+  }, [donePMTasks, selectedTaskId, contractSlaMap]);
 
   // ใช้ข้อมูลจาก Task ที่เลือก pre-fill form
   const applyTaskToForm = (task: any) => {
@@ -385,7 +436,9 @@ export default function AddPMReportPage() {
               เลือก Task ที่ทำเสร็จแล้ว (Status = Done) เพื่อนำข้อมูลมาใส่ใน Report ให้อัตโนมัติ
             </p>
             <div className="space-y-3">
-              {donePMTasks.map((task) => (
+              {donePMTasks.map((task) => {
+                const hasReport = reportedTaskIds.has(Number(task.id));
+                return (
                 <div
                   key={task.id}
                   className={`p-4 rounded-xl border-2 transition-all ${
@@ -396,6 +449,11 @@ export default function AddPMReportPage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap gap-4 text-sm">
+                      {hasReport && (
+                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+                          มี Report แล้ว
+                        </span>
+                      )}
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <MapPin size={16} className="text-slate-400" />
                         {task.siteName || task.site_name || '-'}
@@ -438,7 +496,8 @@ export default function AddPMReportPage() {
                     </button>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
         )}
@@ -697,10 +756,10 @@ export default function AddPMReportPage() {
             )}
           </div>
 
-          {/* PM Result - กรอกตัวเลข (มากกว่า 70 = Pass) */}
+          {/* PM Result - อิงตาม sla_term จาก Contract (ไม่แสดง threshold) */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
-              PM Result * <span className="font-normal text-slate-500">(กรอกตัวเลข คะแนนมากกว่า 70 = Pass)</span>
+              PM Result * <span className="font-normal text-slate-500">(อิงตาม SLA Term จาก Contract)</span>
             </label>
             <div className="flex flex-wrap items-center gap-4">
               <input
@@ -713,9 +772,9 @@ export default function AddPMReportPage() {
                 className="w-32 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
               {slaResult.trim() !== '' && !Number.isNaN(Number(slaResult)) && (
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${Number(slaResult) > 70 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {Number(slaResult) > 70 ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
-                  {Number(slaResult) > 70 ? 'Pass' : 'Fail'}
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${Number(slaResult) > slaThreshold ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {Number(slaResult) > slaThreshold ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
+                  {Number(slaResult) > slaThreshold ? 'Pass' : 'Fail'}
                 </span>
               )}
             </div>

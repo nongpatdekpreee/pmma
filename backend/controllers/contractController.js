@@ -732,4 +732,29 @@ const getVendorStatistics = async (req, res) => {
   }
 };
 
-module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory };
+// GET - ดึง Contract เดียวตาม id (สำหรับ fallback sla_term เมื่อ task มี contract_id แต่ JOIN ไม่ได้ค่า)
+const getContractById = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid contract id' });
+    }
+    const [rows] = await db.execute(
+      'SELECT contract_id, contract_name, sla_term, start_date, end_date FROM contract WHERE contract_id = ?',
+      [id]
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ success: false, message: 'ไม่พบ Contract' });
+    }
+    res.status(200).json({ success: true, data: rows[0] });
+  } catch (error) {
+    console.error('Error getting contract by id:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Contract',
+      error: error.message,
+    });
+  }
+};
+
+module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory, getContractById };

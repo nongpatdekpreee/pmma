@@ -211,18 +211,6 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                     <p className="text-sm font-medium text-slate-800 mt-1">{task.vendorName}</p>
                   </div>
                 )}
-                {task.slaTerm && (
-                  <div>
-                    <label className="text-[10px] font-semibold uppercase text-slate-500">SLA Term</label>
-                    <p className="text-sm font-medium text-slate-800 mt-1">{task.slaTerm}</p>
-                  </div>
-                )}
-                {task.duration && (
-                  <div>
-                    <label className="text-[10px] font-semibold uppercase text-slate-500">Duration</label>
-                    <p className="text-sm font-medium text-slate-800 mt-1">{task.duration} months</p>
-                  </div>
-                )}
                 {task.assetBinding && (
                   <div className="col-span-2">
                     <label className="text-[10px] font-semibold uppercase text-slate-500">Asset Binding</label>
@@ -366,8 +354,6 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                       // Ensure assets are included
                       assets: task.assets || [],
                       // Ensure SLA term is included for MA tasks
-                      slaTerm: task.slaTerm || (task as any).sla_term || undefined,
-                      // Ensure vendorName is included for MA tasks
                       vendorName: task.vendorName || (task as any).vendor_name || undefined,
                       // Ensure duration is included for MA tasks
                       duration: task.duration || undefined,

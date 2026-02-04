@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory } = require('../controllers/contractController');
+const { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory, getContractById } = require('../controllers/contractController');
 
 // โฟลเดอร์เก็บไฟล์/รูปของ contract
 const uploadDir = path.join(__dirname, '..', 'uploads', 'contracts');
@@ -47,6 +47,9 @@ router.get('/:id/sites', getSitesByContract);
 
 // GET /api/contracts/:id/history — ดึงประวัติการต่อสัญญา (ต้องมาก่อน GET / เพื่อไม่ให้ conflict)
 router.get('/:id/history', getContractHistory);
+
+// GET /api/contracts/:id — ดึง Contract เดียว (sla_term สำหรับ MA Report fallback)
+router.get('/:id', getContractById);
 
 // GET /api/contracts?site_id=xxx — ดึง Contracts ตาม site_id
 router.get('/', getContractsBySite);

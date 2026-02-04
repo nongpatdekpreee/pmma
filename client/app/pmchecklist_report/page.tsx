@@ -281,7 +281,7 @@ export default function ReportPage() {
                         {!hasDonePMTasks ? 'ไม่มี Task PM ที่ Done' : 'Preventive Maintenance'}
                       </div>
                     </div>
-                    {hasDonePMTasks && (
+                    {hasDonePMTasks && pmReports.length === 0 && (
                       <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
                         {doneTasks.filter((t) => t.taskType === 'PM').length} Tasks
                       </span>
@@ -308,7 +308,7 @@ export default function ReportPage() {
                         {!hasDoneMATasks ? 'ไม่มี Task MA ที่ Done' : 'Maintenance Agreement'}
                       </div>
                     </div>
-                    {hasDoneMATasks && (
+                    {hasDoneMATasks && maReports.length === 0 && (
                       <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
                         {doneTasks.filter((t) => t.taskType === 'MA').length} Tasks
                       </span>
