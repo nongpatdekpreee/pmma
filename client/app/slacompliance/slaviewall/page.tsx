@@ -1,26 +1,53 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Sla_data } from "@/data/sla_all_data.mock";
+import { useEffect, useMemo, useState } from "react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import * as XLSX from "xlsx";
+import { getSlaContracts } from "@/lib/api";
 
 const ITEMS_PER_PAGE = 8;
 
 const sla_Viewall = () => {
-  /* ================= prepare data ================= */
-  const sla = useMemo(
-    () =>
-      Sla_data.devices.map((devices) => ({
-        id: devices.contract_id,
-        vendor: devices.vendor,
-        site: devices.site,
-        sla_percentage: Number(devices.sla_percentage),
-        status: devices.status,
-      })),
-    []
-  );
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [sla, setSla] = useState<Array<{ id: string; vendor: string; site: string; sla_percentage: number; status: string }>>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const res = await getSlaContracts({ months: 6 });
+        if (!cancelled && res?.success && res.data) {
+          setSla(
+            (res.data.contracts || []).map((c) => ({
+              id: c.contract_id,
+              vendor: c.vendor,
+              site: c.site,
+              sla_percentage: Number(c.sla_percentage),
+              status: c.status,
+            }))
+          );
+        } else if (!cancelled) {
+          setError(res?.message || res?.error || "โหลดข้อมูล SLA ไม่สำเร็จ");
+          setSla([]);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e?.message || "โหลดข้อมูล SLA ไม่สำเร็จ");
+          setSla([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSite, setSelectedSite] = useState<string>("Bangkok");

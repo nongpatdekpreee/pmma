@@ -11,11 +11,13 @@ require('./config/database');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// สร้างโฟลเดอร์ uploads/contracts สำหรับเก็บไฟล์และรูป
+// สร้างโฟลเดอร์ uploads สำหรับเก็บไฟล์และรูป
 const uploadsDir = path.join(__dirname, 'uploads');
 const contractsUploadDir = path.join(uploadsDir, 'contracts');
+const reportsUploadDir = path.join(uploadsDir, 'reports');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 if (!fs.existsSync(contractsUploadDir)) fs.mkdirSync(contractsUploadDir, { recursive: true });
+if (!fs.existsSync(reportsUploadDir)) fs.mkdirSync(reportsUploadDir, { recursive: true });
 
 // เสิร์ฟไฟล์ใน uploads (รูป/ไฟล์ที่อัปโหลด)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -49,6 +51,9 @@ app.use('/api/tasks', taskRoutes);
 
 const employeeRoutes = require('./routes/employeeRoutes');
 app.use('/api/employees', employeeRoutes);
+
+const analyticsRoutes = require('./routes/analyticsRoutes');
+app.use('/api/analytics', analyticsRoutes);
 
 const reportRoutes = require('./routes/reportRoutes');
 app.use('/api/reports', reportRoutes);

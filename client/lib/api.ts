@@ -65,6 +65,69 @@ export async function getVendorStatistics(): Promise<{
   return res.json();
 }
 
+/** GET /api/analytics/ma-pm - ข้อมูล Report & Analytics (MA Coverage vs Actual PM) */
+export async function getMaPmAnalytics(params?: { months?: number }): Promise<{
+  success: boolean;
+  data?: {
+    months: number;
+    range: { start: string; endExclusive: string };
+    comparisonData: Array<{ month: string; maCoverage: number; actualPM: number; target: number; gap: number }>;
+    vendorComparisonData: Array<{ vendor: string; maCoverage: number; actualPM: number; gap: number }>;
+    siteComparisonData: Array<{ site: string; maCoverage: number; actualPM: number; gap: number }>;
+  };
+  message?: string;
+  error?: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.months != null) q.set('months', String(params.months));
+  const res = await fetch(apiUrl(`/api/analytics/ma-pm?${q.toString()}`));
+  return res.json();
+}
+
+/** GET /api/analytics/sla - ข้อมูล SLA Compliance */
+export async function getSlaAnalytics(params?: { months?: number }): Promise<{
+  success: boolean;
+  data?: {
+    months: number;
+    range: { start: string; endExclusive: string };
+    lineChartData: Array<{ month: string; value: number }>;
+    vendorData: Array<{ name: string; value: number }>;
+    siteData: Array<{ name: string; value: number }>;
+    summary: { totalReports: number; passReports: number; overallPct: number };
+  };
+  message?: string;
+  error?: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.months != null) q.set('months', String(params.months));
+  const res = await fetch(apiUrl(`/api/analytics/sla?${q.toString()}`));
+  return res.json();
+}
+
+/** GET /api/analytics/sla/contracts - รายการ SLA ต่อ contract สำหรับหน้า view all */
+export async function getSlaContracts(params?: { months?: number }): Promise<{
+  success: boolean;
+  data?: {
+    months: number;
+    range: { start: string; endExclusive: string };
+    contracts: Array<{
+      contract_id: string;
+      vendor: string;
+      site: string;
+      sla_percentage: number;
+      status: 'Pass' | 'Warning' | 'Fail';
+      total_reports: number;
+    }>;
+  };
+  message?: string;
+  error?: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.months != null) q.set('months', String(params.months));
+  const res = await fetch(apiUrl(`/api/analytics/sla/contracts?${q.toString()}`));
+  return res.json();
+}
+
 /** POST /api/tasks - สร้าง Task (PM/MA) */
 export async function postTask(body: {
   taskType: 'PM' | 'MA';
@@ -118,13 +181,21 @@ export async function getPmReports(params?: { limit?: number; offset?: number })
   return res.json();
 }
 
+/** POST /api/pm-reports/upload - อัปโหลดไฟล์ Report */
+export async function uploadReportFile(file: File): Promise<{ success: boolean; path?: string; name?: string }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(apiUrl('/api/pm-reports/upload'), { method: 'POST', body: fd });
+  return res.json();
+}
+
 /** POST /api/pm-reports - ส่ง PM Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
 export async function postPmReport(body: {
   taskId: number;
   deviceId: string;
   device?: object;
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
-  uploadedFiles?: Array<{ name: string; type: string }>;
+  uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
   sla_result: number;
   comment?: string;
   technicianName?: string;
@@ -167,13 +238,21 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
   return res.json();
 }
 
+/** POST /api/ma-reports/upload - อัปโหลดไฟล์ Report */
+export async function uploadMaReportFile(file: File): Promise<{ success: boolean; path?: string; name?: string }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(apiUrl('/api/ma-reports/upload'), { method: 'POST', body: fd });
+  return res.json();
+}
+
 /** POST /api/ma-reports - ส่ง MA Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
 export async function postMaReport(body: {
   taskId: number;
   deviceId: string;
   device?: object;
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
-  uploadedFiles?: Array<{ name: string; type: string }>;
+  uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
   sla_result: number;
   comment?: string;
   technicianName?: string;

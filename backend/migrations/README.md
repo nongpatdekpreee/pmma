@@ -15,3 +15,39 @@ mysql -u USER -p DB_NAME < migrations/apply_tccstock7_compat.sql
 2. **contract** — เพิ่ม `pm_time_per_year`,  `remark` ถ้าไม่มี (TccStock (7) ไม่มีคอลัมน์เหล่านี้)
 
 **หมายเหตุ:** ใน TccStock (7) ชื่อตารางเป็นตัวเล็ก (`devices`, `sites`, `sites_location`, `location`). Backend ปรับให้ใช้ชื่อตารางตามนี้ใน contractController แล้ว
+
+---
+
+### add_contract_history_fk.sql
+
+เพิ่ม Foreign Key ให้ตาราง `contract_history` เพื่อความถูกต้องของข้อมูล (referential integrity):
+
+- `contract_id` → `contract(contract_id)` ON DELETE CASCADE
+- `old_contract_id` → `contract(contract_id)` ON DELETE SET NULL
+
+รัน: `mysql -u USER -p app_db < migrations/add_contract_history_fk.sql`
+
+---
+
+### add_report_detail_columns.sql
+
+เพิ่มคอลัมน์เก็บรายละเอียด Report (checklist, comment, technician, pm_date, device) เพื่อให้แสดงข้อมูลที่กรอกเมื่อคลิกดู Report:
+
+- `checklist_items` (JSON)
+- `comment` (TEXT)
+- `technician_name` (VARCHAR)
+- `pm_date` (DATE)
+- `device_id` (INT)
+- `device_json` (JSON)
+
+รัน: `mysql -u USER -p app_db < migrations/add_report_detail_columns.sql`
+
+---
+
+### add_report_created_at.sql
+
+เพิ่มคอลัมน์ `created_at` ในตาราง `report` เพื่อแสดงวันที่สร้าง Report:
+
+- `created_at` (TIMESTAMP, DEFAULT CURRENT_TIMESTAMP)
+
+รัน: `mysql -u USER -p app_db < migrations/add_report_created_at.sql`

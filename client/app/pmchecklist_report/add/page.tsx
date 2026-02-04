@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
-import { apiUrl, postPmReport, getTasks, getPmReports, getContractById } from '@/lib/api';
+import { apiUrl, postPmReport, getTasks, getPmReports, getContractById, uploadReportFile } from '@/lib/api';
 import { 
   Upload, 
   X, 
@@ -291,7 +291,7 @@ export default function AddPMReportPage() {
     setUploadedFiles(files => files.filter(f => f.id !== id));
   };
 
-  // Handle save - ส่ง report และ list ออกไป
+  // Handle save - อัปโหลดไฟล์ก่อน แล้วส่ง report
   const handleSave = async () => {
     if (!selectedTaskId) {
       alert('กรุณาเลือก Task ก่อนส่ง Report');
@@ -309,24 +309,32 @@ export default function AddPMReportPage() {
 
     const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
 
-    const reportData = {
-      taskId: selectedTaskId,
-      deviceId: selectedDeviceId,
-      device: selectedDevice,
-      checklistItems,
-      uploadedFiles: uploadedFiles.map(f => ({
-        name: f.name,
-        type: f.type,
-      })),
-      sla_result: num,
-      comment,
-      technicianName,
-      pmDate,
-      createdAt: new Date().toISOString(),
-    };
-
     setSaving(true);
     try {
+      // อัปโหลดไฟล์ก่อน
+      const filesWithPath: Array<{ name: string; type: string; path?: string }> = [];
+      for (const f of uploadedFiles) {
+        const uploadRes = await uploadReportFile(f.file);
+        if (uploadRes.success && uploadRes.path) {
+          filesWithPath.push({ name: f.name, type: f.type, path: uploadRes.path });
+        } else {
+          filesWithPath.push({ name: f.name, type: f.type });
+        }
+      }
+
+      const reportData = {
+        taskId: selectedTaskId,
+        deviceId: selectedDeviceId,
+        device: selectedDevice,
+        checklistItems,
+        uploadedFiles: filesWithPath,
+        sla_result: num,
+        comment,
+        technicianName,
+        pmDate,
+        createdAt: new Date().toISOString(),
+      };
+
       const res = await postPmReport(reportData);
       if (res.success) {
         alert('บันทึกข้อมูล PM Checklist Report สำเร็จ\n\nรายการที่ส่งไป: ' + (res.list?.length ?? checklistItems.length) + ' รายการ');
@@ -379,18 +387,20 @@ export default function AddPMReportPage() {
     return (
       <SidebarLayout>
         <DashboardHeader />
-        <div className="flex items-center justify-center min-h-screen bg-slate-50">
-          <div className="text-center">
-            <AlertCircle size={48} className="mx-auto text-slate-300 mb-4" />
-            <p className="text-slate-500 text-lg font-medium mb-2">
+        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-slate-50">
+          <div className="text-center p-8">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-amber-100 flex items-center justify-center">
+              <AlertCircle size={40} className="text-amber-500" />
+            </div>
+            <p className="text-slate-700 text-lg font-semibold mb-2">
               ไม่สามารถสร้าง Report PM ได้
             </p>
-            <p className="text-slate-400 text-sm mb-4">
+            <p className="text-slate-500 text-sm mb-6">
               กรุณารอให้ Task PM มีสถานะ "Done" ก่อน
             </p>
             <button
               onClick={() => router.push('/pmchecklist_report')}
-              className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              className="px-6 py-2.5 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
             >
               กลับไปหน้า Report
             </button>
@@ -404,22 +414,22 @@ export default function AddPMReportPage() {
     <SidebarLayout>
       <DashboardHeader />
       
-      <div className="flex flex-col p-6 pt-0 gap-6 bg-slate-50 min-h-screen">
+      <div className="flex flex-col p-6 pt-0 gap-6 min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-slate-50">
         {/* Header Section */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => router.push('/pmchecklist_report')}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              className="p-2.5 hover:bg-white/80 rounded-xl transition-colors border border-slate-200/80 shadow-sm"
             >
-              <ArrowLeft size={24} className="text-slate-600" />
+              <ArrowLeft size={22} className="text-slate-600" />
             </button>
             <div>
-              <h1 className="text-3xl font-bold text-slate-800">
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
                 สร้าง PM Checklist Report
               </h1>
               <p className="text-sm text-slate-500 mt-1">
-                PM Checklist Report for equipment
+                บันทึกรายงานการบำรุงรักษาเชิงป้องกัน
               </p>
             </div>
           </div>
@@ -427,7 +437,7 @@ export default function AddPMReportPage() {
 
         {/* ข้อมูล Task ที่จะ Report */}
         {donePMTasks.length > 0 && (
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
+          <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <ClipboardList size={22} className="text-blue-600" />
               <h2 className="text-lg font-bold text-slate-800">ข้อมูล Task ที่จะ Report</h2>
@@ -503,11 +513,11 @@ export default function AddPMReportPage() {
         )}
 
         {/* Main Form */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
+        <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
           {/* Device Selection */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
-              Device * <span className="text-slate-400 font-normal">(เฉพาะ Device จาก Task ที่เลือก)</span>
+              Device * <span className="text-slate-400 font-normal"></span>
             </label>
             <select
               value={selectedDeviceId}
@@ -531,7 +541,7 @@ export default function AddPMReportPage() {
               })}
             </select>
             {donePMTasks.length > 0 && allowedDevices.length > 0 && (
-              <p className="mt-1 text-xs text-slate-500">แสดงเฉพาะ Device ที่อยู่ใน Task ที่ดึงมาเอาแค่ไหนไม่รู็ดุึงมาก่อน</p>
+              <p className="mt-1 text-xs text-slate-500"></p>
             )}
             {selectedDeviceId && (() => {
               const selected = allowedDevices.find(d => d.Did.toString() === selectedDeviceId) ?? devices.find(d => d.Did.toString() === selectedDeviceId);
@@ -544,12 +554,15 @@ export default function AddPMReportPage() {
               const deviceFields: { label: string; value?: string | number | null }[] = [
                 { label: 'CI Name', value: selected.CI_Name },
                 { label: 'Asset Number', value: selected.Asset_Number },
-                { label: 'Manufacturer', value: selected.Manufacturername },
+                { label: 'Serial', value: selected.serial },
+                { label: 'Model', value: selected.model },
+                { label: 'SOF', value: selected.Refer_SOF },
+                { label: 'Manufacturer', value: (selected as any).manufacturername ?? selected.Manufacturername },
                 { label: 'Site', value: selected.Sitename },
-                { label: 'Asset State', value: selected.Asset_State },
+                { label: 'Location', value: (selected as any).Location2 ?? selected.Location2 },
                 { label: 'Vendor', value: selected.Vendor },
-                { label: 'Location', value: selected.Location2 },
-                { label: 'Refer SOF', value: selected.Refer_SOF }
+                { label: 'Asset State', value: selected.Asset_State },
+                { label: 'Assigned Service', value: selected.Assigned_Service },
               ];
               return (
                 <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -759,11 +772,11 @@ export default function AddPMReportPage() {
           {/* PM Result - อิงตาม sla_term จาก Contract (ไม่แสดง threshold) */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
-              PM Result * <span className="font-normal text-slate-500">(อิงตาม SLA Term จาก Contract)</span>
+              PM Result * <span className="font-normal text-slate-500">(SLA Term)</span>
             </label>
             <div className="flex flex-wrap items-center gap-4">
               <input
-                type="number"
+                type="number" 
                 min={0}
                 max={100}
                 value={slaResult}
@@ -799,7 +812,7 @@ export default function AddPMReportPage() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="flex items-center gap-2 bg-blue-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-600 transition-colors shadow-lg shadow-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-8 py-3.5 rounded-xl font-bold hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-blue-500/25"
             >
               <Save size={18} />
               {saving ? 'กำลังส่ง...' : 'Save PM Report'}

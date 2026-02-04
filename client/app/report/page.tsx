@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -18,9 +18,10 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { StatusCard } from '@/components/ui/StatusCard';
 import { TrendingUp, Download, Filter, Calendar } from 'lucide-react';
+import { getMaPmAnalytics } from '@/lib/api';
 
-// Mock data for MA Coverage vs Actual PM
-const comparisonData = [
+const FALLBACK = {
+  comparisonData: [
   { 
     month: 'Jan', 
     maCoverage: 85, 
@@ -63,34 +64,73 @@ const comparisonData = [
     target: 90,
     gap: 4
   },
-];
-
-const vendorComparisonData = [
+  ],
+  vendorComparisonData: [
   { vendor: 'Cisco', maCoverage: 95, actualPM: 88, gap: 7 },
   { vendor: 'HPE', maCoverage: 88, actualPM: 82, gap: 6 },
   { vendor: 'Huawei', maCoverage: 85, actualPM: 79, gap: 6 },
   { vendor: 'Fortinet', maCoverage: 92, actualPM: 87, gap: 5 },
   { vendor: 'Dell', maCoverage: 90, actualPM: 85, gap: 5 },
   { vendor: 'Juniper', maCoverage: 87, actualPM: 81, gap: 6 },
-];
-
-const siteComparisonData = [
+  ],
+  siteComparisonData: [
   { site: 'Bangkok', maCoverage: 95, actualPM: 90, gap: 5 },
   { site: 'Chiang Mai', maCoverage: 88, actualPM: 83, gap: 5 },
   { site: 'Phuket', maCoverage: 85, actualPM: 78, gap: 7 },
   { site: 'Rayong', maCoverage: 90, actualPM: 85, gap: 5 },
   { site: 'Chonburi', maCoverage: 87, actualPM: 81, gap: 6 },
   { site: 'Khon Kaen', maCoverage: 82, actualPM: 75, gap: 7 },
-];
+  ],
+};
 
 export default function ReportPage() {
   const [timeFilter, setTimeFilter] = useState('6 Months');
   const [viewType, setViewType] = useState<'overview' | 'vendor' | 'site'>('overview');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
+  const [data, setData] = useState(FALLBACK);
+
+  const months = useMemo(() => {
+    if (timeFilter === '3 Months') return 3;
+    if (timeFilter === '1 Year') return 12;
+    if (timeFilter === 'All Time') return 24;
+    return 6;
+  }, [timeFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await getMaPmAnalytics({ months });
+        if (!cancelled && res?.success && res.data) {
+          setData({
+            comparisonData: res.data.comparisonData ?? FALLBACK.comparisonData,
+            vendorComparisonData: res.data.vendorComparisonData ?? FALLBACK.vendorComparisonData,
+            siteComparisonData: res.data.siteComparisonData ?? FALLBACK.siteComparisonData,
+          });
+        } else if (!cancelled) {
+          setData(FALLBACK);
+          setError(res?.message || res?.error || 'โหลดข้อมูลไม่สำเร็จ (ใช้ข้อมูลตัวอย่างแทน)');
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setData(FALLBACK);
+          setError(e?.message || 'โหลดข้อมูลไม่สำเร็จ (ใช้ข้อมูลตัวอย่างแทน)');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [months]);
 
   // Calculate summary statistics
-  const totalMACoverage = comparisonData.reduce((sum, d) => sum + d.maCoverage, 0) / comparisonData.length;
-  const totalActualPM = comparisonData.reduce((sum, d) => sum + d.actualPM, 0) / comparisonData.length;
-  const averageGap = comparisonData.reduce((sum, d) => sum + d.gap, 0) / comparisonData.length;
+  const totalMACoverage = data.comparisonData.reduce((sum, d) => sum + d.maCoverage, 0) / Math.max(1, data.comparisonData.length);
+  const totalActualPM = data.comparisonData.reduce((sum, d) => sum + d.actualPM, 0) / Math.max(1, data.comparisonData.length);
+  const averageGap = data.comparisonData.reduce((sum, d) => sum + d.gap, 0) / Math.max(1, data.comparisonData.length);
   const complianceRate = ((totalActualPM / totalMACoverage) * 100).toFixed(1);
 
   const handleExport = () => {
@@ -166,6 +206,12 @@ export default function ReportPage() {
           />
         </div>
 
+        {(loading || error) && (
+          <div className="rounded-[2rem] border border-slate-200 bg-white px-6 py-4 text-sm text-slate-600 shadow-sm">
+            {loading ? 'กำลังโหลดข้อมูลจากระบบ...' : error}
+          </div>
+        )}
+
         {/* View Type Tabs */}
         <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-200 w-fit shadow-sm">
           {(['overview', 'vendor', 'site'] as const).map((type) => (
@@ -214,7 +260,7 @@ export default function ReportPage() {
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               {viewType === 'overview' ? (
-                <LineChart data={comparisonData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <LineChart data={data.comparisonData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                   <XAxis 
                     dataKey="month" 
@@ -271,7 +317,7 @@ export default function ReportPage() {
                 </LineChart>
               ) : (
                 <BarChart 
-                  data={viewType === 'vendor' ? vendorComparisonData : siteComparisonData}
+                  data={viewType === 'vendor' ? data.vendorComparisonData : data.siteComparisonData}
                   margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -346,10 +392,10 @@ export default function ReportPage() {
               </thead>
               <tbody>
                 {(viewType === 'overview' 
-                  ? comparisonData 
+                  ? data.comparisonData 
                   : viewType === 'vendor' 
-                  ? vendorComparisonData 
-                  : siteComparisonData
+                  ? data.vendorComparisonData 
+                  : data.siteComparisonData
                 ).map((item, index) => {
                   const compliance = ((item.actualPM / item.maCoverage) * 100).toFixed(1);
                   const gapColor = item.gap <= 5 ? 'text-green-600 font-semibold' : item.gap <= 7 ? 'text-amber-500 font-semibold' : 'text-red-500 font-semibold';
@@ -359,10 +405,10 @@ export default function ReportPage() {
                     <tr key={index} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4 text-sm font-medium text-slate-800">
                         {viewType === 'overview' 
-                          ? (item as typeof comparisonData[0]).month 
+                          ? (item as typeof FALLBACK.comparisonData[0]).month 
                           : viewType === 'vendor' 
-                          ? (item as typeof vendorComparisonData[0]).vendor 
-                          : (item as typeof siteComparisonData[0]).site}
+                          ? (item as typeof FALLBACK.vendorComparisonData[0]).vendor 
+                          : (item as typeof FALLBACK.siteComparisonData[0]).site}
                       </td>
                       <td className="text-right py-3 px-4 text-sm text-slate-600">{item.maCoverage}%</td>
                       <td className="text-right py-3 px-4 text-sm text-slate-600">{item.actualPM}%</td>

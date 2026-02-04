@@ -2,6 +2,7 @@
 
 import { X, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { apiUrl } from '@/lib/api';
 
 interface Device {
   id: string;
@@ -9,6 +10,8 @@ interface Device {
   type: string;
   serialNumber?: string;
   site?: string;
+  assetNumber?: string;
+  replacementDeviceId?: string | number | null;
 }
 
 interface Engineer {
@@ -63,6 +66,7 @@ interface Props {
 
 export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete }: Props) {
   const [status, setStatus] = useState<'done' | 'working' | 'stuck' | 'not-started'>(task?.status || 'not-started');
+  const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, Device>>({});
 
   // Update local state when task changes
   useEffect(() => {
@@ -70,6 +74,53 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
       setStatus(task.status || 'not-started');
     }
   }, [task]);
+
+  // Fetch replacement device details for MA tasks - รองรับหลายคู่ (แต่ละ asset อาจมี replacementDeviceId)
+  useEffect(() => {
+    if (!isOpen || !task || task.taskType !== 'MA') {
+      setReplacementDevicesMap({});
+      return;
+    }
+    const assets = task.assets || [];
+    const repIds = new Set<string | number>();
+    assets.forEach((a: Device, i: number) => {
+      const rid = (a as any).replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null);
+      if (rid != null) repIds.add(rid);
+    });
+    if (task.replacementDeviceId != null && repIds.size === 0) repIds.add(task.replacementDeviceId);
+    if (repIds.size === 0) {
+      setReplacementDevicesMap({});
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const map: Record<string, Device> = {};
+      await Promise.all(
+        Array.from(repIds).map(async (rid) => {
+          try {
+            const res = await fetch(apiUrl(`/api/devices/${rid}`));
+            const json = await res.json();
+            if (!cancelled && res.ok && json.data) {
+              const d = json.data;
+              map[String(rid)] = {
+                id: String(d.Did),
+                name: d.CI_Name || d.Asset_Number || 'Device',
+                type: d.model || d.manufacturername || '—',
+                serialNumber: d.serial,
+                site: d.Sitename || d.Location2,
+                assetNumber: d.Asset_Number,
+              };
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+      );
+      if (!cancelled) setReplacementDevicesMap(map);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [isOpen, task?.id, task?.taskType, task?.replacementDeviceId, task?.assets]);
 
   if (!isOpen || !task) return null;
 
@@ -221,29 +272,82 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             </div>
           )}
 
-          {/* Assets */}
-          {(task.assets && task.assets.length > 0) && (
+          {/* Assets / MA: อุปกรณ์ที่เสีย → เปลี่ยนเป็น อุปกรณ์ที่เอาไปเปลี่ยน (แสดงครบทุกคู่) */}
+          {(task.assets && task.assets.length > 0) || (task.taskType === 'MA' && task.replacementDeviceId) ? (
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
               <h3 className="text-sm font-bold text-slate-700 mb-3">
-                Selected Assets ({task.assets.length})
+                {task.taskType === 'MA' ? 'อุปกรณ์' : 'Selected Assets'}
               </h3>
               <div className="space-y-2">
-                {task.assets.map((asset) => (
-                  <div
-                    key={asset.id}
-                    className="p-2.5 bg-white rounded-lg border border-slate-200"
-                  >
-                    <p className="text-xs font-medium text-slate-800">{asset.name}</p>
-                    <div className="flex gap-2 text-[10px] text-slate-500 mt-1">
-                      <span>Type: {asset.type}</span>
-                      {asset.serialNumber && <span>| SN: {asset.serialNumber}</span>}
-                      {asset.site && <span>| Site: {asset.site}</span>}
-                    </div>
+                {/* MA: แต่ละคู่ อุปกรณ์ที่เสีย ต่อด้วย เปลี่ยนเป็น [replacement] */}
+                {task.taskType === 'MA' && task.assets && task.assets.length > 0 && (
+                  <>
+                    {task.assets.map((asset, index) => {
+                      const repId = (asset as any).replacementDeviceId ?? (index === 0 ? task.replacementDeviceId : null);
+                      const replacementDevice = repId != null ? replacementDevicesMap[String(repId)] : null;
+                      return (
+                        <div key={asset.id} className="flex flex-wrap items-center gap-2">
+                          <div className="px-2 py-1.5 bg-white rounded-md border border-slate-200 min-w-0 flex-1">
+                            <p className="text-[11px] font-medium text-slate-800 truncate">{asset.name}</p>
+                            <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5">
+                              <span>{asset.type}</span>
+                              {asset.serialNumber && <span>| SN: {asset.serialNumber}</span>}
+                            </div>
+                          </div>
+                          {repId != null && (
+                            <>
+                              <span className="text-[9px] font-semibold text-slate-500 shrink-0">เปลี่ยนเป็น</span>
+                              <div className="px-2 py-1.5 bg-green-50 rounded-md border border-green-200 min-w-0 flex-1">
+                                {replacementDevice ? (
+                                  <>
+                                    <p className="text-[11px] font-medium text-slate-800 truncate">{replacementDevice.name}</p>
+                                    <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5">
+                                      <span>{replacementDevice.type}</span>
+                                      {replacementDevice.serialNumber && <span>| SN: {replacementDevice.serialNumber}</span>}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <p className="text-[10px] text-slate-500">Device ID: {repId}</p>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {/* กรณีมี replacement แต่ไม่มี assets (edge case) */}
+                    {(!task.assets || task.assets.length === 0) && task.replacementDeviceId && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[9px] font-semibold text-slate-500">เปลี่ยนเป็น</span>
+                        <div className="px-2 py-1.5 bg-green-50 rounded-md border border-green-200">
+                          {replacementDevicesMap[String(task.replacementDeviceId)] ? (
+                            <p className="text-[11px] font-medium text-slate-800">{replacementDevicesMap[String(task.replacementDeviceId)].name}</p>
+                          ) : (
+                            <p className="text-[10px] text-slate-500">Device ID: {task.replacementDeviceId}</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                {/* PM: Selected Assets */}
+                {task.taskType !== 'MA' && task.assets && task.assets.length > 0 && (
+                  <div className="space-y-1.5">
+                    {task.assets.map((asset) => (
+                      <div key={asset.id} className="px-2 py-1.5 bg-white rounded-md border border-slate-200">
+                        <p className="text-[11px] font-medium text-slate-800">{asset.name}</p>
+                        <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5">
+                          <span>Type: {asset.type}</span>
+                          {asset.serialNumber && <span>| SN: {asset.serialNumber}</span>}
+                          {asset.site && <span>| Site: {asset.site}</span>}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Coverage Scope */}
           {task.coverageScope && (

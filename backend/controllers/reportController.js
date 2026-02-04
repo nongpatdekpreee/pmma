@@ -30,6 +30,20 @@ function parseJsonField(val, fallback = []) {
   }
 }
 
+// POST /api/reports/upload (หรือ /api/pm-reports/upload, /api/ma-reports/upload)
+const uploadReportFile = (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'ไม่พบไฟล์' });
+    }
+    const filePath = `/uploads/reports/${req.file.filename}`;
+    res.status(200).json({ success: true, path: filePath, name: req.file.originalname });
+  } catch (error) {
+    console.error('[uploadReportFile] Error:', error);
+    res.status(500).json({ success: false, message: 'Upload failed', error: error.message });
+  }
+};
+
 /**
  * POST /api/reports
  * body: { reportType: 'PM'|'MA', taskId, deviceId, device, checklistItems, uploadedFiles, pmResult|maResult, comment, technicianName, pmDate|maDate }
@@ -79,17 +93,34 @@ const submitReport = async (req, res) => {
     const files = uploadedFiles || [];
     const filePaths = JSON.stringify(files.filter((f) => f.type !== 'image'));
     const imagePaths = JSON.stringify(files.filter((f) => f.type === 'image'));
+    const checklistItemsJson = JSON.stringify(checklistItems || []);
+    const dateVal = reportType === 'PM' ? pmDate : maDate;
+    const pmDateVal = dateVal && typeof dateVal === 'string' ? dateVal.split('T')[0] : null;
+    const deviceJsonStr = device ? JSON.stringify(device) : null;
+    const deviceIdVal = deviceId ? parseInt(deviceId, 10) : null;
 
     const [maxRows] = await db.execute(
       `SELECT COALESCE(MAX(report_id), 0) + 1 AS nextId FROM report`
     );
     const reportId = maxRows[0]?.nextId ?? 1;
 
-    await db.execute(
-      `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [reportId, taskId, filePaths, imagePaths, sla_result, status]
-    );
+    try {
+      await db.execute(
+        `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status, checklist_items, comment, technician_name, pm_date, device_id, device_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [reportId, taskId, filePaths, imagePaths, sla_result, status, checklistItemsJson, comment || null, technicianName || null, pmDateVal, deviceIdVal, deviceJsonStr]
+      );
+    } catch (insertErr) {
+      if (insertErr.code === 'ER_BAD_FIELD_ERROR' || insertErr.message?.includes('Unknown column')) {
+        await db.execute(
+          `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [reportId, taskId, filePaths, imagePaths, sla_result, status]
+        );
+      } else {
+        throw insertErr;
+      }
+    }
 
     const reportData = {
       id: String(reportId),
@@ -98,15 +129,14 @@ const submitReport = async (req, res) => {
       taskId: Number(taskId),
       deviceId,
       device,
-      checklistItems,
+      checklistItems: checklistItems || [],
       uploadedFiles: files,
       [resultKey]: status === 'Pass' ? 'pass' : 'fail',
       sla_result,
-      comment,
-      technicianName,
+      comment: comment || undefined,
+      technicianName: technicianName || undefined,
       pmDate: pmDate || maDate,
       status,
-      sla_result,
       createdAt: new Date().toISOString(),
     };
 
@@ -136,16 +166,36 @@ const getReports = async (req, res) => {
     const limitNum = Math.min(parseInt(limit) || 1000, 1000);
     const offsetNum = Math.max(parseInt(offset) || 0, 0);
 
-    const [rows] = await db.execute(
-      `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
-              r.sla_result, r.status,
-              t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date
-       FROM report r
-       INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
-       ORDER BY r.report_id DESC
-       LIMIT ? OFFSET ?`,
-      [taskType, limitNum, offsetNum]
-    );
+    let rows;
+    try {
+      [rows] = await db.execute(
+        `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
+                r.sla_result, r.status,
+                r.checklist_items, r.comment, r.technician_name, r.pm_date, r.device_id, r.device_json,
+                r.created_at,
+                t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date
+         FROM report r
+         INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
+         ORDER BY r.report_id DESC
+         LIMIT ? OFFSET ?`,
+        [taskType, limitNum, offsetNum]
+      );
+    } catch (colErr) {
+      if (colErr.code === 'ER_BAD_FIELD_ERROR' || colErr.message?.includes('Unknown column')) {
+        [rows] = await db.execute(
+          `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
+                  r.sla_result, r.status,
+                  t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date
+           FROM report r
+           INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
+           ORDER BY r.report_id DESC
+           LIMIT ? OFFSET ?`,
+          [taskType, limitNum, offsetNum]
+        );
+      } else {
+        throw colErr;
+      }
+    }
 
     const [countRows] = await db.execute(
       `SELECT COUNT(*) AS total FROM report r INNER JOIN tasks t ON t.id = r.id WHERE t.task_type = ?`,
@@ -159,22 +209,28 @@ const getReports = async (req, res) => {
     const data = rows.map((r) => {
       const file_path = parseJsonField(r.file_path);
       const image_path = parseJsonField(r.image_path);
+      const checklistItems = parseJsonField(r.checklist_items);
+      const deviceFromJson = parseJsonField(r.device_json, null);
       const assets = parseJsonField(r.assets);
       const engineers = parseJsonField(r.engineers);
       const firstAsset = Array.isArray(assets) && assets[0] ? assets[0] : null;
       const firstEngineer = Array.isArray(engineers) && engineers[0] ? engineers[0] : null;
-      const deviceId = firstAsset ? String(firstAsset.id ?? firstAsset.Did ?? firstAsset.deviceId ?? '') : null;
-      const device = firstAsset
-        ? {
-            Did: firstAsset.id ?? firstAsset.Did,
-            CI_Name: firstAsset.name ?? firstAsset.CI_Name,
-            Asset_Number: firstAsset.assetNumber ?? firstAsset.Asset_Number,
-            serial: firstAsset.serialNumber ?? firstAsset.serial,
-            Sitename: firstAsset.site ?? firstAsset.Sitename,
-          }
-        : null;
-      const technicianName = firstEngineer ? (firstEngineer.name ?? firstEngineer.id ?? '') : null;
-      const reportDate = r.start_date ? (typeof r.start_date === 'string' ? r.start_date : r.start_date.toISOString?.()?.slice(0, 10)) : null;
+      const deviceId = r.device_id != null ? String(r.device_id) : (firstAsset ? String(firstAsset.id ?? firstAsset.Did ?? firstAsset.deviceId ?? '') : null);
+      const device = deviceFromJson && typeof deviceFromJson === 'object'
+        ? deviceFromJson
+        : firstAsset
+          ? {
+              Did: firstAsset.id ?? firstAsset.Did,
+              CI_Name: firstAsset.name ?? firstAsset.CI_Name,
+              Asset_Number: firstAsset.assetNumber ?? firstAsset.Asset_Number,
+              serial: firstAsset.serialNumber ?? firstAsset.serial,
+              Sitename: firstAsset.site ?? firstAsset.Sitename,
+            }
+          : null;
+      const technicianName = r.technician_name || (firstEngineer ? (firstEngineer.name ?? firstEngineer.id ?? '') : null);
+      const reportDate = r.pm_date
+        ? (typeof r.pm_date === 'string' ? r.pm_date : r.pm_date.toISOString?.()?.slice(0, 10))
+        : (r.start_date ? (typeof r.start_date === 'string' ? r.start_date : r.start_date.toISOString?.()?.slice(0, 10)) : null);
 
       const item = {
         id: String(r.report_id),
@@ -183,14 +239,17 @@ const getReports = async (req, res) => {
         task_type: taskType,
         deviceId,
         device,
-        checklistItems: [],
+        checklistItems: Array.isArray(checklistItems) ? checklistItems : [],
+        comment: r.comment || undefined,
         uploadedFiles: [...file_path, ...image_path],
         [resultKey]: r.status === 'Pass' ? 'pass' : 'fail',
         status: r.status,
         sla_result: r.sla_result,
         technicianName: technicianName || undefined,
         [dateKey]: reportDate || undefined,
-        createdAt: undefined,
+        createdAt: r.created_at
+          ? (typeof r.created_at === 'string' ? r.created_at : r.created_at.toISOString?.())
+          : undefined,
         assets: r.assets,
         site_name: r.site_name,
       };
@@ -216,4 +275,5 @@ const getReports = async (req, res) => {
 module.exports = {
   submitReport,
   getReports,
+  uploadReportFile,
 };

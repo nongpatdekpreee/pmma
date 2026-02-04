@@ -299,7 +299,7 @@ const AssetSiteDatabase = () => {
               </div>
             </div>
             <span className="rounded-full bg-green-50 px-3 py-1 text-xs text-green-600">
-              98% uptime
+              
             </span>
           </article>
 

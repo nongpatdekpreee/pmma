@@ -1,46 +1,74 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, FolderKanban, Calendar, Plane, Users, MessageSquare, FileText, Bell, ChevronDown, LogOut, TrendingUp, MoreHorizontal } from 'lucide-react';
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 
 import Link from 'next/link';
+import { getSlaAnalytics } from '@/lib/api';
 
 const SLAComplianceDashboard = () => {
   const [activeTab, setActiveTab] = useState('Users');
-  const [timeFilter, setTimeFilter] = useState('Week');
+  const [timeFilter, setTimeFilter] = useState<'3 Months' | '6 Months' | '1 Year'>('6 Months');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Line chart data
-  const lineChartData = [
+  const [lineChartData, setLineChartData] = useState<Array<{ month: string; value: number }>>([
     { month: 'Jan', value: 85 },
     { month: 'Feb', value: 78 },
     { month: 'Mar', value: 82 },
     { month: 'Apr', value: 92 },
     { month: 'May', value: 88 },
-    { month: 'Jun', value: 95 }
-  ];
-
-  // Vendor bar chart data
-  const vendorData = [
+    { month: 'Jun', value: 95 },
+  ]);
+  const [vendorData, setVendorData] = useState<Array<{ name: string; value: number; highlight?: boolean }>>([
     { name: 'HPE', value: 65 },
     { name: 'Huawei', value: 85 },
     { name: 'Fortinet', value: 72 },
     { name: 'Cisco', value: 88 },
     { name: 'Ubi', value: 100, highlight: true },
-    { name: 'Other', value: 58 }
-  ];
-
-  // Site bar chart data
-  const siteData = [
+    { name: 'Other', value: 58 },
+  ]);
+  const [siteData, setSiteData] = useState<Array<{ name: string; value: number; highlight?: boolean }>>([
     { name: 'BK', value: 75 },
     { name: 'CHM', value: 88 },
     { name: 'STT', value: 82 },
     { name: 'SNI', value: 70 },
     { name: 'NTT', value: 95 },
-    { name: 'NBP', value: 78 }
-  ];
+    { name: 'NBP', value: 78 },
+  ]);
+
+  const months = useMemo(() => {
+    if (timeFilter === '3 Months') return 3;
+    if (timeFilter === '1 Year') return 12;
+    return 6;
+  }, [timeFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await getSlaAnalytics({ months });
+        if (!cancelled && res?.success && res.data) {
+          setLineChartData(res.data.lineChartData ?? []);
+          setVendorData((res.data.vendorData ?? []).map((v, idx) => ({ ...v, highlight: idx === 0 })));
+          setSiteData((res.data.siteData ?? []).map((s, idx) => ({ ...s, highlight: idx === 0 })));
+        } else if (!cancelled) {
+          setError(res?.message || res?.error || 'โหลดข้อมูล SLA ไม่สำเร็จ (ใช้ข้อมูลตัวอย่างแทน)');
+        }
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || 'โหลดข้อมูล SLA ไม่สำเร็จ (ใช้ข้อมูลตัวอย่างแทน)');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [months]);
 
   const CustomDot =  (props: any)  => {
     const { cx, cy } = props;
@@ -67,6 +95,12 @@ const SLAComplianceDashboard = () => {
             </button>
           </div>
 
+          {(loading || error) && (
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600">
+              {loading ? 'กำลังโหลดข้อมูล SLA จากระบบ...' : error}
+            </div>
+          )}
+
           {/* Tabs */}
           <div className="flex items-center gap-8 mb-6 border-b border-gray-200">
             {['Users', 'Projects', 'Operating Status'].map((tab) => (
@@ -92,9 +126,9 @@ const SLAComplianceDashboard = () => {
                 onChange={(e) => setTimeFilter(e.target.value)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option>Week</option>
-                <option>Month</option>
-                <option>Year</option>
+                <option>3 Months</option>
+                <option>6 Months</option>
+                <option>1 Year</option>
               </select>
               <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <TrendingUp className="w-5 h-5 text-gray-600" />

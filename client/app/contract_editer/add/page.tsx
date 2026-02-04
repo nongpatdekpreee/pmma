@@ -151,9 +151,9 @@ export default function AddContractPage() {
         }
         if (contract.coverage_scope) setCoverageScope(contract.coverage_scope);
         if (contract.remark) setRemark(contract.remark);
-        if (contract.start_date) setStartDate(contract.start_date);
-        if (contract.end_date) setEndDate(contract.end_date);
-        if (contract.contract_sign_date) setContractSignDate(contract.contract_sign_date);
+        if (contract.start_date) setStartDate(String(contract.start_date).split('T')[0]);
+        if (contract.end_date) setEndDate(String(contract.end_date).split('T')[0]);
+        if (contract.contract_sign_date) setContractSignDate(String(contract.contract_sign_date).split('T')[0]);
         if (contract.pm_time_per_year) setPmTimePerYear(String(contract.pm_time_per_year));
         
         // คำนวณ duration

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
-import { apiUrl, postMaReport, getTasks, getMaReports, getContractById } from '@/lib/api';
+import { apiUrl, postMaReport, getTasks, getMaReports, getContractById, uploadMaReportFile } from '@/lib/api';
 import { 
   Upload, 
   X, 
@@ -144,13 +144,15 @@ export default function AddMAReportPage() {
     return id != null ? String(id).trim() : '';
   };
 
-  // Device ที่เลือกได้ต้องมาจาก Task (assets + อุปกรณ์ที่เอามาแลกเปลี่ยน replacementDeviceId)
+  // Device ที่เลือกได้ต้องมาจาก Task (assets + อุปกรณ์ที่เอามาแลกเปลี่ยน ทุกคู่ replacementDeviceId)
   const allowedDeviceIds = useMemo(() => {
     const ids = new Set<string>();
     const addTaskDevices = (task: any) => {
-      task.assets?.forEach((a: any) => {
+      task.assets?.forEach((a: any, i: number) => {
         const id = getDeviceIdFromAsset(a);
         if (id) ids.add(id);
+        const repId = a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null);
+        if (repId != null) ids.add(String(repId));
       });
       if (task.replacementDeviceId != null) ids.add(String(task.replacementDeviceId));
     };
@@ -265,7 +267,7 @@ export default function AddMAReportPage() {
     setUploadedFiles(files => files.filter(f => f.id !== id));
   };
 
-  // Handle save - ส่ง report และ list ออกไป
+  // Handle save - อัปโหลดไฟล์ก่อน แล้วส่ง report
   const handleSave = async () => {
     if (!selectedTaskId) {
       alert('กรุณาเลือก Task ก่อนส่ง Report');
@@ -283,24 +285,32 @@ export default function AddMAReportPage() {
 
     const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
 
-    const reportData = {
-      taskId: selectedTaskId,
-      deviceId: selectedDeviceId,
-      device: selectedDevice,
-      checklistItems,
-      uploadedFiles: uploadedFiles.map(f => ({
-        name: f.name,
-        type: f.type,
-      })),
-      sla_result: num,
-      comment,
-      technicianName,
-      maDate,
-      createdAt: new Date().toISOString(),
-    };
-
     setSaving(true);
     try {
+      // อัปโหลดไฟล์ก่อน
+      const filesWithPath: Array<{ name: string; type: string; path?: string }> = [];
+      for (const f of uploadedFiles) {
+        const uploadRes = await uploadMaReportFile(f.file);
+        if (uploadRes.success && uploadRes.path) {
+          filesWithPath.push({ name: f.name, type: f.type, path: uploadRes.path });
+        } else {
+          filesWithPath.push({ name: f.name, type: f.type });
+        }
+      }
+
+      const reportData = {
+        taskId: selectedTaskId,
+        deviceId: selectedDeviceId,
+        device: selectedDevice,
+        checklistItems,
+        uploadedFiles: filesWithPath,
+        sla_result: num,
+        comment,
+        technicianName,
+        maDate,
+        createdAt: new Date().toISOString(),
+      };
+
       const res = await postMaReport(reportData);
       if (res.success) {
         alert('บันทึกข้อมูล MA Checklist Report สำเร็จ\n\nรายการที่ส่งไป: ' + (res.list?.length ?? checklistItems.length) + ' รายการ');
@@ -352,18 +362,20 @@ export default function AddMAReportPage() {
     return (
       <SidebarLayout>
         <DashboardHeader />
-        <div className="flex items-center justify-center min-h-screen bg-slate-50">
-          <div className="text-center">
-            <AlertCircle size={48} className="mx-auto text-slate-300 mb-4" />
-            <p className="text-slate-500 text-lg font-medium mb-2">
+        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/20 to-slate-50">
+          <div className="text-center p-8">
+            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-amber-100 flex items-center justify-center">
+              <AlertCircle size={40} className="text-amber-500" />
+            </div>
+            <p className="text-slate-700 text-lg font-semibold mb-2">
               ไม่สามารถสร้าง Report MA ได้
-            </p> 
-            <p className="text-slate-400 text-sm mb-4">
+            </p>
+            <p className="text-slate-500 text-sm mb-6">
               กรุณารอให้ Task MA มีสถานะ "Done" ก่อน
             </p>
             <button
               onClick={() => router.push('/pmchecklist_report?tab=ma')}
-              className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              className="px-6 py-2.5 bg-emerald-500 text-white rounded-xl font-medium hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20"
             >
               กลับไปหน้า Report
             </button>
@@ -377,22 +389,22 @@ export default function AddMAReportPage() {
     <SidebarLayout>
       <DashboardHeader />
       
-      <div className="flex flex-col p-6 pt-0 gap-6 bg-slate-50 min-h-screen">
+      <div className="flex flex-col p-6 pt-0 gap-6 min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/20 to-slate-50">
         {/* Header Section */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => router.push('/machecklist_report')}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              onClick={() => router.push('/pmchecklist_report?tab=ma')}
+              className="p-2.5 hover:bg-white/80 rounded-xl transition-colors border border-slate-200/80 shadow-sm"
             >
-              <ArrowLeft size={24} className="text-slate-600" />
+              <ArrowLeft size={22} className="text-slate-600" />
             </button>
             <div>
-              <h1 className="text-3xl font-bold text-slate-800">
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
                 สร้าง MA Checklist Report
               </h1>
               <p className="text-sm text-slate-500 mt-1">
-                MA Checklist Report for equipment
+                บันทึกรายงานข้อตกลงการบำรุงรักษา
               </p>
             </div>
           </div>
@@ -400,7 +412,7 @@ export default function AddMAReportPage() {
 
         {/* ข้อมูล Task ที่จะ Report */}
         {doneMATasks.length > 0 && (
-          <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
+          <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <ClipboardList size={22} className="text-green-600" />
               <h2 className="text-lg font-bold text-slate-800">ข้อมูล Task ที่จะ Report</h2>
@@ -443,17 +455,25 @@ export default function AddMAReportPage() {
                           : '-'}
                       </span>
                       {task.assets?.length > 0 && (
-                        <span className="text-slate-600">
-                          Device: {task.assets.map((a: any) => a.name || a.CI_Name || a.id).join(', ')}
-                        </span>
-                      )}
-                      {task.replacementDeviceId != null && (
-                        <span className="text-slate-600">
-                          อุปกรณ์ที่เอามาแลกเปลี่ยน: {(() => {
-                            const rep = devices.find((d) => d.Did === Number(task.replacementDeviceId));
-                            return rep ? (rep.CI_Name || rep.Asset_Number || rep.serial || `Device ${task.replacementDeviceId}`) : `Device ${task.replacementDeviceId}`;
-                          })()}
-                        </span>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-slate-600">
+                          {task.assets.map((a: any, idx: number) => {
+                            const repId = a.replacementDeviceId ?? (idx === 0 ? task.replacementDeviceId : null);
+                            const rep = repId != null ? devices.find((d) => d.Did === Number(repId)) : null;
+                            const repName = rep ? (rep.CI_Name || rep.Asset_Number || rep.serial || `Device ${repId}`) : repId != null ? `Device ${repId}` : null;
+                            const brokenName = a.name || a.CI_Name || a.id || '-';
+                            return (
+                              <span key={a.id ?? idx} className="inline-flex items-center gap-1.5">
+                                <span>{brokenName}</span>
+                                {repName && (
+                                  <>
+                                    <span className="text-[10px] font-semibold text-slate-400">เปลี่ยนเป็น</span>
+                                    <span className="text-green-700">{repName}</span>
+                                  </>
+                                )}
+                              </span>
+                            );
+                          })}
+                        </div>
                       )}
                     </div>
                     <button
@@ -476,7 +496,7 @@ export default function AddMAReportPage() {
         )}
 
         {/* Main Form */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
+        <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
           {/* Device Selection */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
@@ -492,7 +512,8 @@ export default function AddMAReportPage() {
                 {loadingDevices ? 'Loading...' : doneMATasks.length > 0 && allowedDevices.length === 0 ? 'Please select a Task above' : 'Select Device...'}
               </option>
               {allowedDevices.map(device => {
-                const isReplacement = selectedTaskId != null && doneMATasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === device.Did;
+                const task = selectedTaskId != null ? doneMATasks.find((t: any) => t.id === selectedTaskId) : null;
+                const isReplacement = task && (task.replacementDeviceId === device.Did || task.assets?.some((a: any, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === device.Did));
                 return (
                   <option key={device.Did} value={device.Did.toString()}>
                     {device.CI_Name || device.Asset_Number || `Device ${device.Did}`}
@@ -510,7 +531,8 @@ export default function AddMAReportPage() {
             {selectedDeviceId && (() => {
               const selected = allowedDevices.find(d => d.Did.toString() === selectedDeviceId) ?? devices.find(d => d.Did.toString() === selectedDeviceId);
               if (!selected) return null;
-              const isReplacement = selectedTaskId != null && doneMATasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === selected.Did;
+              const task = selectedTaskId != null ? doneMATasks.find((t: any) => t.id === selectedTaskId) : null;
+              const isReplacement = task && (task.replacementDeviceId === selected.Did || task.assets?.some((a: any, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === selected.Did));
               const formatDate = (v: string | null | undefined) => {
                 if (!v) return undefined;
                 try { return new Date(v).toLocaleDateString('th-TH'); } catch { return v; }
@@ -520,19 +542,13 @@ export default function AddMAReportPage() {
                 { label: 'Asset Number', value: selected.Asset_Number },
                 { label: 'Serial', value: selected.serial },
                 { label: 'Model', value: selected.model },
-                { label: 'Manufacturer', value: selected.Manufacturername },
+                { label: 'SOF', value: selected.Refer_SOF },
+                { label: 'Manufacturer', value: (selected as any).manufacturername ?? selected.Manufacturername },
                 { label: 'Site', value: selected.Sitename },
-                { label: 'Asset State', value: selected.Asset_State },
-                { label: 'PR No', value: selected.PR_No },
+                { label: 'Location', value: (selected as any).Location2 ?? selected.Location2 },
                 { label: 'Vendor', value: selected.Vendor },
-                { label: 'Location', value: selected.Location2 },
-                { label: 'PO No', value: selected.PO_No },
-                { label: 'Loan Start', value: formatDate(selected.Loan_Start) ?? selected.Loan_Start ?? undefined },
-                { label: 'Request Date', value: formatDate(selected.Request_Date) ?? selected.Request_Date ?? undefined },
-                { label: 'Refer SOF', value: selected.Refer_SOF },
-                { label: 'Refer Ticket', value: selected.Refer_Ticket },
+                { label: 'Asset State', value: selected.Asset_State },
                 { label: 'Assigned Service', value: selected.Assigned_Service },
-                { label: 'Reason', value: selected.Reason },
               ];
               return (
                 <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -698,7 +714,7 @@ export default function AddMAReportPage() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="flex items-center gap-2 bg-blue-500 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-600 transition-colors shadow-lg shadow-blue-200 disabled:opacity-60 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-8 py-3.5 rounded-xl font-bold hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-emerald-500/25"
             >
               <Save size={18} />
               {saving ? 'กำลังส่ง...' : 'Save MA Report'}

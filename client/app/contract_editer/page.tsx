@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { 
   FileText, Calendar, DollarSign, Building2, Cpu, MapPin, 
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
-  ImageIcon, History, X, Edit, Loader2 
+  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search 
 } from 'lucide-react';
 
 interface Equipment {
@@ -29,7 +29,7 @@ interface Contract {
   startDate: string;
   endDate: string;
   value: string;
-  status: 'active' | 'pending' | 'expired';
+  status: 'active' | 'pending' | 'expiring' | 'expired';
   description?: string;
   equipment?: Equipment[];
   formattedValue?: string;
@@ -91,13 +91,16 @@ function formatDateThai(dateStr: string | null | undefined): string {
   return d.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' | 'expired' {
+function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' | 'expiring' | 'expired' {
   if (!endDate) return 'pending';
   const end = new Date(endDate);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   end.setHours(0, 0, 0, 0);
-  return end < today ? 'expired' : 'active';
+  if (end < today) return 'expired';
+  const in30Days = new Date(today);
+  in30Days.setDate(in30Days.getDate() + 30);
+  return end <= in30Days ? 'expiring' : 'active';
 }
 
 export default function ContractEditorPage() {
@@ -108,6 +111,7 @@ export default function ContractEditorPage() {
 
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -125,6 +129,16 @@ export default function ContractEditorPage() {
     notes: '',
   });
   const [formType, setFormType] = useState<'add' | 'edit'>('add');
+
+  // Assign to Site modal
+  const [showAssignSiteModal, setShowAssignSiteModal] = useState(false);
+  const [assignModalLoading, setAssignModalLoading] = useState(false);
+  const [assignModalSubmitting, setAssignModalSubmitting] = useState(false);
+  const [sitesLocation, setSitesLocation] = useState<Array<{ SLid: number; SiteName?: string; Location2?: string }>>([]);
+  const [assignDeviceDetails, setAssignDeviceDetails] = useState<Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }>>({});
+  const [deviceTargetSite, setDeviceTargetSite] = useState<Record<string, string>>({});
+  const [assignDeviceSelected, setAssignDeviceSelected] = useState<Set<string>>(new Set());
+  const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
 
   // Form state
   const [contractForm, setContractForm] = useState({
@@ -200,7 +214,7 @@ export default function ContractEditorPage() {
     if (activeFilter !== 'All') {
       const statusMap: Record<string, string> = {
         'Active': 'active',
-        'Pending': 'pending',
+        'Expiring': 'expiring',
         'Expired': 'expired',
       };
       if (contract.status !== statusMap[activeFilter]) return false;
@@ -237,6 +251,7 @@ export default function ContractEditorPage() {
     setShowEditModal(false);
     setShowDetailModal(false);
     setShowEquipmentModal(false);
+    setShowAssignSiteModal(false);
     setCurrentContract(null);
     setFullContractDetails(null);
     setEditingEquipmentIndex(null);
@@ -392,6 +407,104 @@ export default function ContractEditorPage() {
     }
   };
 
+  const openAssignSiteForContract = async (contract: Contract) => {
+    setAssignModalLoading(true);
+    setCurrentContract(contract);
+    setFullContractDetails(null);
+    setShowAssignSiteModal(true);
+    setAssignDeviceDetails({});
+    setDeviceTargetSite({});
+    setAssignDeviceSelected(new Set());
+    try {
+      const res = await fetch(apiUrl(`/api/contracts/${contract.id}`));
+      const json = await res.json();
+      if (!res.ok || !json.data) {
+        toastError(json.message || 'โหลดข้อมูลสัญญาไม่สำเร็จ');
+        setShowAssignSiteModal(false);
+        return;
+      }
+      const details = json.data;
+      setFullContractDetails(details);
+      const devices = details.devices ?? [];
+      if (devices.length === 0) {
+        toastError('สัญญานี้ไม่มีอุปกรณ์');
+        setShowAssignSiteModal(false);
+        return;
+      }
+      const sitesRes = await fetch(apiUrl('/api/sites/locations'));
+      const sitesJson = await sitesRes.json();
+      if (sitesRes.ok && sitesJson.data) setSitesLocation(sitesJson.data);
+      const deviceDetails: Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }> = {};
+      const targetSite: Record<string, string> = {};
+      const results = await Promise.allSettled(
+        devices.map(async (d: { Did: number }) => {
+          const r = await fetch(apiUrl(`/api/devices/${d.Did}`));
+          const j = await r.json();
+          return { data: r.ok && j.data ? j.data : null };
+        })
+      );
+      results.forEach((r, i) => {
+        const d = devices[i];
+        const data = r.status === 'fulfilled' ? r.value.data : null;
+        if (data) {
+          deviceDetails[String(d.Did)] = {
+            SLid: data.SLid ?? data.slid ?? null,
+            Asset_State: data.Asset_State ?? data.asset_state ?? null,
+            SiteName: data.Sitename ?? data.SiteName ?? null,
+            Location2: data.Location2 ?? data.location2 ?? null,
+          };
+          targetSite[String(d.Did)] = String(d.SLid ?? '');
+        } else {
+          deviceDetails[String(d.Did)] = {};
+          targetSite[String(d.Did)] = String(d.SLid ?? '');
+        }
+      });
+      setAssignDeviceDetails(deviceDetails);
+      setDeviceTargetSite(targetSite);
+      setAssignDeviceSelected(new Set(devices.map((d: { Did: number }) => String(d.Did))));
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
+      setShowAssignSiteModal(false);
+    } finally {
+      setAssignModalLoading(false);
+    }
+  };
+
+  const handleAssignSiteConfirm = async () => {
+    const devices = fullContractDetails?.devices ?? [];
+    const toUpdate = devices.filter((d) => {
+      const id = String(d.Did);
+      const selected = assignDeviceSelected.has(id);
+      const siteId = deviceTargetSite[id];
+      return selected && siteId && siteId.trim() !== '';
+    });
+    if (toUpdate.length === 0) {
+      toastError('กรุณาเลือกอุปกรณ์และ Site ปลายทางอย่างน้อย 1 รายการ');
+      return;
+    }
+    setAssignModalSubmitting(true);
+    try {
+      let successCount = 0;
+      for (const d of toUpdate) {
+        const siteId = deviceTargetSite[String(d.Did)];
+        if (!siteId) continue;
+        const res = await fetch(apiUrl(`/api/devices/${d.Did}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ Asset_State: 'In Use', SLid: parseInt(siteId, 10) }),
+        });
+        const json = await res.json();
+        if (res.ok && json.success) successCount++;
+      }
+      toastSuccess(`อัปเดตสถานะเรียบร้อย ${successCount} รายการ`);
+      setShowAssignSiteModal(false);
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'อัปเดตไม่สำเร็จ');
+    } finally {
+      setAssignModalSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -420,27 +533,18 @@ export default function ContractEditorPage() {
         {(() => {
           const total = contracts.length;
           const active = contracts.filter((c) => c.status === 'active').length;
-          const pending = contracts.filter((c) => c.status === 'pending').length;
-          const today = new Date();
-          today.setHours(0, 0, 0, 0);
-          const in30Days = new Date(today);
-          in30Days.setDate(in30Days.getDate() + 30);
-          const nearExpiry = contracts.filter((c) => {
-            if (!c.endDate || c.status === 'expired') return false;
-            const end = new Date(c.endDate);
-            end.setHours(0, 0, 0, 0);
-            return end >= today && end <= in30Days;
-          }).length;
+          const expiring = contracts.filter((c) => c.status === 'expiring').length;
+          const expired = contracts.filter((c) => c.status === 'expired').length;
           return (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
+        <div className="grid grid-cols-4 gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
           {[
             { number: String(total), label: 'All Contracts' },
             { number: String(active), label: 'Active Contracts' },
-            { number: String(pending), label: 'Pending Contracts' },
-            { number: String(nearExpiry), label: 'Expiring Contracts' },
+            { number: String(expiring), label: 'Expiring Contracts' },
+            { number: String(expired), label: 'Expired Contracts' },
           ].map((stat, idx) => (
             <div key={idx} className="text-center relative">
-              {idx < 3 && (
+              {idx < 3 && ( 
                 <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-px h-[60%] bg-slate-200" />
               )}
               <span className="text-[2.5rem] font-bold text-blue-600 block mb-2">
@@ -465,7 +569,7 @@ export default function ContractEditorPage() {
         {/* Filters */}
         <div className="flex gap-4 flex-wrap items-center">
           <div className="flex gap-2">
-            {['All', 'Active', 'Pending', 'Expired'].map((filter) => (
+            {['All', 'Active', 'Expiring', 'Expired'].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setActiveFilter(filter)}
@@ -489,6 +593,24 @@ export default function ContractEditorPage() {
               className="w-full py-2.5 pl-12 pr-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             />
           </div>
+          <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setViewMode('card')}
+              className={`p-2.5 transition-colors ${viewMode === 'card' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              title="Card view"
+            >
+              <LayoutGrid size={20} />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`p-2.5 transition-colors ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              title="Table view"
+            >
+              <Table2 size={20} />
+            </button>
+          </div>
         </div>
         
         
@@ -505,8 +627,9 @@ export default function ContractEditorPage() {
           </div>
         )}
 
-        {/* Contracts Grid */}
+        {/* Contracts Grid or Table */}
         {!contractsLoading && (
+        viewMode === 'card' ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(350px,1fr))] gap-6">
           {filteredContracts.map((contract, idx) => (
             <div
@@ -519,7 +642,7 @@ export default function ContractEditorPage() {
               <div className="absolute top-0 left-0 w-1 h-full bg-blue-600 scale-y-0 transition-transform duration-300 group-hover:scale-y-100" />
               <div className="flex justify-between items-start mb-5">
                 <div className="text-xl font-bold text-slate-800">
-                  {contract.id}
+                  {contract.name}
                 </div>
                 <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide ${getStatusBadgeClass(contract.status)}`}>
                   {getStatusText(contract.status)}
@@ -555,16 +678,24 @@ export default function ContractEditorPage() {
                 <span className="text-slate-500 min-w-[100px]">Equipment:</span>
                 <span className="text-slate-700 font-medium">{contract.deviceCount || 0} List Items</span>
               </div>
-              <div className="flex gap-3 mt-6 pt-6 border-t border-slate-200">
+              <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-slate-200">
                 <button
                   onClick={() => viewContractDetails(contract)}
-                  className="flex-1 py-2.5 px-5 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
+                  className="flex-1 min-w-[100px] py-2.5 px-5 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
                 >
                   View Details
                 </button>
                 <button
+                  onClick={() => openAssignSiteForContract(contract)}
+                  className="flex items-center gap-1.5 py-2.5 px-4 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600"
+                  title="กำหนดอุปกรณ์ไป Site"
+                >
+                  <MapPin size={16} />
+                  ที่จะเอาไปอะ ใช้คำว่าไร
+                </button>
+                <button
                   onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
-                  className="flex-1 py-2.5 px-5 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-transparent text-slate-700 border border-slate-200 hover:border-blue-500 hover:text-blue-600"
+                  className="flex-1 min-w-[100px] py-2.5 px-5 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-transparent text-slate-700 border border-slate-200 hover:border-blue-500 hover:text-blue-600"
                 >
                   {contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
                 </button>
@@ -572,6 +703,67 @@ export default function ContractEditorPage() {
             </div>
           ))}
         </div>
+        ) : (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">ชื่อสัญญา</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">คู่สัญญา</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">วันเริ่ม</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">วันสิ้นสุด</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">มูลค่า</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">อุปกรณ์</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">สถานะ</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredContracts.map((contract) => (
+                  <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                    <td className="py-4 px-4 text-sm font-medium text-slate-800">{contract.name}</td>
+                    <td className="py-4 px-4 text-sm text-slate-600">{contract.partner}</td>
+                    <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedStartDate}</td>
+                    <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedEndDate}</td>
+                    <td className="py-4 px-4 text-sm text-slate-600">฿{contract.formattedValue}</td>
+                    <td className="py-4 px-4 text-sm text-slate-600">{contract.deviceCount || 0} รายการ</td>
+                    <td className="py-4 px-4">
+                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(contract.status)}`}>
+                        {getStatusText(contract.status)}
+                      </span>
+                    </td>
+                    <td className="py-4 px-4">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => viewContractDetails(contract)}
+                          className="py-2 px-4 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                        >
+                          ดูรายละเอียด
+                        </button>
+                        <button
+                          onClick={() => openAssignSiteForContract(contract)}
+                          className="py-2 px-3 rounded-lg text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 transition-colors flex items-center gap-1"
+                          title="กำหนดอุปกรณ์ไป Site"
+                        >
+                          <MapPin size={14} />
+                          ที่จะเอาไปsiteอะ
+                        </button>
+                        <button
+                          onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
+                          className="py-2 px-4 rounded-lg text-sm font-medium border border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-600 transition-colors"
+                        >
+                          {contract.status === 'expired' ? 'ต่ออายุ' : 'แก้ไข'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        )
         )}
       </div>
 
@@ -1006,6 +1198,12 @@ export default function ContractEditorPage() {
                                 ✅ ใช้งาน
                               </span>
                             )}
+                            {currentContract.status === 'expiring' && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 text-sm font-medium border border-amber-200">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                ⚠️ ใกล้หมดอายุ
+                              </span>
+                            )}
                             {currentContract.status === 'pending' && (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-yellow-50 text-yellow-700 text-sm font-medium border border-yellow-200">
                                 <AlertCircle className="w-3.5 h-3.5" />
@@ -1428,6 +1626,231 @@ export default function ContractEditorPage() {
           </div>
         </Modal>
       )}
+
+      {/* Modal กำหนดอุปกรณ์ไป Site */}
+      {showAssignSiteModal && (
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <MapPin size={22} className="text-amber-500" />
+                กำหนดอุปกรณ์ไป Site
+              </h3>
+              <button
+                type="button"
+                onClick={() => !assignModalSubmitting && setShowAssignSiteModal(false)}
+                disabled={assignModalSubmitting}
+                className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {assignModalLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 size={32} className="animate-spin text-blue-500" />
+                </div>
+              ) : !fullContractDetails?.devices || fullContractDetails.devices.length === 0 ? (
+                <div className="py-12 text-center text-slate-500">
+                  สัญญานี้ไม่มีอุปกรณ์
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="relative mb-3">
+                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="ค้นหาอุปกรณ์ (ชื่อ, Asset Number, Serial, Site...)"
+                      value={assignDeviceSearch}
+                      onChange={(e) => setAssignDeviceSearch(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400 outline-none"
+                    />
+                  </div>
+                  <p className="text-sm text-slate-600 mb-2">
+                    เลือกอุปกรณ์
+                  </p>
+                  {(() => {
+                    const allDevices = fullContractDetails.devices ?? [];
+                    const q = assignDeviceSearch.trim().toLowerCase();
+                    const filteredDevices = q
+                      ? allDevices.filter((d) => {
+                          const detail = assignDeviceDetails[String(d.Did)];
+                          const searchable = [
+                            d.CI_Name,
+                            d.Asset_Number,
+                            d.serial,
+                            detail?.SiteName,
+                            detail?.Location2,
+                            d.type_name,
+                            d.roleName,
+                          ]
+                            .filter(Boolean)
+                            .join(' ')
+                            .toLowerCase();
+                          const parts = q.split(/\s+/).filter(Boolean);
+                          return parts.every((part) => searchable.includes(part));
+                        })
+                      : allDevices;
+                    return (
+                  <>
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setAssignDeviceSelected(new Set(filteredDevices.map((d) => String(d.Did))))}
+                      className="text-xs font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                    >
+                      เลือกทั้งหมด
+                    </button>
+                    <span className="text-slate-300">|</span>
+                    <button
+                      type="button"
+                      onClick={() => setAssignDeviceSelected(new Set())}
+                      className="text-xs font-medium text-slate-500 hover:text-slate-700 hover:underline"
+                    >
+                      ยกเลิกทั้งหมด
+                    </button>
+                    <span className="text-xs text-slate-500">
+                      (เลือกแล้ว {assignDeviceSelected.size} ชิ้น{filteredDevices.length < allDevices.length ? ` • แสดง ${filteredDevices.length}/${allDevices.length}` : ''})
+                    </span>
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="px-4 py-3 text-left w-12">
+                            <input
+                              type="checkbox"
+                              checked={filteredDevices.length > 0 && filteredDevices.every((d) => assignDeviceSelected.has(String(d.Did)))}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setAssignDeviceSelected((prev) => {
+                                    const next = new Set(prev);
+                                    filteredDevices.forEach((d) => next.add(String(d.Did)));
+                                    return next;
+                                  });
+                                } else {
+                                  setAssignDeviceSelected((prev) => {
+                                    const next = new Set(prev);
+                                    filteredDevices.forEach((d) => next.delete(String(d.Did)));
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                            />
+                          </th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">อุปกรณ์</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">สถานะปัจจุบัน</th>
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">Site ปลายทาง</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredDevices.map((device) => {
+                          const detail = assignDeviceDetails[String(device.Did)];
+                          const isAtSite = detail?.SLid != null && detail.SLid !== 2;
+                          const siteLabel = isAtSite && (detail?.SiteName || detail?.Location2)
+                            ? `${detail.SiteName || ''} ${detail.Location2 || ''}`.trim() || `Site ${detail.SLid}`
+                            : null;
+                          const deviceLabel = device.CI_Name || device.Asset_Number || `Device ${device.Did}`;
+                          const isSelected = assignDeviceSelected.has(String(device.Did));
+                          return (
+                            <tr key={device.Did} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/50 ${!isSelected ? 'opacity-60' : ''}`}>
+                              <td className="px-4 py-3">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    const id = String(device.Did);
+                                    setAssignDeviceSelected((prev) => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(id);
+                                      else next.delete(id);
+                                      return next;
+                                    });
+                                  }}
+                                  className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                                />
+                              </td>
+                              <td className="px-4 py-3 font-medium text-slate-800">{deviceLabel}</td>
+                              <td className="px-4 py-3">
+                                {detail ? (
+                                  isAtSite ? (
+                                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 border border-green-200">
+                                      <Check size={14} />
+                                      อยู่ที่ site แล้ว ({siteLabel})
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-500 text-xs">ยังไม่ได้กำหนด / คลัง</span>
+                                  )
+                                ) : (
+                                  <span className="text-slate-400 text-xs">—</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={deviceTargetSite[String(device.Did)] ?? ''}
+                                  onChange={(ev) => setDeviceTargetSite((prev) => ({ ...prev, [String(device.Did)]: ev.target.value }))}
+                                  disabled={!isSelected}
+                                  className={`rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none min-w-[200px] ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
+                                >
+                                  <option value="">-- เลือก Site --</option>
+                                  {sitesLocation.map((s) => (
+                                    <option key={s.SLid} value={String(s.SLid)}>
+                                      {s.SiteName} – {s.Location2}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {filteredDevices.length === 0 && (
+                    <p className="text-sm text-slate-500 text-center py-4">ไม่พบอุปกรณ์ที่ตรงกับคำค้นหา</p>
+                  )}
+                  </>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+            {!assignModalLoading && (
+              <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setShowAssignSiteModal(false)}
+                  disabled={assignModalSubmitting}
+                  className="px-5 py-2.5 rounded-xl border border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {fullContractDetails?.devices && fullContractDetails.devices.length > 0 ? 'ยกเลิก' : 'ปิด'}
+                </button>
+                {fullContractDetails?.devices && fullContractDetails.devices.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleAssignSiteConfirm}
+                    disabled={assignModalSubmitting || assignDeviceSelected.size === 0}
+                    className="px-5 py-2.5 rounded-xl bg-amber-500 font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {assignModalSubmitting ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        กำลังอัปเดต...
+                      </>
+                    ) : (
+                      <>
+                        <Check size={18} />
+                        ยืนยัน
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
@@ -1454,4 +1877,4 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
       <div style={{ animation: 'slideUp 0.4s ease-out' }}>{children}</div>
     </div>
   );
-}
+} 

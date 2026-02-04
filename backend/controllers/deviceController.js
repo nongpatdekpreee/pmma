@@ -355,14 +355,15 @@ const getDevices = async (req, res) => {
     const totalPages = Math.ceil(totalRecords / limit);
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-                 devices.SLid, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
                  Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
                  FROM devices
                  JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
                  JOIN manufacturer ON device_type.Mid = manufacturer.Mid
-                 LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
-                 LEFT JOIN sites ON sites_location.Sid = sites.Sid
+                 LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
+                 LEFT JOIN sites ON sl.Sid = sites.Sid
+                 LEFT JOIN location L ON sl.lid = L.lid
                  WHERE 1=1 ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
@@ -853,6 +854,11 @@ const updateDevice = async (req, res) => {
       values.push(Asset_State);
       changedFields.Asset_State = Asset_State;
     }
+    if (SLid !== undefined) {
+      updates.push('SLid = ?');
+      values.push(SLid);
+      changedFields.SLid = SLid;
+    }
     if (serial !== undefined) {
       updates.push('serial = ?');
       values.push(serial);
@@ -878,20 +884,10 @@ const updateDevice = async (req, res) => {
       values.push(Vendor);
       changedFields.Vendor = Vendor;
     }
-    if (Project !== undefined) {
-      updates.push('Project = ?');
-      values.push(Project);
-      changedFields.Project = Project;
-    }
-    if (Sid !== undefined) {
-      updates.push('Sid = ?');
-      values.push(Sid);
-      changedFields.Sid = Sid;
-    }
-    if (Location2 !== undefined) {
-      updates.push('Location2 = ?');
-      values.push(Location2);
-      changedFields.Location2 = Location2;
+    if (Project_purchase !== undefined) {
+      updates.push('Project_purchase = ?');
+      values.push(Project_purchase);
+      changedFields.Project_purchase = Project_purchase;
     }
     if (PO_No !== undefined) {
       updates.push('PO_No = ?');

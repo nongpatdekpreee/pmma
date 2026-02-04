@@ -1,11 +1,101 @@
+ 'use client';
+
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { MaintenanceCard } from '@/components/ui/MaintenanceCard';
 import { Search, Bell, ChevronDown } from 'lucide-react';
 import Link from 'next/link'; 
 import DateTime from '@/components/ui/DateTime';
 import DashboardHeader from '@/components/ui/Header';
+import { useEffect, useMemo, useState } from 'react';
+import { getTasks, getVendorStatistics } from '@/lib/api';
+import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from 'recharts';
 
 export default function DashboardPage() {
+  const [pmCards, setPmCards] = useState<Array<{
+    id: string;
+    location: string;
+    date: string;
+    priority: 'High' | 'Low';
+    deviceType: string;
+    count: number;
+    assignees: string[];
+  }>>([]);
+  const [vendorBars, setVendorBars] = useState<Array<{ name: string; value: number }>>([]);
+  const [loadingPm, setLoadingPm] = useState(true);
+  const [loadingMa, setLoadingMa] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPm = async () => {
+      setLoadingPm(true);
+      try {
+        const res = await getTasks();
+        const all = Array.isArray(res?.data) ? res.data : [];
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const upcomingPm = all
+          .filter((t: any) => String(t.taskType).toUpperCase() === 'PM')
+          .filter((t: any) => t.startDate)
+          .map((t: any) => ({ ...t, _start: new Date(t.startDate) }))
+          .filter((t: any) => !Number.isNaN(t._start.getTime()) && t._start >= today)
+          .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
+          .slice(0, 3);
+
+        const mapped = upcomingPm.map((t: any) => {
+          const assets = Array.isArray(t.assets) ? t.assets : [];
+          const first = assets[0] || {};
+          const deviceType = first?.type_name || first?.model || first?.DeviceRole || 'Device';
+          const engineers = Array.isArray(t.engineers) ? t.engineers : [];
+          const assignees = engineers.slice(0, 4).map((e: any, i: number) => {
+            const seed = (e?.name || e?.id || String(i + 1)).toString();
+            return `https://i.pravatar.cc/150?u=${encodeURIComponent(seed)}`;
+          });
+          return {
+            id: `PM-${t.id}`,
+            location: String(t.siteName || '—'),
+            date: new Date(t.startDate).toLocaleDateString('th-TH'),
+            priority: (t.status === 'done' ? 'Low' : 'High') as 'High' | 'Low',
+            deviceType: String(deviceType),
+            count: Number(assets.length || 0),
+            assignees: (assignees.length > 0 ? assignees : ['https://i.pravatar.cc/150?u=pm']) as string[],
+          };
+        });
+
+        if (!cancelled) setPmCards(mapped);
+      } catch {
+        if (!cancelled) setPmCards([]);
+      } finally {
+        if (!cancelled) setLoadingPm(false);
+      }
+    };
+    loadPm();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMa = async () => {
+      setLoadingMa(true);
+      try {
+        const res = await getVendorStatistics();
+        const list = Array.isArray(res?.data) ? res.data : [];
+        const bars = list
+          .slice()
+          .sort((a: any, b: any) => Number(b.value || 0) - Number(a.value || 0))
+          .slice(0, 6)
+          .map((v: any) => ({ name: v.name || '—', value: Number(v.value || 0) }));
+        if (!cancelled) setVendorBars(bars);
+      } catch {
+        if (!cancelled) setVendorBars([]);
+      } finally {
+        if (!cancelled) setLoadingMa(false);
+      }
+    };
+    loadMa();
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <SidebarLayout>
       <DashboardHeader />
@@ -31,8 +121,20 @@ export default function DashboardPage() {
                 View all &gt;
                 </Link>
               </div>
-              <div className="h-64 flex items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed border-gray-200">
-                <p className="text-gray-400">กราฟอะ ค่อย</p>
+              <div className="h-64 bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
+                {loadingMa ? (
+                  <div className="h-full flex items-center justify-center text-slate-400">กำลังโหลด...</div>
+                ) : vendorBars.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-400">ยังไม่มีข้อมูล</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={vendorBars} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
 
@@ -45,21 +147,24 @@ export default function DashboardPage() {
                 </Link>
               </div>
               <div className="space-y-3">
-                <MaintenanceCard 
-                  id="PM-001" location="Chiang Rai" date="12, 2025" priority="High" 
-                  deviceType="Switch" count={13} 
-                  assignees={['https://i.pravatar.cc/150?u=1', 'https://i.pravatar.cc/150?u=2', 'https://i.pravatar.cc/150?u=3']} 
-                />
-                <MaintenanceCard 
-                  id="PM-002" location="Phuket" date="Sep 16, 2025" priority="High" 
-                  deviceType="Router" count={24} 
-                  assignees={['https://i.pravatar.cc/150?u=4', 'https://i.pravatar.cc/150?u=5']} 
-                />
-                <MaintenanceCard 
-                  id="PM-003" location="Chiang Mai" date="May 28, 2025" priority="Low" 
-                  deviceType="Firewall" count={20} 
-                  assignees={['https://i.pravatar.cc/150?u=6', 'https://i.pravatar.cc/150?u=7', 'https://i.pravatar.cc/150?u=8', 'https://i.pravatar.cc/150?u=9']} 
-                />
+                {loadingPm ? (
+                  <div className="text-sm text-slate-400 py-6 text-center">กำลังโหลด...</div>
+                ) : pmCards.length === 0 ? (
+                  <div className="text-sm text-slate-400 py-6 text-center">ยังไม่มีงาน PM</div>
+                ) : (
+                  pmCards.map((c) => (
+                    <MaintenanceCard
+                      key={c.id}
+                      id={c.id}
+                      location={c.location}
+                      date={c.date}
+                      priority={c.priority}
+                      deviceType={c.deviceType}
+                      count={c.count}
+                      assignees={c.assignees}
+                    />
+                  ))
+                )}
               </div>
             </div>
           </div>
