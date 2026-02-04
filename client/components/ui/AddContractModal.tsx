@@ -20,8 +20,10 @@ interface DeviceItem {
   Did: number;
   CI_Name: string | null;
   Asset_Number: string | null;
-  typeModel?: string | null;
+  serial?: string | null;
+  model?: string | null;
   roleName?: string | null;
+  manufacturername?: string | null;
 }
 
 export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
@@ -572,11 +574,12 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         devices={devicesBySite.map((d) => ({
           id: String(d.Did),
           name: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
-          type: d.typeModel || '',
+          type: d.model || '',
           role: d.roleName || '',
-          serialNumber: '',
+          serialNumber: d.serial || '',
           site: '',
           assetNumber: d.Asset_Number || '',
+          manufacturer: d.manufacturername || '',
         }))}
         selectedIds={activeEntryDevices.map((d) => d.id)}
         filter={deviceFilter}

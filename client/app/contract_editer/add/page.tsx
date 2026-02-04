@@ -21,22 +21,23 @@ type SiteEntry = {
   id: string;
   siteId: string;
   siteLabel: string;
-  devices: Array<{ id: string; label: string }>;
+  devices: Array<{ id: string; label: string; role?: string }>;
 };
 
 export default function AddContractPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const renewContractId = searchParams?.get('renew');
+  const editContractId = searchParams?.get('edit');
 
   // Form state
   const [contractName, setContractName] = useState('');
   const [sofName, setSofName] = useState('');
   const [assignedService, setAssignedService] = useState('');
   const [slaTerm, setSlaTerm] = useState('');
-  const [slaDetail, setSlaDetail] = useState('');
   const [selectedSOF, setSelectedSOF] = useState('');
   const [saleAccount, setSaleAccount] = useState('');
+  const [contractValue, setContractValue] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
   const [remark, setRemark] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -94,9 +95,9 @@ export default function AddContractPage() {
         const res = await fetch(apiUrl('/api/devices/refer-sof'));
         const json = await res.json();
         if (res.ok && json.data) setReferSOFList(json.data);
-        else if (!res.ok) throw new Error(json.message || 'ดึง Refer SOF ไม่ได้');
+        else if (!res.ok) throw new Error(json.message || 'Load Refer SOF failed');
       } catch (e) {
-        setFetchError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
+        setFetchError(e instanceof Error ? e.message : 'Load data failed');
       } finally {
         setReferSOFLoading(false);
       }
@@ -104,9 +105,152 @@ export default function AddContractPage() {
     load();
   }, []);
 
+  // โหลดข้อมูลสัญญาเพื่อแก้ไขเมื่อมี editContractId
+  useEffect(() => {
+    if (!editContractId) return;
+    
+    const loadContractForEdit = async () => {
+      setDataLoading(true);
+      setFetchError('');
+      try {
+        // โหลด referSOFList ก่อน
+        const referSOFRes = await fetch(apiUrl('/api/devices/refer-sof'));
+        const referSOFJson = await referSOFRes.json();
+        if (referSOFRes.ok && referSOFJson.data) {
+          setReferSOFList(referSOFJson.data);
+        }
+
+        // โหลด sitesLocation ก่อน
+        const sitesRes = await fetch(apiUrl('/api/sites/locations'));
+        const sitesJson = await sitesRes.json();
+        if (sitesRes.ok && sitesJson.data) {
+          setSitesLocation(sitesJson.data);
+        }
+
+        // ดึงข้อมูลสัญญา
+        const contractRes = await fetch(apiUrl(`/api/contracts/${editContractId}`));
+        const contractJson = await contractRes.json();
+        
+        if (!contractRes.ok || !contractJson.data) {
+          throw new Error(contractJson.message || 'Load contract failed');
+        }
+
+        const contract = contractJson.data;
+        
+        // เติมข้อมูลลง form
+        if (contract.contract_name) setContractName(contract.contract_name);
+        if (contract.sof_name) {
+          setSelectedSOF(contract.sof_name);
+          setSofName(contract.sof_name);
+        }
+        if (contract.Assigned_Service) setAssignedService(contract.Assigned_Service);
+        if (contract.sla_term != null) setSlaTerm(String(contract.sla_term));
+        if (contract.sale_account) setSaleAccount(contract.sale_account);
+        if (contract.contract_value != null) {
+          setContractValue(contract.contract_value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        }
+        if (contract.coverage_scope) setCoverageScope(contract.coverage_scope);
+        if (contract.remark) setRemark(contract.remark);
+        if (contract.start_date) setStartDate(contract.start_date);
+        if (contract.end_date) setEndDate(contract.end_date);
+        if (contract.contract_sign_date) setContractSignDate(contract.contract_sign_date);
+        if (contract.pm_time_per_year) setPmTimePerYear(String(contract.pm_time_per_year));
+        
+        // คำนวณ duration
+        if (contract.start_date && contract.end_date) {
+          const start = new Date(contract.start_date);
+          const end = new Date(contract.end_date);
+          const monthsDiff = (end.getFullYear() - start.getFullYear()) * 12 + 
+                             (end.getMonth() - start.getMonth());
+          if (monthsDiff > 0) {
+            setDuration(String(monthsDiff));
+          }
+        }
+
+        // โหลด file paths
+        if (contract.file_paths) {
+          try {
+            const files = typeof contract.file_paths === 'string' ? JSON.parse(contract.file_paths) : contract.file_paths;
+            if (Array.isArray(files)) setFilePaths(files);
+          } catch {}
+        }
+        if (contract.image_paths) {
+          try {
+            const images = typeof contract.image_paths === 'string' ? JSON.parse(contract.image_paths) : contract.image_paths;
+            if (Array.isArray(images)) setImagePaths(images);
+          } catch {}
+        }
+
+        // รอ sitesLocation โหลดเสร็จก่อนสร้าง site entries
+        let currentSites = sitesLocation;
+        if (currentSites.length === 0) {
+          // ถ้ายังไม่มี sitesLocation ให้รอโหลดเสร็จก่อน
+          const sitesRes2 = await fetch(apiUrl('/api/sites/locations'));
+          const sitesJson2 = await sitesRes2.json();
+          if (sitesRes2.ok && sitesJson2.data) {
+            currentSites = sitesJson2.data;
+            setSitesLocation(sitesJson2.data);
+          }
+        }
+
+        // สร้าง site entries จาก devices และ sites
+        if (contract.devices && contract.devices.length > 0) {
+          const devicesBySLid = new Map<number, DeviceItem[]>();
+          contract.devices.forEach((device: DeviceItem) => {
+            const slid = (device as any).SLid as number | null | undefined;
+            if (slid) {
+              if (!devicesBySLid.has(slid)) {
+                devicesBySLid.set(slid, []);
+              }
+              devicesBySLid.get(slid)!.push(device);
+            }
+          });
+
+          const newSiteEntries: SiteEntry[] = [];
+          devicesBySLid.forEach((devices, slid) => {
+            const site = currentSites.find((s) => s.SLid === slid) || 
+                        contract.sites?.find((s: any) => s.SLid === slid);
+            const siteLabel = site 
+              ? `${(site as any).SiteName || ''} – ${(site as any).Location2 || ''}`.trim() || `Site ${slid}`
+              : `Site ${slid}`;
+            newSiteEntries.push({
+              id: crypto.randomUUID(),
+              siteId: String(slid),
+              siteLabel,
+              devices: devices.map((d) => ({
+                id: String(d.Did),
+                label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
+                role: (d as any).roleName || undefined,
+              })),
+            });
+          });
+          
+          if (newSiteEntries.length > 0) {
+            setSiteEntries(newSiteEntries);
+          }
+        } else if (contract.sites && contract.sites.length > 0) {
+          // ถ้าไม่มี devices แต่มี sites ให้สร้าง site entries ว่าง
+          const newSiteEntries: SiteEntry[] = contract.sites.map((site: any) => ({
+            id: crypto.randomUUID(),
+            siteId: String(site.SLid),
+            siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${site.SLid}`,
+            devices: [],
+          }));
+          setSiteEntries(newSiteEntries);
+        }
+      } catch (e) {
+        setFetchError(e instanceof Error ? e.message : 'Load contract data failed');
+      } finally {
+        setDataLoading(false);
+      }
+    };
+    
+    loadContractForEdit();
+  }, [editContractId]);
+
   // โหลดข้อมูลสัญญาเก่าเมื่อมี renewContractId
   useEffect(() => {
-    if (!renewContractId) return;
+    if (!renewContractId || editContractId) return;
     
     const loadOldContract = async () => {
       setLoadingOldContract(true);
@@ -168,7 +312,7 @@ export default function AddContractPage() {
           setSelectedOldDevices(allDeviceIds);
         }
       } catch (e) {
-        setFetchError(e instanceof Error ? e.message : 'โหลดข้อมูลสัญญาเก่าไม่สำเร็จ');
+        setFetchError(e instanceof Error ? e.message : 'Load old contract data failed');
       } finally {
         setLoadingOldContract(false);
       }
@@ -219,6 +363,7 @@ export default function AddContractPage() {
           devices: devices.map((d) => ({
             id: String(d.Did),
             label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
+            role: d.roleName || undefined,
           })),
         });
       });
@@ -251,9 +396,9 @@ export default function AddContractPage() {
         const res = await fetch(url);
         const json = await res.json();
         if (res.ok && json.data) setSitesLocation(json.data);
-        else if (!res.ok) throw new Error(json.message || 'ดึง Sites ไม่ได้');
+        else if (!res.ok) throw new Error(json.message || 'Load Sites failed');
       } catch (e) {
-        setFetchError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
+        setFetchError(e instanceof Error ? e.message : 'Load data failed');
       } finally {
         setDataLoading(false);
       }
@@ -274,13 +419,13 @@ export default function AddContractPage() {
       );
       const json = await res.json();
       if (res.ok && json.data) return json.data;
-      throw new Error(json.message || 'ดึง Devices ไม่ได้');
+      throw new Error(json.message || 'Load Devices failed');
     }
     // SOF ไม่มีใน DB: แสดงทุก devices ที่ยังไม่มีเลข SOF (ทุก site, ไม่กรองตาม site)
     const res = await fetch(apiUrl(`/api/devices/by-site-no-sof`));
     const json = await res.json();
     if (res.ok && json.data) return json.data;
-    throw new Error(json.message || 'ดึง Devices ไม่ได้');
+    throw new Error(json.message || 'Load Devices failed');
   };
 
   const openDeviceModalForSite = async (entryId: string, siteId: string, siteLabel: string) => {
@@ -292,7 +437,7 @@ export default function AddContractPage() {
       setDevicesBySite(devices);
       setIsDeviceModalOpen(true);
     } catch (e) {
-      setFetchError(e instanceof Error ? e.message : 'โหลด Devices ไม่สำเร็จ');
+      setFetchError(e instanceof Error ? e.message : 'Load Devices failed');
     } finally {
       setDevicesLoading(false);
     }
@@ -314,7 +459,7 @@ export default function AddContractPage() {
     );
   };
 
-  const updateEntryDevices = (entryId: string, devices: Array<{ id: string; label: string }>) => {
+  const updateEntryDevices = (entryId: string, devices: Array<{ id: string; label: string; role?: string }>) => {
     setSiteEntries((prev) => prev.map((e) => (e.id === entryId ? { ...e, devices } : e)));
   };
 
@@ -345,7 +490,7 @@ export default function AddContractPage() {
     fd.append('file', file);
     const res = await fetch(apiUrl('/api/contracts/upload'), { method: 'POST', body: fd });
     const json = await res.json();
-    if (!res.ok) throw new Error(json.message || 'อัปโหลดไม่สำเร็จ');
+    if (!res.ok) throw new Error(json.message || 'Upload failed');
     return json.path;
   };
 
@@ -360,7 +505,7 @@ export default function AddContractPage() {
       if (type === 'file') setFilePaths((prev) => [...prev, ...paths]);
       else setImagePaths((prev) => [...prev, ...paths]);
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : 'อัปโหลดไม่สำเร็จ');
+      setFetchError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
       e.target.value = '';
@@ -371,14 +516,34 @@ export default function AddContractPage() {
     e.preventDefault();
     setSaveError('');
     if (!slaTerm.trim()) {
-      const msg = 'กรุณากรอก SLA Term';
+      const msg = 'Please enter SLA Term';
       setSaveError(msg);
       toastError(msg);
       return;
     }
-
+    
+    // Validate SLA Term เป็นตัวเลข 0-100
+    const slaTermNum = parseFloat(slaTerm.trim());
+    if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
+      const msg = 'SLA Term must be a number between 0 and 100';
+      setSaveError(msg);
+      toastError(msg);
+      return;
+    }
+    
+    // Validate Contract Value เป็นจำนวนเงิน (ตัวเลขบวกเท่านั้น)
+    if (contractValue.trim() && contractValue.trim() !== '') {
+      const contractValueNum = parseFloat(contractValue.replace(/,/g, '').trim());
+      if (isNaN(contractValueNum) || contractValueNum < 0) {
+        const msg = 'Contract Value must be a positive number';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
+    }
+    
     if (!selectedSOF?.trim()) {
-      const msg = 'กรุณาเลือกหรือกรอก SOF (Refer SOF จาก Device)';
+        const msg = 'Please select or enter SOF (Refer SOF from Device List)';
       setSaveError(msg);
       toastError(msg);
       return;
@@ -422,8 +587,8 @@ export default function AddContractPage() {
             sof_name: selectedSOF.trim() || null,
             assigned_service: assignedService.trim() || null,
             sla_term: slaTerm.trim(),
-            sla_detail: slaDetail.trim() || null,
             sale_account: saleAccount.trim() || null,
+            contract_value: contractValue.trim() ? contractValue.replace(/,/g, '').trim() : null,
             coverage_scope: coverageScope.trim() || null,
             remark: remark.trim() || null,
             contract_sign_date: contractSignDate || null,
@@ -453,14 +618,17 @@ export default function AddContractPage() {
       }
     }
 
-    // ถ้ามีทั้ง devices จากสัญญาเก่าและ site entries ใหม่
-    if (validPairs.length === 0 && oldDeviceIds.length === 0) {
-      const msg = renewContractId 
-        ? 'กรุณาเลือก Device อย่างน้อย 1 รายการ (จากสัญญาเก่าหรือเพิ่มใหม่)'
-        : 'กรุณาเลือก Site และ Device อย่างน้อย 1 รายการ (เลือก Site แล้วกดเลือก Device)';
-      setSaveError(msg);
-      toastError(msg);
-      return;
+    // ถ้าเป็นการแก้ไข ไม่ต้อง validate devices (อาจจะยังไม่เปลี่ยน)
+    // แต่ถ้าเป็นการสร้างใหม่หรือต่อสัญญา ต้องมี devices
+    if (!editContractId) {
+      if (validPairs.length === 0 && oldDeviceIds.length === 0) {
+        const msg = renewContractId 
+          ? 'Please select at least 1 device (from old contract or add new)'
+          : 'Please select at least 1 site and device (select site then select device)';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
     }
 
     setSaveLoading(true);
@@ -507,46 +675,66 @@ export default function AddContractPage() {
         });
       }
 
-      const site_device_pairs = allPairs.map((e) => ({
+      const site_device_pairs = allPairs.length > 0 ? allPairs.map((e) => ({
         site_id: e.site_id,
         device_ids: Array.isArray(e.device_ids) 
           ? e.device_ids.filter((n: number) => !isNaN(n))
           : [],
-      }));
+      })) : [];
 
-      const body = {
+      const body: any = {
         contract_name: contractName.trim() || null,
         start_date: startDate || null,
         end_date: endDate || null,
-        site_device_pairs,
         sof_name: selectedSOF.trim() || null,
         assigned_service: assignedService.trim() || null,
         sla_term: slaTerm.trim(),
-        sla_detail: slaDetail.trim() || null,
         sale_account: saleAccount.trim() || null,
+        contract_value: contractValue.trim() ? contractValue.replace(/,/g, '').trim() : null,
         coverage_scope: coverageScope.trim() || null,
         remark: remark.trim() || null,
         contract_sign_date: contractSignDate || null,
         pm_time_per_year: pmTimePerYear ? parseInt(pmTimePerYear, 10) : null,
         file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
         image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
-        old_contract_id: renewContractId ? parseInt(renewContractId, 10) : null,
-        old_sof: renewContractId && oldContractSOF ? oldContractSOF : null,
       };
-      const res = await fetch(apiUrl('/api/contracts'), {
-        method: 'POST',
+
+      // เพิ่ม site_device_pairs
+      // ถ้าเป็นการสร้างใหม่หรือต่อสัญญา: ส่งเสมอ
+      // ถ้าเป็นการแก้ไข: ส่งเฉพาะเมื่อมีการเปลี่ยนแปลง devices (มี site_device_pairs)
+      if (!editContractId || site_device_pairs.length > 0) {
+        body.site_device_pairs = site_device_pairs;
+      }
+      // ถ้าเป็นการแก้ไขและไม่ส่ง site_device_pairs หมายความว่าไม่ต้องการเปลี่ยน devices
+
+      // เพิ่ม old_contract_id และ old_sof เฉพาะเมื่อต่อสัญญา
+      if (renewContractId) {
+        body.old_contract_id = parseInt(renewContractId, 10);
+        body.old_sof = oldContractSOF || null;
+      }
+
+      // ถ้าเป็นการแก้ไข ใช้ PUT, ถ้าไม่ใช่ใช้ POST
+      const url = editContractId 
+        ? apiUrl(`/api/contracts/${editContractId}`)
+        : apiUrl('/api/contracts');
+      const method = editContractId ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || 'บันทึกไม่สำเร็จ');
-      toastSuccess(renewContractId 
-        ? `ต่อสัญญาสำเร็จ (SOF เก่า: ${oldContractSOF} → SOF ใหม่: ${selectedSOF})`
-        : 'บันทึกสัญญาใหม่สำเร็จ'
+      if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
+      toastSuccess(editContractId
+        ? 'แก้ไขสัญญาสำเร็จ'
+        : renewContractId 
+          ? `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`
+          : 'New contract saved successfully'
       );
       router.push('/contract_editer');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'บันทึกไม่สำเร็จ';
+      const msg = err instanceof Error ? err.message : 'Save failed';
       setSaveError(msg);
       toastError(msg);
     } finally {
@@ -571,12 +759,12 @@ export default function AddContractPage() {
               </Link>
               <div>
                 <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-800 sm:text-3xl">
-                  <span className="text-3xl">📝</span>
-                  <span>เพิ่มสัญญาใหม่</span>
+                  <span className="text-3xl">{editContractId ? '✏️' : '📝'}</span>
+                  <span>{editContractId ? 'Edit Contract' : 'Add New Contract'}</span>
                 </h1>
                 <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
-                  <span>✨</span>
-                  <span>กรอกข้อมูลสัญญาบำรุงรักษาให้ครบถ้วน</span>
+                  <span>{editContractId ? '🔧' : '✨'}</span>
+                  <span>{editContractId ? 'แก้ไขข้อมูลสัญญา' : 'Enter contract information completely'}</span>
                 </p>
               </div>
             </div>
@@ -601,36 +789,36 @@ export default function AddContractPage() {
           {/* Section สำหรับต่อสัญญา: แสดงข้อมูลสัญญาเก่า */}
           {renewContractId && (
             <FormSection
-              title="ข้อมูลสัญญาเก่า"
-              description="ข้อมูลจากสัญญาที่ต้องการต่ออายุ"
+              title="Old Contract Information"
+              description="Information from the contract to be renewed"
               icon={FileText}
               emoji="🔄"
               gradient="from-amber-50 to-orange-50"
             >
               {loadingOldContract ? (
-                <p className="text-sm text-slate-500">กำลังโหลดข้อมูลสัญญาเก่า...</p>
+                <p className="text-sm text-slate-500">Loading old contract information...</p>
               ) : (
                 <>
                   {oldContractSOF && (
                     <div className="grid gap-4 sm:grid-cols-2">
-                      <FormField label="SOF เก่า (Old SOF)">
+                      <FormField label="Old SOF">
                         <input
                           type="text"
                           value={oldContractSOF}
                           readOnly
                           className={`${inputBase} bg-slate-100 cursor-not-allowed`}
                         />
-                        <p className="mt-1 text-xs text-amber-600">SOF จากสัญญาเก่า (จะถูกเก็บไว้ในฐานข้อมูล)</p>
+                        <p className="mt-1 text-xs text-amber-600">SOF from old contract (will be stored in the database)</p>
                       </FormField>
                       {selectedSOF && (
-                        <FormField label="SOF ใหม่ (New SOF)">
+                        <FormField label="New SOF ">
                           <input
                             type="text"
                             value={selectedSOF}
                             readOnly
                             className={`${inputBase} bg-blue-50 cursor-not-allowed`}
                           />
-                          <p className="mt-1 text-xs text-blue-600">SOF ใหม่สำหรับสัญญานี้</p>
+                          <p className="mt-1 text-xs text-blue-600">New SOF for this contract</p>
                         </FormField>
                       )}
                     </div>
@@ -663,7 +851,7 @@ export default function AddContractPage() {
                           ))}
                         </div>
                         <p className="mt-2 text-xs text-slate-500">
-                          เลือก devices ที่ต้องการนำมาใช้ในสัญญาใหม่ (ส่วนใหญ่จะเป็น devices เดิม)
+                          Select devices to use in the new contract (mostly the same devices)
                         </p>
                       </FormField>
                     </div>
@@ -675,8 +863,8 @@ export default function AddContractPage() {
 
           {/* Section 1: ข้อมูลพื้นฐาน */}
           <FormSection
-            title="ข้อมูลพื้นฐาน"
-            description="ชื่อสัญญาและข้อมูลบริการ"
+            title="Basic Information"
+            description="Contract name and service information"
             icon={FileText}
             emoji="📋"
             gradient="from-blue-50 to-cyan-50"
@@ -700,7 +888,35 @@ export default function AddContractPage() {
                   className={inputBase}
                 />
               </FormField>
-              <FormField label={renewContractId ? "SOF ใหม่ (New SOF)" : "SOF (Refer SOF จาก Device)"} required>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Contract Value (THB)">
+                <input
+                  type="text"
+                  value={contractValue}
+                  onChange={(e) => {
+                    let value = e.target.value.replace(/,/g, ''); // ลบ comma ออกก่อน
+                    // อนุญาตให้กรอกเฉพาะตัวเลขบวก (จำนวนเงิน)
+                    if (value === '' || (!isNaN(parseFloat(value)) && parseFloat(value) >= 0)) {
+                      // Format ด้วย comma separator
+                      if (value !== '' && !isNaN(parseFloat(value))) {
+                        const numValue = parseFloat(value);
+                        const formatted = numValue.toLocaleString('en-US', {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2
+                        });
+                        setContractValue(formatted);
+                      } else {
+                        setContractValue(value);
+                      }
+                    }
+                  }}
+                  placeholder="0.00"
+                  className={inputBase}
+                />
+                <p className="mt-1 text-xs text-slate-500">กรอกจำนวนเงินเท่านั้น (ตัวเลขบวก)</p>
+              </FormField>
+              <FormField label={renewContractId ? "New SOF" : "SOF (Refer SOF from Device)"} required>
                 <input
                   type="text"
                   list="sof-list"
@@ -709,7 +925,7 @@ export default function AddContractPage() {
                     setSelectedSOF(e.target.value);
                     setSofName(e.target.value);
                   }}
-                  placeholder={renewContractId ? "ใส่เลข SOF ใหม่ (เช่น 89100XXXXX)" : "เลือกจากรายการหรือพิมพ์เลข SOF (เช่น 89100XXXXX)"}
+                  placeholder={renewContractId ? "Enter new SOF (e.g. 89100XXXXX)" : "Select from list or enter SOF (e.g. 89100XXXXX)"}
                   className={inputBase}
                   disabled={referSOFLoading}
                   required
@@ -719,25 +935,41 @@ export default function AddContractPage() {
                     <option key={sof} value={sof} />
                   ))}
                 </datalist>
-                {referSOFLoading && <p className="mt-1 text-xs text-slate-500">กำลังโหลด...</p>}
+                {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
                 {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
                   <p className="mt-1 text-xs text-amber-600">
-                    เลข SOF นี้ยังไม่มีในระบบ 
+                    {renewContractId ? "New SOF is not in the system (will be created)" : "SOF is not in the system"}
+                  </p>
+                )}
+                {renewContractId && oldContractSOF && (
+                  <p className="mt-1 text-xs text-blue-600">
+                    Old SOF: {oldContractSOF} → New SOF: {selectedSOF || '(please enter)'}
                   </p>
                 )}
               </FormField>
-              <FormField label="SLA Term" required>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="SLA Term (%)" required>
                 <input
-                  type="text"
+                  type="number"
                   value={slaTerm}
-                  onChange={(e) => setSlaTerm(e.target.value)}
-                  placeholder="SLA %"
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // อนุญาตให้กรอกเฉพาะตัวเลข 0-100
+                    if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
+                      setSlaTerm(value);
+                    }
+                  }}
+                  placeholder="0-100"
+                  min="0"
+                  max="100"
+                  step="0.01"
                   className={inputBase}
                   required
                 />
+                <p className="mt-1 text-xs text-slate-500">Enter only numbers between 0 and 100</p>
               </FormField>
-              
-              <FormField label="Sale Account" className="sm:col-span-2">
+              <FormField label="Sale Account">
                 <input
                   type="text"
                   value={saleAccount}
@@ -795,7 +1027,7 @@ export default function AddContractPage() {
                   className={inputBase}
                 >
                   <option value="">Select</option>
-                  {[1, 2, 4, 6, 12].map((n) => (
+                  {[1, 2, 3, 4, 5].map((n) => (
                     <option key={n} value={n}>
                       {n} times/year
                     </option>
@@ -809,21 +1041,21 @@ export default function AddContractPage() {
           {/* Section 3: Site & อุปกรณ์ (แสดงเมื่อเลือก SOF แล้ว, หลาย site แต่ละ site หลาย device) */}
           <FormSection
             title="Site and Devices"
-            description="เลือก SOF ก่อน จากนั้นเลือก Site และ Device "
+            description="Select SOF first, then select Site and Device"
             icon={Cpu}
             emoji="🏢"
             gradient="from-emerald-50 to-teal-50"
           >
             {!selectedSOF?.trim() ? (
               <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-10 text-center text-sm text-slate-500">
-                <span>กรุณาเลือกหรือกรอก SOF </span>
-                <span className="text-xs">สวัสดี</span>
+                <span>Please select or enter SOF</span>
+                <span className="text-xs">Hello</span>
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                    Site และ Device *
+                    Site and Device *
                   </span>
                   <button
                     type="button"
@@ -832,11 +1064,11 @@ export default function AddContractPage() {
                     className="flex items-center gap-1.5 rounded-xl bg-green-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Plus size={16} />
-                    เพิ่ม Site
+                    Add Site
                   </button>
                 </div>
                 {dataLoading && ( 
-                  <p className="text-sm text-slate-500">กำลังโหลดรายการ Site...</p>
+                  <p className="text-sm text-slate-500">Loading site list...</p>
                 )}
                 <div className="space-y-3">
                   {siteEntries.map((entry) => (
@@ -855,7 +1087,7 @@ export default function AddContractPage() {
                             className={inputBase}
                             disabled={dataLoading || !selectedSOF}
                           >
-                            <option value="">-- เลือก Site --</option>
+                            <option value="">-- Select Site --</option>
                             {sitesLocation.map((s) => (
                               <option key={s.SLid} value={String(s.SLid)}>
                                 {s.SiteName} – {s.Location2}
@@ -873,37 +1105,64 @@ export default function AddContractPage() {
                           className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {devicesLoading && activeSiteEntryId === entry.id
-                            ? 'กำลังโหลด...'
-                            : 'เลือก Device'}
+                            ? 'Loading...'
+                            : 'Select Device'}
                         </button>
                         {siteEntries.length > 1 && (
                           <button
                             type="button"
                             onClick={() => removeSiteEntry(entry.id)}
                             className="rounded-xl p-2 text-red-500 transition-colors hover:bg-red-50"
-                            title="ลบ Site"
+                            title="Delete Site"
                           >
                             <Trash2 size={18} />
                           </button>
                         )}
                       </div>
                       {entry.devices.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {entry.devices.map((d) => (
-                            <span
-                              key={d.id}
-                              className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
-                            >
-                              {d.label}
-                              <button
-                                type="button"
-                                onClick={() => removeDeviceFromEntry(entry.id, d.id)}
-                                className="hover:text-blue-900 focus:outline-none"
-                              >
-                                <X size={10} />
-                              </button>
-                            </span>
-                          ))}
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-slate-600">
+                            Selected <span className="text-blue-600">{entry.devices.length}</span> items
+                          </p>
+                          <div className="overflow-x-auto rounded-xl border border-slate-200">
+                            <table className="w-full min-w-[280px] text-sm">
+                              <thead>
+                                <tr className="border-b border-slate-200 bg-slate-50/80">
+                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">#</th>
+                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">Device</th>
+                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">Role</th>
+                                  <th className="w-12 px-4 py-2.5 text-right text-xs font-semibold uppercase text-slate-600">Delete</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {entry.devices.map((d, idx) => (
+                                  <tr key={d.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                                    <td className="px-4 py-2.5 text-slate-500">{idx + 1}</td>
+                                    <td className="px-4 py-2.5 font-medium text-slate-700">{d.label}</td>
+                                    <td className="px-4 py-2.5">
+                                      {d.role ? (
+                                        <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                                          {d.role}
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs text-slate-400">—</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right">
+                                      <button
+                                        type="button"
+                                        onClick={() => removeDeviceFromEntry(entry.id, d.id)}
+                                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 focus:outline-none"
+                                        title="Delete"
+                                      >
+                                        <X size={16} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -917,14 +1176,29 @@ export default function AddContractPage() {
                 setIsDeviceModalOpen(false);
                 setDeviceFilter('');
               }}
-              title={activeEntry ? `เลือก Device - ${activeEntry.siteLabel || 'Site'}` : 'เลือก Device'}
+              onConfirm={(confirmedIds) => {
+                if (!activeSiteEntryId) return;
+                // Only keep devices that are in the confirmed list
+                const confirmedDevices = confirmedIds.map((id) => {
+                  const d = devicesBySite.find((x) => String(x.Did) === id);
+                  const label = d ? (d.CI_Name || d.Asset_Number || `Did ${d.Did}`) : id;
+                  const role = d?.roleName || undefined;
+                  return { id, label, role };
+                });
+                updateEntryDevices(activeSiteEntryId, confirmedDevices);
+                setIsDeviceModalOpen(false);
+                setDeviceFilter('');
+              }}
+              title={activeEntry ? `Select Device - ${activeEntry.siteLabel || 'Site'}` : 'Select Device'}
               devices={devicesAvailableForCurrentSite.map((d) => ({
                 id: String(d.Did),
                 name: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
-                type: '',
-                serialNumber: '',
+                type: d.model || '',
+                serialNumber: d.serial || '',
                 site: '',
                 assetNumber: d.Asset_Number || '',
+                role: d.roleName || '',
+                manufacturer: d.manufacturername || '',
               }))}
               selectedIds={activeEntryDevices.map((d) => d.id)}
               filter={deviceFilter}
@@ -936,6 +1210,7 @@ export default function AddContractPage() {
                   .map((d) => ({
                     id: String(d.Did),
                     label: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
+                    role: d.roleName || undefined,
                   }));
                 updateEntryDevices(activeSiteEntryId, [...activeEntryDevices, ...toAdd]);
               }}
@@ -946,10 +1221,11 @@ export default function AddContractPage() {
                 if (!activeSiteEntryId) return;
                 const d = devicesBySite.find((x) => String(x.Did) === deviceId);
                 const label = d ? (d.CI_Name || d.Asset_Number || `Did ${d.Did}`) : deviceId;
+                const role = d?.roleName || undefined;
                 const exists = activeEntryDevices.some((x) => x.id === deviceId);
                 const next = exists
                   ? activeEntryDevices.filter((x) => x.id !== deviceId)
-                  : [...activeEntryDevices, { id: deviceId, label }];
+                  : [...activeEntryDevices, { id: deviceId, label, role }];
                 updateEntryDevices(activeSiteEntryId, next);
               }}
             />
@@ -1002,12 +1278,12 @@ export default function AddContractPage() {
               {saveLoading ? (
                 <>
                   <Loader2 size={18} className="animate-spin" />
-                  <span>Saving...</span>
+                  <span>{editContractId ? 'กำลังบันทึก...' : 'Saving...'}</span>
                 </>
               ) : (
                 <>
                   <span className="text-lg">💾</span>
-                    <span>Save Contract</span>
+                  <span>{editContractId ? 'บันทึกการแก้ไข' : 'Save Contract'}</span>
                 </>
               )}
             </button>

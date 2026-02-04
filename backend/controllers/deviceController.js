@@ -1229,10 +1229,13 @@ const getDevicesBySOFAndSite = async (req, res) => {
     }
     
     const [rows] = await db.execute(
-      `SELECT Did, CI_Name, Asset_Number, Asset_State, serial, SLid, Dtypeid, DeRoleid, Refer_SOF
-       FROM devices
-       WHERE Refer_SOF = ? AND SLid = ?
-       ORDER BY COALESCE(CI_Name, Asset_Number, Did) ASC`,
+      `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
+       FROM devices d
+       LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+       LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+       LEFT JOIN manufacturer m ON dt.Mid = m.Mid
+       WHERE d.Refer_SOF = ? AND d.SLid = ?
+       ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
       [referSOF, siteId]
     );
     
@@ -1248,27 +1251,38 @@ const getDevicesBySOFAndSite = async (req, res) => {
 };
 
 // GET - ดึง Devices ที่ยังไม่มี SOF (Refer_SOF เป็น NULL, '' หรือ 'Not Assigned') และยังไม่มี contract
-// เงื่อนไข: ไม่มี contract (contract.device_id, contract_device) และ Refer_SOF = null หรือ 'Not Assigned'
+// เงื่อนไข: ไม่มี contract (contract.device_id, contract_device) และ Refer_SOF = NULL หรือ 'Not Assigned'
 // ถ้ามี site_id = กรองตาม site นั้น; ถ้าไม่มี = แสดงทุกอันที่ SLid = 2
 const getDevicesBySiteNoSOF = async (req, res) => {
   try {
     const siteId = req.query.site_id;
     let sql, params;
-    const noSofCondition = `(d.Refer_SOF IS NULL OR TRIM(COALESCE(d.Refer_SOF,'')) = '' OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned')`;
+    // เงื่อนไข: Refer_SOF เป็น NULL, empty string, หรือ 'Not Assigned' (case insensitive)
+    const noSofCondition = `(d.Refer_SOF IS NULL 
+                             OR TRIM(COALESCE(d.Refer_SOF,'')) = '' 
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned'
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'n/a'
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
     const notInContract = `d.Did NOT IN (SELECT device_id FROM contract WHERE device_id IS NOT NULL)
       AND d.Did NOT IN (SELECT device_id FROM contract_device)`;
     
     if (siteId) {
-      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF
+      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
              FROM devices d
+             LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+             LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+             LEFT JOIN manufacturer m ON dt.Mid = m.Mid
              WHERE d.SLid = ?
                AND ${noSofCondition}
                AND (${notInContract})
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
       params = [siteId];
     } else {
-      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF
+      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
              FROM devices d
+             LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+             LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+             LEFT JOIN manufacturer m ON dt.Mid = m.Mid
              WHERE d.SLid = 2
                AND ${noSofCondition}
                AND (${notInContract})

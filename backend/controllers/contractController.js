@@ -36,6 +36,7 @@ const createContract = async (req, res) => {
       assigned_service,
       sla_term,
       sale_account,
+      contract_value,
       coverage_scope,
       file_paths,
       image_paths,
@@ -146,8 +147,26 @@ const createContract = async (req, res) => {
       return isNaN(v) ? 2 : v;
     })();
 
-    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, coverage_scope, file_paths, image_paths';
-    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+    // Validate และ format contract_value สำหรับ DECIMAL(15,2)
+    let contractValue = null;
+    if (contract_value != null && contract_value !== '') {
+      const contractValueNum = parseFloat(String(contract_value).replace(/,/g, ''));
+      if (!isNaN(contractValueNum) && contractValueNum >= 0) {
+        // DECIMAL(15,2) รองรับค่าสูงสุด 999,999,999,999,999.99
+        const maxValue = 999999999999999.99;
+        if (contractValueNum > maxValue) {
+          return res.status(400).json({
+            success: false,
+            message: `Contract Value must not exceed ${maxValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          });
+        }
+        // ปัดเศษเป็น 2 ทศนิยม
+        contractValue = Math.round(contractValueNum * 100) / 100;
+      }
+    }
+
+    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, contract_value, coverage_scope, file_paths, image_paths';
+    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
     const insertParams = [
       contract_name && String(contract_name).trim() ? contract_name.trim() : null,
       start_date || null,
@@ -158,6 +177,7 @@ const createContract = async (req, res) => {
       slaTermInt,
       assignedServiceVal || null,
       sale_account && String(sale_account).trim() ? sale_account.trim() : null,
+      contractValue,
       coverage_scope && String(coverage_scope).trim() ? coverage_scope.trim() : null,
       filePathsJson,
       imagePathsJson
@@ -235,6 +255,27 @@ const createContract = async (req, res) => {
         if (sale_account) {
           updateFields.push('sale_account = ?');
           updateValues.push(sale_account.trim());
+        }
+        if (contract_value !== undefined) {
+          let contractValue = null;
+          if (contract_value != null && contract_value !== '') {
+            const contractValueNum = parseFloat(String(contract_value).replace(/,/g, ''));
+            if (!isNaN(contractValueNum) && contractValueNum >= 0) {
+              // DECIMAL(15,2) รองรับค่าสูงสุด 999,999,999,999,999.99
+              const maxValue = 999999999999999.99;
+              if (contractValueNum > maxValue) {
+                await conn.rollback();
+                return res.status(400).json({
+                  success: false,
+                  message: `Contract Value must not exceed ${maxValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                });
+              }
+              // ปัดเศษเป็น 2 ทศนิยม
+              contractValue = Math.round(contractValueNum * 100) / 100;
+            }
+          }
+          updateFields.push('contract_value = ?');
+          updateValues.push(contractValue);
         }
         if (coverage_scope !== undefined) {
           updateFields.push('coverage_scope = ?');
@@ -390,16 +431,16 @@ const createContract = async (req, res) => {
               if (p.device_ids.length > 0 && p.site_id) {
                 const placeholders = p.device_ids.map(() => '?').join(',');
                 await conn.execute(
-                  `UPDATE devices SET Refer_SOF = ?, SLid = ?, Asset_State = 'In Use' WHERE Did IN (${placeholders})`,
-                  [sofValue, p.site_id, ...p.device_ids]
+                  `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
+                  [sofValue, ...p.device_ids]
                 );
               }
             }
           } else if (siteId) {
             const placeholders = deviceIdList.map(() => '?').join(',');
             await conn.execute(
-              `UPDATE devices SET Refer_SOF = ?, SLid = ?, Asset_State = 'In Use' WHERE Did IN (${placeholders})`,
-              [sofValue, siteId, ...deviceIdList]
+              `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
+              [sofValue, ...deviceIdList]
             );
           }
         }
@@ -469,7 +510,9 @@ const getContractsBySite = async (req, res) => {
         c.sla_term,
         c.sale_account,
         c.sof_name,
-        s.Name AS site_name
+        c.contract_value,
+        s.Name AS site_name,
+        (SELECT COUNT(*) FROM contract_device WHERE contract_id = c.contract_id) AS device_count
       FROM contract c
       LEFT JOIN sites_location sl ON c.site_id = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
@@ -732,29 +775,455 @@ const getVendorStatistics = async (req, res) => {
   }
 };
 
-// GET - ดึง Contract เดียวตาม id (สำหรับ fallback sla_term เมื่อ task มี contract_id แต่ JOIN ไม่ได้ค่า)
+// GET - ดึงข้อมูล Contract ทั้งหมดตาม contract_id (รวม devices, sites, และข้อมูลอื่นๆ)
 const getContractById = async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid contract id' });
+    const contractId = req.params.id;
+    if (!contractId) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ contract_id'
+      });
     }
-    const [rows] = await db.execute(
-      'SELECT contract_id, contract_name, sla_term, start_date, end_date FROM contract WHERE contract_id = ?',
-      [id]
-    );
-    if (!rows[0]) {
-      return res.status(404).json({ success: false, message: 'ไม่พบ Contract' });
+
+    const cid = parseInt(contractId, 10);
+    if (isNaN(cid)) {
+      return res.status(400).json({
+        success: false,
+        message: 'contract_id ไม่ถูกต้อง'
+      });
     }
-    res.status(200).json({ success: true, data: rows[0] });
+
+    // ตรวจสอบว่ามี columns ที่อาจไม่มีหรือไม่
+    const checkColumn = async (columnName) => {
+      try {
+        const [cols] = await db.execute(`SHOW COLUMNS FROM contract LIKE '${columnName}'`);
+        return cols && cols.length > 0;
+      } catch {
+        return false;
+      }
+    };
+
+    const hasContractValue = await checkColumn('contract_value');
+    const hasCoverageScope = await checkColumn('coverage_scope');
+    const hasFilePaths = await checkColumn('file_paths');
+    const hasImagePaths = await checkColumn('image_paths');
+    const hasPmTimePerYear = await checkColumn('pm_time_per_year');
+    const hasSignDate = await checkColumn('contract_sign_date');
+    const hasRemark = await checkColumn('remark');
+
+    // สร้าง SQL query แบบ dynamic ตาม columns ที่มี
+    const contractFields = [
+      'c.contract_id',
+      'c.contract_name',
+      'c.start_date',
+      'c.end_date',
+      'c.site_id',
+      'c.sla_term',
+      'c.sale_account',
+      'c.sof_name',
+      'c.Assigned_Service',
+      's.Name AS site_name'
+    ];
+    
+    if (hasContractValue) contractFields.push('c.contract_value');
+    if (hasCoverageScope) contractFields.push('c.coverage_scope');
+    if (hasFilePaths) contractFields.push('c.file_paths');
+    if (hasImagePaths) contractFields.push('c.image_paths');
+    if (hasPmTimePerYear) contractFields.push('c.pm_time_per_year');
+    if (hasSignDate) contractFields.push('c.contract_sign_date');
+    if (hasRemark) contractFields.push('c.remark');
+
+    const contractSql = `
+      SELECT 
+        ${contractFields.join(',\n        ')}
+      FROM contract c
+      LEFT JOIN sites_location sl ON c.site_id = sl.SLid
+      LEFT JOIN sites s ON sl.Sid = s.Sid
+      WHERE c.contract_id = ?
+    `;
+
+    const [contractRows] = await db.execute(contractSql, [cid]);
+    
+    if (contractRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบสัญญา'
+      });
+    }
+
+    const contract = contractRows[0];
+
+    // ดึง devices
+    const devicesSql = `
+      SELECT 
+        d.Did,
+        d.CI_Name,
+        d.Asset_Number,
+        d.serial,
+        d.Asset_State,
+        d.SLid,
+        d.Dtypeid,
+        d.DeRoleid,
+        s.Name AS SiteName,
+        l.Location2,
+        dt.model AS type_name,
+        dr.name AS roleName
+      FROM contract_device cd
+      INNER JOIN devices d ON cd.device_id = d.Did
+      LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+      LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN location l ON sl.lid = l.lid
+      LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+      LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+      WHERE cd.contract_id = ?
+      ORDER BY d.CI_Name ASC, d.Asset_Number ASC
+    `;
+
+    const [devicesRows] = await db.execute(devicesSql, [cid]);
+
+    // ดึง sites
+    const sitesSql = `
+      SELECT DISTINCT sl.SLid, s.Name AS SiteName, l.Location2
+      FROM (
+        SELECT SLid FROM contract_site WHERE contract_id = ?
+        UNION
+        SELECT site_id AS SLid FROM contract WHERE contract_id = ? AND site_id IS NOT NULL
+      ) AS site_ids
+      INNER JOIN sites_location sl ON site_ids.SLid = sl.SLid
+      LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN location l ON sl.lid = l.lid
+      ORDER BY s.Name, l.Location2
+    `;
+
+    const [sitesRows] = await db.execute(sitesSql, [cid, cid]);
+
+    // ดึงประวัติการต่อสัญญา
+    const historySql = `
+      SELECT 
+        history_id,
+        contract_id,
+        old_contract_id,
+        old_sof,
+        new_sof,
+        renewed_at,
+        created_at
+      FROM contract_history
+      WHERE contract_id = ? OR old_contract_id = ?
+      ORDER BY renewed_at DESC, created_at DESC
+    `;
+
+    const [historyRows] = await db.execute(historySql, [cid, cid]);
+
+    // รวมข้อมูลทั้งหมด
+    const result = {
+      ...contract,
+      devices: devicesRows,
+      sites: sitesRows,
+      history: historyRows
+    };
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
   } catch (error) {
     console.error('Error getting contract by id:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Contract',
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลสัญญา',
       error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
 
-module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory, getContractById };
+// PUT - อัปเดต Contract
+const updateContract = async (req, res) => {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const contractId = req.params.id;
+    const cid = parseInt(contractId, 10);
+    if (isNaN(cid)) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'contract_id ไม่ถูกต้อง'
+      });
+    }
+
+    const {
+      contract_name,
+      start_date,
+      end_date,
+      site_device_pairs,
+      sof_name,
+      assigned_service,
+      sla_term,
+      sale_account,
+      contract_value,
+      coverage_scope,
+      file_paths,
+      image_paths,
+      pm_time_per_year,
+      contract_sign_date,
+      remark,
+    } = req.body;
+
+    // ตรวจสอบว่ามี contract นี้หรือไม่
+    const [existingContract] = await conn.execute(
+      'SELECT contract_id FROM contract WHERE contract_id = ?',
+      [cid]
+    );
+
+    if (existingContract.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบสัญญา'
+      });
+    }
+
+    // Validate SLA Term
+    if (sla_term !== undefined && sla_term !== null) {
+      const slaTermStr = String(sla_term).trim();
+      if (!slaTermStr) {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter sla_term (required)'
+        });
+      }
+      const slaTermNum = parseFloat(slaTermStr);
+      if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'SLA Term must be a number between 0 and 100'
+        });
+      }
+    }
+
+    // Validate Contract Value
+    if (contract_value !== undefined && contract_value !== null && contract_value !== '') {
+      const contractValueNum = parseFloat(String(contract_value).replace(/,/g, ''));
+      if (isNaN(contractValueNum) || contractValueNum < 0) {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Contract Value must be a positive number'
+        });
+      }
+      // DECIMAL(15,2) รองรับค่าสูงสุด 999,999,999,999,999.99
+      const maxValue = 999999999999999.99;
+      if (contractValueNum > maxValue) {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          message: `Contract Value must not exceed ${maxValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        });
+      }
+    }
+
+    // จัดการ site_device_pairs
+    let deviceIdList = [];
+    let siteIdList = [];
+    let pairs = [];
+
+    if (Array.isArray(site_device_pairs) && site_device_pairs.length > 0) {
+      pairs = site_device_pairs
+        .map((p) => ({
+          site_id: p.site_id != null ? parseInt(p.site_id, 10) : null,
+          device_ids: Array.isArray(p.device_ids)
+            ? p.device_ids.map((d) => parseInt(d, 10)).filter((n) => !isNaN(n))
+            : [],
+        }))
+        .filter((p) => p.site_id != null && !isNaN(p.site_id) && p.device_ids.length > 0);
+      deviceIdList = [...new Set(pairs.flatMap((p) => p.device_ids))];
+      siteIdList = [...new Set(pairs.map((p) => p.site_id))];
+    }
+
+    // สร้าง UPDATE statement
+    const updateFields = [];
+    const updateValues = [];
+
+    if (contract_name !== undefined) {
+      updateFields.push('contract_name = ?');
+      updateValues.push(contract_name ? contract_name.trim() : null);
+    }
+    if (start_date !== undefined) {
+      updateFields.push('start_date = ?');
+      updateValues.push(start_date || null);
+    }
+    if (end_date !== undefined) {
+      updateFields.push('end_date = ?');
+      updateValues.push(end_date || null);
+    }
+    if (sof_name !== undefined) {
+      updateFields.push('sof_name = ?');
+      updateValues.push(sof_name ? sof_name.trim() : null);
+    }
+    if (sla_term !== undefined && sla_term !== null) {
+      const st = parseFloat(String(sla_term).trim());
+      if (!isNaN(st)) {
+        updateFields.push('sla_term = ?');
+        updateValues.push(st);
+      }
+    }
+    if (assigned_service !== undefined) {
+      updateFields.push('Assigned_Service = ?');
+      updateValues.push(assigned_service ? assigned_service.trim() : null);
+    }
+    if (sale_account !== undefined) {
+      updateFields.push('sale_account = ?');
+      updateValues.push(sale_account ? sale_account.trim() : null);
+    }
+    if (contract_value !== undefined) {
+      let contractValue = null;
+      if (contract_value != null && contract_value !== '') {
+        const contractValueNum = parseFloat(String(contract_value).replace(/,/g, ''));
+        if (!isNaN(contractValueNum) && contractValueNum >= 0) {
+          // DECIMAL(15,2) รองรับค่าสูงสุด 999,999,999,999,999.99
+          const maxValue = 999999999999999.99;
+          if (contractValueNum > maxValue) {
+            await conn.rollback();
+            return res.status(400).json({
+              success: false,
+              message: `Contract Value must not exceed ${maxValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            });
+          }
+          // ปัดเศษเป็น 2 ทศนิยม
+          contractValue = Math.round(contractValueNum * 100) / 100;
+        }
+      }
+      updateFields.push('contract_value = ?');
+      updateValues.push(contractValue);
+    }
+    if (coverage_scope !== undefined) {
+      updateFields.push('coverage_scope = ?');
+      updateValues.push(coverage_scope ? coverage_scope.trim() : null);
+    }
+    if (file_paths !== undefined) {
+      const filePathsJson = file_paths ? (typeof file_paths === 'string' ? file_paths : JSON.stringify(file_paths)) : null;
+      updateFields.push('file_paths = ?');
+      updateValues.push(filePathsJson);
+    }
+    if (image_paths !== undefined) {
+      const imagePathsJson = image_paths ? (typeof image_paths === 'string' ? image_paths : JSON.stringify(image_paths)) : null;
+      updateFields.push('image_paths = ?');
+      updateValues.push(imagePathsJson);
+    }
+    if (pm_time_per_year !== undefined) {
+      const pmTimeEnum = pm_time_per_year ? parseInt(String(pm_time_per_year), 10) : null;
+      if (pmTimeEnum !== null && !isNaN(pmTimeEnum) && pmTimeEnum >= 1 && pmTimeEnum <= 5) {
+        updateFields.push('pm_time_per_year = ?');
+        updateValues.push(pmTimeEnum);
+      }
+    }
+
+    // เพิ่ม contract_sign_date และ remark ถ้ามี column
+    try {
+      const [cols] = await conn.execute("SHOW COLUMNS FROM contract LIKE 'contract_sign_date'");
+      if (cols && cols.length > 0) {
+        if (contract_sign_date !== undefined) {
+          updateFields.push('contract_sign_date = ?');
+          updateValues.push(contract_sign_date || null);
+        }
+        if (remark !== undefined) {
+          updateFields.push('remark = ?');
+          updateValues.push(remark ? remark.trim() : null);
+        }
+      }
+    } catch (_) { /* ข้าม */ }
+
+    // อัปเดต contract
+    if (updateFields.length > 0) {
+      updateValues.push(cid);
+      const updateSql = `UPDATE contract SET ${updateFields.join(', ')} WHERE contract_id = ?`;
+      await conn.execute(updateSql, updateValues);
+    }
+
+    // อัปเดต contract_device และ contract_site ถ้ามี site_device_pairs
+    // ถ้าไม่ส่ง site_device_pairs หมายความว่าไม่ต้องการเปลี่ยน devices
+    if (site_device_pairs !== undefined) {
+      if (pairs.length > 0) {
+        // ลบ devices เก่าออก
+        await conn.execute(
+          'DELETE FROM contract_device WHERE contract_id = ?',
+          [cid]
+        );
+
+        // เพิ่ม devices ใหม่
+        for (const p of pairs) {
+          for (const did of p.device_ids) {
+            await conn.execute(
+              'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+              [cid, did]
+            );
+          }
+        }
+
+        // อัปเดต contract_site
+        await conn.execute(
+          'DELETE FROM contract_site WHERE contract_id = ?',
+          [cid]
+        );
+        for (const slid of siteIdList) {
+          await conn.execute(
+            'INSERT INTO contract_site (contract_id, SLid) VALUES (?, ?)',
+            [cid, slid]
+          );
+        }
+      } else {
+        // ถ้าส่ง site_device_pairs แต่เป็น array ว่าง หมายความว่าต้องการลบ devices ทั้งหมด
+        await conn.execute(
+          'DELETE FROM contract_device WHERE contract_id = ?',
+          [cid]
+        );
+        await conn.execute(
+          'DELETE FROM contract_site WHERE contract_id = ?',
+          [cid]
+        );
+      }
+    }
+
+    // อัปเดต Assigned_Service ใน devices ถ้ามี
+    if (assigned_service && deviceIdList.length > 0) {
+      const placeholders = deviceIdList.map(() => '?').join(',');
+      await conn.execute(
+        `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
+        [assigned_service.trim(), ...deviceIdList]
+      );
+    }
+
+    await conn.commit();
+
+    res.status(200).json({
+      success: true,
+      message: 'อัปเดตสัญญาสำเร็จ',
+      data: { contract_id: cid }
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error('Error updating contract:', error);
+    let message = 'เกิดข้อผิดพลาดในการอัปเดตสัญญา';
+    const errMsg = error.message || '';
+    if (errMsg.includes('file_paths') || errMsg.includes('image_paths')) {
+      message = 'file_paths or image_paths column does not exist';
+    } else if (errMsg.includes('coverage_scope')) {
+      message = 'coverage_scope column does not exist';
+    }
+    res.status(500).json({
+      success: false,
+      message,
+      error: error.message
+    });
+  } finally {
+    conn.release();
+  }
+};
+
+module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory, getContractById, updateContract };
