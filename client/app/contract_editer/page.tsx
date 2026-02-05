@@ -139,6 +139,7 @@ export default function ContractEditorPage() {
   const [deviceTargetSite, setDeviceTargetSite] = useState<Record<string, string>>({});
   const [assignDeviceSelected, setAssignDeviceSelected] = useState<Set<string>>(new Set());
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
+  const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
 
   // Form state
   const [contractForm, setContractForm] = useState({
@@ -443,6 +444,7 @@ export default function ContractEditorPage() {
           return { data: r.ok && j.data ? j.data : null };
         })
       );
+      const assignedStatus: Record<string, boolean> = {};
       results.forEach((r, i) => {
         const d = devices[i];
         const data = r.status === 'fulfilled' ? r.value.data : null;
@@ -454,14 +456,21 @@ export default function ContractEditorPage() {
             Location2: data.Location2 ?? data.location2 ?? null,
           };
           targetSite[String(d.Did)] = String(d.SLid ?? '');
+          // ตรวจสอบว่าอุปกรณ์ถูกกำหนดไป site แล้วหรือยัง (SLid ไม่เป็น null และไม่เท่ากับ 2 ซึ่งน่าจะเป็นคลัง)
+          const isAssigned = (data.SLid ?? data.slid) != null && (data.SLid ?? data.slid) !== 2;
+          assignedStatus[String(d.Did)] = isAssigned;
         } else {
           deviceDetails[String(d.Did)] = {};
           targetSite[String(d.Did)] = String(d.SLid ?? '');
+          assignedStatus[String(d.Did)] = false;
         }
       });
       setAssignDeviceDetails(deviceDetails);
       setDeviceTargetSite(targetSite);
       setAssignDeviceSelected(new Set(devices.map((d: { Did: number }) => String(d.Did))));
+      // ตรวจสอบว่ามีอุปกรณ์ที่ถูกกำหนดไป site แล้วหรือยัง
+      const hasAssignedDevices = Object.values(assignedStatus).some(status => status);
+      setDevicesAssignedStatus({ [contract.id]: hasAssignedDevices });
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'โหลดข้อมูลไม่สำเร็จ');
       setShowAssignSiteModal(false);
@@ -497,6 +506,10 @@ export default function ContractEditorPage() {
         if (res.ok && json.success) successCount++;
       }
       toastSuccess(`อัปเดตสถานะเรียบร้อย ${successCount} รายการ`);
+      // อัปเดตสถานะว่าอุปกรณ์ถูกกำหนดไป site แล้ว
+      if (currentContract && successCount > 0) {
+        setDevicesAssignedStatus(prev => ({ ...prev, [currentContract.id]: true }));
+      }
       setShowAssignSiteModal(false);
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'อัปเดตไม่สำเร็จ');
@@ -634,68 +647,68 @@ export default function ContractEditorPage() {
           {filteredContracts.map((contract, idx) => (
             <div
               key={contract.id}
-              className="bg-white border border-slate-200 rounded-[2rem] p-6 transition-all duration-300 relative overflow-hidden group hover:-translate-y-1 hover:shadow-md"
+              className="bg-white border border-slate-200 rounded-[2rem] p-6 transition-all duration-300 relative overflow-visible group hover:-translate-y-1 hover:shadow-md"
               style={{ 
                 animation: `fadeInUp 0.6s ease-out ${idx * 0.1}s both`
               }}
             >
               <div className="absolute top-0 left-0 w-1 h-full bg-blue-600 scale-y-0 transition-transform duration-300 group-hover:scale-y-100" />
-              <div className="flex justify-between items-start mb-5">
-                <div className="text-xl font-bold text-slate-800">
+              <div className="flex justify-between items-start mb-5 gap-3">
+                <div className="text-xl font-bold text-slate-800 flex-1 min-w-0" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                   {contract.name}
                 </div>
-                <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide ${getStatusBadgeClass(contract.status)}`}>
+                <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contract.status)}`}>
                   {getStatusText(contract.status)}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px]">📋</span>
-                <span className="text-slate-500 min-w-[100px]">Contract Name:</span>
-                <span className="text-slate-700 font-medium">{contract.name}</span>
+                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">📋</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Contract Name:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.name}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px]">🏢</span>
-                <span className="text-slate-500 min-w-[100px]">Contract Partner:</span>
-                <span className="text-slate-700 font-medium">{contract.partner}</span>
+                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">🏢</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Contract Partner:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.partner}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px]">📅</span>
-                <span className="text-slate-500 min-w-[100px]">Start Date:</span>
-                <span className="text-slate-700 font-medium">{contract.formattedStartDate}</span>
+                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">📅</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Start Date:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedStartDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px]">⏰</span>
-                <span className="text-slate-500 min-w-[100px]">End Date:</span>
-                <span className="text-slate-700 font-medium">{contract.formattedEndDate}</span>
+                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">⏰</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">End Date:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedEndDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px]">💰</span>
-                <span className="text-slate-500 min-w-[100px]">Value:</span>
-                <span className="text-slate-700 font-medium">฿{contract.formattedValue}</span>
+                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">💰</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Value:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>฿{contract.formattedValue}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px]">🔧</span>
-                <span className="text-slate-500 min-w-[100px]">Equipment:</span>
-                <span className="text-slate-700 font-medium">{contract.deviceCount || 0} List Items</span>
+                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">🔧</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Equipment:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.deviceCount || 0} List Items</span>
               </div>
               <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-slate-200">
                 <button
                   onClick={() => viewContractDetails(contract)}
-                  className="flex-1 min-w-[100px] py-2.5 px-5 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
+                  className="flex-1 min-w-[90px] py-1 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
                 >
                   View Details
                 </button>
                 <button
                   onClick={() => openAssignSiteForContract(contract)}
-                  className="flex items-center gap-1.5 py-2.5 px-4 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600"
+                  className="flex items-center gap-1 py-1 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600 whitespace-nowrap"
                   title="กำหนดอุปกรณ์ไป Site"
                 >
-                  <MapPin size={16} />
-                  ที่จะเอาไปอะ ใช้คำว่าไร
+                  <MapPin size={12} />
+                  {devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}
                 </button>
                 <button
                   onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
-                  className="flex-1 min-w-[100px] py-2.5 px-5 rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 bg-transparent text-slate-700 border border-slate-200 hover:border-blue-500 hover:text-blue-600"
+                  className="flex-1 min-w-[90px] py-1 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-transparent text-slate-700 border border-slate-200 hover:border-blue-500 hover:text-blue-600"
                 >
                   {contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
                 </button>
@@ -734,26 +747,30 @@ export default function ContractEditorPage() {
                       </span>
                     </td>
                     <td className="py-4 px-4">
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center gap-1 flex-wrap">
                         <button
                           onClick={() => viewContractDetails(contract)}
-                          className="py-2 px-4 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                          className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-transparent border border-blue-600 text-blue-600 hover:bg-blue-50 transition-all duration-200"
+                          title="ดูรายละเอียด"
                         >
-                          ดูรายละเอียด
+                          <FileText size={10} />
+                          View
                         </button>
                         <button
                           onClick={() => openAssignSiteForContract(contract)}
-                          className="py-2 px-3 rounded-lg text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 transition-colors flex items-center gap-1"
-                          title="กำหนดอุปกรณ์ไป Site"
+                          className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-transparent border border-amber-500 text-amber-600 hover:bg-amber-50 transition-all duration-200"
+                          title={devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}
                         >
-                          <MapPin size={14} />
-                          ที่จะเอาไปsiteอะ
+                          <MapPin size={10} />
+                          Site
                         </button>
                         <button
                           onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
-                          className="py-2 px-4 rounded-lg text-sm font-medium border border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-600 transition-colors"
+                          className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-transparent border border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200"
+                          title={contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
                         >
-                          {contract.status === 'expired' ? 'ต่ออายุ' : 'แก้ไข'}
+                          <Edit size={10} />
+                          {contract.status === 'expired' ? 'Renew' : 'Edit'}
                         </button>
                       </div>
                     </td>
@@ -1630,7 +1647,7 @@ export default function ContractEditorPage() {
       {/* Modal กำหนดอุปกรณ์ไป Site */}
       {showAssignSiteModal && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                 <MapPin size={22} className="text-amber-500" />
@@ -1713,11 +1730,11 @@ export default function ContractEditorPage() {
                       (เลือกแล้ว {assignDeviceSelected.size} ชิ้น{filteredDevices.length < allDevices.length ? ` • แสดง ${filteredDevices.length}/${allDevices.length}` : ''})
                     </span>
                   </div>
-                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <div className="rounded-xl border border-slate-200">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
-                          <th className="px-4 py-3 text-left w-12">
+                          <th className="px-3 py-2 text-left w-10">
                             <input
                               type="checkbox"
                               checked={filteredDevices.length > 0 && filteredDevices.every((d) => assignDeviceSelected.has(String(d.Did)))}
@@ -1739,9 +1756,9 @@ export default function ContractEditorPage() {
                               className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
                             />
                           </th>
-                          <th className="px-4 py-3 text-left font-semibold text-slate-700">อุปกรณ์</th>
-                          <th className="px-4 py-3 text-left font-semibold text-slate-700">สถานะปัจจุบัน</th>
-                          <th className="px-4 py-3 text-left font-semibold text-slate-700">Site ปลายทาง</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[200px]">อุปกรณ์</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[250px]">สถานะปัจจุบัน</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[250px]">Site ปลายทาง</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1755,7 +1772,7 @@ export default function ContractEditorPage() {
                           const isSelected = assignDeviceSelected.has(String(device.Did));
                           return (
                             <tr key={device.Did} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/50 ${!isSelected ? 'opacity-60' : ''}`}>
-                              <td className="px-4 py-3">
+                              <td className="px-3 py-2">
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
@@ -1771,12 +1788,12 @@ export default function ContractEditorPage() {
                                   className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
                                 />
                               </td>
-                              <td className="px-4 py-3 font-medium text-slate-800">{deviceLabel}</td>
-                              <td className="px-4 py-3">
+                              <td className="px-3 py-2 font-medium text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{deviceLabel}</td>
+                              <td className="px-3 py-2">
                                 {detail ? (
                                   isAtSite ? (
-                                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 border border-green-200">
-                                      <Check size={14} />
+                                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-2 py-1 text-xs font-medium text-green-700 border border-green-200 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                                      <Check size={12} />
                                       อยู่ที่ site แล้ว ({siteLabel})
                                     </span>
                                   ) : (
@@ -1786,12 +1803,12 @@ export default function ContractEditorPage() {
                                   <span className="text-slate-400 text-xs">—</span>
                                 )}
                               </td>
-                              <td className="px-4 py-3">
+                              <td className="px-3 py-2">
                                 <select
                                   value={deviceTargetSite[String(device.Did)] ?? ''}
                                   onChange={(ev) => setDeviceTargetSite((prev) => ({ ...prev, [String(device.Did)]: ev.target.value }))}
                                   disabled={!isSelected}
-                                  className={`rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none min-w-[200px] ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
+                                  className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
                                 >
                                   <option value="">-- เลือก Site --</option>
                                   {sitesLocation.map((s) => (

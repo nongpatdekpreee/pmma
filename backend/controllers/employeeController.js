@@ -16,8 +16,8 @@ const getEmployees = async (req, res) => {
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `WHERE (
-        employee_id LIKE ? OR 
-        name LIKE ? OR 
+        User_id LIKE ? OR 
+        Username LIKE ? OR 
         gmail LIKE ? OR 
         tel LIKE ?
       )`;
