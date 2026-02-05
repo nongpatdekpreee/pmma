@@ -747,30 +747,32 @@ export default function ContractEditorPage() {
                       </span>
                     </td>
                     <td className="py-4 px-4">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <button
-                          onClick={() => viewContractDetails(contract)}
-                          className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-transparent border border-blue-600 text-blue-600 hover:bg-blue-50 transition-all duration-200"
-                          title="ดูรายละเอียด"
-                        >
-                          <FileText size={10} />
-                          View
-                        </button>
-                        <button
-                          onClick={() => openAssignSiteForContract(contract)}
-                          className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-transparent border border-amber-500 text-amber-600 hover:bg-amber-50 transition-all duration-200"
-                          title={devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}
-                        >
-                          <MapPin size={10} />
-                          Site
-                        </button>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => viewContractDetails(contract)}
+                            className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all duration-200"
+                            title="View Details"
+                          >
+                            <FileText size={10} />
+                            View
+                          </button>
+                          <button
+                            onClick={() => openAssignSiteForContract(contract)}
+                            className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200"
+                            title={devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}
+                          >
+                            <MapPin size={10} />
+                            Site
+                          </button>
+                        </div>
                         <button
                           onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
-                          className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-transparent border border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200"
+                          className="flex items-center justify-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-white border border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 w-full"
                           title={contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
                         >
                           <Edit size={10} />
-                          {contract.status === 'expired' ? 'Renew' : 'Edit'}
+                          {contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
                         </button>
                       </div>
                     </td>
@@ -1203,16 +1205,16 @@ export default function ContractEditorPage() {
                     <div className="p-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">🆔 เลขที่สัญญา</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> เลขที่สัญญา</span>
                           <span className="text-base font-semibold text-slate-800">{fullContractDetails.contract_id}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">📊 สถานะ</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> สถานะ</span>
                           <span className="inline-block mt-1">
                             {currentContract.status === 'active' && (
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-green-50 text-green-700 text-sm font-medium border border-green-200">
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                ✅ ใช้งาน
+                                 ใช้งาน
                               </span>
                             )}
                             {currentContract.status === 'expiring' && (
@@ -1236,29 +1238,29 @@ export default function ContractEditorPage() {
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">📝 ชื่อสัญญา</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> ชื่อสัญญา</span>
                           <span className="text-base text-slate-700">{fullContractDetails.contract_name || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">🔢 SOF</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> SOF</span>
                           <span className="text-base text-blue-600 font-medium">{fullContractDetails.sof_name || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">👤 Sale Account</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Sale Account</span>
                           <span className="text-base text-slate-700">{fullContractDetails.sale_account || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">⚙️ Assigned Service</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Assigned Service</span>
                           <span className="text-base text-slate-700">{fullContractDetails.Assigned_Service || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">📈 SLA Term</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> SLA Term</span>
                           <span className="text-base font-semibold text-slate-800">
                             {fullContractDetails.sla_term != null ? `${fullContractDetails.sla_term}%` : '—'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">🔧 PM Time Per Year</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> PM Time Per Year</span>
                           <span className="text-base text-slate-700">
                             {fullContractDetails.pm_time_per_year != null ? `${fullContractDetails.pm_time_per_year} ครั้ง/ปี` : '—'}
                           </span>
@@ -1270,26 +1272,26 @@ export default function ContractEditorPage() {
                   {/* ระยะเวลาและมูลค่า */}
                   <div className="bg-white rounded-lg border border-slate-200">
                     <div className="px-6 py-4 border-b border-slate-200">
-                      <h3 className="text-lg font-semibold text-slate-800">📅 ระยะเวลาและมูลค่า</h3>
+                      <h3 className="text-lg font-semibold text-slate-800">ระยะเวลาและมูลค่า</h3>
                     </div>
                     <div className="p-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">📆 วันเริ่มต้น</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> วันเริ่มต้น</span>
                           <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.start_date)}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">⏰ วันสิ้นสุด</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> วันสิ้นสุด</span>
                           <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.end_date)}</span>
                         </div>
                         {fullContractDetails.contract_sign_date && (
                           <div>
-                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">✍️ วันลงนามสัญญา</span>
+                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> วันลงนามสัญญา</span>
                             <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.contract_sign_date)}</span>
                           </div>
                         )}
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">⏳ ระยะเวลาคงเหลือ</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> ระยะเวลาคงเหลือ</span>
                           <span className="text-base text-slate-700">
                             {fullContractDetails.end_date ? calculateRemainingDays(fullContractDetails.end_date) : '—'}
                           </span>
@@ -1311,7 +1313,7 @@ export default function ContractEditorPage() {
                     <div className="bg-white rounded-lg border border-slate-200">
                       <div className="px-6 py-4 border-b border-slate-200">
                         <h3 className="text-lg font-semibold text-slate-800">
-                          🏢 Sites ที่เกี่ยวข้อง
+                           Sites ที่เกี่ยวข้อง
                           <span className="ml-2 text-sm font-normal text-slate-500">({fullContractDetails.sites.length} แห่ง)</span>
                         </h3>
                       </div>
@@ -1338,7 +1340,7 @@ export default function ContractEditorPage() {
                     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                       <div className="px-6 py-4 border-b border-slate-200">
                         <h3 className="text-lg font-semibold text-slate-800">
-                          💻 อุปกรณ์ที่อยู่ในสัญญา
+                           อุปกรณ์ที่อยู่ในสัญญา
                           <span className="ml-2 text-sm font-normal text-slate-500">({fullContractDetails.devices.length} รายการ)</span>
                         </h3>
                       </div>

@@ -19,6 +19,11 @@ import {
   X,
   ClipboardList,
   MessageSquare,
+  MapPin,
+  Cpu,
+  Building2,
+  Hash,
+  Clock,
 } from 'lucide-react';
 
 type ReportTab = 'pm' | 'ma';
@@ -253,11 +258,11 @@ export default function ReportPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
               PM / MA Checklist Report
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
-              จัดการและดูรายงานการบำรุงรักษาอุปกรณ์
+            <p className="text-sm text-slate-600 mt-1.5">
+              Manage and view equipment maintenance reports
             </p>
           </div>
           <div className="relative self-start sm:self-auto">
@@ -292,10 +297,10 @@ export default function ReportPage() {
                   <button
                     onClick={handleCreatePM}
                     disabled={remainingPMTasks.length === 0}
-                    className={`w-full px-4 py-3.5 text-left transition-all flex items-center gap-3 ${
+                    className={`w-full px-4 py-3 text-left transition-colors flex items-center gap-3 ${
                       remainingPMTasks.length === 0
                         ? 'text-slate-400 cursor-not-allowed opacity-60'
-                        : 'text-slate-700 hover:bg-blue-50/80'
+                        : 'text-slate-700 hover:bg-slate-50'
                     }`}
                     title={remainingPMTasks.length === 0 ? 'ไม่มี Task PM ที่ยังไม่มี Report' : ''}
                   >
@@ -345,7 +350,7 @@ export default function ReportPage() {
             onClick={() => setTabAndUrl('pm')}
             className={`px-6 py-2.5 rounded-xl font-bold transition-all duration-200 ${
               tab === 'pm'
-                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md shadow-blue-500/20'
+                ? 'bg-gradient-to-r from-blue-400 to-blue-500 text-white shadow-md shadow-blue-400/20'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -355,7 +360,7 @@ export default function ReportPage() {
             onClick={() => setTabAndUrl('ma')}
             className={`px-6 py-2.5 rounded-xl font-bold transition-all duration-200 ${
               tab === 'ma'
-                ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-md shadow-emerald-500/20'
+                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md shadow-blue-500/20'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
@@ -374,7 +379,7 @@ export default function ReportPage() {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="ค้นหา Device, Technician, หรือวันที่..."
+              placeholder="Search Device, Technician, or Date..."
               className="w-full pl-11 pr-4 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400 outline-none text-sm transition-all"
             />
           </div>
@@ -382,16 +387,16 @@ export default function ReportPage() {
 
         {/* รายการ Report */}
         {loading ? (
-          <div className="bg-white/90 backdrop-blur-sm p-16 rounded-2xl border border-slate-200/80 shadow-sm text-center">
-            <div className="inline-flex items-center gap-3 text-slate-500">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span>กำลังโหลดรายงาน...</span>
+          <div className="bg-white p-16 rounded-lg border border-slate-300 shadow-sm text-center">
+            <div className="inline-flex items-center gap-3 text-slate-600">
+              <div className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm font-medium">Loading reports...</span>
             </div>
           </div>
         ) : paginatedReports.length === 0 ? (
-          <div className="bg-white/90 backdrop-blur-sm p-16 rounded-2xl border border-slate-200/80 shadow-sm text-center">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-slate-100 flex items-center justify-center">
-              <FileText size={40} className="text-slate-400" />
+          <div className="bg-white p-16 rounded-lg border border-slate-300 shadow-sm text-center">
+            <div className="w-16 h-16 mx-auto mb-5 rounded-lg bg-slate-200 flex items-center justify-center border border-slate-300">
+              <FileText size={32} className="text-slate-500" />
             </div>
             <p className="text-slate-700 text-lg font-semibold mb-2">
               {searchTerm ? 'ไม่พบรายการที่ค้นหา' : `ยังไม่มีรายการ Report ${tab === 'pm' ? 'PM' : 'MA'}`}
@@ -402,7 +407,7 @@ export default function ReportPage() {
             {!searchTerm && (
               <button
                 onClick={() => setShowCreateMenu(true)}
-                className="px-6 py-2.5 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors"
+                className="px-5 py-2 bg-slate-800 text-white rounded-lg text-sm font-semibold hover:bg-slate-900 transition-colors shadow-md"
               >
                 สร้าง Report ใหม่
               </button>
@@ -419,53 +424,103 @@ export default function ReportPage() {
                   <div
                     key={report.id}
                     onClick={() => setSelectedReport(report)}
-                    className="group bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-xl hover:shadow-slate-200/50 hover:border-slate-300/80 transition-all duration-300 cursor-pointer"
+                    className="group bg-white/95 backdrop-blur-sm p-4 rounded-xl border border-slate-200/80 shadow-sm hover:shadow-lg hover:shadow-slate-200/50 hover:border-slate-300/80 transition-all duration-300 cursor-pointer"
                   >
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-3 mb-3">
-                          <h3 className="text-lg font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
-                            {report.device?.CI_Name || report.device?.Asset_Number || `Device ${report.deviceId}`}
-                          </h3>
-                          <span className={`px-3 py-1.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 shadow-sm ${getStatusColor(result)}`}>
-                            {getStatusIcon(result)}
-                            {result === 'pass' ? 'Pass' : result === 'warning' ? 'Warning' : 'Fail'}
-                          </span>
+                        <div className="flex flex-wrap items-center gap-2 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors break-words inline-flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                              <span>{report.device?.CI_Name || report.device?.Asset_Number || `Device ${report.deviceId}`}</span>
+                              <span className={`px-2 py-1 rounded-lg text-[10px] font-bold text-white flex items-center gap-1 shadow-sm flex-shrink-0 ${getStatusColor(result)}`}>
+                                {getStatusIcon(result)}
+                                {result === 'pass' ? 'Pass' : result === 'warning' ? 'Warning' : 'Fail'}
+                              </span>
+                            </h3>
+                            {report.device?.Asset_Number && report.device?.CI_Name && report.device.CI_Name !== report.device.Asset_Number && (
+                              <p className="text-[10px] text-slate-500 mt-0.5 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                                {report.device.Asset_Number}
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex flex-wrap gap-6 text-sm text-slate-600">
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
-                              <User size={16} className="text-slate-500" />
+                        <div className="flex flex-wrap gap-4 text-xs text-slate-600 mb-2">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center">
+                              <User size={12} className="text-slate-500" />
                             </div>
-                            <span>{report.technicianName || '-'}</span>
+                            <span className="font-medium">{report.technicianName || '-'}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center">
-                              <Calendar size={16} className="text-slate-500" />
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center">
+                              <Calendar size={12} className="text-slate-500" />
                             </div>
-                            <span>{formatDate(dateVal)}</span>
+                            <span className="font-medium">{formatDate(dateVal)}</span>
                           </div>
+                          {report.sla_result != null && (
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-6 h-6 rounded-md bg-indigo-100 flex items-center justify-center">
+                                <ClipboardList size={12} className="text-indigo-600" />
+                              </div>
+                              <span className="font-bold text-indigo-700">Score: {report.sla_result}</span>
+                            </div>
+                          )}
+                        </div>
+                        {/* Additional Device Info */}
+                        <div className="flex flex-wrap gap-3 text-xs text-slate-500 mb-2">
+                          {report.device?.Sitename && (
+                            <div className="flex items-center gap-1.5">
+                              <MapPin size={12} className="text-slate-400" />
+                              <span>{report.device.Sitename}</span>
+                            </div>
+                          )}
+                          {report.device?.serial && (
+                            <div className="flex items-center gap-1.5">
+                              <Hash size={12} className="text-slate-400" />
+                              <span className="font-mono">{report.device.serial}</span>
+                            </div>
+                          )}
+                          {report.uploadedFiles && report.uploadedFiles.length > 0 && (
+                            <div className="flex items-center gap-1.5">
+                              <FileText size={12} className="text-slate-400" />
+                              <span>{report.uploadedFiles.length} file{report.uploadedFiles.length > 1 ? 's' : ''}</span>
+                            </div>
+                          )}
+                          {report.comment && (
+                            <div className="flex items-center gap-1.5">
+                              <MessageSquare size={12} className="text-slate-400" />
+                              <span className="truncate max-w-[150px]" title={report.comment}>Has comment</span>
+                            </div>
+                          )}
                         </div>
                         {report.checklistItems && report.checklistItems.length > 0 && (
-                          <div className="mt-4 pt-4 border-t border-slate-100">
-                            <p className="text-xs font-semibold text-slate-500 mb-2">รายการตรวจสอบ ({report.checklistItems.length} รายการ)</p>
-                            <div className="flex flex-wrap gap-2">
+                          <div className="mt-2 pt-2 border-t border-slate-100">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="text-[10px] font-semibold text-slate-500">Checklist ({report.checklistItems.length})</p>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-emerald-600 font-semibold">✓{report.checklistItems.filter(i => i.status === 'pass').length}</span>
+                                <span className="text-[10px] text-amber-600 font-semibold">⚠{report.checklistItems.filter(i => i.status === 'warning').length}</span>
+                                <span className="text-[10px] text-red-600 font-semibold">✗{report.checklistItems.filter(i => i.status === 'fail').length}</span>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
                               {report.checklistItems.slice(0, 5).map((item) => (
                                 <span
                                   key={item.id}
-                                  className={`px-2.5 py-1 rounded-lg text-xs font-medium ${
+                                  className={`px-2 py-0.5 rounded-md text-[10px] font-medium ${
                                     item.status === 'pass' ? 'bg-emerald-50 text-emerald-700' :
                                     item.status === 'warning' ? 'bg-amber-50 text-amber-700' :
                                     item.status === 'fail' ? 'bg-red-50 text-red-700' :
                                     'bg-slate-100 text-slate-600'
                                   }`}
+                                  title={item.notes ? item.notes : undefined}
                                 >
                                   {item.task}
                                 </span>
                               ))}
                               {report.checklistItems.length > 5 && (
-                                <span className="px-2.5 py-1 rounded-lg text-xs bg-slate-100 text-slate-500 font-medium">
-                                  +{report.checklistItems.length - 5} รายการ
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-600">
+                                  +{report.checklistItems.length - 5}
                                 </span>
                               )}
                             </div>
@@ -473,7 +528,7 @@ export default function ReportPage() {
                         )}
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-xs text-slate-400">สร้างเมื่อ {formatDate(report.createdAt)}</p>
+                        <p className="text-[10px] text-slate-400">Created: {formatDate(report.createdAt)}</p>
                       </div>
                     </div>
                   </div>
@@ -490,7 +545,7 @@ export default function ReportPage() {
                   ก่อนหน้า
                 </button>
                 <span className="px-5 py-2.5 text-sm text-slate-600 font-medium bg-white rounded-xl border border-slate-200">
-                  หน้า {currentPage} จาก {totalPages}
+                  Page {currentPage} of {totalPages}
                 </span>
                 <button
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
@@ -507,7 +562,7 @@ export default function ReportPage() {
         {/* Modal รายละเอียด Report - ใช้ Portal ให้อยู่บนสุด ครอบ sidebar */}
         {selectedReport && typeof document !== 'undefined' && createPortal(
           <div
-            className="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+            className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center p-4"
             onClick={() => setSelectedReport(null)}
           >
             <div
@@ -528,9 +583,9 @@ export default function ReportPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-bold text-slate-800">
-                      รายละเอียด Report {tab === 'pm' ? 'PM' : 'MA'}
+                      {tab === 'pm' ? 'PM' : 'MA'} Report Details
                     </h2>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-slate-500 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                       {selectedReport.device?.CI_Name || selectedReport.device?.Asset_Number || `Device ${selectedReport.deviceId}`}
                     </p>
                   </div>
@@ -548,7 +603,7 @@ export default function ReportPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <p className="text-xs font-medium text-slate-500 mb-1">Device</p>
-                    <p className="font-semibold text-slate-800 truncate">
+                    <p className="font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                       {selectedReport.device?.CI_Name || selectedReport.device?.Asset_Number || `Device ${selectedReport.deviceId}`}
                     </p>
                   </div>
@@ -563,18 +618,140 @@ export default function ReportPage() {
                     </p>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-medium text-slate-500 mb-1">ผลลัพธ์</p>
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold text-white ${getStatusColor(selectedReport[resultKey as keyof typeof selectedReport] as string)}`}>
-                      {getStatusIcon(selectedReport[resultKey as keyof typeof selectedReport] as string)}
-                      {selectedReport[resultKey as keyof typeof selectedReport] === 'pass' ? 'Pass' : selectedReport[resultKey as keyof typeof selectedReport] === 'warning' ? 'Warning' : 'Fail'}
-                    </span>
+                    <p className="text-xs font-medium text-slate-500 mb-1">Result</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-lg font-bold text-slate-800">{selectedReport.sla_result ?? '-'}</p>
+                      {selectedReport.sla_result != null && (
+                        selectedReport.sla_result >= 90 ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white flex items-center gap-1">
+                            
+                          </span>
+                        ) : selectedReport.sla_result >= 70 ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white  flex items-center gap-1">
+                           
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white  flex items-center gap-1">
+                           
+                          </span>
+                        )
+                      )}
+                    </div>
                   </div>
                 </div>
-
+                {/* 
                 {selectedReport.sla_result != null && (
-                  <div className="p-5 bg-gradient-to-r from-slate-50 to-slate-100/50 rounded-2xl border border-slate-200/80">
-                    <p className="text-xs font-medium text-slate-500 mb-1">คะแนน PM/MA Result</p>
-                    <p className="font-bold text-2xl text-slate-800">{selectedReport.sla_result}</p>
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <ClipboardList size={12} />
+                            Result Score
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-lg font-bold text-slate-800">{selectedReport.sla_result}</p>
+                            {selectedReport.sla_result >= 90 ? (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white bg-emerald-500 flex items-center gap-1">
+                                <CheckCircle2 size={10} />
+                                Pass
+                              </span>
+                            ) : selectedReport.sla_result >= 70 ? (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white bg-amber-500 flex items-center gap-1">
+                                <AlertCircle size={10} />
+                                Warning
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white bg-red-500 flex items-center gap-1">
+                                <XCircle size={10} />
+                                Fail
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )} */}
+
+                {/* Device Information - แสดงทั้งหมด */}
+                {selectedReport.device && (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
+                        <FileText size={20} className="text-indigo-600" />
+                      </div>
+                      <h3 className="font-bold text-slate-800">Device Information</h3>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      {selectedReport.device.CI_Name && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <FileText size={12} />
+                            CI Name
+                          </p>
+                          <p className="text-sm font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{selectedReport.device.CI_Name}</p>
+                        </div>
+                      )}
+                      {selectedReport.device.Asset_Number && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <Hash size={12} />
+                            Asset Number
+                          </p>
+                          <p className="text-sm font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{selectedReport.device.Asset_Number}</p>
+                        </div>
+                      )}
+                      {selectedReport.device.serial && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <Hash size={12} />
+                            Serial Number
+                          </p>
+                          <p className="text-sm font-semibold text-slate-800 break-words font-mono" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{selectedReport.device.serial}</p>
+                        </div>
+                      )}
+                      {selectedReport.device.Sitename && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <MapPin size={12} />
+                            Site
+                          </p>
+                          <p className="text-sm font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{selectedReport.device.Sitename}</p>
+                        </div>
+                      )}
+                      {(selectedReport.device as any).model && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <Cpu size={12} />
+                            Model
+                          </p>
+                          <p className="text-sm font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{(selectedReport.device as any).model}</p>
+                        </div>
+                      )}
+                      {(selectedReport.device as any).Vendor && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <Building2 size={12} />
+                            Vendor
+                          </p>
+                          <p className="text-sm font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{(selectedReport.device as any).Vendor}</p>
+                        </div>
+                      )}
+                      {(selectedReport.device as any).Location2 && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <MapPin size={12} />
+                            Location
+                          </p>
+                          <p className="text-sm font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{(selectedReport.device as any).Location2}</p>
+                        </div>
+                      )}
+                      {(selectedReport.device as any).Asset_State && (
+                        <div>
+                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                            <CheckCircle2 size={12} />
+                            Asset State
+                          </p>
+                          <p className="text-sm font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{(selectedReport.device as any).Asset_State}</p>
+                        </div>
+                      )}
+                      
+                    </div>
                   </div>
                 )}
 
@@ -585,15 +762,27 @@ export default function ReportPage() {
                       <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
                         <ClipboardList size={20} className="text-blue-600" />
                       </div>
-                      <h3 className="font-bold text-slate-800">รายการตรวจสอบ</h3>
+                      <h3 className="font-bold text-slate-800">Checklist Items</h3>
                     </div>
                     <div className="space-y-2">
-                      {selectedReport.checklistItems.map((item) => (
+                      {selectedReport.checklistItems.map((item, index) => (
                         <div
                           key={item.id}
                           className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow"
                         >
-                          <p className="text-sm font-medium text-slate-800">{item.task}</p>
+                          <div className="flex items-center gap-3 flex-1">
+                            <span className="text-xs font-bold text-slate-400 w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center">
+                              {index + 1}
+                            </span>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-slate-800">{item.task}</p>
+                              {item.notes && (
+                                <p className="text-xs text-slate-600 mt-1 italic break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                                  {item.notes}
+                                </p>
+                              )}
+                            </div>
+                          </div>
                           <span
                             className={`px-3 py-1 rounded-lg text-xs font-bold ${
                               item.status === 'pass' ? 'bg-emerald-100 text-emerald-700' :
@@ -607,6 +796,29 @@ export default function ReportPage() {
                         </div>
                       ))}
                     </div>
+                    {/* Summary */}
+                    <div className="mt-4 p-4 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl border border-slate-200">
+                      <div className="grid grid-cols-3 gap-4 text-center">
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Pass</p>
+                          <p className="text-lg font-bold text-emerald-600">
+                            {selectedReport.checklistItems.filter(i => i.status === 'pass').length}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Warning</p>
+                          <p className="text-lg font-bold text-amber-600">
+                            {selectedReport.checklistItems.filter(i => i.status === 'warning').length}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Fail</p>
+                          <p className="text-lg font-bold text-red-600">
+                            {selectedReport.checklistItems.filter(i => i.status === 'fail').length}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -619,7 +831,7 @@ export default function ReportPage() {
                       </div>
                       <h3 className="font-bold text-slate-800">Notes from Technician</h3>
                     </div>
-                    <p className="p-5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-700 whitespace-pre-wrap leading-relaxed">
+                    <p className="p-5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-700 whitespace-pre-wrap leading-relaxed break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                       {selectedReport.comment}
                     </p>
                   </div>
@@ -632,7 +844,7 @@ export default function ReportPage() {
                       <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
                         <FileText size={20} className="text-blue-600" />
                       </div>
-                      <h3 className="font-bold text-slate-800">ไฟล์แนบ</h3>
+                      <h3 className="font-bold text-slate-800">Uploaded Files</h3>
                     </div>
                     <div className="flex flex-wrap gap-3">
                       {selectedReport.uploadedFiles.map((f, i) => (
@@ -646,7 +858,7 @@ export default function ReportPage() {
                           >
                             <FileText size={18} />
                             {f.name}
-                            <span className="text-blue-500 text-xs">เปิดดู</span>
+                            <span className="text-blue-500 text-xs">View</span>
                           </a>
                         ) : (
                           <span
