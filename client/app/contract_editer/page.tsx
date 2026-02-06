@@ -751,7 +751,7 @@ export default function ContractEditorPage() {
                         <div className="flex items-center gap-1">
                           <button
                             onClick={() => viewContractDetails(contract)}
-                            className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all duration-200"
+                            className="flex-1 flex items-center justify-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all duration-200"
                             title="View Details"
                           >
                             <FileText size={10} />
@@ -759,7 +759,7 @@ export default function ContractEditorPage() {
                           </button>
                           <button
                             onClick={() => openAssignSiteForContract(contract)}
-                            className="flex items-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200"
+                            className="flex-1 flex items-center justify-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200"
                             title={devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}
                           >
                             <MapPin size={10} />
