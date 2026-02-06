@@ -11,7 +11,7 @@ const getEmployees = async (req, res) => {
 
     // สร้าง WHERE condition สำหรับ search
     let searchCondition = '';
-    let searchParams = [];
+    let searchParams = [];    
 
     if (search) {
       const searchPattern = `%${search}%`;
