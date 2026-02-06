@@ -1,4 +1,4 @@
-import { apiUrl } from '@/lib/api';
+import { apiUrl, getEmployees as getEmployeesFromAPI } from '@/lib/api';
 
 // Interface สำหรับ Employee
 export interface Employee {
@@ -14,78 +14,45 @@ export interface Employee {
   employmentType: string;
 }
 
-// Mock data สำหรับ fallback (กรณี API ล้มเหลว)
-const MOCK_EMPLOYEES: Employee[] = [
-  {
-    "id": "EMP001",
-    "displayName": "Somsak P.",
-    "firstName": "Somsak",
-    "lastName": "Prasert",
-    "name": "Somsak Prasert",
-    "department": "IT",
-    "gmail": "somsak.prasert@example.com",
-    "tel": "081-234-5678",
-    "positionType": "Technical",
-    "employmentType": "Full-time"
-  },
-  {
-    "id": "EMP002",
-    "displayName": "Suda K.",
-    "firstName": "Suda",
-    "lastName": "Kaewmanee",
-    "name": "Suda Kaewmanee",
-    "department": "HR",
-    "gmail": "suda.kaewmanee@example.com",
-    "tel": "082-345-6789",
-    "positionType": "Management",
-    "employmentType": "Full-time"
-  },
-];
-
-// Function สำหรับดึงข้อมูล Employee จาก API
+// Function สำหรับดึงข้อมูล Employee จาก API (ไม่มี mock data)
 export async function fetchEmployeesFromAPI(): Promise<Employee[]> {
   try {
-    const response = await fetch(apiUrl('/api/employees?limit=1000'));
-    const data = await response.json();
+    const result = await getEmployeesFromAPI({ limit: 1000 });
     
-    if (data.success && data.data && Array.isArray(data.data)) {
-      // แปลงข้อมูลจาก API ให้ตรงกับโครงสร้างที่ใช้
-      return data.data.map((emp: any) => {
-        // แยกชื่อและนามสกุลจาก name (ถ้ามี)
-        const nameParts = (emp.name || '').split(' ');
-        const firstName = nameParts[0] || '';
-        const lastName = nameParts.slice(1).join(' ') || '';
-        const displayName = firstName && lastName 
-          ? `${firstName} ${lastName.charAt(0)}.` 
-          : emp.name || '';
-        
-        return {
-          id: String(emp.id || emp.user_id || ''),
-          displayName,
-          firstName,
-          lastName,
-          name: emp.name || '',
-          department: emp.department || 'Technical',
-          gmail: emp.gmail || '',
-          tel: emp.tel || emp.phone || '',
-          positionType: emp.positionType || emp.type || 'Technical',
-          employmentType: emp.employmentType || emp.employment || 'Full-Time',
-        };
-      });
+    if (!result.success || !result.data || !Array.isArray(result.data)) {
+      console.error('API returned invalid data format:', result);
+      return [];
     }
     
-    console.warn('API returned invalid data format, using mock data');
-    return MOCK_EMPLOYEES;
+    // แปลงข้อมูลจาก API ให้ตรงกับโครงสร้างที่ใช้
+    return result.data.map((emp: any) => {
+      // แยกชื่อและนามสกุลจาก name (ถ้ามี)
+      const nameParts = (emp.name || '').split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      const displayName = firstName && lastName 
+        ? `${firstName} ${lastName.charAt(0)}.` 
+        : emp.name || '';
+      
+      return {
+        id: String(emp.id || emp.user_id || ''),
+        displayName,
+        firstName,
+        lastName,
+        name: emp.name || '',
+        department: emp.department || 'Technical',
+        gmail: emp.gmail || '',
+        tel: emp.tel || emp.phone || '',
+        positionType: emp.positionType || emp.type || 'Technical',
+        employmentType: emp.employmentType || emp.employment || 'Full-Time',
+      };
+    });
   } catch (error) {
     console.error('Error fetching employees from API:', error);
-    return MOCK_EMPLOYEES;
+    // ไม่ return mock data แทน - return empty array
+    return [];
   }
 }
-
-// Export mock data สำหรับ backward compatibility
-export const EMPLOYEE_DATA = {
-  employees: MOCK_EMPLOYEES,
-};
 
 // Cache สำหรับเก็บข้อมูลที่ดึงมาแล้ว
 let cachedEmployees: Employee[] | null = null;
@@ -114,3 +81,34 @@ export function clearEmployeeCache(): void {
   cachedEmployees = null;
   cacheTimestamp = 0;
 }
+
+// Cache สำหรับ EMPLOYEE_DATA
+let employeeDataCache: Employee[] | null = null;
+let employeeDataCacheTimestamp: number = 0;
+
+// Export object สำหรับ backward compatibility (ดึงข้อมูลจาก API เท่านั้น)
+export const EMPLOYEE_DATA = {
+  get employees(): Employee[] {
+    // ถ้ามี cache และยังไม่หมดอายุ ให้ใช้ cache
+    const now = Date.now();
+    if (employeeDataCache && (now - employeeDataCacheTimestamp) < CACHE_DURATION) {
+      return employeeDataCache;
+    }
+    
+    // ถ้ายังไม่มี cache ให้ return empty array
+    // Component ควรเรียก getEmployees() หรือ refresh() แทน
+    return [];
+  },
+  
+  // Function สำหรับอัปเดต cache (เรียกจาก component)
+  async refresh(): Promise<void> {
+    const employees = await fetchEmployeesFromAPI();
+    employeeDataCache = employees;
+    employeeDataCacheTimestamp = Date.now();
+  },
+  
+  // Function สำหรับดึงข้อมูลแบบ async (แนะนำให้ใช้แทน employees property)
+  async getEmployeesAsync(): Promise<Employee[]> {
+    return await getEmployees();
+  }
+};

@@ -11,7 +11,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract } from '@/lib/api';
-import { EMPLOYEE_DATA } from '@/data/employee.mock';
+import { getEmployees } from '@/data/employee.mock';
+
 
 
 interface Props {
@@ -59,14 +60,7 @@ interface ContractOption {
 }
 
 /* ================= available engineers ================= */
-// ดึงข้อมูล engineer จาก employee.mock.ts
-const AVAILABLE_ENGINEERS: Engineer[] = EMPLOYEE_DATA.employees
-  .filter(emp => emp.positionType === 'Technical') // เฉพาะ Technical เท่านั้น
-  .map(emp => ({
-    id: emp.id,
-    name: emp.firstName,
-    lastName: emp.lastName,
-  }));
+// จะดึงข้อมูลจาก API ใน component แทน
 
 export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   /* ================= state (ตามที่กำหนด) ================= */
@@ -113,6 +107,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deviceSearchPm, setDeviceSearchPm] = useState('');
   const editingAssetsRef = useRef<Device[]>([]);
+  const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
+  const [loadingEngineers, setLoadingEngineers] = useState(false);
 
   const resetForm = () => {
     setTaskType('PM');
@@ -411,6 +407,37 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     loadAllContracts();
   }, [isOpen]);
 
+  // Load engineers from API when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const loadEngineers = async () => {
+      setLoadingEngineers(true);
+      try {
+        const employees = await getEmployees();
+        // Filter only Technical employees and map to Engineer format
+        const engineers: Engineer[] = employees
+          .filter((emp: any) => emp.positionType === 'Technical')
+          .map((emp: any) => {
+            const nameParts = (emp.name || '').split(' ');
+            return {
+              id: emp.id,
+              name: nameParts[0] || emp.name || '',
+              lastName: nameParts.slice(1).join(' ') || '',
+            };
+          });
+        setAvailableEngineers(engineers);
+      } catch (error) {
+        console.error('Error loading engineers:', error);
+        setAvailableEngineers([]);
+      } finally {
+        setLoadingEngineers(false);
+      }
+    };
+    
+    loadEngineers();
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
     const preserveSiteId = editingEvent?.Sid ?? editingEvent?.siteId;
@@ -594,7 +621,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   // Filter engineers based on input
-  const filteredEngineers = AVAILABLE_ENGINEERS.filter(
+  const filteredEngineers = availableEngineers.filter(
     (eng) =>
       !selectedEngineers.some((s) => s.id === eng.id) &&
       (eng.name.toLowerCase().includes(engineerInput.toLowerCase()) ||
