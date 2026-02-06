@@ -41,12 +41,24 @@ const EmployeeManagement = () => {
     const fetchEmployees = async () => {
       try {
         setLoading(true);
-        const response = await fetch(apiUrl('/api/employees?limit=1000'));
+        const url = apiUrl('/api/employees?limit=1000');
+        console.log('Fetching employees from:', url);
+        
+        const response = await fetch(url);
+        console.log('Response status:', response.status);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
-        if (data.success && data.data) {
+        console.log('Response data:', data);
+        
+        if (data.success && data.data && Array.isArray(data.data)) {
+          console.log('Employees loaded:', data.data.length);
           setEmployees(data.data);
         } else {
-          console.error('Failed to fetch employees:', data.message);
+          console.error('Failed to fetch employees:', data.message || 'Invalid response format', data);
           setEmployees([]);
         }
       } catch (error) {
@@ -93,16 +105,15 @@ const EmployeeManagement = () => {
   );
 
   const getEmploymentTypeColor = (type: string) => {
-    switch (type) {
-      case "Full-time":
-        return "bg-green-100 text-green-700";
-      case "Contract":
-        return "bg-blue-100 text-blue-700";
-      case "Part-time":
-        return "bg-yellow-100 text-yellow-700";
-      default:
-        return "bg-gray-100 text-gray-700";
+    const normalizedType = type?.toLowerCase() || '';
+    if (normalizedType.includes('full')) {
+      return "bg-green-100 text-green-700";
+    } else if (normalizedType.includes('contract')) {
+      return "bg-blue-100 text-blue-700";
+    } else if (normalizedType.includes('part')) {
+      return "bg-yellow-100 text-yellow-700";
     }
+    return "bg-gray-100 text-gray-700";
   };
 
   const getPositionTypeColor = (type: string) =>

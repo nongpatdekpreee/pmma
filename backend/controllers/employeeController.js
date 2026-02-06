@@ -16,45 +16,47 @@ const getEmployees = async (req, res) => {
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `WHERE (
-        User_id LIKE ? OR 
-        Username LIKE ? OR 
+        user_id LIKE ? OR 
+        name LIKE ? OR 
         gmail LIKE ? OR 
-        tel LIKE ?
+        phone LIKE ?
       )`;
       searchParams = [searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // นับจำนวน records ทั้งหมด
-    const countSql = `SELECT COUNT(*) as total FROM employees ${searchCondition}`;
+    const countSql = `SELECT COUNT(*) as total FROM user_profiles ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
 
     // ดึงข้อมูลตาม pagination
     const sql = `SELECT 
-      employee_id,
+      profile_id,
+      user_id,
       name,
+      phone,
       gmail,
-      tel,
-      position_type,
-      employment_type,
-      created_at,
-      updated_at
-    FROM employees 
+      type,
+      employment
+    FROM user_profiles 
     ${searchCondition}
-    ORDER BY employee_id DESC 
+    ORDER BY profile_id DESC 
     LIMIT ? OFFSET ?`;
 
     const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
+    console.log(`Found ${rows.length} employees from database`);
 
     // Map data to match frontend format
     const employees = rows.map((row) => ({
-      id: row.employee_id,
-      name: row.name,
+      id: String(row.user_id),
+      name: row.name || '',
       gmail: row.gmail || '',
-      tel: row.tel || '',
-      positionType: row.position_type || 'Technical',
-      employmentType: row.employment_type || 'Full-time',
+      tel: row.phone || '',
+      positionType: row.type || 'Technical',
+      employmentType: row.employment || 'Full-Time',
     }));
+
+    console.log(`Mapped ${employees.length} employees for response`);
 
     res.status(200).json({
       success: true,
@@ -82,16 +84,15 @@ const getEmployeeById = async (req, res) => {
     const { id } = req.params;
 
     const sql = `SELECT 
-      employee_id,
+      profile_id,
+      user_id,
       name,
+      phone,
       gmail,
-      tel,
-      position_type,
-      employment_type,
-      created_at,
-      updated_at
-    FROM employees 
-    WHERE employee_id = ?`;
+      type,
+      employment
+    FROM user_profiles 
+    WHERE user_id = ?`;
 
     const [rows] = await db.execute(sql, [id]);
 
@@ -103,12 +104,12 @@ const getEmployeeById = async (req, res) => {
     }
 
     const employee = {
-      id: rows[0].employee_id,
-      name: rows[0].name,
+      id: String(rows[0].user_id),
+      name: rows[0].name || '',
       gmail: rows[0].gmail || '',
-      tel: rows[0].tel || '',
-      positionType: rows[0].position_type || 'Technical',
-      employmentType: rows[0].employment_type || 'Full-time',
+      tel: rows[0].phone || '',
+      positionType: rows[0].type || 'Technical',
+      employmentType: rows[0].employment || 'Full-Time',
     };
 
     res.status(200).json({
