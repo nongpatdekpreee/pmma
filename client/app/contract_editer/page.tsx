@@ -108,7 +108,6 @@ export default function ContractEditorPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractsLoading, setContractsLoading] = useState(true);
   const [contractsError, setContractsError] = useState('');
-
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
@@ -691,24 +690,24 @@ export default function ContractEditorPage() {
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Equipment:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.deviceCount || 0} List Items</span>
               </div>
-              <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-slate-200">
+              <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-slate-200 min-w-0">
                 <button
                   onClick={() => viewContractDetails(contract)}
-                  className="flex-1 min-w-[90px] py-1 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
+                  className="flex-1 min-w-[90px] py-1 px-2 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm whitespace-nowrap text-center"
                 >
                   View Details
                 </button>
                 <button
                   onClick={() => openAssignSiteForContract(contract)}
-                  className="flex items-center gap-1 py-1 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600 whitespace-nowrap"
+                  className="flex items-center justify-center gap-1 flex-1 min-w-[110px] py-1 px-2 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600 whitespace-nowrap"
                   title="กำหนดอุปกรณ์ไป Site"
                 >
-                  <MapPin size={12} />
-                  {devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}
+                  <MapPin size={12} className="flex-shrink-0" />
+                  <span className="truncate">{devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}</span>
                 </button>
                 <button
                   onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
-                  className="flex-1 min-w-[90px] py-1 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-transparent text-slate-700 border border-slate-200 hover:border-blue-500 hover:text-blue-600"
+                  className="flex-1 min-w-[90px] py-1 px-2 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-white text-slate-700 border border-slate-200 hover:border-blue-500 hover:text-blue-600 whitespace-nowrap text-center"
                 >
                   {contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
                 </button>
