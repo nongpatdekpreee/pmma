@@ -1,5 +1,64 @@
 const db = require('../config/database');
 
+// Helper function - สร้าง user_id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
+const generateNextUserId = async () => {
+  try {
+    // ดึง user_id ทั้งหมดจาก database
+    const sql = `SELECT user_id FROM user_profiles ORDER BY user_id DESC`;
+    const [rows] = await db.execute(sql);
+    
+    if (rows.length === 0) {
+      // ถ้ายังไม่มีข้อมูลเลย ให้เริ่มที่ 1
+      return '1';
+    }
+    
+    // แปลง user_id ทั้งหมดเป็นตัวเลขและเก็บไว้ใน array
+    const numericIds = [];
+    for (const row of rows) {
+      const userId = String(row.user_id);
+      // ดึงเฉพาะตัวเลขออกมา
+      const numericPart = userId.replace(/\D/g, '');
+      if (numericPart) {
+        const num = parseInt(numericPart, 10);
+        if (!isNaN(num)) {
+          numericIds.push(num);
+        }
+      }
+    }
+    
+    if (numericIds.length === 0) {
+      // ถ้าไม่มี user_id ที่เป็นตัวเลขเลย ให้เริ่มที่ 1
+      return '1';
+    }
+    
+    // เรียงลำดับตัวเลขจากน้อยไปมาก
+    numericIds.sort((a, b) => a - b);
+    
+    // หาเลขที่ว่างที่น้อยที่สุด (gap filling)
+    // เริ่มจาก 1 ไปจนถึง max + 1
+    const maxId = Math.max(...numericIds);
+    
+    // สร้าง Set เพื่อหาง่ายขึ้น
+    const idSet = new Set(numericIds);
+    
+    // หาเลขที่ว่างที่น้อยที่สุด
+    for (let i = 1; i <= maxId; i++) {
+      if (!idSet.has(i)) {
+        console.log(`Found gap: using user_id ${i} (max was: ${maxId})`);
+        return i.toString();
+      }
+    }
+    
+    // ถ้าไม่มีเลขว่างแล้ว ให้ใช้เลขถัดไปจาก max
+    const nextId = (maxId + 1).toString();
+    console.log(`No gaps found: using next user_id ${nextId} (max was: ${maxId})`);
+    return nextId;
+  } catch (error) {
+    console.error('Error generating next user_id:', error);
+    throw error;
+  }
+};
+
 // GET - ดึงข้อมูล Employees ทั้งหมด
 const getEmployees = async (req, res) => {
   try {
@@ -16,45 +75,47 @@ const getEmployees = async (req, res) => {
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `WHERE (
-        User_id LIKE ? OR 
-        Username LIKE ? OR 
+        user_id LIKE ? OR 
+        name LIKE ? OR 
         gmail LIKE ? OR 
-        tel LIKE ?
+        phone LIKE ?
       )`;
       searchParams = [searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // นับจำนวน records ทั้งหมด
-    const countSql = `SELECT COUNT(*) as total FROM employees ${searchCondition}`;
+    const countSql = `SELECT COUNT(*) as total FROM user_profiles ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
 
     // ดึงข้อมูลตาม pagination
     const sql = `SELECT 
-      employee_id,
+      profile_id,
+      user_id,
       name,
+      phone,
       gmail,
-      tel,
-      position_type,
-      employment_type,
-      created_at,
-      updated_at
-    FROM employees 
+      type,
+      employment
+    FROM user_profiles 
     ${searchCondition}
-    ORDER BY employee_id DESC 
+    ORDER BY profile_id DESC 
     LIMIT ? OFFSET ?`;
 
     const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
+    console.log(`Found ${rows.length} employees from database`);
 
     // Map data to match frontend format
     const employees = rows.map((row) => ({
-      id: row.employee_id,
-      name: row.name,
+      id: String(row.user_id),
+      name: row.name || '',
       gmail: row.gmail || '',
-      tel: row.tel || '',
-      positionType: row.position_type || 'Technical',
-      employmentType: row.employment_type || 'Full-time',
+      tel: row.phone || '',
+      positionType: row.type || 'Technical',
+      employmentType: row.employment || 'Full-Time',
     }));
+
+    console.log(`Mapped ${employees.length} employees for response`);
 
     res.status(200).json({
       success: true,
@@ -82,16 +143,15 @@ const getEmployeeById = async (req, res) => {
     const { id } = req.params;
 
     const sql = `SELECT 
-      employee_id,
+      profile_id,
+      user_id,
       name,
+      phone,
       gmail,
-      tel,
-      position_type,
-      employment_type,
-      created_at,
-      updated_at
-    FROM employees 
-    WHERE employee_id = ?`;
+      type,
+      employment
+    FROM user_profiles 
+    WHERE user_id = ?`;
 
     const [rows] = await db.execute(sql, [id]);
 
@@ -103,12 +163,12 @@ const getEmployeeById = async (req, res) => {
     }
 
     const employee = {
-      id: rows[0].employee_id,
-      name: rows[0].name,
+      id: String(rows[0].user_id),
+      name: rows[0].name || '',
       gmail: rows[0].gmail || '',
-      tel: rows[0].tel || '',
-      positionType: rows[0].position_type || 'Technical',
-      employmentType: rows[0].employment_type || 'Full-time',
+      tel: rows[0].phone || '',
+      positionType: rows[0].type || 'Technical',
+      employmentType: rows[0].employment || 'Full-Time',
     };
 
     res.status(200).json({
@@ -125,7 +185,105 @@ const getEmployeeById = async (req, res) => {
   }
 };
 
+// POST - สร้าง Employee ใหม่
+const createEmployee = async (req, res) => {
+  try {
+    const { name, gmail, tel, positionType, employmentType } = req.body;
+
+    // ตรวจสอบข้อมูลที่จำเป็น
+    if (!name || !gmail || !tel) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (name, gmail, tel)',
+      });
+    }
+
+    // สร้าง user_id ใหม่โดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
+    let newUserId = await generateNextUserId();
+
+    // ตรวจสอบว่า user_id นี้มีอยู่แล้วหรือไม่ (ป้องกัน race condition)
+    const checkSql = `SELECT user_id FROM user_profiles WHERE user_id = ?`;
+    const [existing] = await db.execute(checkSql, [newUserId]);
+    
+    if (existing.length > 0) {
+      // ถ้ามีแล้ว (อาจเกิดจาก race condition) ให้ลองหาใหม่
+      newUserId = await generateNextUserId();
+      const [retryExisting] = await db.execute(checkSql, [newUserId]);
+      if (retryExisting.length > 0) {
+        throw new Error('ไม่สามารถสร้าง user_id ที่ไม่ซ้ำได้ กรุณาลองใหม่อีกครั้ง');
+      }
+    }
+
+    // แปลง employmentType ให้ตรงกับ enum ใน database
+    let employment = employmentType || 'Full-Time';
+    if (employment.toLowerCase().includes('full')) {
+      employment = 'Full-Time';
+    } else if (employment.toLowerCase().includes('contract')) {
+      employment = 'Contract';
+    } else if (employment.toLowerCase().includes('part')) {
+      employment = 'Part-Time';
+    }
+
+    // แปลง positionType
+    let type = positionType || 'Technical';
+    if (type !== 'Technical' && type !== 'Management') {
+      type = 'Technical';
+    }
+
+    // สร้าง employee ใหม่
+    const insertSql = `INSERT INTO user_profiles 
+      (user_id, name, gmail, phone, type, employment) 
+      VALUES (?, ?, ?, ?, ?, ?)`;
+    
+    await db.execute(insertSql, [
+      newUserId,
+      name,
+      gmail,
+      tel,
+      type,
+      employment,
+    ]);
+
+    // ดึงข้อมูล employee ที่สร้างใหม่
+    const getSql = `SELECT 
+      profile_id,
+      user_id,
+      name,
+      phone,
+      gmail,
+      type,
+      employment
+    FROM user_profiles 
+    WHERE user_id = ?`;
+
+    const [newEmployee] = await db.execute(getSql, [newUserId]);
+
+    const employee = {
+      id: String(newEmployee[0].user_id),
+      name: newEmployee[0].name || '',
+      gmail: newEmployee[0].gmail || '',
+      tel: newEmployee[0].phone || '',
+      positionType: newEmployee[0].type || 'Technical',
+      employmentType: newEmployee[0].employment || 'Full-Time',
+    };
+
+    res.status(201).json({
+      success: true,
+      message: 'สร้าง Employee สำเร็จ',
+      data: employee,
+    });
+  } catch (error) {
+    console.error('Error creating employee:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการสร้าง Employee',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getEmployees,
   getEmployeeById,
+  createEmployee,
 };

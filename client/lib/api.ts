@@ -332,3 +332,41 @@ export async function getDevicesWithPM(params?: { search?: string; deviceRole?: 
     };
   }
 }
+
+/** GET /api/employees - ดึงข้อมูล Employees จาก user_profiles */
+export async function getEmployees(params?: { limit?: number; page?: number; search?: string }): Promise<{
+  success: boolean;
+  data?: Array<{
+    id: string;
+    name: string;
+    gmail: string;
+    tel: string;
+    positionType: string;
+    employmentType: string;
+  }>;
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+  message?: string;
+  error?: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set('limit', String(params.limit));
+  if (params?.page) q.set('page', String(params.page));
+  if (params?.search) q.set('search', params.search);
+  
+  try {
+    const res = await fetch(apiUrl(`/api/employees?${q.toString()}`));
+    return res.json();
+  } catch (error) {
+    console.error('Error fetching employees:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to fetch employees',
+      error: 'Network error'
+    };
+  }
+}

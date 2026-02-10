@@ -5,7 +5,7 @@ import { Plus, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
-import { EMPLOYEE_DATA } from '@/data/employee.mock';
+import { getEmployees } from '@/data/employee.mock';
 import Link from 'next/link';
 import DashboardHeader from '@/components/ui/Header';
 
@@ -53,9 +53,21 @@ export default function CalendarPage() {
     }
   }, [calendarEvents]);
   
-  // Get engineers list
-  const engineers = useMemo(() => {
-    return EMPLOYEE_DATA.employees.map(emp => emp.displayName);
+  // Get engineers list from API
+  const [engineers, setEngineers] = useState<string[]>([]);
+  
+  useEffect(() => {
+    const loadEngineers = async () => {
+      try {
+        const employees = await getEmployees();
+        const engineerNames = employees.map(emp => emp.displayName || emp.name);
+        setEngineers(engineerNames);
+      } catch (error) {
+        console.error('Error loading engineers:', error);
+        setEngineers([]);
+      }
+    };
+    loadEngineers();
   }, []);
   
   // Get current month and year

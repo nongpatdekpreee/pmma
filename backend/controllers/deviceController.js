@@ -2,12 +2,10 @@ const db = require('../config/database');
 
 // devices_history is populated by DB triggers (trg_devices_insert, trg_devices_update)
 // ไม่ต้อง insert จาก application
-
 // POST - สร้าง Device ใหม่ (รองรับทั้ง 1 device และหลาย devices)
 // ถ้ามี Asset_Number และมีอยู่ใน database แล้ว จะ update แทน insert
 const createDevice = async (req, res) => {
   try {
-
     // ตรวจสอบว่าเป็น array หรือ object เดียว
     const isArray = Array.isArray(req.body);
     const devices = isArray ? req.body : [req.body];

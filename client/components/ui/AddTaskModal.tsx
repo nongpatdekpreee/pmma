@@ -8,10 +8,12 @@ import {
   CalendarClock,
   Plus,
   Search,
+  ChevronDown,
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
-import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract } from '@/lib/api';
-import { EMPLOYEE_DATA } from '@/data/employee.mock';
+import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation } from '@/lib/api';
+import { getEmployees } from '@/data/employee.mock';
+
 
 
 interface Props {
@@ -59,14 +61,7 @@ interface ContractOption {
 }
 
 /* ================= available engineers ================= */
-// ดึงข้อมูล engineer จาก employee.mock.ts
-const AVAILABLE_ENGINEERS: Engineer[] = EMPLOYEE_DATA.employees
-  .filter(emp => emp.positionType === 'Technical') // เฉพาะ Technical เท่านั้น
-  .map(emp => ({
-    id: emp.id,
-    name: emp.firstName,
-    lastName: emp.lastName,
-  }));
+// จะดึงข้อมูลจาก API ใน component แทน
 
 export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   /* ================= state (ตามที่กำหนด) ================= */
@@ -112,7 +107,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [showAll, setShowAll] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deviceSearchPm, setDeviceSearchPm] = useState('');
+  const [siteSearch, setSiteSearch] = useState('');
+  const [contractSearch, setContractSearch] = useState('');
+  const [showSiteDropdown, setShowSiteDropdown] = useState(false);
+  const [showContractDropdown, setShowContractDropdown] = useState(false);
+  const [devicePage, setDevicePage] = useState(1);
+  const [devicesPerPage] = useState(10);
+  const [deviceTypeFilter, setDeviceTypeFilter] = useState<string>('');
+  const [deviceSiteFilter, setDeviceSiteFilter] = useState<string>('');
   const editingAssetsRef = useRef<Device[]>([]);
+  const siteDropdownRef = useRef<HTMLDivElement>(null);
+  const contractDropdownRef = useRef<HTMLDivElement>(null);
+  const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
+  const [loadingEngineers, setLoadingEngineers] = useState(false);
 
   const resetForm = () => {
     setTaskType('PM');
@@ -136,6 +143,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setReplacementDevices([]);
     setSelectedReplacementDevice(null);
     setBrokenDevicePairs([]);
+    setSiteSearch('');
+    setContractSearch('');
+    setDeviceSearchPm('');
+    setDevicePage(1);
+    setDeviceTypeFilter('');
+    setDeviceSiteFilter('');
   };
 
   const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => ({
@@ -152,16 +165,35 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     SLid: item.SLid != null ? Number(item.SLid) : undefined,
   });
 
-  const fetchAllContracts = async () => {
+  const fetchAllSites = async () => {
     try {
-      const result = await getContractsBySite();
+      const result = await getSitesLocation();
       if (!result.success) {
-        throw new Error('ไม่สามารถดึงข้อมูลสัญญาได้');
+        throw new Error('ไม่สามารถดึงข้อมูล Site ได้');
+      }
+      return (result.data || []).map((item: any) => ({
+        id: String(item.SLid),
+        name: item.SiteName || 'Site',
+        location: item.Location || item.Location2 || '',
+        label: `${item.SiteName || 'Site'}${item.Location || item.Location2 ? ` - ${item.Location || item.Location2}` : ''}`,
+      }));
+    } catch (error: any) {
+      console.error('fetchAllSites error:', error);
+      throw new Error(error.message || 'โหลด Sites ไม่สำเร็จ');
+    }
+  };
+
+  const fetchContractsBySite = async (siteId: string) => {
+    if (!siteId) return [];
+    try {
+      const result = await getContractsBySite(siteId);
+      if (!result.success) {
+        throw new Error('ไม่สามารถดึง Contracts ของ Site ได้');
       }
       return result.data || [];
     } catch (error: any) {
-      console.error('fetchAllContracts error:', error);
-      throw new Error(error.message || 'โหลดสัญญาไม่สำเร็จ');
+      console.error('fetchContractsBySite error:', error);
+      throw new Error(error.message || 'โหลด Contracts ตาม Site ไม่สำเร็จ');
     }
   };
 
@@ -216,6 +248,67 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }
     });
     return Array.from(map.values());
+  };
+
+  const loadAllSites = async () => {
+    if (!isOpen) return;
+    setLoadingSites(true);
+    setDeviceError(null);
+    try {
+      const sites = await fetchAllSites();
+      setSiteOptions(sites);
+    } catch (error: any) {
+      console.error('loadAllSites error:', error);
+      setDeviceError(error.message || 'ไม่สามารถโหลด Sites ได้');
+      setSiteOptions([]);
+    } finally {
+      setLoadingSites(false);
+    }
+  };
+
+  const loadContractsForSite = async (siteId: string, preserveContractId?: string) => {
+    if (!isOpen || !siteId) {
+      setContractOptions([]);
+      if (!preserveContractId) {
+        setSelectedContractId('');
+      }
+      return;
+    }
+    setLoadingContracts(true);
+    setDeviceError(null);
+    try {
+      const contracts = await fetchContractsBySite(siteId);
+      setContractOptions(contracts);
+      if (!preserveContractId) {
+        setSelectedContractId('');
+      } else {
+        const contractExists = contracts.some((c: ContractOption) => String(c.contract_id) === String(preserveContractId));
+        if (contractExists) {
+          setSelectedContractId(String(preserveContractId));
+        } else {
+          setSelectedContractId('');
+        }
+      }
+    } catch (error: any) {
+      console.error('loadContractsForSite error:', error);
+      setDeviceError(error.message || 'ไม่สามารถโหลด Contracts ได้');
+      setContractOptions([]);
+    } finally {
+      setLoadingContracts(false);
+    }
+  };
+
+  const fetchAllContracts = async () => {
+    try {
+      const result = await getContractsBySite();
+      if (!result.success) {
+        throw new Error('ไม่สามารถดึงข้อมูลสัญญาได้');
+      }
+      return result.data || [];
+    } catch (error: any) {
+      console.error('fetchAllContracts error:', error);
+      throw new Error(error.message || 'โหลดสัญญาไม่สำเร็จ');
+    }
   };
 
   const loadAllContracts = async () => {
@@ -408,20 +501,83 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   useEffect(() => {
     if (!isOpen) return;
-    loadAllContracts();
+    loadAllSites();
   }, [isOpen]);
 
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (siteDropdownRef.current && !siteDropdownRef.current.contains(event.target as Node)) {
+        setShowSiteDropdown(false);
+      }
+      if (contractDropdownRef.current && !contractDropdownRef.current.contains(event.target as Node)) {
+        setShowContractDropdown(false);
+      }
+    };
+
+    if (showSiteDropdown || showContractDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showSiteDropdown, showContractDropdown]);
+
+  // Load engineers from API when modal opens
   useEffect(() => {
     if (!isOpen) return;
-    const preserveSiteId = editingEvent?.Sid ?? editingEvent?.siteId;
-    loadSitesForContract(selectedContractId, preserveSiteId ? String(preserveSiteId) : undefined);
-  }, [selectedContractId, isOpen, editingEvent]);
+    
+    const loadEngineers = async () => {
+      setLoadingEngineers(true);
+      try {
+        const employees = await getEmployees();
+        // Filter only Technical employees and map to Engineer format
+        const engineers: Engineer[] = employees
+          .filter((emp: any) => emp.positionType === 'Technical')
+          .map((emp: any) => {
+            const nameParts = (emp.name || '').split(' ');
+            return {
+              id: emp.id,
+              name: nameParts[0] || emp.name || '',
+              lastName: nameParts.slice(1).join(' ') || '',
+            };
+          });
+        setAvailableEngineers(engineers);
+      } catch (error) {
+        console.error('Error loading engineers:', error);
+        setAvailableEngineers([]);
+      } finally {
+        setLoadingEngineers(false);
+      }
+    };
+    
+    loadEngineers();
+  }, [isOpen]);
+
+  // Load contracts when site is selected
+  useEffect(() => {
+    if (!isOpen) return;
+    const preserveContractId = editingEvent?.contractId ?? editingEvent?.contract_id;
+    if (Sid) {
+      loadContractsForSite(Sid, preserveContractId ? String(preserveContractId) : undefined);
+    } else {
+      setContractOptions([]);
+      setSelectedContractId('');
+    }
+  }, [Sid, isOpen, editingEvent]);
 
   useEffect(() => {
     if (!isOpen) return;
     // If editing and we have assets, preserve them when loading devices
     const preserveDevices = editingEvent?.assets || [];
-    loadDevicesForSelection(selectedContractId, taskType, preserveDevices.length > 0 && editingEvent ? preserveDevices : []);
+    // โหลด devices เมื่อเลือก contract แล้ว
+    if (selectedContractId) {
+      loadDevicesForSelection(selectedContractId, taskType, preserveDevices.length > 0 && editingEvent ? preserveDevices : []);
+    } else {
+      setDevices([]);
+      setSelectedDevices([]);
+      setBrokenDevicePairs([]);
+    }
   }, [selectedContractId, taskType, isOpen, editingEvent]);
 
   // After devices are loaded, restore selected devices from editingEvent if editing
@@ -594,7 +750,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   // Filter engineers based on input
-  const filteredEngineers = AVAILABLE_ENGINEERS.filter(
+  const filteredEngineers = availableEngineers.filter(
     (eng) =>
       !selectedEngineers.some((s) => s.id === eng.id) &&
       (eng.name.toLowerCase().includes(engineerInput.toLowerCase()) ||
@@ -627,33 +783,119 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setSid(siteId);
     const selected = siteOptions.find((s) => s.id === siteId);
     setSname(selected ? selected.label : '');
-    // กรอง devices ตาม site - เคลียร์ selected ที่ไม่อยู่ใน site นี้
-    setSelectedDevices((prev) =>
-      siteId ? prev.filter((d) => d.SLid != null && String(d.SLid) === siteId) : []
-    );
+    // เมื่อเปลี่ยน site ให้เคลียร์ contract และ devices
+    setSelectedContractId('');
+    setDevices([]);
+    setSelectedDevices([]);
+    setBrokenDevicePairs([]);
+    // โหลด contracts สำหรับ site นี้ (จะทำใน useEffect)
   };
 
   const handleContractChange = (contractId: string) => {
     setSelectedContractId(contractId);
-    setSid('');
-    setSname('');
+    // เมื่อเปลี่ยน contract ให้เคลียร์ devices
     setDevices([]);
     setSelectedDevices([]);
     setBrokenDevicePairs([]);
+    // โหลด devices สำหรับ contract นี้ (จะทำใน useEffect)
   };
+
+  // กรอง sites ตามคำค้นหา
+  const filteredSiteOptions = siteSearch.trim()
+    ? siteOptions.filter((s) => {
+        const searchLower = siteSearch.toLowerCase();
+        return (
+          s.label.toLowerCase().includes(searchLower) ||
+          s.name.toLowerCase().includes(searchLower) ||
+          s.id.toLowerCase().includes(searchLower)
+        );
+      })
+    : siteOptions;
+
+  // กรอง contracts ตามคำค้นหา
+  const filteredContractOptions = contractSearch.trim()
+    ? contractOptions.filter((c) => {
+        const searchLower = contractSearch.toLowerCase();
+        return (
+          (c.contract_name || '').toLowerCase().includes(searchLower) ||
+          String(c.contract_id).toLowerCase().includes(searchLower) ||
+          (c.sof_name || '').toLowerCase().includes(searchLower)
+        );
+      })
+    : contractOptions;
 
   // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices)
   const devicesToShow = Sid
     ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid)
     : [];
-  // ค้นหา PM devices (inline list)
+  // Get unique device types and sites for filter dropdowns
+  const uniqueDeviceTypes = Array.from(new Set(devicesToShow.map(d => d.type).filter(Boolean))).sort();
+  const uniqueDeviceSites = Array.from(new Set(devicesToShow.map(d => d.site).filter(Boolean))).sort();
+
+  // ค้นหาและกรอง PM devices (inline list)
   const deviceSearchPmQ = deviceSearchPm.trim().toLowerCase();
-  const devicesToShowFilteredPm = deviceSearchPmQ
+  let devicesToShowFilteredPm = deviceSearchPmQ
     ? devicesToShow.filter((d) => {
         const s = [d.name, d.type, d.serialNumber, d.assetNumber, d.site, d.assetState].filter(Boolean).join(' ').toLowerCase();
         return deviceSearchPmQ.split(/\s+/).filter(Boolean).every((p) => s.includes(p));
       })
     : devicesToShow;
+
+  // Apply type filter
+  if (deviceTypeFilter) {
+    devicesToShowFilteredPm = devicesToShowFilteredPm.filter(d => d.type === deviceTypeFilter);
+  }
+
+  // Apply site filter
+  if (deviceSiteFilter) {
+    devicesToShowFilteredPm = devicesToShowFilteredPm.filter(d => d.site === deviceSiteFilter);
+  }
+
+  // Pagination for devices
+  const totalDevicePages = Math.ceil(devicesToShowFilteredPm.length / devicesPerPage);
+  const startDeviceIndex = (devicePage - 1) * devicesPerPage;
+  const endDeviceIndex = startDeviceIndex + devicesPerPage;
+  const paginatedDevices = devicesToShowFilteredPm.slice(startDeviceIndex, endDeviceIndex);
+
+  // Reset to page 1 when search or filters change
+  useEffect(() => {
+    setDevicePage(1);
+  }, [deviceSearchPm, deviceTypeFilter, deviceSiteFilter]);
+
+  // Select All / Deselect All handlers
+  const handleSelectAll = () => {
+    const allIds = new Set(paginatedDevices.map(d => d.id));
+    const currentSelectedIds = new Set(selectedDevices.map(d => d.id));
+    
+    // Check if all current page items are selected
+    const allSelected = paginatedDevices.every(d => currentSelectedIds.has(d.id));
+    
+    if (allSelected) {
+      // Deselect all items on current page
+      setSelectedDevices(prev => prev.filter(d => !allIds.has(d.id)));
+    } else {
+      // Select all items on current page (add only those not already selected)
+      const newSelections = paginatedDevices.filter(d => !currentSelectedIds.has(d.id));
+      setSelectedDevices(prev => [...prev, ...newSelections]);
+    }
+  };
+
+  const handleSelectAllFiltered = () => {
+    const allFilteredIds = new Set(devicesToShowFilteredPm.map(d => d.id));
+    const currentSelectedIds = new Set(selectedDevices.map(d => d.id));
+    
+    // Check if all filtered items are selected
+    const allSelected = devicesToShowFilteredPm.every(d => currentSelectedIds.has(d.id));
+    
+    if (allSelected) {
+      // Deselect all filtered items
+      setSelectedDevices(prev => prev.filter(d => !allFilteredIds.has(d.id)));
+    } else {
+      // Select all filtered items
+      const newSelections = devicesToShowFilteredPm.filter(d => !currentSelectedIds.has(d.id));
+      setSelectedDevices(prev => [...prev, ...newSelections]);
+    }
+  };
 
   const handleSave = async () => {
     if (!Sname || !startDate || selectedEngineers.length === 0) {
@@ -811,55 +1053,159 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             </div>
           )}
 
-          {/* Contract & Site (เหมือน contract_editer/add: เลือก Contract ก่อน แล้วค่อย Site) */}
+          {/* Site & Contract (เลือก Site ก่อน แล้วค่อย Contract) */}
           <div className={sectionCard}>
-            <h3 className="text-xs font-bold text-slate-700">Contract & Site Information</h3>
+            <h3 className="text-xs font-bold text-slate-700">Site & Contract Information</h3>
 
             <div>
-              <label className={fieldLabel}>Contract *</label>
-              <select
-                value={selectedContractId}
-                onChange={(e) => handleContractChange(e.target.value)}
-                className={selectBase}
-                disabled={loadingContracts}
-              >
-                <option value="">
-                  {loadingContracts ? 'Loading contracts...' : 'Select Contract'}
-                </option>
-                {contractOptions.map((contract) => (
-                  <option key={contract.contract_id} value={String(contract.contract_id)}>
-                    {contract.contract_name || `Contract #${contract.contract_id}`}
-                    {contract.sof_name ? ` - ${contract.sof_name}` : ''}
-                  </option>
-                ))}
-              </select>
-              {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลสัญญา...</p>}
-              {!loadingContracts && contractOptions.length === 0 && (
-                <p className="text-[10px] text-slate-400 mt-1">ไม่พบสัญญา</p>
-              )}
+              <label className={fieldLabel}>Site Name *</label>
+              
+              {/* Custom Searchable Combobox for Sites */}
+              <div className="relative" ref={siteDropdownRef}>
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={showSiteDropdown ? siteSearch : (Sid ? siteOptions.find(s => s.id === Sid)?.label || '' : '')}
+                    onChange={(e) => {
+                      setSiteSearch(e.target.value);
+                      setShowSiteDropdown(true);
+                      setShowContractDropdown(false);
+                    }}
+                    onFocus={() => {
+                      setShowSiteDropdown(true);
+                      setShowContractDropdown(false);
+                      if (!siteSearch) {
+                        setSiteSearch(Sid ? siteOptions.find(s => s.id === Sid)?.label || '' : '');
+                      }
+                    }}
+                    placeholder={loadingSites ? 'Loading sites...' : 'ค้นหาหรือเลือก Site...'}
+                    disabled={loadingSites}
+                    className={`w-full pl-10 pr-10 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingSites ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
+                  />
+                  <ChevronDown 
+                    size={16} 
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showSiteDropdown ? 'rotate-180' : ''}`} 
+                  />
+                </div>
+
+                {showSiteDropdown && !loadingSites && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
+                    {/* Options List */}
+                    <div className="overflow-y-auto max-h-60">
+                      {filteredSiteOptions.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-slate-400 text-center">
+                          {siteSearch.trim() ? 'ไม่พบ Site ที่ตรงกับคำค้นหา' : 'ไม่พบ Site'}
+                        </div>
+                      ) : (
+                        filteredSiteOptions.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              handleSiteChange(s.id);
+                              setShowSiteDropdown(false);
+                              setSiteSearch('');
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors ${Sid === s.id ? 'bg-blue-100 text-blue-700 font-medium' : 'text-slate-700'}`}
+                          >
+                            {s.label}
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                    {siteSearch.trim() && filteredSiteOptions.length > 0 && (
+                      <div className="px-3 py-1.5 border-t border-slate-200 text-[10px] text-slate-400 text-center bg-slate-50">
+                        แสดง {filteredSiteOptions.length}/{siteOptions.length} Site
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {loadingSites && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลไซต์...</p>}
             </div>
 
-            {/* Site Selection - appears after contract is selected */}
-            {selectedContractId && (
+            {/* Contract Selection - appears after site is selected */}
+            {Sid && (
               <div>
-                <label className={fieldLabel}>Site Name *</label>
-                <select
-                  value={Sid}
-                  onChange={(e) => handleSiteChange(e.target.value)}
-                  className={selectBase}
-                  disabled={loadingSites}
-                >
-                  <option value="">{loadingSites ? 'Loading sites...' : 'Select Site'}</option>
-                  {siteOptions.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-                {loadingSites && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลไซต์...</p>}
-                {!loadingSites && siteOptions.length === 0 && selectedContractId && (
-                  <p className="text-[10px] text-slate-400 mt-1">ไม่พบ Site ในสัญญานี้</p>
-                )}
+                <label className={fieldLabel}>Contract *</label>
+                
+                {/* Custom Searchable Combobox for Contracts */}
+                <div className="relative" ref={contractDropdownRef}>
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={showContractDropdown ? contractSearch : (selectedContractId 
+                        ? (() => {
+                            const contract = contractOptions.find(c => String(c.contract_id) === selectedContractId);
+                            return contract 
+                              ? `${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`
+                              : '';
+                          })()
+                        : '')}
+                      onChange={(e) => {
+                        setContractSearch(e.target.value);
+                        setShowContractDropdown(true);
+                        setShowSiteDropdown(false);
+                      }}
+                      onFocus={() => {
+                        setShowContractDropdown(true);
+                        setShowSiteDropdown(false);
+                        if (!contractSearch && selectedContractId) {
+                          const contract = contractOptions.find(c => String(c.contract_id) === selectedContractId);
+                          if (contract) {
+                            setContractSearch(`${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`);
+                          }
+                        }
+                      }}
+                      placeholder={loadingContracts ? 'Loading contracts...' : 'ค้นหาหรือเลือก Contract...'}
+                      disabled={loadingContracts}
+                      className={`w-full pl-10 pr-10 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingContracts ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
+                    />
+                    <ChevronDown 
+                      size={16} 
+                      className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showContractDropdown ? 'rotate-180' : ''}`} 
+                    />
+                  </div>
+
+                  {showContractDropdown && !loadingContracts && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
+                      {/* Options List */}
+                      <div className="overflow-y-auto max-h-60">
+                        {filteredContractOptions.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-slate-400 text-center">
+                            {contractSearch.trim() ? 'ไม่พบ Contract ที่ตรงกับคำค้นหา' : 'ไม่พบ Contract ใน Site นี้'}
+                          </div>
+                        ) : (
+                          filteredContractOptions.map((contract) => (
+                            <button
+                              key={contract.contract_id}
+                              type="button"
+                              onClick={() => {
+                                handleContractChange(String(contract.contract_id));
+                                setShowContractDropdown(false);
+                                setContractSearch('');
+                              }}
+                              className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors ${selectedContractId === String(contract.contract_id) ? 'bg-blue-100 text-blue-700 font-medium' : 'text-slate-700'}`}
+                            >
+                              {contract.contract_name || `Contract #${contract.contract_id}`}
+                              {contract.sof_name ? ` - ${contract.sof_name}` : ''}
+                            </button>
+                          ))
+                        )}
+                      </div>
+
+                      {contractSearch.trim() && filteredContractOptions.length > 0 && (
+                        <div className="px-3 py-1.5 border-t border-slate-200 text-[10px] text-slate-400 text-center bg-slate-50">
+                          แสดง {filteredContractOptions.length}/{contractOptions.length} Contract
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลสัญญา...</p>}
               </div>
             )}
           </div>
@@ -894,52 +1240,134 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
             {devicesToShow.length > 0 && taskType === 'PM' && (
               <div className="space-y-1.5">
-                <div className="relative mb-2">
-                  <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="ค้นหาอุปกรณ์..."
-                    value={deviceSearchPm}
-                    onChange={(e) => setDeviceSearchPm(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
-                  />
-                </div>
-                {(showAll ? devicesToShowFilteredPm : devicesToShowFilteredPm.slice(0, 3)).map((d) => {
-                  const active = selectedDevices.some((x) => x.id === d.id);
-                  return (
-                    <div
-                      key={d.id}
-                      onClick={() => toggleDevice(d)}
-                      className={assetCard(active)}
-                    >
-                      <div>
-                        <p className="text-xs font-medium">{d.name}</p>
-                        <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400">
-                          <span>Type: {d.type}</span>
-                          {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
-                          {d.site && <span>| Site: {d.site}</span>}
-                          {d.assetState && <span>| State: {d.assetState}</span>}
-                        </div>
-                      </div>
-                      {active && (
-                        <span className="text-[10px] font-bold text-blue-600">Selected</span>
-                      )}
+                {/* Search and Filter Row */}
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="ค้นหาอุปกรณ์..."
+                      value={deviceSearchPm}
+                      onChange={(e) => setDeviceSearchPm(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                    />
+                  </div>
+                  
+                  {/* Filter Controls */}
+                  <div className="flex flex-wrap gap-2">
+                    {/* Type Filter */}
+                    {uniqueDeviceTypes.length > 0 && (
+                      <select
+                        value={deviceTypeFilter}
+                        onChange={(e) => setDeviceTypeFilter(e.target.value)}
+                        className="flex-1 min-w-[120px] px-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                      >
+                        <option value="">ทุกประเภท</option>
+                        {uniqueDeviceTypes.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    
+                    {/* Site Filter */}
+                    {uniqueDeviceSites.length > 0 && (
+                      <select
+                        value={deviceSiteFilter}
+                        onChange={(e) => setDeviceSiteFilter(e.target.value)}
+                        className="flex-1 min-w-[120px] px-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                      >
+                        <option value="">ทุก Site</option>
+                        {uniqueDeviceSites.map((site) => (
+                          <option key={site} value={site}>
+                            {site}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    
+                    {/* Select All Buttons */}
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={handleSelectAll}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                      >
+                        เลือกหน้าปัจจุบัน
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSelectAllFiltered}
+                        className="px-3 py-1.5 text-xs rounded-lg border border-blue-500 bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                      >
+                        เลือกทั้งหมด ({devicesToShowFilteredPm.length})
+                      </button>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                </div>
+                
+                {/* Device List with Pagination */}
+                <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                  {paginatedDevices.map((d) => {
+                    const active = selectedDevices.some((x) => x.id === d.id);
+                    return (
+                      <div
+                        key={d.id}
+                        onClick={() => toggleDevice(d)}
+                        className={assetCard(active)}
+                      >
+                        <div>
+                          <p className="text-xs font-medium">{d.name}</p>
+                          <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400">
+                            <span>Type: {d.type}</span>
+                            {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
+                            {d.site && <span>| Site: {d.site}</span>}
+                            {d.assetState && <span>| State: {d.assetState}</span>}
+                          </div>
+                        </div>
+                        {active && (
+                          <span className="text-[10px] font-bold text-blue-600">Selected</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
 
-            { taskType === 'PM' && devicesToShowFilteredPm.length > 3 && (
-              <button
-                onClick={() => setAssetModalOpen(true)}
-                className="text-xs font-medium text-blue-500 hover:underline mt-2"
-              >
-                View all devices
-              </button>
-            )}
-            { taskType === 'PM' && deviceSearchPm && devicesToShowFilteredPm.length < devicesToShow.length && (
-              <p className="text-xs text-slate-500 mt-1">แสดง {devicesToShowFilteredPm.length}/{devicesToShow.length} รายการ</p>
+                {/* Pagination Controls */}
+                {totalDevicePages > 1 && (
+                  <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                    <div className="text-xs text-slate-500">
+                      แสดง {startDeviceIndex + 1}-{Math.min(endDeviceIndex, devicesToShowFilteredPm.length)} จาก {devicesToShowFilteredPm.length} รายการ
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setDevicePage(prev => Math.max(1, prev - 1))}
+                        disabled={devicePage === 1}
+                        className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        ก่อนหน้า
+                      </button>
+                      <span className="px-2 py-1 text-xs text-slate-600">
+                        หน้า {devicePage} / {totalDevicePages}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setDevicePage(prev => Math.min(totalDevicePages, prev + 1))}
+                        disabled={devicePage === totalDevicePages}
+                        className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        ถัดไป
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {deviceSearchPm && devicesToShowFilteredPm.length < devicesToShow.length && (
+                  <p className="text-xs text-slate-500 mt-1">แสดง {devicesToShowFilteredPm.length}/{devicesToShow.length} รายการ (กรองแล้ว)</p>
+                )}
+              </div>
             )}
 
             {/* Broken Device Pairs (for MA only) */}
@@ -956,7 +1384,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       </label>
                       {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                          {!selectedContractId ? 'เลือก Contract' : !Sid ? 'เลือก Site เพื่อแสดงอุปกรณ์' : 'ไม่พบอุปกรณ์ที่ Site นี้'}
+                          {!Sid ? 'เลือก Site' : !selectedContractId ? 'เลือก Contract เพื่อแสดงอุปกรณ์' : 'ไม่พบอุปกรณ์ที่ Site นี้'}
                         </p>
                       ) : (
                         <SearchableDeviceSelect

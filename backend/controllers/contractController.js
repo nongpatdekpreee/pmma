@@ -1,5 +1,63 @@
 const db = require('../config/database');
 
+// Helper function - สร้าง contract_id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
+const generateNextContractId = async () => {
+  try {
+    // ดึง contract_id ทั้งหมดจาก database
+    const sql = `SELECT contract_id FROM contract ORDER BY contract_id DESC`;
+    const [rows] = await db.execute(sql);
+    
+    if (rows.length === 0) {
+      // ถ้ายังไม่มีข้อมูลเลย ให้เริ่มที่ 1
+      return 1;
+    }
+    
+    // แปลง contract_id ทั้งหมดเป็นตัวเลขและเก็บไว้ใน array
+    const numericIds = [];
+    for (const row of rows) {
+      const contractId = row.contract_id;
+      // contract_id เป็น INT แล้ว
+      if (contractId != null && !isNaN(contractId)) {
+        const num = parseInt(contractId, 10);
+        if (!isNaN(num)) {
+          numericIds.push(num);
+        }
+      }
+    }
+    
+    if (numericIds.length === 0) {
+      // ถ้าไม่มี contract_id ที่เป็นตัวเลขเลย ให้เริ่มที่ 1
+      return 1;
+    }
+    
+    // เรียงลำดับตัวเลขจากน้อยไปมาก
+    numericIds.sort((a, b) => a - b);
+    
+    // หาเลขที่ว่างที่น้อยที่สุด (gap filling)
+    // เริ่มจาก 1 ไปจนถึง max + 1
+    const maxId = Math.max(...numericIds);
+    
+    // สร้าง Set เพื่อหาง่ายขึ้น
+    const idSet = new Set(numericIds);
+    
+    // หาเลขที่ว่างที่น้อยที่สุด
+    for (let i = 1; i <= maxId; i++) {
+      if (!idSet.has(i)) {
+        console.log(`Found gap: using contract_id ${i} (max was: ${maxId})`);
+        return i;
+      }
+    }
+    
+    // ถ้าไม่มีเลขว่างแล้ว ให้ใช้เลขถัดไปจาก max
+    const nextId = maxId + 1;
+    console.log(`No gaps found: using next contract_id ${nextId} (max was: ${maxId})`);
+    return nextId;
+  } catch (error) {
+    console.error('Error generating next contract_id:', error);
+    throw error;
+  }
+};
+
 // POST /api/contracts/upload - อัปโหลดไฟล์หรือรูป เก็บ path
 const uploadContractFile = (req, res) => {
   try {
@@ -165,9 +223,27 @@ const createContract = async (req, res) => {
       }
     }
 
-    const insertCols = 'contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, contract_value, coverage_scope, file_paths, image_paths';
-    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+    // สร้าง contract_id ใหม่โดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
+    const newContractId = await generateNextContractId();
+    
+    // ตรวจสอบว่า contract_id นี้มีอยู่แล้วหรือไม่ (ป้องกัน race condition)
+    const checkSql = `SELECT contract_id FROM contract WHERE contract_id = ?`;
+    const [existing] = await db.execute(checkSql, [newContractId]);
+    
+    let finalContractId = newContractId;
+    if (existing.length > 0) {
+      // ถ้ามีแล้ว (อาจเกิดจาก race condition) ให้ลองหาใหม่
+      finalContractId = await generateNextContractId();
+      const [retryExisting] = await db.execute(checkSql, [finalContractId]);
+      if (retryExisting.length > 0) {
+        throw new Error('ไม่สามารถสร้าง contract_id ที่ไม่ซ้ำได้ กรุณาลองใหม่อีกครั้ง');
+      }
+    }
+
+    const insertCols = 'contract_id, contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, contract_value, coverage_scope, file_paths, image_paths';
+    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
     const insertParams = [
+      finalContractId,
       contract_name && String(contract_name).trim() ? contract_name.trim() : null,
       start_date || null,
       end_date || null,
@@ -374,9 +450,9 @@ const createContract = async (req, res) => {
         }
       } else {
         // สร้างสัญญาใหม่ (ไม่มี old_contract_id)
-        // 1. INSERT contract
-        const [result] = await conn.execute(insertContractSql, insertParams);
-        contractId = result.insertId;
+        // 1. INSERT contract (ใช้ contract_id ที่สร้างไว้แล้ว)
+        await conn.execute(insertContractSql, insertParams);
+        contractId = finalContractId;
 
         // 2. บันทึก contract_site (ทุก site ที่เลือก)
         if (siteIdList.length > 0) {
