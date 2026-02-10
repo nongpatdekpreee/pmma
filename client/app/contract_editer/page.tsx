@@ -1679,10 +1679,20 @@ export default function ContractEditorPage() {
                     <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="ค้นหาอุปกรณ์ (ชื่อ, Asset Number, Serial, Site...)"
+                      placeholder="ค้นหาอุปกรณ์ (ชื่อ, Asset Number, Serial, SLid, Site...)"
                       value={assignDeviceSearch}
                       onChange={(e) => setAssignDeviceSearch(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-amber-200 focus:border-amber-400 outline-none"
+                      className="
+                      w-full
+                      pl-10 pr-4 py-2.5
+                      rounded-xl
+                      border border-gray-300
+                      text-sm text-gray-900
+                      placeholder-gray-400
+                      focus:ring-2 focus:ring-gray-300
+                      focus:border-gray-500
+                      outline-none
+                    "
                     />
                   </div>
                   <p className="text-sm text-slate-600 mb-2">
@@ -1691,15 +1701,16 @@ export default function ContractEditorPage() {
                   {(() => {
                     const allDevices = fullContractDetails.devices ?? [];
                     const q = assignDeviceSearch.trim().toLowerCase();
-                    const filteredDevices = q
+                    let filteredDevices = q
                       ? allDevices.filter((d) => {
                           const detail = assignDeviceDetails[String(d.Did)];
                           const searchable = [
                             d.CI_Name,
                             d.Asset_Number,
                             d.serial,
-                            detail?.SiteName,
-                            detail?.Location2,
+                            detail?.SiteName ?? d.SiteName,
+                            detail?.Location2 ?? d.Location2,
+                            (detail?.SLid ?? d.SLid) != null ? String(detail?.SLid ?? d.SLid) : '',
                             d.type_name,
                             d.roleName,
                           ]
@@ -1710,6 +1721,17 @@ export default function ContractEditorPage() {
                           return parts.every((part) => searchable.includes(part));
                         })
                       : allDevices;
+                    // จัดเรียง: อุปกรณ์ที่มี SLid อยู่ด้านบน (เรียงตาม SLid), ไม่มี SLid อยู่ด้านล่าง, แล้วตามชื่ออุปกรณ์
+                    filteredDevices = [...filteredDevices].sort((a, b) => {
+                      const da = assignDeviceDetails[String(a.Did)];
+                      const db = assignDeviceDetails[String(b.Did)];
+                      const slidA = da?.SLid ?? a.SLid ?? 999999;
+                      const slidB = db?.SLid ?? b.SLid ?? 999999;
+                      if (slidA !== slidB) return slidA - slidB;
+                      const nameA = (a.CI_Name || a.Asset_Number || '').toLowerCase();
+                      const nameB = (b.CI_Name || b.Asset_Number || '').toLowerCase();
+                      return nameA.localeCompare(nameB);
+                    });
                     return (
                   <>
                   <div className="flex gap-2 mb-3">
@@ -1758,17 +1780,19 @@ export default function ContractEditorPage() {
                               className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
                             />
                           </th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[200px]">อุปกรณ์</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[250px]">สถานะปัจจุบัน</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[250px]">Site ปลายทาง</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[180px]">อุปกรณ์</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[180px]">สถานะปัจจุบัน</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[220px]">Site ปลายทาง</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredDevices.map((device) => {
                           const detail = assignDeviceDetails[String(device.Did)];
-                          const isAtSite = detail?.SLid != null && detail.SLid !== 2;
-                          const siteLabel = isAtSite && (detail?.SiteName || detail?.Location2)
-                            ? `${detail.SiteName || ''} ${detail.Location2 || ''}`.trim() || `Site ${detail.SLid}`
+                          const slid = detail?.SLid ?? device.SLid ?? null;
+                          const loc2 = detail?.Location2 ?? device.Location2 ?? null;
+                          const isAtSite = slid != null && slid !== 2;
+                          const statusLabel = slid != null
+                            ? (loc2 || (slid === 2 ? 'คลัง' : null))
                             : null;
                           const deviceLabel = device.CI_Name || device.Asset_Number || `Device ${device.Did}`;
                           const isSelected = assignDeviceSelected.has(String(device.Did));
@@ -1792,17 +1816,19 @@ export default function ContractEditorPage() {
                               </td>
                               <td className="px-3 py-2 font-medium text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{deviceLabel}</td>
                               <td className="px-3 py-2">
-                                {detail ? (
+                                {statusLabel ? (
                                   isAtSite ? (
                                     <span className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-2 py-1 text-xs font-medium text-green-700 border border-green-200 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                       <Check size={12} />
-                                      อยู่ที่ site แล้ว ({siteLabel})
+                                      {statusLabel}
                                     </span>
                                   ) : (
-                                    <span className="text-slate-500 text-xs">ยังไม่ได้กำหนด / คลัง</span>
+                                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 border border-slate-200 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                                      {statusLabel}
+                                    </span>
                                   )
                                 ) : (
-                                  <span className="text-slate-400 text-xs">—</span>
+                                  <span className="text-slate-500 text-xs">ยังไม่ได้กำหนด</span>
                                 )}
                               </td>
                               <td className="px-3 py-2">
