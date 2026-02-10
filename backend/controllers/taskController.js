@@ -4,6 +4,64 @@ const db = require('../config/database');
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
 // status, actually_went, notes, photos, created_at, updated_at
 
+// Helper function - สร้าง task id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
+const generateNextTaskId = async () => {
+  try {
+    // ดึง id ทั้งหมดจาก database
+    const sql = `SELECT id FROM tasks ORDER BY id DESC`;
+    const [rows] = await db.execute(sql);
+    
+    if (rows.length === 0) {
+      // ถ้ายังไม่มีข้อมูลเลย ให้เริ่มที่ 1
+      return 1;
+    }
+    
+    // แปลง id ทั้งหมดเป็นตัวเลขและเก็บไว้ใน array
+    const numericIds = [];
+    for (const row of rows) {
+      const taskId = row.id;
+      // id เป็น INT แล้ว
+      if (taskId != null && !isNaN(taskId)) {
+        const num = parseInt(taskId, 10);
+        if (!isNaN(num)) {
+          numericIds.push(num);
+        }
+      }
+    }
+    
+    if (numericIds.length === 0) {
+      // ถ้าไม่มี id ที่เป็นตัวเลขเลย ให้เริ่มที่ 1
+      return 1;
+    }
+    
+    // เรียงลำดับตัวเลขจากน้อยไปมาก
+    numericIds.sort((a, b) => a - b);
+    
+    // หาเลขที่ว่างที่น้อยที่สุด (gap filling)
+    // เริ่มจาก 1 ไปจนถึง max + 1
+    const maxId = Math.max(...numericIds);
+    
+    // สร้าง Set เพื่อหาง่ายขึ้น
+    const idSet = new Set(numericIds);
+    
+    // หาเลขที่ว่างที่น้อยที่สุด
+    for (let i = 1; i <= maxId; i++) {
+      if (!idSet.has(i)) {
+        console.log(`Found gap: using task id ${i} (max was: ${maxId})`);
+        return i;
+      }
+    }
+    
+    // ถ้าไม่มีเลขว่างแล้ว ให้ใช้เลขถัดไปจาก max
+    const nextId = maxId + 1;
+    console.log(`No gaps found: using next task id ${nextId} (max was: ${maxId})`);
+    return nextId;
+  } catch (error) {
+    console.error('Error generating next task id:', error);
+    throw error;
+  }
+};
+
 const mapTaskRow = (row) => {
   const slaVal = row.contract_sla_term;
   return {
@@ -67,11 +125,28 @@ const createTask = async (req, res) => {
       });
     }
 
+    // สร้าง task id ใหม่โดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
+    const newTaskId = await generateNextTaskId();
+    
+    // ตรวจสอบว่า task id นี้มีอยู่แล้วหรือไม่ (ป้องกัน race condition)
+    const checkSql = `SELECT id FROM tasks WHERE id = ?`;
+    const [existing] = await db.execute(checkSql, [newTaskId]);
+    
+    let finalTaskId = newTaskId;
+    if (existing.length > 0) {
+      // ถ้ามีแล้ว (อาจเกิดจาก race condition) ให้ลองหาใหม่
+      finalTaskId = await generateNextTaskId();
+      const [retryExisting] = await db.execute(checkSql, [finalTaskId]);
+      if (retryExisting.length > 0) {
+        throw new Error('ไม่สามารถสร้าง task id ที่ไม่ซ้ำได้ กรุณาลองใหม่อีกครั้ง');
+      }
+    }
+
     const insertSql = `
       INSERT INTO tasks (
-        task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name
+        id, task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name
         , coverage_scope, start_date, end_date, engineers, assets, asset_binding, status, actually_went, notes, photos
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const safeParseInt = (value) => {
@@ -81,6 +156,7 @@ const createTask = async (req, res) => {
     };
 
     const insertValues = [
+      finalTaskId,
       taskType,
       safeParseInt(contractId),
       safeParseInt(replacementDeviceId),
@@ -99,13 +175,13 @@ const createTask = async (req, res) => {
       photos && Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : null,
     ];
 
-    const [result] = await db.execute(insertSql, insertValues);
+    await db.execute(insertSql, insertValues);
 
     // MA: Asset_State และ SLid จะถูกอัปเดตเมื่อกด Done ใน detail เท่านั้น (ไม่ทำที่นี่)
 
     const [rows] = await db.execute(
       `SELECT t.*, c.sla_term AS contract_sla_term FROM tasks t LEFT JOIN contract c ON t.contract_id = c.contract_id WHERE t.id = ?`,
-      [result.insertId]
+      [finalTaskId]
     );
     return res.status(201).json({
       success: true,
