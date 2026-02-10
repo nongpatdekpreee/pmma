@@ -75,16 +75,27 @@ export default function AddContractPage() {
   const [saveError, setSaveError] = useState('');
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
 
-  // Auto-calculate end date from start + duration
-  useEffect(() => {
-    if (startDate && duration) {
-      const start = new Date(startDate);
-      const months = parseInt(duration, 10);
-      const end = new Date(start);
-      end.setMonth(end.getMonth() + months);
-      setEndDate(end.toISOString().split('T')[0]);
+  // คำนวณ End Date จาก Start + Duration (เมื่อแก้ Start หรือ Duration)
+  const recalcEndFromDuration = (startVal?: string, durVal?: string) => {
+    const s = startVal ?? startDate;
+    const d = durVal ?? duration;
+    if (s && d) {
+      const start = new Date(s);
+      const months = parseInt(d, 10);
+      if (!isNaN(months) && months > 0) {
+        const end = new Date(start);
+        end.setMonth(end.getMonth() + months);
+        setEndDate(end.toISOString().split('T')[0]);
+      }
     }
-  }, [startDate, duration]);
+  };
+
+  // คำนวณ Duration จาก Start และ End (เมื่อแก้ End Date)
+  const calcMonthsBetween = (startStr: string, endStr: string): number => {
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  };
 
   // โหลด Refer SOF list จาก devices
   useEffect(() => {
@@ -288,7 +299,8 @@ export default function AddContractPage() {
             const oldEndDate = new Date(contract.end_date);
             const newStartDate = new Date(oldEndDate);
             newStartDate.setDate(newStartDate.getDate() + 1);
-            setStartDate(newStartDate.toISOString().split('T')[0]);
+            const newStartStr = newStartDate.toISOString().split('T')[0];
+            setStartDate(newStartStr);
             // คำนวณ end date จาก start date + duration เดิม (ถ้ามี)
             if (contract.start_date && contract.end_date) {
               const oldStart = new Date(contract.start_date);
@@ -297,6 +309,9 @@ export default function AddContractPage() {
                                  (oldEnd.getMonth() - oldStart.getMonth());
               if (monthsDiff > 0) {
                 setDuration(String(monthsDiff));
+                const endDateCalc = new Date(newStartDate);
+                endDateCalc.setMonth(endDateCalc.getMonth() + monthsDiff);
+                setEndDate(endDateCalc.toISOString().split('T')[0]);
               }
             }
           }
@@ -914,7 +929,7 @@ export default function AddContractPage() {
                   placeholder="0.00"
                   className={inputBase}
                 />
-                <p className="mt-1 text-xs text-slate-500">กรอกจำนวนเงินเท่านั้น (ตัวเลขบวก)</p>
+                <p className="mt-1 text-xs text-slate-500"></p>
               </FormField>
               <FormField label={renewContractId ? "New SOF" : "SOF (Refer SOF from Device)"} required>
                 <input
@@ -994,18 +1009,27 @@ export default function AddContractPage() {
                 <input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setStartDate(v);
+                    if (duration) recalcEndFromDuration(v, duration);
+                  }}
+                  onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
                   className={inputBase}
                 />
               </FormField>
               <FormField label="Contract Period (months)">
                 <select
                   value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDuration(v);
+                    recalcEndFromDuration(startDate, v);
+                  }}
                   className={inputBase}
                 >
                   <option value="">Select</option>
-                  {[3, 6, 9, 12, 24, 36].map((m) => (
+                  {Array.from({ length: 60 }, (_, i) => i + 1).map((m) => (
                     <option key={m} value={m}>
                       {m} months
                     </option>
@@ -1016,8 +1040,16 @@ export default function AddContractPage() {
                 <input
                   type="date"
                   value={endDate}
-                  readOnly
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-sm outline-none transition-all cursor-not-allowed opacity-75"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setEndDate(val);
+                    if (startDate && val) {
+                      const months = calcMonthsBetween(startDate, val);
+                      if (months > 0) setDuration(String(months));
+                    }
+                  }}
+                  onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
+                  className={inputBase}
                 />
               </FormField>
                 <FormField label="PM Time Per Year">

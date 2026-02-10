@@ -4,7 +4,7 @@ import { FolderCard } from '@/components/ui/FolderCard';
 import { Plus, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { AddPMModal } from '@/components/ui/AddPMModal';
+import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { EMPLOYEE_DATA } from '@/data/employee.mock';
 import Link from 'next/link';
 import DashboardHeader from '@/components/ui/Header';
