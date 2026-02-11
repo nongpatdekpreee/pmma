@@ -79,6 +79,14 @@ export default function ScheduleManagement() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [moveReason, setMoveReason] = useState('');
+  const [pendingMove, setPendingMove] = useState<{
+    event: CalendarEvent;
+    newDay: number;
+    newStartDate: string;
+    newEndDate: string;
+  } | null>(null);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -196,6 +204,40 @@ export default function ScheduleManagement() {
   const goToNextMonth = () =>
     setCurrentDate(new Date(currentYear, currentMonth + 1, 1));
 
+  // Format date for display (YYYY-MM-DD format, no time)
+  const formatDateForDisplay = (dateString: string | undefined): string => {
+    if (!dateString) return '';
+    try {
+      // Handle ISO 8601 format (e.g., "2026-02-18T17:00:00.000Z")
+      if (dateString.includes('T')) {
+        const dateOnly = dateString.split('T')[0];
+        const [year, month, day] = dateOnly.split('-');
+        if (year && month && day && year.length === 4) {
+          return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+      }
+      
+      // Handle date string that might start with day (e.g., "18T17:00:00.000Z")
+      // Try to parse as Date object
+      const dateObj = new Date(dateString);
+      if (!isNaN(dateObj.getTime())) {
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+      
+      // If already in YYYY-MM-DD format, return as is
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+        return dateString;
+      }
+      
+      return dateString;
+    } catch {
+      return dateString;
+    }
+  };
+
   const getEventsForDay = (day: number | null) => {
     if (!day) return [];
     // Create date object for the current day being checked
@@ -219,12 +261,16 @@ export default function ScheduleManagement() {
     });
   };
 
-  const persistTaskDates = async (taskId: string, startDate: string, endDate: string) => {
+  const persistTaskDates = async (taskId: string, startDate: string, endDate: string, reason?: string) => {
     try {
+      const body: any = { startDate, endDate };
+      if (reason) {
+        body.notes = reason;
+      }
       const res = await fetch(apiUrl(`/api/tasks/${taskId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startDate, endDate }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -283,18 +329,46 @@ export default function ScheduleManagement() {
     const newStartDateStr = formatDateString(newStartDate);
     const newEndDateStr = formatDateString(newEndDate);
 
+    // แสดง modal ถามเหตุผลก่อนย้าย
+    setPendingMove({
+      event: draggedEvent,
+      newDay: day,
+      newStartDate: newStartDateStr,
+      newEndDate: newEndDateStr,
+    });
+    setIsMoveModalOpen(true);
+    setMoveReason('');
+
+    // Clear drag state
+    setDraggedEvent(null);
+    setDragOverDay(null);
+    setDragStartDay(null);
+  };
+
+  const confirmMoveTask = async () => {
+    if (!pendingMove || !moveReason.trim()) {
+      toastError('กรุณากรอกเหตุผลในการย้ายงาน');
+      return;
+    }
+
+    const { event, newStartDate, newEndDate } = pendingMove;
+
     // Optimistic update - update UI immediately
+    const newStartDateObj = new Date(newStartDate);
+    const newEndDateObj = new Date(newEndDate);
+    
     setCalendarEvents(events =>
       events.map(ev => {
-        if (ev.id === draggedEvent.id) {
+        if (ev.id === event.id) {
           const updatedEvent = {
             ...ev,
-            startDay: newStartDate.getDate(),
-            endDay: newEndDate.getDate(),
-            month: newStartDate.getMonth(),
-            year: newStartDate.getFullYear(),
-            startDate: newStartDateStr,
-            endDate: newEndDateStr,
+            startDay: newStartDateObj.getDate(),
+            endDay: newEndDateObj.getDate(),
+            month: newStartDateObj.getMonth(),
+            year: newStartDateObj.getFullYear(),
+            startDate: newStartDate,
+            endDate: newEndDate,
+            notes: moveReason.trim(), // บันทึกเหตุผลไว้ใน notes
           };
           return updatedEvent;
         }
@@ -302,22 +376,31 @@ export default function ScheduleManagement() {
       })
     );
 
-    // Clear drag state immediately for better UX
-    setDraggedEvent(null);
-    setDragOverDay(null);
-    setDragStartDay(null);
+    // Close modal
+    setIsMoveModalOpen(false);
+    setPendingMove(null);
+    setMoveReason('');
 
     // Update backend (will reload data on success/error)
     try {
       await persistTaskDates(
-        String(draggedEvent.id),
-        newStartDateStr,
-        newEndDateStr
+        String(event.id),
+        newStartDate,
+        newEndDate,
+        moveReason.trim()
       );
+      toastSuccess('ย้ายงานสำเร็จ');
     } catch (error) {
       console.error('Failed to update task dates:', error);
+      toastError('ย้ายงานไม่สำเร็จ');
       // Error is already handled in persistTaskDates (reloads data)
     }
+  };
+
+  const cancelMoveTask = () => {
+    setIsMoveModalOpen(false);
+    setPendingMove(null);
+    setMoveReason('');
   };
 
   const handleDragEnd = () => {
@@ -700,6 +783,87 @@ export default function ScheduleManagement() {
           </div>
         </div>
       </main>
+
+      {/* Move Task Reason Modal */}
+      {isMoveModalOpen && pendingMove && (
+        <div 
+          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              cancelMoveTask();
+            }
+          }}
+        >
+          <div 
+            className="bg-white w-full max-w-sm rounded-2xl shadow-xl p-5 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-center relative mb-4">
+              <h3 className="text-lg font-bold text-slate-800">Move Task</h3>
+              <button
+                onClick={cancelMoveTask}
+                className="absolute right-0 p-1 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors"
+              >
+                <X size={16} className="text-slate-600" />
+              </button>
+            </div>
+            
+            {/* Task Info */}
+            <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <p className="text-xs text-slate-600 mb-2 truncate">
+                <span className="font-medium">{pendingMove.event.title}</span>
+              </p>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-500 font-medium">From:</span>
+                <span className="text-slate-800 font-semibold bg-white px-2 py-1 rounded border border-slate-200">
+                  {formatDateForDisplay(pendingMove.event.startDate)}
+                </span>
+                <span className="text-slate-300">→</span>
+                <span className="text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                  {formatDateForDisplay(pendingMove.newStartDate)}
+                </span>
+              </div>
+            </div>
+
+            {/* Reason Input */}
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                Reason <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={moveReason}
+                onChange={(e) => setMoveReason(e.target.value)}
+                placeholder="Why are you moving this task?"
+                rows={3}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-400 outline-none resize-none transition-all"
+                autoFocus
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 justify-end pt-3 border-t border-slate-200">
+              <button
+                onClick={cancelMoveTask}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmMoveTask}
+                disabled={!moveReason.trim()}
+                className={`px-4 py-2 text-xs font-bold text-white rounded-lg transition-all ${
+                  moveReason.trim()
+                    ? 'bg-blue-500 hover:bg-blue-600'
+                    : 'bg-gray-300 cursor-not-allowed'
+                }`}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Task Detail Modal */}
       <TaskDetailModal
