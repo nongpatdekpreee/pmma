@@ -1650,10 +1650,9 @@ const getDevicesWithPM = async (req, res) => {
         devices.CI_Name LIKE ? OR 
         devices.Asset_Number LIKE ? OR 
         devices.serial LIKE ? OR 
-        devices.Vendor LIKE ? OR
-        sites.Name LIKE ?
+        devices.Vendor LIKE ?
       )`;
-      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
+      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // Build device role filter
@@ -1688,14 +1687,14 @@ const getDevicesWithPM = async (req, res) => {
         devices.DeRoleid,
         device_role.name AS DeviceRole,
         sites.Name AS SiteName,
-        location.Province,
+        L.Location2 AS Province,
         contract_device.contract_id
       FROM contract_device
       INNER JOIN devices ON contract_device.device_id = devices.Did
       LEFT JOIN device_role ON devices.DeRoleid = device_role.DeRoleid
       LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
       LEFT JOIN sites ON sl.Sid = sites.Sid
-      LEFT JOIN location ON sl.lid = location.lid
+      LEFT JOIN location L ON sl.lid = L.lid
       WHERE 1=1 
       ${searchCondition} 
       ${deviceRoleCondition} 
@@ -1814,13 +1813,115 @@ const getDevicesWithPM = async (req, res) => {
 
     console.log(`[getDevicesWithPM] Processed ${devicesWithPM.length} devices with PM info`);
 
-    // Calculate statistics
-    const totalDevices = devicesWithPM.length;
-    const activeDevices = devicesWithPM.filter(d => d.status === 'Active').length;
+    // Calculate statistics from ALL devices (without search filter, but with role/site filters)
+    // Query devices again without search condition for accurate statistics
+    let statsParams = [];
+    let statsDeviceRoleCondition = '';
+    if (filterDeviceRole && filterDeviceRole !== 'all') {
+      statsDeviceRoleCondition = 'AND device_role.name = ?';
+      statsParams.push(filterDeviceRole);
+    }
+    let statsSiteCondition = '';
+    if (filterSite && filterSite !== 'all') {
+      statsSiteCondition = 'AND sites.Name = ?';
+      statsParams.push(filterSite);
+    }
+
+    const statsSql = `
+      SELECT DISTINCT
+        devices.Did,
+        devices.CI_Name,
+        devices.Asset_Number,
+        devices.Asset_State,
+        devices.serial,
+        devices.Vendor,
+        devices.SLid,
+        devices.Dtypeid,
+        devices.DeRoleid,
+        device_role.name AS DeviceRole,
+        sites.Name AS SiteName,
+        L.Location2 AS Province,
+        contract_device.contract_id
+      FROM contract_device
+      INNER JOIN devices ON contract_device.device_id = devices.Did
+      LEFT JOIN device_role ON devices.DeRoleid = device_role.DeRoleid
+      LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
+      LEFT JOIN sites ON sl.Sid = sites.Sid
+      LEFT JOIN location L ON sl.lid = L.lid
+      WHERE 1=1 
+      ${statsDeviceRoleCondition} 
+      ${statsSiteCondition}
+      ORDER BY devices.Did DESC`;
+    const [allDevicesForStats] = await db.execute(statsSql, statsParams);
+
+    // Process all devices for statistics (same logic as devicesWithPM but without search filter)
+    const allDevicesWithPM = allDevicesForStats.map(device => {
+      const deviceId = device.Did;
+      let lastPM = null;
+      let nextPM = null;
+
+      for (const task of pmTasks) {
+        if (!task.assets) continue;
+        try {
+          const assets = typeof task.assets === 'string' ? JSON.parse(task.assets) : task.assets;
+          if (!Array.isArray(assets)) continue;
+          const deviceInTask = assets.some(asset => {
+            if (typeof asset === 'object') {
+              const assetId = asset.id || asset.Did || asset.deviceId || asset.device_id;
+              return assetId && String(assetId) === String(deviceId);
+            } else {
+              return String(asset) === String(deviceId);
+            }
+          });
+
+          if (deviceInTask) {
+            const taskDate = task.start_date || task.end_date;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const taskDateObj = new Date(taskDate);
+            taskDateObj.setHours(0, 0, 0, 0);
+
+            if (task.status === 'done' && taskDateObj < today) {
+              if (!lastPM || new Date(taskDate) > new Date(lastPM)) {
+                lastPM = taskDate;
+              }
+            }
+            if (taskDateObj >= today) {
+              if (!nextPM || new Date(taskDate) < new Date(nextPM)) {
+                nextPM = taskDate;
+              }
+            }
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+
+      const deviceRoleName = device.DeviceRole || 'Unknown';
+      return {
+        deviceId: `AS${String(device.Did).padStart(3, '0')}`,
+        deviceName: device.CI_Name || device.Asset_Number || `Device ${device.Did}`,
+        deviceRole: deviceRoleName,
+        site: device.SiteName || 'Unknown',
+        location: device.Province || 'N/A',
+        vendor: device.Vendor || 'Unknown',
+        model: device.DeviceRole || 'Unknown',
+        serialNumber: device.serial || 'N/A',
+        lastPM: lastPM,
+        nextPM: nextPM,
+        status: device.Asset_State === 'In Use' || device.Asset_State === 'In Store On Site' ? 'Active' :
+          device.Asset_State === 'In Store' ? 'Inactive' :
+            device.Asset_State === 'Maintenance' ? 'Maintenance' : 'Active',
+      };
+    });
+
+    // Calculate statistics from all devices (without search filter)
+    const totalDevices = allDevicesWithPM.length;
+    const activeDevices = allDevicesWithPM.filter(d => d.status === 'Active').length;
     const today = new Date();
     const thirtyDaysFromNow = new Date(today);
     thirtyDaysFromNow.setDate(today.getDate() + 30);
-    const upcomingPM = devicesWithPM.filter(d => {
+    const upcomingPM = allDevicesWithPM.filter(d => {
       if (!d.nextPM) return false;
       const nextPMDate = new Date(d.nextPM);
       return nextPMDate <= thirtyDaysFromNow;

@@ -886,65 +886,117 @@ export default function AddContractPage() {
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Contract Name" required>
-                <input
-                  type="text"
-                  value={contractName}
-                  onChange={(e) => setContractName(e.target.value)}
-                  placeholder="contract name"
-                  className={inputBase}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={contractName}
+                    onChange={(e) => setContractName(e.target.value)}
+                    placeholder="contract name"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {contractName && (
+                    <button
+                      type="button"
+                      onClick={() => setContractName('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </FormField>
               <FormField label="Service ">
-                <input
-                  type="text"
-                  value={assignedService}
-                  onChange={(e) => setAssignedService(e.target.value)}
-                  placeholder="Device Network Manage Service"
-                  className={inputBase}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={assignedService}
+                    onChange={(e) => setAssignedService(e.target.value)}
+                    placeholder="Device Network Manage Service"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {assignedService && (
+                    <button
+                      type="button"
+                      onClick={() => setAssignedService('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </FormField>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Contract Value (THB)">
-                <input
-                  type="text"
-                  value={contractValue}
-                  onChange={(e) => {
-                    let value = e.target.value.replace(/,/g, ''); // ลบ comma ออกก่อน
-                    // อนุญาตให้กรอกเฉพาะตัวเลขบวก (จำนวนเงิน)
-                    if (value === '' || (!isNaN(parseFloat(value)) && parseFloat(value) >= 0)) {
-                      // Format ด้วย comma separator
-                      if (value !== '' && !isNaN(parseFloat(value))) {
-                        const numValue = parseFloat(value);
-                        const formatted = numValue.toLocaleString('en-US', {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 2
-                        });
-                        setContractValue(formatted);
-                      } else {
-                        setContractValue(value);
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={contractValue}
+                    onChange={(e) => {
+                      let value = e.target.value.replace(/,/g, ''); // ลบ comma ออกก่อน
+                      // อนุญาตให้กรอกเฉพาะตัวเลขบวก (จำนวนเงิน)
+                      if (value === '' || (!isNaN(parseFloat(value)) && parseFloat(value) >= 0)) {
+                        // Format ด้วย comma separator
+                        if (value !== '' && !isNaN(parseFloat(value))) {
+                          const numValue = parseFloat(value);
+                          const formatted = numValue.toLocaleString('en-US', {
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 2
+                          });
+                          setContractValue(formatted);
+                        } else {
+                          setContractValue(value);
+                        }
                       }
-                    }
-                  }}
-                  placeholder="0.00"
-                  className={inputBase}
-                />
+                    }}
+                    placeholder="0.00"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {contractValue && (
+                    <button
+                      type="button"
+                      onClick={() => setContractValue('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-slate-500"></p>
               </FormField>
               <FormField label={renewContractId ? "New SOF" : "SOF (Refer SOF from Device)"} required>
-                <input
-                  type="text"
-                  list="sof-list"
-                  value={selectedSOF}
-                  onChange={(e) => {
-                    setSelectedSOF(e.target.value);
-                    setSofName(e.target.value);
-                  }}
-                  placeholder={renewContractId ? "Enter new SOF (e.g. 89100XXXXX)" : "Select from list or enter SOF (e.g. 89100XXXXX)"}
-                  className={inputBase}
-                  disabled={referSOFLoading}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    list="sof-list"
+                    value={selectedSOF}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // อนุญาตเฉพาะตัวเลขเท่านั้น
+                      if (value === '' || /^\d+$/.test(value)) {
+                        setSelectedSOF(value);
+                        setSofName(value);
+                      }
+                    }}
+                    placeholder={renewContractId ? "Enter new SOF" : "Select from list or enter SOF"}
+                    className={`${inputBase} pr-9`}
+                    disabled={referSOFLoading}
+                    required
+                  />
+                  {selectedSOF && !referSOFLoading && (
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedSOF(''); setSofName(''); }}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
                 <datalist id="sof-list">
                   {referSOFList.map((sof) => (
                     <option key={sof} value={sof} />
@@ -965,33 +1017,57 @@ export default function AddContractPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="SLA Term (%)" required>
-                <input
-                  type="number"
-                  value={slaTerm}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    // อนุญาตให้กรอกเฉพาะตัวเลข 0-100
-                    if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
-                      setSlaTerm(value);
-                    }
-                  }}
-                  placeholder="0-100"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  className={inputBase}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={slaTerm}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // อนุญาตให้กรอกเฉพาะตัวเลข 0-100
+                      if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
+                        setSlaTerm(value);
+                      }
+                    }}
+                    placeholder="0-100"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    className={`${inputBase} pr-9`}
+                    required
+                  />
+                  {slaTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSlaTerm('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-slate-500">Enter only numbers between 0 and 100</p>
               </FormField>
               <FormField label="Sale Account">
-                <input
-                  type="text"
-                  value={saleAccount}
-                  onChange={(e) => setSaleAccount(e.target.value)}
-                  placeholder="Sale Account"
-                  className={inputBase}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={saleAccount}
+                    onChange={(e) => setSaleAccount(e.target.value)}
+                    placeholder="Sale Account"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {saleAccount && (
+                    <button
+                      type="button"
+                      onClick={() => setSaleAccount('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </FormField>
             </div>
           </FormSection>
@@ -1273,13 +1349,25 @@ export default function AddContractPage() {
           >
             <div className="space-y-4">
               <FormField label="Coverage Scope">
-                <textarea
-                  rows={3}
-                  value={coverageScope}
-                  onChange={(e) => setCoverageScope(e.target.value)}
-                  placeholder="Coverage Scope"
-                  className={`${inputBase} resize-none`}
-                />
+                <div className="relative">
+                  <textarea
+                    rows={3}
+                    value={coverageScope}
+                    onChange={(e) => setCoverageScope(e.target.value)}
+                    placeholder="Coverage Scope"
+                    className={`${inputBase} resize-none pr-9`}
+                  />
+                  {coverageScope && (
+                    <button
+                      type="button"
+                      onClick={() => setCoverageScope('')}
+                      className="absolute right-2 top-3 flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </FormField>
              
               <FileUploadBlock

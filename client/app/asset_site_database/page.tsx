@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect } from "react";
-import { LucideIcon, Server, Network, Shield, HardDrive, Zap, Radio, ChevronDown, ChevronUp, Search, Filter, X, Calendar, MapPin, History } from "lucide-react";
+import { LucideIcon, Server, Network, Shield, HardDrive, Zap, Radio, ChevronDown, ChevronUp, Search, Filter, X, Calendar, MapPin, History, Loader2 } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { getDevicesWithPM } from "@/lib/api";
@@ -91,6 +91,7 @@ const getStatusColor = (status: AssetDevice["status"]) => {
 };
 
 const AssetSiteDatabase = () => {
+  const [inputValue, setInputValue] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState<"deviceId" | "site" | "lastPM" | "nextPM">("deviceId");
@@ -100,12 +101,42 @@ const AssetSiteDatabase = () => {
   const [selectedDevice, setSelectedDevice] = useState<AssetDevice | null>(null);
   const [showPMHistory, setShowPMHistory] = useState(false);
   const [devices, setDevices] = useState<AssetDevice[]>([]);
+  const [allDevices, setAllDevices] = useState<AssetDevice[]>([]); // เก็บ devices ทั้งหมดสำหรับ client-side filtering
   const [loading, setLoading] = useState(true);
   const [statistics, setStatistics] = useState({
     totalDevices: 0,
     activeDevices: 0,
     upcomingPM: 0
   });
+
+  // โหลดข้อมูลทั้งหมดตอนแรกเพื่อใช้สำหรับ client-side filtering
+  useEffect(() => {
+    const loadAllDevices = async () => {
+      try {
+        const response = await getDevicesWithPM({
+          deviceRole: filterDeviceRole !== 'all' ? filterDeviceRole : undefined,
+          site: filterSite !== 'all' ? filterSite : undefined,
+        });
+        
+        if (response && response.success !== false && response.data) {
+          setAllDevices(response.data);
+        }
+      } catch (error) {
+        console.error('Error loading all devices:', error);
+      }
+    };
+
+    loadAllDevices();
+  }, [filterDeviceRole, filterSite]);
+
+  // Debounce input ก่อนค่อยยิง search (ลดเวลาเพื่อให้เร็วขึ้น)
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setSearchTerm(inputValue);
+    }, 300); // ลดจาก 500ms เป็น 300ms เพื่อให้เร็วขึ้น
+
+    return () => clearTimeout(handler);
+  }, [inputValue]);
 
   // Load devices from API
   useEffect(() => {
@@ -118,26 +149,12 @@ const AssetSiteDatabase = () => {
           site: filterSite !== 'all' ? filterSite : undefined,
         });
         
-        console.log('API Response:', response);
-        console.log('Response type:', typeof response);
-        console.log('Response keys:', response ? Object.keys(response) : 'null');
-        
         if (response && response.success !== false && response.data) {
-          console.log(`Loaded ${response.data.length} devices`);
           setDevices(response.data);
           if (response.statistics) {
             setStatistics(response.statistics);
           }
         } else {
-          const errorResponse = response as any;
-          console.warn('API returned unsuccessful response:', response);
-          console.warn('Response details:', {
-            success: errorResponse?.success,
-            hasData: !!errorResponse?.data,
-            message: errorResponse?.message,
-            error: errorResponse?.error
-          });
-          // Set empty array but don't treat as critical error
           setDevices([]);
           if (response?.statistics) {
             setStatistics(response.statistics);
@@ -151,12 +168,7 @@ const AssetSiteDatabase = () => {
       }
     };
 
-    // Debounce search to avoid too many API calls
-    const timeoutId = setTimeout(() => {
-      loadDevices();
-    }, searchTerm ? 300 : 0);
-
-    return () => clearTimeout(timeoutId);
+    loadDevices();
   }, [searchTerm, filterDeviceRole, filterSite]);
 
   // Reset to first page when filters change
@@ -176,10 +188,30 @@ const AssetSiteDatabase = () => {
   }, [devices]);
 
   /* ================= Filter ================= */
-  // Devices are already filtered by API, but we can do additional client-side filtering if needed
+  // Client-side filtering ขณะพิมพ์ (ใช้ inputValue เพื่อ filter ทันที)
   const filteredDevices = useMemo(() => {
-    return devices;
-  }, [devices]);
+    // ถ้าไม่มี inputValue ให้แสดง devices ที่ได้จาก API
+    if (!inputValue.trim()) {
+      return devices;
+    }
+
+    // ใช้ allDevices สำหรับ client-side filtering (ถ้ามีข้อมูล)
+    const sourceDevices = allDevices.length > 0 ? allDevices : devices;
+
+    // Filter จาก sourceDevices โดยใช้ inputValue (filter ทันทีขณะพิมพ์)
+    const searchLower = inputValue.toLowerCase();
+    return sourceDevices.filter(device => {
+      const deviceName = (device.deviceName || '').toLowerCase();
+      const deviceId = (device.deviceId || '').toLowerCase();
+      const serialNumber = (device.serialNumber || '').toLowerCase();
+      const vendor = (device.vendor || '').toLowerCase();
+      
+      return deviceName.includes(searchLower) ||
+             deviceId.includes(searchLower) ||
+             serialNumber.includes(searchLower) ||
+             vendor.includes(searchLower);
+    });
+  }, [devices, allDevices, inputValue]);
 
   /* ================= Sort ================= */
   const sortedDevices = useMemo(() => {
@@ -255,11 +287,11 @@ const AssetSiteDatabase = () => {
   const resetFilters = () => {
     setFilterDeviceRole("all");
     setFilterSite("all");
-    setSearchTerm("");
+    setInputValue("");
     setCurrentPage(1);
   };
 
-  const hasActiveFilters = filterDeviceRole !== "all" || filterSite !== "all" || searchTerm !== "";
+  const hasActiveFilters = filterDeviceRole !== "all" || filterSite !== "all" || inputValue !== "";
 
   return (
     <SidebarLayout>
@@ -336,16 +368,26 @@ const AssetSiteDatabase = () => {
             <div className="flex flex-wrap items-center gap-3">
               {/* Search Bar */}
               <div className="flex h-10 items-center gap-2 rounded-full bg-gray-100 px-4 text-sm text-gray-500">
-                <Search className="h-4 w-4" />
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
                 <input
-                  value={searchTerm}
+                  type="text"
+                  value={inputValue}
                   onChange={(e) => {
-                    setSearchTerm(e.target.value);
+                    setInputValue(e.target.value);
                     setCurrentPage(1);
                   }}
+                  onKeyDown={(e) => {
+                    // Prevent form submission or page reload on Enter
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                    }
+                  }}
                   placeholder="Search devices..."
-                  className="bg-transparent outline-none"
-                  disabled={loading}
+                  className={`bg-transparent outline-none ${loading ? "opacity-70" : ""}`}
                 />
               </div>
 
