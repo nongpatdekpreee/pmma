@@ -982,7 +982,7 @@ export default function AddContractPage() {
                       }
                     }}
                     placeholder={renewContractId ? "Enter new SOF" : "Select from list or enter SOF"}
-                    className={`${inputBase} pr-9`}
+                    className={`${inputBase} ${selectedSOF && !referSOFLoading ? 'pr-16' : ''}`}
                     disabled={referSOFLoading}
                     required
                   />
@@ -990,7 +990,7 @@ export default function AddContractPage() {
                     <button
                       type="button"
                       onClick={() => { setSelectedSOF(''); setSofName(''); }}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
                       title="ล้าง"
                     >
                       <X size={14} />
