@@ -1,6 +1,6 @@
 'use client';
 
-import { X, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Trash2, FileText } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { apiUrl } from '@/lib/api';
 
@@ -209,6 +209,17 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-slate-500">Site Name</label>
                   <p className="text-sm font-medium text-slate-800 mt-1">{task.Sname}</p>
+                </div>
+              )}
+              {task.notes && (
+                <div className="col-span-2">
+                  <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3 shadow-sm">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <FileText size={14} className="text-blue-600" />
+                      <label className="text-[10px] font-bold uppercase text-blue-700">Notes</label>
+                    </div>
+                    <p className="text-sm font-medium text-blue-900 leading-relaxed">{task.notes}</p>
+                  </div>
                 </div>
               )}
               

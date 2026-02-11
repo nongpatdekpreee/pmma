@@ -27,6 +27,7 @@ interface Device {
   id: string | number;
   name: string;
   type?: string;
+  model?: string; // Model name from deviceTypes
   serialNumber?: string;
   site?: string;
   assetState?: string;
@@ -35,6 +36,8 @@ interface Device {
   Dtypeid?: number;
   DeRoleid?: number;
   SLid?: number; // สำหรับกรองตาม site
+  role?: string;
+  manufacturer?: string;
 }
 
 interface Engineer {
@@ -115,9 +118,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [devicesPerPage] = useState(10);
   const [deviceTypeFilter, setDeviceTypeFilter] = useState<string>('');
   const [deviceSiteFilter, setDeviceSiteFilter] = useState<string>('');
+  const [deviceRoleFilter, setDeviceRoleFilter] = useState<string>('');
+  const [deviceModelFilter, setDeviceModelFilter] = useState<string>('');
+  const [deviceManufacturerFilter, setDeviceManufacturerFilter] = useState<string>('');
+  const [manufacturers, setManufacturers] = useState<Array<{ Mid: number; name: string; slug: string }>>([]);
+  const [deviceRoles, setDeviceRoles] = useState<Array<{ DeRoleid: number; name: string; slug: string }>>([]);
+  const [deviceTypes, setDeviceTypes] = useState<Array<{ Dtypeid: number; model: string; Mid: number; manufacturer_name: string }>>([]);
+  const [loadingManufacturers, setLoadingManufacturers] = useState(false);
+  const [loadingDeviceRoles, setLoadingDeviceRoles] = useState(false);
+  const [loadingDeviceTypes, setLoadingDeviceTypes] = useState(false);
   const editingAssetsRef = useRef<Device[]>([]);
   const siteDropdownRef = useRef<HTMLDivElement>(null);
   const contractDropdownRef = useRef<HTMLDivElement>(null);
+  const devicesMappedRef = useRef<string>('');
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [loadingEngineers, setLoadingEngineers] = useState(false);
 
@@ -149,6 +162,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setDevicePage(1);
     setDeviceTypeFilter('');
     setDeviceSiteFilter('');
+    setDeviceRoleFilter('');
+    setDeviceModelFilter('');
+    setDeviceManufacturerFilter('');
+    devicesMappedRef.current = '';
   };
 
   const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => ({
@@ -163,6 +180,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     assetNumber: item.Asset_Number || item.assetNumber,
     source,
     SLid: item.SLid != null ? Number(item.SLid) : undefined,
+    role: item.roleName || '', // Will be set by useEffect
+    manufacturer: item.manufacturername || '', // Will be set by useEffect
   });
 
   const fetchAllSites = async () => {
@@ -554,6 +573,60 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     loadEngineers();
   }, [isOpen]);
 
+  // Load manufacturers, device roles, and device types when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const loadManufacturers = async () => {
+      setLoadingManufacturers(true);
+      try {
+        const res = await fetch(apiUrl('/api/manufacturers'));
+        const json = await res.json();
+        if (res.ok && json.success && json.data) {
+          setManufacturers(json.data);
+        }
+      } catch (error) {
+        console.error('Error loading manufacturers:', error);
+      } finally {
+        setLoadingManufacturers(false);
+      }
+    };
+
+    const loadDeviceRoles = async () => {
+      setLoadingDeviceRoles(true);
+      try {
+        const res = await fetch(apiUrl('/api/device-roles'));
+        const json = await res.json();
+        if (res.ok && json.success && json.data) {
+          setDeviceRoles(json.data);
+        }
+      } catch (error) {
+        console.error('Error loading device roles:', error);
+      } finally {
+        setLoadingDeviceRoles(false);
+      }
+    };
+
+    const loadDeviceTypes = async () => {
+      setLoadingDeviceTypes(true);
+      try {
+        const res = await fetch(apiUrl('/api/device-types'));
+        const json = await res.json();
+        if (res.ok && json.success && json.data) {
+          setDeviceTypes(json.data);
+        }
+      } catch (error) {
+        console.error('Error loading device types:', error);
+      } finally {
+        setLoadingDeviceTypes(false);
+      }
+    };
+
+    loadManufacturers();
+    loadDeviceRoles();
+    loadDeviceTypes();
+  }, [isOpen]);
+
   // Load contracts when site is selected
   useEffect(() => {
     if (!isOpen) return;
@@ -579,6 +652,57 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setBrokenDevicePairs([]);
     }
   }, [selectedContractId, taskType, isOpen, editingEvent]);
+
+  // Re-map devices when deviceRoles and deviceTypes are loaded to include role and manufacturer
+  useEffect(() => {
+    if (devices.length === 0) {
+      devicesMappedRef.current = '';
+      return;
+    }
+    if (deviceRoles.length === 0 && deviceTypes.length === 0) return;
+    
+    // Only re-map if we haven't mapped these devices yet, or if roles/types have changed
+    const currentDevicesKey = devices.map(d => `${d.id}-${d.DeRoleid}-${d.Dtypeid}`).join(',');
+    const rolesKey = deviceRoles.map(r => `${r.DeRoleid}-${r.name}`).join(',');
+    const typesKey = deviceTypes.map(t => `${t.Dtypeid}-${t.manufacturer_name}`).join(',');
+    const cacheKey = `${currentDevicesKey}|${rolesKey}|${typesKey}`;
+    
+    if (devicesMappedRef.current === cacheKey) return;
+    
+    const remappedDevices = devices.map((device) => {
+      const role = device.DeRoleid != null 
+        ? deviceRoles.find(r => r.DeRoleid === device.DeRoleid)?.name 
+        : device.role;
+      
+      const deviceType = device.Dtypeid != null
+        ? deviceTypes.find(t => t.Dtypeid === device.Dtypeid)
+        : null;
+      
+      const manufacturer = deviceType?.manufacturer_name || device.manufacturer;
+      const model = deviceType?.model || device.type; // Use model from deviceTypes, fallback to type
+      
+      return {
+        ...device,
+        role,
+        manufacturer,
+        model,
+      };
+    });
+    
+    setDevices(remappedDevices);
+    devicesMappedRef.current = cacheKey;
+    
+    // Also update selectedDevices to maintain role, manufacturer, and model
+    setSelectedDevices(prev => prev.map(selected => {
+      const updated = remappedDevices.find(d => d.id === selected.id);
+      return updated ? { 
+        ...selected, 
+        role: updated.role, 
+        manufacturer: updated.manufacturer,
+        model: updated.model 
+      } : selected;
+    }));
+  }, [devices, deviceRoles, deviceTypes]);
 
   // After devices are loaded, restore selected devices from editingEvent if editing
   useEffect(() => {
@@ -791,6 +915,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     // โหลด contracts สำหรับ site นี้ (จะทำใน useEffect)
   };
 
+  const handleClearSite = () => {
+    setSid('');
+    setSname('');
+    setSiteSearch('');
+    setSelectedContractId('');
+    setDevices([]);
+    setSelectedDevices([]);
+    setBrokenDevicePairs([]);
+    setShowSiteDropdown(false);
+  };
+
   const handleContractChange = (contractId: string) => {
     setSelectedContractId(contractId);
     // เมื่อเปลี่ยน contract ให้เคลียร์ devices
@@ -828,9 +963,29 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const devicesToShow = Sid
     ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid)
     : [];
-  // Get unique device types and sites for filter dropdowns
+  // Get unique device types, sites, roles, models, and manufacturers for filter dropdowns
   const uniqueDeviceTypes = Array.from(new Set(devicesToShow.map(d => d.type).filter(Boolean))).sort();
   const uniqueDeviceSites = Array.from(new Set(devicesToShow.map(d => d.site).filter(Boolean))).sort();
+  const uniqueDeviceRoles = Array.from(new Set(devicesToShow.map(d => d.role).filter(Boolean))).sort();
+  
+  // Get unique models from devicesToShow, but use deviceTypes data if available for better accuracy
+  // Filter out 'Device' fallback value and empty values
+  const modelsFromDevices = devicesToShow
+    .map(d => {
+      // If device has Dtypeid, try to find model from deviceTypes
+      if (d.Dtypeid && deviceTypes.length > 0) {
+        const deviceType = deviceTypes.find(dt => dt.Dtypeid === d.Dtypeid);
+        if (deviceType?.model) return deviceType.model;
+      }
+      // Otherwise use device.type but filter out fallback 'Device'
+      return d.type && d.type !== 'Device' ? d.type : null;
+    })
+    .filter(Boolean) as string[];
+  const uniqueDeviceModels = Array.from(new Set(modelsFromDevices)).sort();
+  
+  // Use manufacturers from API (database) - sorted by name
+  // Similar to DeviceSelectModal - use all manufacturers from API for better coverage
+  const uniqueDeviceManufacturers = manufacturers.map(m => m.name).sort();
 
   // ค้นหาและกรอง PM devices (inline list)
   const deviceSearchPmQ = deviceSearchPm.trim().toLowerCase();
@@ -851,16 +1006,49 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     devicesToShowFilteredPm = devicesToShowFilteredPm.filter(d => d.site === deviceSiteFilter);
   }
 
-  // Pagination for devices
-  const totalDevicePages = Math.ceil(devicesToShowFilteredPm.length / devicesPerPage);
+  // Apply role filter
+  if (deviceRoleFilter) {
+    devicesToShowFilteredPm = devicesToShowFilteredPm.filter(d => d.role === deviceRoleFilter);
+  }
+
+  // Apply model filter - use model property if available, otherwise check deviceTypes
+  if (deviceModelFilter) {
+    devicesToShowFilteredPm = devicesToShowFilteredPm.filter(d => {
+      // First check if device has model property (from remapping)
+      if (d.model === deviceModelFilter) {
+        return true;
+      }
+      // If device has Dtypeid, get model from deviceTypes
+      if (d.Dtypeid && deviceTypes.length > 0) {
+        const deviceType = deviceTypes.find(dt => dt.Dtypeid === d.Dtypeid);
+        if (deviceType?.model === deviceModelFilter) {
+          return true;
+        }
+      }
+      // Fallback to d.type comparison
+      return d.type === deviceModelFilter;
+    });
+  }
+
+  // Apply manufacturer filter
+  if (deviceManufacturerFilter) {
+    devicesToShowFilteredPm = devicesToShowFilteredPm.filter(d => d.manufacturer === deviceManufacturerFilter);
+  }
+
+  // Filter out selected devices from the list (hide selected devices from available list)
+  const selectedDeviceIds = new Set(selectedDevices.map(d => String(d.id)));
+  const availableDevices = devicesToShowFilteredPm.filter(d => !selectedDeviceIds.has(String(d.id)));
+
+  // Pagination for devices (only show devices that are not selected)
+  const totalDevicePages = Math.ceil(availableDevices.length / devicesPerPage);
   const startDeviceIndex = (devicePage - 1) * devicesPerPage;
   const endDeviceIndex = startDeviceIndex + devicesPerPage;
-  const paginatedDevices = devicesToShowFilteredPm.slice(startDeviceIndex, endDeviceIndex);
+  const paginatedDevices = availableDevices.slice(startDeviceIndex, endDeviceIndex);
 
   // Reset to page 1 when search or filters change
   useEffect(() => {
     setDevicePage(1);
-  }, [deviceSearchPm, deviceTypeFilter, deviceSiteFilter]);
+  }, [deviceSearchPm, deviceTypeFilter, deviceSiteFilter, deviceRoleFilter, deviceModelFilter, deviceManufacturerFilter]);
 
   // Select All / Deselect All handlers
   const handleSelectAll = () => {
@@ -881,20 +1069,31 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   const handleSelectAllFiltered = () => {
-    const allFilteredIds = new Set(devicesToShowFilteredPm.map(d => d.id));
+    // Use availableDevices (already filtered out selected ones)
+    const allAvailableIds = new Set(availableDevices.map(d => d.id));
     const currentSelectedIds = new Set(selectedDevices.map(d => d.id));
     
-    // Check if all filtered items are selected
-    const allSelected = devicesToShowFilteredPm.every(d => currentSelectedIds.has(d.id));
+    // Check if all available items are selected
+    const allSelected = availableDevices.length > 0 && availableDevices.every(d => currentSelectedIds.has(d.id));
     
     if (allSelected) {
       // Deselect all filtered items
-      setSelectedDevices(prev => prev.filter(d => !allFilteredIds.has(d.id)));
+      setSelectedDevices(prev => prev.filter(d => !allAvailableIds.has(d.id)));
     } else {
-      // Select all filtered items
-      const newSelections = devicesToShowFilteredPm.filter(d => !currentSelectedIds.has(d.id));
-      setSelectedDevices(prev => [...prev, ...newSelections]);
+      // Select all available items
+      setSelectedDevices(prev => [...prev, ...availableDevices]);
     }
+  };
+
+  const handleClearAll = () => {
+    setSelectedDevices([]);
+  };
+
+  const handleClearFilters = () => {
+    setDeviceRoleFilter('');
+    setDeviceModelFilter('');
+    setDeviceManufacturerFilter('');
+    setDeviceSearchPm('');
   };
 
   const handleSave = async () => {
@@ -995,8 +1194,22 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   /* ================= render ================= */
   return (
-    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl h-[90vh] max-h-[800px] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+    <div 
+      className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={(e) => {
+        // ปิด modal เมื่อคลิกที่ overlay (นอก modal content)
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div 
+        className="w-full max-w-4xl h-[90vh] max-h-[800px] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+        onClick={(e) => {
+          // ป้องกันไม่ให้ปิด modal เมื่อคลิกที่ modal content
+          e.stopPropagation();
+        }}
+      >
 
         {/* ===== header ===== */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
@@ -1081,8 +1294,21 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     }}
                     placeholder={loadingSites ? 'Loading sites...' : 'ค้นหาหรือเลือก Site...'}
                     disabled={loadingSites}
-                    className={`w-full pl-10 pr-10 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingSites ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
+                    className={`w-full pl-10 ${Sid || siteSearch ? 'pr-20' : 'pr-10'} py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingSites ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
                   />
+                  {Sid || siteSearch ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleClearSite();
+                      }}
+                      className="absolute right-8 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                      title="เคลียร์ Site"
+                    >
+                      <X size={14} />
+                    </button>
+                  ) : null}
                   <ChevronDown 
                     size={16} 
                     className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showSiteDropdown ? 'rotate-180' : ''}`} 
@@ -1223,21 +1449,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {deviceError && <p className="text-xs text-red-500">{deviceError}</p>}
             {loadingDevices && <p className="text-xs text-slate-400">กำลังโหลดข้อมูลอุปกรณ์...</p>}
 
-            {/* Selected Assets */}
-            {selectedDevices.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {selectedDevices.map((d) => (
-                  <span
-                    key={d.id}
-                    onClick={() => toggleDevice(d)}
-                    className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700 cursor-pointer hover:bg-blue-200"
-                  >
-                    {d.name} ✕
-                  </span>
-                ))}
-              </div>
-            )}
-
             {devicesToShow.length > 0 && taskType === 'PM' && (
               <div className="space-y-1.5">
                 {/* Search and Filter Row */}
@@ -1254,61 +1465,166 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   </div>
                   
                   {/* Filter Controls */}
-                  <div className="flex flex-wrap gap-2">
-                    {/* Type Filter */}
-                    {uniqueDeviceTypes.length > 0 && (
-                      <select
-                        value={deviceTypeFilter}
-                        onChange={(e) => setDeviceTypeFilter(e.target.value)}
-                        className="flex-1 min-w-[120px] px-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
-                      >
-                        <option value="">ทุกประเภท</option>
-                        {uniqueDeviceTypes.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    
-                    {/* Site Filter */}
-                    {uniqueDeviceSites.length > 0 && (
-                      <select
-                        value={deviceSiteFilter}
-                        onChange={(e) => setDeviceSiteFilter(e.target.value)}
-                        className="flex-1 min-w-[120px] px-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
-                      >
-                        <option value="">ทุก Site</option>
-                        {uniqueDeviceSites.map((site) => (
-                          <option key={site} value={site}>
-                            {site}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    
-                    {/* Select All Buttons */}
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={handleSelectAll}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
-                      >
-                        เลือกหน้าปัจจุบัน
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSelectAllFiltered}
-                        className="px-3 py-1.5 text-xs rounded-lg border border-blue-500 bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                      >
-                        เลือกทั้งหมด ({devicesToShowFilteredPm.length})
-                      </button>
+                  <div className="space-y-2">
+                    {/* First Row: Role, Model, Manufacturer, Select All, Clear All */}
+                    <div className="grid grid-cols-5 gap-2">
+                      {/* Role Filter */}
+                      <div className="relative">
+                        
+                        <select
+                          value={deviceRoleFilter}
+                          onChange={(e) => setDeviceRoleFilter(e.target.value)}
+                          className={`w-full pl-9 ${deviceRoleFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${
+                            deviceRoleFilter
+                              ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                              : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                          }`}
+                        >
+                          <option value="">All Role</option>
+                          {uniqueDeviceRoles.map((role) => (
+                            <option key={role} value={role}>
+                              {role}
+                            </option>
+                          ))}
+                        </select>
+                        {deviceRoleFilter && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeviceRoleFilter('');
+                            }}
+                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors z-20"
+                            title="Clear Role Filter"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                        <ChevronDown 
+                          size={14} 
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10" 
+                        />
+                      </div>
+                      
+                      {/* Model Filter */}
+                      <div className="relative">
+                        
+                        <select
+                          value={deviceModelFilter}
+                          onChange={(e) => setDeviceModelFilter(e.target.value)}
+                          className={`w-full pl-9 ${deviceModelFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${
+                            deviceModelFilter
+                              ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                              : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                          }`}
+                        >
+                          <option value="">All Model</option>
+                          {uniqueDeviceModels.map((model) => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
+                          ))}
+                        </select>
+                        {deviceModelFilter && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeviceModelFilter('');
+                            }}
+                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors z-20"
+                            title="Clear Model Filter"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                        <ChevronDown 
+                          size={14} 
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10" 
+                        />
+                      </div>
+                      
+                      {/* Manufacturer Filter */}
+                      <div className="relative">
+                        <select
+                          value={deviceManufacturerFilter}
+                          onChange={(e) => setDeviceManufacturerFilter(e.target.value)}
+                          disabled={loadingManufacturers}
+                          className={`w-full pl-9 ${deviceManufacturerFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                            deviceManufacturerFilter
+                              ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                              : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                          }`}
+                        >
+                          <option value="">All Manufacturer</option>
+                          {loadingManufacturers ? (
+                            <option disabled>Loading...</option>
+                          ) : (
+                            uniqueDeviceManufacturers.map((manufacturer) => (
+                              <option key={manufacturer} value={manufacturer}>
+                                {manufacturer}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                        {deviceManufacturerFilter && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeviceManufacturerFilter('');
+                            }}
+                            disabled={loadingManufacturers}
+                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors z-20 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Clear Manufacturer Filter"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                        <ChevronDown 
+                          size={14} 
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10" 
+                        />
+                      </div>
+                      
+                      {/* Select All Button */}
+                      <div className="flex items-center">
+                        {(() => {
+                          const allSelected = availableDevices.length > 0 && availableDevices.every((d) => selectedDevices.some(s => s.id === d.id));
+                          
+                          return (
+                            <button
+                              type="button"
+                              onClick={handleSelectAllFiltered}
+                              className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                                allSelected
+                                  ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm'
+                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 shadow-sm'
+                              }`}
+                            >
+                              
+                              <span>Select All</span>
+                            </button>
+                          );
+                        })()}
+                      </div>
+                      
+                      {/* Clear All Button */}
+                      <div className="flex items-center">
+                        <button
+                          type="button"
+                          onClick={handleClearAll}
+                          className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:bg-slate-200 shadow-sm"
+                        >
+                          <span>Clear All</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
                 
                 {/* Device List with Pagination */}
-                <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
                   {paginatedDevices.map((d) => {
                     const active = selectedDevices.some((x) => x.id === d.id);
                     return (
@@ -1338,7 +1654,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 {totalDevicePages > 1 && (
                   <div className="flex items-center justify-between pt-2 border-t border-slate-200">
                     <div className="text-xs text-slate-500">
-                      แสดง {startDeviceIndex + 1}-{Math.min(endDeviceIndex, devicesToShowFilteredPm.length)} จาก {devicesToShowFilteredPm.length} รายการ
+                      แสดง {startDeviceIndex + 1}-{Math.min(endDeviceIndex, availableDevices.length)} จาก {availableDevices.length} รายการ
                     </div>
                     <div className="flex items-center gap-1">
                       <button
@@ -1364,9 +1680,54 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   </div>
                 )}
 
-                {deviceSearchPm && devicesToShowFilteredPm.length < devicesToShow.length && (
-                  <p className="text-xs text-slate-500 mt-1">แสดง {devicesToShowFilteredPm.length}/{devicesToShow.length} รายการ (กรองแล้ว)</p>
+                {deviceSearchPm && availableDevices.length < devicesToShow.length && (
+                  <p className="text-xs text-slate-500 mt-1">แสดง {availableDevices.length}/{devicesToShow.length} รายการ (กรองแล้ว)</p>
                 )}
+              </div>
+            )}
+
+            {/* Selected Assets Table */}
+            {selectedDevices.length > 0 && (
+              <div className="mt-4">
+                <h4 className="text-xs font-semibold text-slate-700 mb-2">Selected Assets ({selectedDevices.length})</h4>
+                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Asset Name</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Type</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Serial Number</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Site</th>
+                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">State</th>
+                        <th className="px-3 py-2 text-center font-semibold text-slate-700 border-b border-slate-200 w-12">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedDevices.map((d) => (
+                        <tr
+                          key={d.id}
+                          className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                        >
+                          <td className="px-3 py-2 text-slate-800">{d.name}</td>
+                          <td className="px-3 py-2 text-slate-600">{d.type || '-'}</td>
+                          <td className="px-3 py-2 text-slate-600">{d.serialNumber || '-'}</td>
+                          <td className="px-3 py-2 text-slate-600">{d.site || '-'}</td>
+                          <td className="px-3 py-2 text-slate-600">{d.assetState || '-'}</td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => toggleDevice(d)}
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50 rounded px-2 py-1 transition-colors"
+                              title="Remove"
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
@@ -1562,23 +1923,63 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             <div className={taskType === 'MA' ? 'grid grid-cols-2 gap-4' : 'grid grid-cols-2 gap-4'}>
               <div>
                 <label className={fieldLabel}>Start Date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  disabled={editingEvent?.status === 'done'}
-                  className={`${inputBase} ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : ''}`}
-                />
+                <div 
+                  className="relative cursor-pointer"
+                  onClick={(e) => {
+                    if (editingEvent?.status !== 'done') {
+                      const input = e.currentTarget.querySelector('input[type="date"]') as HTMLInputElement;
+                      if (input) {
+                        try {
+                          if (typeof input.showPicker === 'function') {
+                            input.showPicker();
+                          } else {
+                            input.focus();
+                          }
+                        } catch {
+                          input.focus();
+                        }
+                      }
+                    }
+                  }}
+                >
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    disabled={editingEvent?.status === 'done'}
+                    className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                  />
+                </div>
               </div>
               <div>
                 <label className={fieldLabel}>End Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  disabled={editingEvent?.status === 'done'}
-                  className={`${inputBase} ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : ''}`}
-                />
+                <div 
+                  className="relative cursor-pointer"
+                  onClick={(e) => {
+                    if (editingEvent?.status !== 'done') {
+                      const input = e.currentTarget.querySelector('input[type="date"]') as HTMLInputElement;
+                      if (input) {
+                        try {
+                          if (typeof input.showPicker === 'function') {
+                            input.showPicker();
+                          } else {
+                            input.focus();
+                          }
+                        } catch {
+                          input.focus();
+                        }
+                      }
+                    }
+                  }}
+                >
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    disabled={editingEvent?.status === 'done'}
+                    className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                  />
+                </div>
               </div>
             </div>
 
