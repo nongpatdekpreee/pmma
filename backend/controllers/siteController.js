@@ -4,15 +4,12 @@ const db = require('../config/database');
 const createSite = async (req, res) => {
   try {
     const { name, slug, status } = req.body;
-
-    // ตรวจสอบข้อมูลที่จำเป็น
     if (!name || !slug || !status) {
       return res.status(400).json({
         success: false,
         message: 'กรุณากรอกข้อมูลให้ครบถ้วน (Name, Slug, Status)'
       });
     }
-
     // SQL Query
     const sql = 'INSERT INTO sites (Name, Slug, Status) VALUES (?, ?, ?)';
     const [result] = await db.execute(sql, [name, slug, status]);

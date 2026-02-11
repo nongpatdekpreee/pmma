@@ -700,10 +700,10 @@ export default function ContractEditorPage() {
                 <button
                   onClick={() => openAssignSiteForContract(contract)}
                   className="flex items-center justify-center gap-1 flex-1 min-w-[110px] py-1 px-2 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600 whitespace-nowrap"
-                  title="กำหนดอุปกรณ์ไป Site"
+                  title="View/Edit Site"
                 >
                   <MapPin size={12} className="flex-shrink-0" />
-                  <span className="truncate">{devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}</span>
+                  <span className="truncate">View/Edit Site</span>
                 </button>
                 <button
                   onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
@@ -759,7 +759,7 @@ export default function ContractEditorPage() {
                           <button
                             onClick={() => openAssignSiteForContract(contract)}
                             className="flex-1 flex items-center justify-center gap-1 py-1 px-1.5 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200"
-                            title={devicesAssignedStatus[contract.id] ? 'ดู/แก้ไข Site' : 'กำหนดอุปกรณ์ไป Site'}
+                            title="ดู/แก้ไข Site"
                           >
                             <MapPin size={10} />
                             Site

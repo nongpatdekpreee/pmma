@@ -75,16 +75,27 @@ export default function AddContractPage() {
   const [saveError, setSaveError] = useState('');
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
 
-  // Auto-calculate end date from start + duration
-  useEffect(() => {
-    if (startDate && duration) {
-      const start = new Date(startDate);
-      const months = parseInt(duration, 10);
-      const end = new Date(start);
-      end.setMonth(end.getMonth() + months);
-      setEndDate(end.toISOString().split('T')[0]);
+  // คำนวณ End Date จาก Start + Duration (เมื่อแก้ Start หรือ Duration)
+  const recalcEndFromDuration = (startVal?: string, durVal?: string) => {
+    const s = startVal ?? startDate;
+    const d = durVal ?? duration;
+    if (s && d) {
+      const start = new Date(s);
+      const months = parseInt(d, 10);
+      if (!isNaN(months) && months > 0) {
+        const end = new Date(start);
+        end.setMonth(end.getMonth() + months);
+        setEndDate(end.toISOString().split('T')[0]);
+      }
     }
-  }, [startDate, duration]);
+  };
+
+  // คำนวณ Duration จาก Start และ End (เมื่อแก้ End Date)
+  const calcMonthsBetween = (startStr: string, endStr: string): number => {
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  };
 
   // โหลด Refer SOF list จาก devices
   useEffect(() => {
@@ -288,7 +299,8 @@ export default function AddContractPage() {
             const oldEndDate = new Date(contract.end_date);
             const newStartDate = new Date(oldEndDate);
             newStartDate.setDate(newStartDate.getDate() + 1);
-            setStartDate(newStartDate.toISOString().split('T')[0]);
+            const newStartStr = newStartDate.toISOString().split('T')[0];
+            setStartDate(newStartStr);
             // คำนวณ end date จาก start date + duration เดิม (ถ้ามี)
             if (contract.start_date && contract.end_date) {
               const oldStart = new Date(contract.start_date);
@@ -297,6 +309,9 @@ export default function AddContractPage() {
                                  (oldEnd.getMonth() - oldStart.getMonth());
               if (monthsDiff > 0) {
                 setDuration(String(monthsDiff));
+                const endDateCalc = new Date(newStartDate);
+                endDateCalc.setMonth(endDateCalc.getMonth() + monthsDiff);
+                setEndDate(endDateCalc.toISOString().split('T')[0]);
               }
             }
           }
@@ -871,65 +886,117 @@ export default function AddContractPage() {
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Contract Name" required>
-                <input
-                  type="text"
-                  value={contractName}
-                  onChange={(e) => setContractName(e.target.value)}
-                  placeholder="contract name"
-                  className={inputBase}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={contractName}
+                    onChange={(e) => setContractName(e.target.value)}
+                    placeholder="contract name"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {contractName && (
+                    <button
+                      type="button"
+                      onClick={() => setContractName('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </FormField>
               <FormField label="Service ">
-                <input
-                  type="text"
-                  value={assignedService}
-                  onChange={(e) => setAssignedService(e.target.value)}
-                  placeholder="Device Network Manage Service"
-                  className={inputBase}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={assignedService}
+                    onChange={(e) => setAssignedService(e.target.value)}
+                    placeholder="Device Network Manage Service"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {assignedService && (
+                    <button
+                      type="button"
+                      onClick={() => setAssignedService('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </FormField>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Contract Value (THB)">
-                <input
-                  type="text"
-                  value={contractValue}
-                  onChange={(e) => {
-                    let value = e.target.value.replace(/,/g, ''); // ลบ comma ออกก่อน
-                    // อนุญาตให้กรอกเฉพาะตัวเลขบวก (จำนวนเงิน)
-                    if (value === '' || (!isNaN(parseFloat(value)) && parseFloat(value) >= 0)) {
-                      // Format ด้วย comma separator
-                      if (value !== '' && !isNaN(parseFloat(value))) {
-                        const numValue = parseFloat(value);
-                        const formatted = numValue.toLocaleString('en-US', {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 2
-                        });
-                        setContractValue(formatted);
-                      } else {
-                        setContractValue(value);
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={contractValue}
+                    onChange={(e) => {
+                      let value = e.target.value.replace(/,/g, ''); // ลบ comma ออกก่อน
+                      // อนุญาตให้กรอกเฉพาะตัวเลขบวก (จำนวนเงิน)
+                      if (value === '' || (!isNaN(parseFloat(value)) && parseFloat(value) >= 0)) {
+                        // Format ด้วย comma separator
+                        if (value !== '' && !isNaN(parseFloat(value))) {
+                          const numValue = parseFloat(value);
+                          const formatted = numValue.toLocaleString('en-US', {
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 2
+                          });
+                          setContractValue(formatted);
+                        } else {
+                          setContractValue(value);
+                        }
                       }
-                    }
-                  }}
-                  placeholder="0.00"
-                  className={inputBase}
-                />
-                <p className="mt-1 text-xs text-slate-500">กรอกจำนวนเงินเท่านั้น (ตัวเลขบวก)</p>
+                    }}
+                    placeholder="0.00"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {contractValue && (
+                    <button
+                      type="button"
+                      onClick={() => setContractValue('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-slate-500"></p>
               </FormField>
               <FormField label={renewContractId ? "New SOF" : "SOF (Refer SOF from Device)"} required>
-                <input
-                  type="text"
-                  list="sof-list"
-                  value={selectedSOF}
-                  onChange={(e) => {
-                    setSelectedSOF(e.target.value);
-                    setSofName(e.target.value);
-                  }}
-                  placeholder={renewContractId ? "Enter new SOF (e.g. 89100XXXXX)" : "Select from list or enter SOF (e.g. 89100XXXXX)"}
-                  className={inputBase}
-                  disabled={referSOFLoading}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    list="sof-list"
+                    value={selectedSOF}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // อนุญาตเฉพาะตัวเลขเท่านั้น
+                      if (value === '' || /^\d+$/.test(value)) {
+                        setSelectedSOF(value);
+                        setSofName(value);
+                      }
+                    }}
+                    placeholder={renewContractId ? "Enter new SOF" : "Select from list or enter SOF"}
+                    className={`${inputBase} pr-9`}
+                    disabled={referSOFLoading}
+                    required
+                  />
+                  {selectedSOF && !referSOFLoading && (
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedSOF(''); setSofName(''); }}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
                 <datalist id="sof-list">
                   {referSOFList.map((sof) => (
                     <option key={sof} value={sof} />
@@ -950,33 +1017,57 @@ export default function AddContractPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="SLA Term (%)" required>
-                <input
-                  type="number"
-                  value={slaTerm}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    // อนุญาตให้กรอกเฉพาะตัวเลข 0-100
-                    if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
-                      setSlaTerm(value);
-                    }
-                  }}
-                  placeholder="0-100"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  className={inputBase}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={slaTerm}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // อนุญาตให้กรอกเฉพาะตัวเลข 0-100
+                      if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
+                        setSlaTerm(value);
+                      }
+                    }}
+                    placeholder="0-100"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    className={`${inputBase} pr-9`}
+                    required
+                  />
+                  {slaTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSlaTerm('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-slate-500">Enter only numbers between 0 and 100</p>
               </FormField>
               <FormField label="Sale Account">
-                <input
-                  type="text"
-                  value={saleAccount}
-                  onChange={(e) => setSaleAccount(e.target.value)}
-                  placeholder="Sale Account"
-                  className={inputBase}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={saleAccount}
+                    onChange={(e) => setSaleAccount(e.target.value)}
+                    placeholder="Sale Account"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {saleAccount && (
+                    <button
+                      type="button"
+                      onClick={() => setSaleAccount('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </FormField>
             </div>
           </FormSection>
@@ -994,18 +1085,27 @@ export default function AddContractPage() {
                 <input
                   type="date"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setStartDate(v);
+                    if (duration) recalcEndFromDuration(v, duration);
+                  }}
+                  onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
                   className={inputBase}
                 />
               </FormField>
               <FormField label="Contract Period (months)">
                 <select
                   value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDuration(v);
+                    recalcEndFromDuration(startDate, v);
+                  }}
                   className={inputBase}
                 >
                   <option value="">Select</option>
-                  {[3, 6, 9, 12, 24, 36].map((m) => (
+                  {Array.from({ length: 60 }, (_, i) => i + 1).map((m) => (
                     <option key={m} value={m}>
                       {m} months
                     </option>
@@ -1016,8 +1116,16 @@ export default function AddContractPage() {
                 <input
                   type="date"
                   value={endDate}
-                  readOnly
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-sm outline-none transition-all cursor-not-allowed opacity-75"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setEndDate(val);
+                    if (startDate && val) {
+                      const months = calcMonthsBetween(startDate, val);
+                      if (months > 0) setDuration(String(months));
+                    }
+                  }}
+                  onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
+                  className={inputBase}
                 />
               </FormField>
                 <FormField label="PM Time Per Year">
@@ -1241,13 +1349,25 @@ export default function AddContractPage() {
           >
             <div className="space-y-4">
               <FormField label="Coverage Scope">
-                <textarea
-                  rows={3}
-                  value={coverageScope}
-                  onChange={(e) => setCoverageScope(e.target.value)}
-                  placeholder="Coverage Scope"
-                  className={`${inputBase} resize-none`}
-                />
+                <div className="relative">
+                  <textarea
+                    rows={3}
+                    value={coverageScope}
+                    onChange={(e) => setCoverageScope(e.target.value)}
+                    placeholder="Coverage Scope"
+                    className={`${inputBase} resize-none pr-9`}
+                  />
+                  {coverageScope && (
+                    <button
+                      type="button"
+                      onClick={() => setCoverageScope('')}
+                      className="absolute right-2 top-3 flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </FormField>
              
               <FileUploadBlock
