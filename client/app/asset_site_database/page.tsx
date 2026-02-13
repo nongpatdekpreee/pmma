@@ -455,8 +455,8 @@ const AssetSiteDatabase = () => {
                       <SortIcon field="deviceId" />
                     </div>
                   </th>
-                  <th className="px-3 py-3 text-center align-middle" style={{ width: '250px' }}>Device Name</th>
-                  <th className="px-3 py-3 text-center align-middle whitespace-nowrap" style={{ width: '80px' }}>Role</th>
+                  <th className="px-3 py-3 text-center align-middle" style={{ width: '200px' }}>Device Name</th>
+                  <th className="px-3 py-3 text-center align-middle whitespace-nowrap" style={{ width: '70px' }}>Role</th>
                   <th
                     className="cursor-pointer px-3 py-3 text-center align-middle hover:bg-gray-100"
                     onClick={() => handleSort("site")}
@@ -467,7 +467,7 @@ const AssetSiteDatabase = () => {
                       <SortIcon field="site" />
                     </div>
                   </th>
-                  <th className="px-3 py-3 text-center align-middle whitespace-nowrap hidden lg:table-cell" style={{ width: '120px' }}>Location</th>
+                  <th className="px-3 py-3 text-center align-middle whitespace-nowrap hidden lg:table-cell" style={{ width: '100px' }}>Location</th>
                   <th
                     className="cursor-pointer px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap"
                     onClick={() => handleSort("lastPM")}
