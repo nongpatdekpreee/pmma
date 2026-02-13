@@ -352,13 +352,15 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             </div>
           ) : null}
 
-          {/* Coverage Scope */}
-          {task.coverageScope && (
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700 mb-3">Coverage Scope</h3>
-              <p className="text-sm text-slate-700 whitespace-pre-wrap">{task.coverageScope}</p>
-            </div>
-          )}
+          {/* Coverage Scope - แสดง "—" เมื่อไม่มีค่าหรือเป็นแค่ "-" */}
+          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+            <h3 className="text-sm font-bold text-slate-700 mb-3">Coverage Scope</h3>
+            <p className="text-sm text-slate-700 whitespace-pre-wrap">
+              {task.coverageScope && task.coverageScope.trim() && task.coverageScope.trim() !== '-'
+                ? task.coverageScope
+                : '—'}
+            </p>
+          </div>
           
           {/* Notes - แสดงเฉพาะเมื่อมี notes (ใช้เมื่อเลื่อนนัด) */}
           {task.notes && (
