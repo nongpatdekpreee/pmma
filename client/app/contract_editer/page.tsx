@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { 
   FileText, Calendar, DollarSign, Building2, Cpu, MapPin, 
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
-  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw 
+  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench, Plus, Info 
 } from 'lucide-react';
 
 interface Equipment {
@@ -603,7 +603,7 @@ export default function ContractEditorPage() {
             onClick={() => router.push('/contract_editer/add')}
             className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 flex items-center gap-2 hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
           >
-            <span className="text-lg">➕</span>
+            <Plus size={18} className="text-slate-500" />
             Add New Contract
           </button>
         </div>
@@ -626,7 +626,7 @@ export default function ContractEditorPage() {
             ))}
           </div>
           <div className="flex-1 min-w-[300px] relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl">🔍</span>
+            <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
               placeholder="Search contract..."
@@ -697,32 +697,32 @@ export default function ContractEditorPage() {
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">📋</span>
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><FileText size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Contract Name:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.name}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">🏢</span>
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Contract Partner:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.partner}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">📅</span>
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Calendar size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Start Date:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedStartDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">⏰</span>
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Clock size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">End Date:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedEndDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">💰</span>
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><DollarSign size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Value:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>฿{contract.formattedValue}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-blue-600 font-semibold min-w-[20px] flex-shrink-0">🔧</span>
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Wrench size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Equipment:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.deviceCount || 0} List Items</span>
               </div>
@@ -730,19 +730,17 @@ export default function ContractEditorPage() {
                 <div className="flex flex-wrap gap-2 min-w-0">
                   <button
                     onClick={() => viewContractDetails(contract)}
-                    className="flex-1 min-w-0 py-1.5 px-2 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm truncate"
+                    className="flex items-center justify-center py-1.5 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
                     title="View Details"
                   >
-                    View Details
-                    
+                    <Info size={18} className="text-white" />
                   </button>
                   <button
                     onClick={() => openAssignSiteForContract(contract)}
-                    className="flex items-center justify-center gap-1 flex-1 min-w-0 py-1.5 px-2 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600 truncate"
+                    className="flex items-center justify-center py-1.5 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600"
                     title="View Site"
                   >
-                    <MapPin size={12} className="flex-shrink-0" />
-                    <span className="truncate">View Site</span>
+                    <MapPin size={18} className="text-white" />
                   </button>
                 </div>
                 <button
@@ -799,19 +797,17 @@ export default function ContractEditorPage() {
                         <div className="flex items-center gap-1 min-w-0">
                           <button
                             onClick={() => viewContractDetails(contract)}
-                            className="flex items-center justify-center gap-0.5 py-1 px-1 rounded-md text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all duration-200 truncate"
+                            className="flex items-center justify-center py-1 px-2 rounded-md text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all duration-200"
                             title="View Details"
                           >
-                            <FileText size={10} className="flex-shrink-0" />
-                            View
+                            <Info size={14} className="text-white" />
                           </button>
                           <button
                             onClick={() => openAssignSiteForContract(contract)}
-                            className="flex items-center justify-center gap-0.5 py-1 px-1 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200 truncate"
+                            className="flex items-center justify-center py-1 px-2 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200"
                             title="View/Edit Site"
                           >
-                            <MapPin size={10} className="flex-shrink-0" />
-                            Site
+                            <MapPin size={14} className="text-white" />
                           </button>
                         </div>
                         <button
@@ -977,7 +973,7 @@ export default function ContractEditorPage() {
                   {currentEquipmentList.map((equipment, idx) => (
                     <div key={idx} className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-3 flex justify-between items-center hover:border-blue-500 hover:bg-white transition-all duration-300">
                       <div className="flex-1">
-                        <div className="font-semibold text-slate-800 mb-1">🔧 {equipment.name}</div>
+                        <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Wrench size={14} className="text-slate-500 flex-shrink-0" /> {equipment.name}</div>
                         <div className="text-sm text-slate-500">
                           {equipment.model && `Model: ${equipment.model}`}
                           {equipment.serial && ` | S/N: ${equipment.serial}`}
@@ -1008,7 +1004,7 @@ export default function ContractEditorPage() {
                   onClick={() => openEquipmentModal()}
                   className="w-full py-3 border-2 border-dashed border-slate-200 bg-transparent rounded-lg text-slate-500 cursor-pointer transition-all duration-300 font-medium hover:border-blue-500 hover:text-blue-600 hover:bg-slate-50"
                 >
-                  ➕ Add Equipment
+                  <><Plus size={14} className="flex-shrink-0" /> Add Equipment</>
                 </button>
               </div>
               <div className="flex gap-4 mt-8 pt-6 border-t border-slate-200">
@@ -1167,7 +1163,7 @@ export default function ContractEditorPage() {
                   {currentEquipmentList.map((equipment, idx) => (
                     <div key={idx} className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-3 flex justify-between items-center hover:border-blue-500 hover:bg-white transition-all duration-300">
                       <div className="flex-1">
-                        <div className="font-semibold text-slate-800 mb-1">🔧 {equipment.name}</div>
+                        <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Wrench size={14} className="text-slate-500 flex-shrink-0" /> {equipment.name}</div>
                         <div className="text-sm text-slate-500">
                           {equipment.model && `Model: ${equipment.model}`}
                           {equipment.serial && ` | S/N: ${equipment.serial}`}
@@ -1198,7 +1194,7 @@ export default function ContractEditorPage() {
                   onClick={() => openEquipmentModal()}
                   className="w-full py-3 border-2 border-dashed border-slate-200 bg-transparent rounded-lg text-slate-500 cursor-pointer transition-all duration-300 font-medium hover:border-blue-500 hover:text-blue-600 hover:bg-slate-50"
                 >
-                  ➕ Add Equipment
+                  <><Plus size={14} className="flex-shrink-0" /> Add Equipment</>
                 </button>
               </div>
               <div className="flex gap-4 mt-8 pt-6 border-t border-slate-200">
@@ -1255,7 +1251,7 @@ export default function ContractEditorPage() {
                   {/* General Information */}
                   <div className="bg-white rounded-lg border border-slate-200">
                     <div className="px-6 py-4 border-b border-slate-200">
-                      <h3 className="text-lg font-semibold text-slate-800">📋 General Information</h3>
+                      <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2"><FileText size={20} className="text-slate-500" /> General Information</h3>
                     </div>
                     <div className="p-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1354,7 +1350,7 @@ export default function ContractEditorPage() {
                       </div>
                       {fullContractDetails.contract_value != null && (
                         <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-2">💰 Contract Value</span>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-2 flex items-center gap-1"><DollarSign size={14} className="text-slate-500" /> Contract Value</span>
                           <span className="text-3xl font-bold text-slate-800">
                             ฿{fullContractDetails.contract_value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
@@ -1423,7 +1419,7 @@ export default function ContractEditorPage() {
                         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                           <div className="px-6 py-4 border-b border-slate-200">
                             <h3 className="text-lg font-semibold text-slate-800">
-                              {sites.length === 1 ? `📍 ${siteLabel}` : 'Equipment in Contract'}
+                              {sites.length === 1 ? <span className="flex items-center gap-1"><MapPin size={14} className="text-slate-500 flex-shrink-0" /> {siteLabel}</span> : 'Equipment in Contract'}
                               <span className="ml-2 text-sm font-normal text-slate-500">({devices.length} items)</span>
                             </h3>
                           </div>
@@ -1459,7 +1455,7 @@ export default function ContractEditorPage() {
                                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                                   }`}
                                 >
-                                  📍 {label}
+                                  <MapPin size={14} className="inline-block mr-1 text-slate-500 flex-shrink-0" /> {label}
                                   <span className="ml-1.5 text-xs opacity-90">({count})</span>
                                 </button>
                               );

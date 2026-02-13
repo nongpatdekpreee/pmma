@@ -40,8 +40,6 @@ out/
 
 # Next.js
 next-env.d.ts
-.next/
-out/
 
 # TypeScript
 *.tsbuildinfo
@@ -56,7 +54,7 @@ out/
 *.sqlite
 *.sqlite3
 
-# Uploads (if any)
+# Uploads
 uploads/
 temp/
 

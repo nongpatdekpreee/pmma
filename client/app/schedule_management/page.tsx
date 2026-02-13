@@ -107,6 +107,7 @@ export default function ScheduleManagement() {
   }>>([]);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [availableContracts, setAvailableContracts] = useState<Array<{contract_id: number; sof_name: string; contract_name?: string; site_id?: number}>>([]);
+  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
@@ -122,7 +123,6 @@ export default function ScheduleManagement() {
     const taskType = task.taskType || task.task_type || 'PM';
     const siteName = task.siteName || task.site_name || task.Sname;
     const location = task.location || task.Location2 || '';
-
     const title =
       taskType === 'MA'
         ? `MA: ${task.vendorName || task.vendor_name || siteName || 'Maintenance Agreement'}`
@@ -314,12 +314,29 @@ export default function ScheduleManagement() {
     }
   };
 
+  // Filter events by selected engineer
+  const filteredCalendarEvents = useMemo(() => {
+    if (!selectedEngineerFilter) return calendarEvents;
+    return calendarEvents.filter(e => {
+      // Check if event has Eng_ids array
+      if (e.Eng_ids && e.Eng_ids.length > 0) {
+        return e.Eng_ids.some((eng: Engineer) => String(eng.id) === String(selectedEngineerFilter));
+      }
+      // Fallback: check engineer string (for backward compatibility)
+      if (e.engineer) {
+        const engineerIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
+        return engineerIds.includes(String(selectedEngineerFilter));
+      }
+      return false;
+    });
+  }, [calendarEvents, selectedEngineerFilter]);
+
   const getEventsForDay = (day: number | null) => {
     if (!day) return [];
     // Create date object for the current day being checked
     const checkDate = new Date(currentYear, currentMonth, day);
     
-    return calendarEvents.filter(e => {
+    return filteredCalendarEvents.filter(e => {
       // If event has startDate and endDate, use them for accurate cross-month checking
       if (e.startDate && e.endDate) {
         const eventStart = new Date(e.startDate);
@@ -707,7 +724,11 @@ export default function ScheduleManagement() {
             return;
           }
 
-          const headers = (jsonData[0] as any[]).map((h: any) => String(h || '').trim().toLowerCase());
+          const headers = (jsonData[0] as any[]).map((h: any) =>
+            String(h || '').replace(/\uFEFF/g, '').trim().toLowerCase()
+          );
+          // Normalize header for lookup (หลายช่องว่าง → ช่องว่างเดียว) เพื่อให้ตรงกับ columnMap
+          const normalizeHeader = (h: string) => h.replace(/\s+/g, ' ').trim();
           
           const columnMap: Record<string, string> = {
             // Required columns (ตามที่ต้องการ)
@@ -733,9 +754,12 @@ export default function ScheduleManagement() {
 
             headers.forEach((header, colIndex) => {
               const value = row[colIndex];
-              if (value === null || value === undefined || value === '') return;
-
-              const mappedKey = columnMap[header];
+              const headerNorm = normalizeHeader(header);
+              const mappedKey = columnMap[headerNorm] || columnMap[header];
+              if (!mappedKey) return;
+              // สำหรับ coverageScope และ notes รับค่าแม้ cell ว่าง (จะได้ไม่ไปใช้ fallback โดยไม่ตั้งใจ)
+              if (value === null || value === undefined) return;
+              if (mappedKey !== 'coverageScope' && mappedKey !== 'notes' && value === '') return;
               if (mappedKey) {
                 // taskType is always 'PM', skip any taskType mapping
                 if (mappedKey === 'engineer' || mappedKey === 'engineerId') {
@@ -1097,7 +1121,7 @@ export default function ScheduleManagement() {
             name: device.CI_Name || `Device ${device.Did}`,
             Dtypeid: device.Dtypeid || null,
             DeRoleid: device.DeRoleid || null,
-            type: 'Device',
+            type: device.roleName || device.model || 'Device',
             serialNumber: device.serial || null,
             site: task.Sname || task.siteName || null,
             assetState: device.Asset_State || null,
@@ -1123,7 +1147,7 @@ export default function ScheduleManagement() {
                     name: d.CI_Name || `Device ${d.Did}`,
                     Dtypeid: d.Dtypeid || null,
                     DeRoleid: d.DeRoleid || null,
-                    type: 'Device',
+                    type: d.roleName || d.model || 'Device',
                     serialNumber: d.serial || null,
                     site: task.Sname || task.siteName || null,
                     assetState: d.Asset_State || null,
@@ -1291,11 +1315,33 @@ export default function ScheduleManagement() {
             {loadError}
           </div>
         )}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
           <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
             Schedule Management
           </h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <label htmlFor="engineer-filter" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Engineer:
+              </label>
+              <select
+                id="engineer-filter"
+                value={selectedEngineerFilter || ''}
+                onChange={(e) => setSelectedEngineerFilter(e.target.value || null)}
+                className="flex-1 sm:flex-none px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[200px] shadow-sm transition-colors"
+              >
+                <option value="">All Engineers</option>
+                {availableEngineers.length === 0 ? (
+                  <option value="" disabled>Loading engineers...</option>
+                ) : (
+                  availableEngineers.map((eng) => (
+                    <option key={eng.id} value={String(eng.id)}>
+                      {eng.name} {eng.lastName || ''}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
             <button
               onClick={() => setIsImportModalOpen(true)}
               className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
@@ -1775,7 +1821,7 @@ export default function ScheduleManagement() {
                                   <span className="text-slate-400">—</span>
                                 )}
                               </td>
-                              <td className="px-2 py-2 min-w-[150px]">{task.notes || '—'}</td>
+                              <td className="px-2 py-2 min-w-[150px]">{task.coverageScope || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
