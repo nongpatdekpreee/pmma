@@ -707,7 +707,11 @@ export default function ScheduleManagement() {
             return;
           }
 
-          const headers = (jsonData[0] as any[]).map((h: any) => String(h || '').trim().toLowerCase());
+          const headers = (jsonData[0] as any[]).map((h: any) =>
+            String(h || '').replace(/\uFEFF/g, '').trim().toLowerCase()
+          );
+          // Normalize header for lookup (หลายช่องว่าง → ช่องว่างเดียว) เพื่อให้ตรงกับ columnMap
+          const normalizeHeader = (h: string) => h.replace(/\s+/g, ' ').trim();
           
           const columnMap: Record<string, string> = {
             // Required columns (ตามที่ต้องการ)
@@ -733,9 +737,12 @@ export default function ScheduleManagement() {
 
             headers.forEach((header, colIndex) => {
               const value = row[colIndex];
-              if (value === null || value === undefined || value === '') return;
-
-              const mappedKey = columnMap[header];
+              const headerNorm = normalizeHeader(header);
+              const mappedKey = columnMap[headerNorm] || columnMap[header];
+              if (!mappedKey) return;
+              // สำหรับ coverageScope และ notes รับค่าแม้ cell ว่าง (จะได้ไม่ไปใช้ fallback โดยไม่ตั้งใจ)
+              if (value === null || value === undefined) return;
+              if (mappedKey !== 'coverageScope' && mappedKey !== 'notes' && value === '') return;
               if (mappedKey) {
                 // taskType is always 'PM', skip any taskType mapping
                 if (mappedKey === 'engineer' || mappedKey === 'engineerId') {
@@ -1775,7 +1782,7 @@ export default function ScheduleManagement() {
                                   <span className="text-slate-400">—</span>
                                 )}
                               </td>
-                              <td className="px-2 py-2 min-w-[150px]">{task.notes || '—'}</td>
+                              <td className="px-2 py-2 min-w-[150px]">{task.coverageScope || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
