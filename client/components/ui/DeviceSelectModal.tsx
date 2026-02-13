@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { X, Search } from 'lucide-react';
 import { apiUrl } from '@/lib/api';
 
 export interface DeviceSelectModalDevice {
@@ -189,7 +189,7 @@ export function DeviceSelectModal({
         </div>
         <div className="border-b px-6 py-3 space-y-3">
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
               value={filter}

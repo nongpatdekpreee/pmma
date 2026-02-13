@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
 
 /* =======================
    TYPES
@@ -115,7 +116,7 @@ export function ContractTable({ rows }: ContractTableProps) {
         <div className="flex flex-wrap items-center gap-3">
           {/* search */}
           <div className="flex h-9 items-center rounded-full bg-[#F5F7FB] px-3 text-xs text-gray-500">
-            <span className="mr-1 text-sm">🔍</span>
+            <Search size={14} className="mr-1 text-gray-400 flex-shrink-0" />
             <input
               value={query}
               onChange={(e) => handleSearch(e.target.value)}

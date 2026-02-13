@@ -5,6 +5,7 @@ import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import * as XLSX from "xlsx";
 import { getSlaContracts } from "@/lib/api";
+import { Search } from "lucide-react";
 
 const ITEMS_PER_PAGE = 8;
 
@@ -284,7 +285,7 @@ const sla_Viewall = () => {
 
               <div className="flex items-center gap-3">
                 <div className="flex h-10 items-center gap-2 rounded-full bg-gray-100 px-4 text-sm text-gray-500">
-                  🔍
+                  <Search size={18} className="text-gray-400 flex-shrink-0" />
                   <input
                     value={searchTerm}
                     onChange={(e) => {

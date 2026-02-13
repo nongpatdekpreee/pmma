@@ -371,7 +371,7 @@ const AssetSiteDatabase = () => {
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Search className="h-4 w-4" />
+                  <Search className="h-4 w-4 text-slate-500" />
                 )}
                 <input
                   type="text"

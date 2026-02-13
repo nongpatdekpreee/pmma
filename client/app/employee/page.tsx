@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect } from "react";
-import { LucideIcon, UserCheck, UserRoundCog, Wrench } from "lucide-react";
+import { LucideIcon, UserCheck, UserRoundCog, Wrench, Search } from "lucide-react";
 import { apiUrl } from "@/lib/api";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";   
@@ -193,7 +193,7 @@ const EmployeeManagement = () => {
 
               <div className="flex items-center gap-3">
                 <div className="flex h-10 items-center gap-2 rounded-full bg-gray-100 px-4 text-sm text-gray-500">
-                  🔍
+                  <Search size={18} className="text-gray-400 flex-shrink-0" />
                   <input
                     value={searchTerm}
                     onChange={(e) => {
@@ -222,7 +222,7 @@ const EmployeeManagement = () => {
             <div className="overflow-x-auto">
               {loading ? (
                 <div className="flex items-center justify-center py-12">
-                  <div className="text-gray-400">กำลังโหลดข้อมูล...</div>
+                  <div className="text-gray-400">???????????????...</div>
                 </div>
               ) : (
                 <table className="min-w-full text-sm">
@@ -241,7 +241,7 @@ const EmployeeManagement = () => {
                     {paginatedEmployees.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="px-6 py-8 text-center text-gray-400">
-                          ไม่พบข้อมูล Employee
+                          ??????????? Employee
                         </td>
                       </tr>
                     ) : (
@@ -285,7 +285,7 @@ const EmployeeManagement = () => {
             {/* Pagination */}
             <div className="mt-4 flex items-center justify-between text-xs text-gray-400">
               <span>
-                Showing {startIndex + 1}–
+                Showing {startIndex + 1}-
                 {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} of{" "}
                 {totalItems}
               </span>
