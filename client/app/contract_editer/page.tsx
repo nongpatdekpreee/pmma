@@ -145,6 +145,8 @@ export default function ContractEditorPage() {
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
   const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
   const [selectedDetailSiteSlid, setSelectedDetailSiteSlid] = useState<number | null>(null);
+  // Assign modal: เลือกดูตาม Site จาก contract_device.SLid (เหมือน detail)
+  const [assignModalSelectedSiteSlid, setAssignModalSelectedSiteSlid] = useState<number | null>(null);
 
   // Form state
   const [contractForm, setContractForm] = useState({
@@ -442,6 +444,7 @@ export default function ContractEditorPage() {
     setAssignDeviceDetails({});
     setDeviceTargetSite({});
     setAssignDeviceSelected(new Set());
+    setAssignModalSelectedSiteSlid(null);
     try {
       const res = await fetch(apiUrl(`/api/contracts/${contract.id}`));
       const json = await res.json();
@@ -1794,14 +1797,27 @@ export default function ContractEditorPage() {
                     "
                     />
                   </div>
-                  <p className="text-sm text-slate-600 mb-2">
-                    Select Devices
-                  </p>
                   {(() => {
                     const allDevices = fullContractDetails.devices ?? [];
+                    const sites = fullContractDetails.sites ?? [];
+                    const contractSiteSlids = new Set(sites.map((s: { SLid: number }) => s.SLid));
+                    const getDevicesForSite = (slid: number) =>
+                      allDevices.filter((d: { contract_SLid?: number | null }) => (d.contract_SLid ?? null) === slid);
+                    const unassignedDevices = allDevices.filter((d: { contract_SLid?: number | null }) => !contractSiteSlids.has(d.contract_SLid ?? -1));
+                    const showSitePills = sites.length >= 1 || unassignedDevices.length > 0;
+
+                    let devicesBySiteFilter = allDevices;
+                    if (assignModalSelectedSiteSlid !== null) {
+                      if (assignModalSelectedSiteSlid === -1) {
+                        devicesBySiteFilter = unassignedDevices;
+                      } else {
+                        devicesBySiteFilter = getDevicesForSite(assignModalSelectedSiteSlid);
+                      }
+                    }
+
                     const q = assignDeviceSearch.trim().toLowerCase();
                     let filteredDevices = q
-                      ? allDevices.filter((d) => {
+                      ? devicesBySiteFilter.filter((d) => {
                           const detail = assignDeviceDetails[String(d.Did)];
                           const searchable = [
                             d.CI_Name,
@@ -1819,7 +1835,7 @@ export default function ContractEditorPage() {
                           const parts = q.split(/\s+/).filter(Boolean);
                           return parts.every((part) => searchable.includes(part));
                         })
-                      : allDevices;
+                      : devicesBySiteFilter;
                     // Sort: devices with SLid first (by SLid), then those without SLid, then by device name
                     filteredDevices = [...filteredDevices].sort((a, b) => {
                       const da = assignDeviceDetails[String(a.Did)];
@@ -1831,9 +1847,66 @@ export default function ContractEditorPage() {
                       const nameB = (b.CI_Name || b.Asset_Number || '').toLowerCase();
                       return nameA.localeCompare(nameB);
                     });
+                    const selectedCount = assignDeviceSelected.size;
+                    const firstSelectedId = selectedCount > 0 ? [...assignDeviceSelected][0] : null;
+                    const bulkTargetValue = firstSelectedId != null ? (deviceTargetSite[firstSelectedId] ?? '') : '';
                     return (
                   <>
-                  <div className="flex gap-2 mb-3">
+                  {showSitePills && (
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      <button
+                        type="button"
+                        onClick={() => setAssignModalSelectedSiteSlid(null)}
+                        className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                          assignModalSelectedSiteSlid === null
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        }`}
+                      >
+                        All sites
+                      </button>
+                      {sites.map((site: { SLid: number; SiteName?: string | null; Location2?: string | null }) => {
+                        const count = getDevicesForSite(site.SLid).length;
+                        const isSelected = assignModalSelectedSiteSlid === site.SLid;
+                        const label = site.SiteName
+                          ? `${site.SiteName}${site.Location2 ? ` – ${site.Location2}` : ''}`.trim()
+                          : `Site ${site.SLid}`;
+                        return (
+                          <button
+                            key={site.SLid}
+                            type="button"
+                            onClick={() => setAssignModalSelectedSiteSlid(site.SLid)}
+                            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                              isSelected
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                          >
+                            <MapPin size={14} className="flex-shrink-0" />
+                            {label}
+                            <span className="ml-1 text-xs opacity-90">({count})</span>
+                          </button>
+                        );
+                      })}
+                      {unassignedDevices.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setAssignModalSelectedSiteSlid(-1)}
+                          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                            assignModalSelectedSiteSlid === -1
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          Unassigned ({unassignedDevices.length})
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-sm text-slate-600 mb-2">
+                    Select Devices
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mb-3">
                     <button
                       type="button"
                       onClick={() => setAssignDeviceSelected(new Set(filteredDevices.map((d) => String(d.Did))))}
@@ -1850,9 +1923,10 @@ export default function ContractEditorPage() {
                       Deselect All
                     </button>
                     <span className="text-xs text-slate-500">
-                      ({assignDeviceSelected.size} selected{filteredDevices.length < allDevices.length ? ` • Showing ${filteredDevices.length}/${allDevices.length}` : ''})
+                      ({selectedCount} selected{filteredDevices.length < allDevices.length ? ` • Showing ${filteredDevices.length}/${allDevices.length}` : ''})
                     </span>
                   </div>
+          
                   <div className="rounded-xl border border-slate-200">
                     <table className="w-full text-sm">
                       <thead>
@@ -1934,7 +2008,14 @@ export default function ContractEditorPage() {
                               <td className="px-3 py-2">
                                 <select
                                   value={deviceTargetSite[String(device.Did)] ?? ''}
-                                  onChange={(ev) => setDeviceTargetSite((prev) => ({ ...prev, [String(device.Did)]: ev.target.value }))}
+                                  onChange={(ev) => {
+                                    const newSiteId = ev.target.value;
+                                    setDeviceTargetSite((prev) => {
+                                      const next = { ...prev };
+                                      assignDeviceSelected.forEach((id) => { next[id] = newSiteId; });
+                                      return next;
+                                    });
+                                  }}
                                   disabled={!isSelected}
                                   className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
                                 >

@@ -64,6 +64,8 @@ export default function AddContractPage() {
   const [devicesBySite, setDevicesBySite] = useState<DeviceItem[]>([]);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
   const [deviceFilter, setDeviceFilter] = useState('');
+  // เลือกดูตาม Site (เหมือนหน้า detail: filter ตาม SLid ใน contract_device)
+  const [selectedViewSiteId, setSelectedViewSiteId] = useState<string | null>(null);
 
   // Loading & errors
   const [referSOFLoading, setReferSOFLoading] = useState(false);
@@ -488,6 +490,32 @@ export default function AddContractPage() {
 
   const activeEntry = siteEntries.find((e) => e.id === activeSiteEntryId);
   const activeEntryDevices = activeEntry?.devices ?? [];
+
+  // Site pills (เหมือน detail: เลือกดูตาม SLid จาก contract_device)
+  const distinctSitesForView = (() => {
+    const byId = new Map<string, { siteLabel: string; deviceCount: number }>();
+    for (const e of siteEntries) {
+      if (!e.siteId) continue;
+      const cur = byId.get(e.siteId);
+      const count = (cur?.deviceCount ?? 0) + e.devices.length;
+      byId.set(e.siteId, { siteLabel: e.siteLabel || `Site ${e.siteId}`, deviceCount: count });
+    }
+    return [...byId.entries()].map(([siteId, { siteLabel, deviceCount }]) => ({ siteId, siteLabel, deviceCount }));
+  })();
+  const entriesToShow =
+    selectedViewSiteId === null
+      ? siteEntries
+      : siteEntries.filter((e) => e.siteId === selectedViewSiteId);
+
+  // รีเซ็ต filter เมื่อ site ที่เลือกอยู่ไม่มี entry เหลืออยู่
+  useEffect(() => {
+    if (
+      selectedViewSiteId !== null &&
+      !siteEntries.some((e) => e.siteId === selectedViewSiteId)
+    ) {
+      setSelectedViewSiteId(null);
+    }
+  }, [selectedViewSiteId, siteEntries]);
 
   // ยังไม่มี SOF: device ที่ถูกเลือกใน site อื่นแล้ว ต้องไม่แสดงในรายการเลือกของ site ปัจจุบัน
   const alreadySelectedInOtherSites = new Set(
@@ -1178,8 +1206,41 @@ export default function AddContractPage() {
                 {dataLoading && ( 
                   <p className="text-sm text-slate-500">Loading site list...</p>
                 )}
+                {distinctSitesForView.length > 1 && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedViewSiteId(null)}
+                      className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                        selectedViewSiteId === null
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      All sites
+                    </button>
+                    {distinctSitesForView.map(({ siteId, siteLabel, deviceCount }) => {
+                      const isSelected = selectedViewSiteId === siteId;
+                      return (
+                        <button
+                          key={siteId}
+                          type="button"
+                          onClick={() => setSelectedViewSiteId(siteId)}
+                          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                            isSelected
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          }`}
+                        >
+                          📍 {siteLabel}
+                          <span className="ml-1.5 text-xs opacity-90">({deviceCount})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="space-y-3">
-                  {siteEntries.map((entry) => (
+                  {entriesToShow.map((entry) => (
                     <div
                       key={entry.id}
                       className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3"
