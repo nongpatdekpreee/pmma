@@ -10,8 +10,8 @@ import {
   Edit2,
   Trash2,
   X,
-  Upload,
   FileSpreadsheet,
+  Download,
 } from 'lucide-react';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
@@ -1300,7 +1300,7 @@ export default function ScheduleManagement() {
               onClick={() => setIsImportModalOpen(true)}
               className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
             >
-              <Upload size={16} /> Import Tasks
+              <Download size={16} /> Import Tasks
             </button>
             <button
               onClick={() => setIsModalOpen(true)}
@@ -1679,7 +1679,7 @@ export default function ScheduleManagement() {
                   className="cursor-pointer flex flex-col items-center gap-3"
                 >
                   <div className="p-4 bg-green-100 rounded-full">
-                    <Upload size={32} className="text-green-600" />
+                    <Download size={32} className="text-green-600" />
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-700">
