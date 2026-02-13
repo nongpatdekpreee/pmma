@@ -122,7 +122,6 @@ export default function ScheduleManagement() {
     const taskType = task.taskType || task.task_type || 'PM';
     const siteName = task.siteName || task.site_name || task.Sname;
     const location = task.location || task.Location2 || '';
-
     const title =
       taskType === 'MA'
         ? `MA: ${task.vendorName || task.vendor_name || siteName || 'Maintenance Agreement'}`
@@ -1104,7 +1103,7 @@ export default function ScheduleManagement() {
             name: device.CI_Name || `Device ${device.Did}`,
             Dtypeid: device.Dtypeid || null,
             DeRoleid: device.DeRoleid || null,
-            type: 'Device',
+            type: device.roleName || device.model || 'Device',
             serialNumber: device.serial || null,
             site: task.Sname || task.siteName || null,
             assetState: device.Asset_State || null,
@@ -1130,7 +1129,7 @@ export default function ScheduleManagement() {
                     name: d.CI_Name || `Device ${d.Did}`,
                     Dtypeid: d.Dtypeid || null,
                     DeRoleid: d.DeRoleid || null,
-                    type: 'Device',
+                    type: d.roleName || d.model || 'Device',
                     serialNumber: d.serial || null,
                     site: task.Sname || task.siteName || null,
                     assetState: d.Asset_State || null,

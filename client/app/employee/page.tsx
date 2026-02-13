@@ -285,7 +285,8 @@ const EmployeeManagement = () => {
             {/* Pagination */}
             <div className="mt-4 flex items-center justify-between text-xs text-gray-400">
               <span>
-                Showing {startIndex + 1}-{Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} of{" "}
+                Showing {startIndex + 1}-
+                {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} of{" "}
                 {totalItems}
               </span>
 
