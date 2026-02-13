@@ -81,13 +81,14 @@ export function Sidebar() {
               </div>
               <span 
                 className={`
-                  font-semibold text-base text-slate-800 whitespace-nowrap
+                  font-semibold text-sm text-slate-800
                   transition-all duration-300 ease-in-out
                   ${isExpanded 
-                    ? 'opacity-100 max-w-[200px] delay-150' 
+                    ? 'opacity-100 max-w-[180px] delay-150 truncate' 
                     : 'opacity-0 max-w-0 delay-0'
                   }
                 `}
+                title="ปลาทูน่าช่างหอมอร่อยย"
               >
                 ปลาทูน่าช่างหอมอร่อยย
               </span>
