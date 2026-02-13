@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import {
@@ -10,11 +10,14 @@ import {
   Edit2,
   Trash2,
   X,
+  Upload,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, getSitesLocation, getEmployees, getContractsBySite, getDevicesByContract } from '@/lib/api';
+import * as XLSX from 'xlsx';
 
 
 interface Device {
@@ -47,6 +50,7 @@ interface CalendarEvent {
   replacementDeviceId?: number;
   Sid?: string;
   Sname?: string;
+  location?: string;
   Eng_ids?: Engineer[];
   startDate?: string;
   endDate?: string;
@@ -87,6 +91,23 @@ export default function ScheduleManagement() {
     newStartDate: string;
     newEndDate: string;
   } | null>(null);
+  
+  /* ===== Excel/CSV Import ===== */
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importedTasks, setImportedTasks] = useState<any[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  const [siteOptions, setSiteOptions] = useState<Array<{
+    id: string; // SLid
+    name: string; // SiteName
+    label: string;
+    location: string; // Location2
+    sid?: number; // Sid from sites table
+    lid?: number; // lid from location table
+  }>>([]);
+  const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
+  const [availableContracts, setAvailableContracts] = useState<Array<{contract_id: number; sof_name: string; contract_name?: string; site_id?: number}>>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -100,11 +121,16 @@ export default function ScheduleManagement() {
         : 'Unassigned';
     const taskType = task.taskType || task.task_type || 'PM';
     const siteName = task.siteName || task.site_name || task.Sname;
+    const location = task.location || task.Location2 || '';
 
     const title =
       taskType === 'MA'
         ? `MA: ${task.vendorName || task.vendor_name || siteName || 'Maintenance Agreement'}`
-        : `PM: ${siteName || 'Preventive Maintenance'}`;
+        : location && siteName 
+          ? `${siteName} - ${location}`
+          : location 
+            ? location 
+            : (siteName || 'Preventive Maintenance');
 
     return {
       id: String(task.id ?? task.taskId ?? task.task_id ?? Date.now()),
@@ -126,6 +152,7 @@ export default function ScheduleManagement() {
       replacementDeviceId: task.replacementDeviceId || task.replacement_device_id || undefined,
       Sid: task.siteId ? String(task.siteId) : task.Sid,
       Sname: siteName,
+      location: location,
       Eng_ids: engineers,
       startDate: start,
       endDate: end,
@@ -163,6 +190,55 @@ export default function ScheduleManagement() {
 
   useEffect(() => {
     loadTasksFromApi();
+    
+    // Load sites and engineers for Excel import
+    const loadSitesAndEngineers = async () => {
+      try {
+        const result = await getSitesLocation();
+        if (result.success) {
+          const sites = (result.data || []).map((item: any) => ({
+            id: String(item.SLid), // SLid from sites_location table
+            name: item.SiteName || 'Site',
+            location: item.Location2 || '',
+            label: `${item.SiteName || 'Site'}${item.Location2 ? ` - ${item.Location2}` : ''}`,
+            sid: item.Sid || item.sid, // Sid from sites table
+            lid: item.lid, // lid from location table
+          }));
+          console.log('Loaded site options:', sites.length, 'sites');
+          setSiteOptions(sites);
+        }
+        
+        const employeesResult = await getEmployees();
+        if (employeesResult.success && employeesResult.data) {
+          const engineers: Engineer[] = employeesResult.data
+            .filter((emp: any) => emp.positionType === 'Technical')
+            .map((emp: any) => {
+              const nameParts = (emp.name || emp.displayName || '').split(' ');
+              return {
+                id: emp.id || emp.employee_id || '',
+                name: nameParts[0] || emp.name || emp.displayName || '',
+                lastName: nameParts.slice(1).join(' ') || emp.lastName || '',
+              };
+            });
+          setAvailableEngineers(engineers);
+        }
+        
+        // Load contracts for sof_name → contract_id lookup
+        const contractsResult = await getContractsBySite();
+        if (contractsResult.success && contractsResult.data) {
+          setAvailableContracts(contractsResult.data.map((c: any) => ({
+            contract_id: c.contract_id,
+            sof_name: c.sof_name || '',
+            contract_name: c.contract_name || '',
+            site_id: c.site_id || null,
+          })));
+        }
+      } catch (error) {
+        console.error('Error loading sites/engineers/contracts:', error);
+      }
+    };
+    
+    loadSitesAndEngineers();
   }, []);
 
   /* ================= Calendar ================= */
@@ -329,7 +405,17 @@ export default function ScheduleManagement() {
     const newStartDateStr = formatDateString(newStartDate);
     const newEndDateStr = formatDateString(newEndDate);
 
-    // แสดง modal ถามเหตุผลก่อนย้าย
+    // เช็คว่าย้ายวันจริงหรือไม่ ถ้าวันเดิมไม่ต้องขึ้น modal notes
+    const originalStartStr = formatDateString(originalStart);
+    if (newStartDateStr === originalStartStr) {
+      // วันเดิม ไม่ย้าย ไม่ต้องถามเหตุผล
+      setDraggedEvent(null);
+      setDragOverDay(null);
+      setDragStartDay(null);
+      return;
+    }
+
+    // ย้ายวันจริง แสดง modal ถามเหตุผลก่อนย้าย
     setPendingMove({
       event: draggedEvent,
       newDay: day,
@@ -488,6 +574,654 @@ export default function ScheduleManagement() {
     setIsModalOpen(true);
   };
 
+  /* ===== Excel/CSV Import Functions ===== */
+  // Function to fetch devices by Site + SOF + Location
+  const fetchDevicesBySiteSOFLocation = async (
+    sofName: string, 
+    siteId: number | null, 
+    location: string | null
+  ): Promise<{deviceIds: number[]; count: number; devices: Array<{Did: number; CI_Name?: string; Asset_Number?: string; Location2?: string}>}> => {
+    if (!sofName || !siteId) {
+      return { deviceIds: [], count: 0, devices: [] };
+    }
+    
+    try {
+      // Get devices by Refer_SOF and Site (SLid) - API now returns Location2
+      const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sofName)}&site_id=${siteId}`));
+      const json = await res.json();
+      
+      if (!json.success || !json.data) {
+        return { deviceIds: [], count: 0, devices: [] };
+      }
+      
+      let devices = json.data;
+      
+      // Filter by Location if provided (match Location2 from database)
+      if (location && location.trim()) {
+        const locationLower = location.trim().toLowerCase();
+        devices = devices.filter((d: any) => {
+          const deviceLocation = (d.Location2 || '').toLowerCase();
+          // Match if Location2 contains the search location or vice versa
+          return deviceLocation.includes(locationLower) || locationLower.includes(deviceLocation);
+        });
+      }
+      
+      const deviceIds = devices.map((d: any) => d.Did);
+      return {
+        deviceIds,
+        count: deviceIds.length,
+        devices: devices.map((d: any) => ({
+          Did: d.Did,
+          CI_Name: d.CI_Name,
+          Asset_Number: d.Asset_Number,
+          Asset_State: d.Asset_State,
+          serial: d.serial,
+          Dtypeid: d.Dtypeid,
+          DeRoleid: d.DeRoleid,
+          Location2: d.Location2,
+          model: d.model,
+          roleName: d.roleName,
+          manufacturername: d.manufacturername,
+          SLid: d.SLid,
+        }))
+      };
+    } catch (error) {
+      console.error(`Error fetching devices for SOF ${sofName}, Site ${siteId}, Location ${location}:`, error);
+      return { deviceIds: [], count: 0, devices: [] };
+    }
+  };
+
+  const parseDateString = (dateStr: string): string => {
+    if (!dateStr) return '';
+    // Handle format: "Monday, February 23, 2026"
+    const dateMatch = dateStr.match(/(\w+day,?\s+)?(\w+)\s+(\d+),\s+(\d{4})/);
+    if (dateMatch) {
+      const [, , monthName, day, year] = dateMatch;
+      const monthMap: Record<string, string> = {
+        'january': '01', 'february': '02', 'march': '03', 'april': '04',
+        'may': '05', 'june': '06', 'july': '07', 'august': '08',
+        'september': '09', 'october': '10', 'november': '11', 'december': '12'
+      };
+      const month = monthMap[monthName.toLowerCase()] || '01';
+      const dayPadded = String(day).padStart(2, '0');
+      return `${year}-${month}-${dayPadded}`;
+    }
+    // Try standard Date parsing
+    const dateObj = new Date(dateStr);
+    if (!isNaN(dateObj.getTime())) {
+      return dateObj.toISOString().split('T')[0];
+    }
+    return dateStr;
+  };
+
+  const parseEngineerNames = (engineerStr: string): string[] => {
+    if (!engineerStr) return [];
+    // First split by newline (main separator in CSV)
+    const lines = engineerStr.split(/\r?\n/);
+    const names: string[] = [];
+    
+    lines.forEach(line => {
+      // Remove phone numbers first (patterns like 061-397-1743, 0935747706, etc.)
+      let cleaned = line.replace(/\d{2,3}[-\s]?\d{3}[-\s]?\d{4,}/g, '').trim();
+      // Also remove standalone phone numbers at the end
+      cleaned = cleaned.replace(/\s+\d{9,}$/, '').trim();
+      
+      // Split by comma or multiple spaces if still multiple names
+      const parts = cleaned.split(/,|\s{2,}/);
+      parts.forEach(part => {
+        const name = part.trim().replace(/\s+/g, ' ');
+        if (name && name.length > 2 && !/^\d+$/.test(name)) {
+          names.push(name);
+        }
+      });
+    });
+    
+    return names;
+  };
+
+  const parseExcelFile = async (file: File): Promise<any[]> => {
+    return new Promise(async (resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          let jsonData: any[][];
+          
+          if (file.name.endsWith('.csv')) {
+            // Parse CSV using XLSX library (handles quoted fields and multiline)
+            const text = e.target?.result as string;
+            const workbook = XLSX.read(text, { type: 'string', sheetRows: 0 });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
+          } else {
+            // Parse Excel
+            const data = new Uint8Array(e.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+          }
+          
+          if (jsonData.length < 2) {
+            reject(new Error('File must have at least a header row and one data row'));
+            return;
+          }
+
+          const headers = (jsonData[0] as any[]).map((h: any) => String(h || '').trim().toLowerCase());
+          
+          const columnMap: Record<string, string> = {
+            // Required columns (ตามที่ต้องการ)
+            'site': 'siteName', 'site name': 'siteName', 'sitename': 'siteName', // → site_name
+            'location': 'location', 'location2': 'location', // → location
+            'plan start': 'startDate', 'start date': 'startDate', 'startdate': 'startDate',
+            'plan end': 'endDate', 'end date': 'endDate', 'enddate': 'endDate',
+            'engineer': 'engineer', 'engineers': 'engineer',
+            'sof': 'sofName', 'sof_name': 'sofName', 'sof name': 'sofName', 'refer_sof': 'sofName', 'refer sof': 'sofName',
+            'coverage scope': 'coverageScope', 'coverage_scope': 'coverageScope', 'coveragescope': 'coverageScope', // → coverage_scope (from CSV column)
+            // Optional
+            'notes': 'notes',
+          };
+
+          const tasks: any[] = [];
+          const errors: string[] = [];
+
+          for (let i = 1; i < jsonData.length; i++) {
+            const row = jsonData[i] as any[];
+            if (!row || row.every(cell => !cell)) continue;
+
+            const task: any = { taskType: 'PM' };
+
+            headers.forEach((header, colIndex) => {
+              const value = row[colIndex];
+              if (value === null || value === undefined || value === '') return;
+
+              const mappedKey = columnMap[header];
+              if (mappedKey) {
+                // taskType is always 'PM', skip any taskType mapping
+                if (mappedKey === 'engineer' || mappedKey === 'engineerId') {
+                  if (!task.Eng_ids) task.Eng_ids = [];
+                  const engineerNames = parseEngineerNames(String(value));
+                  engineerNames.forEach(val => {
+                    if (!val) return;
+                    const eng = availableEngineers.find(e => {
+                      const fullName = `${e.name} ${e.lastName || ''}`.trim().toLowerCase();
+                      const firstName = e.name.toLowerCase();
+                      const lastName = (e.lastName || '').toLowerCase();
+                      const valLower = val.toLowerCase();
+                      
+                      if (valLower === firstName || valLower === fullName) return true;
+                      if (firstName.includes(valLower) || valLower.includes(firstName)) return true;
+                      if (lastName && (valLower.includes(lastName) || lastName.includes(valLower))) return true;
+                      if (fullName.includes(valLower)) return true;
+                      return false;
+                    });
+                    if (eng && !task.Eng_ids.find((e: Engineer) => e.id === eng.id)) {
+                      task.Eng_ids.push(eng);
+                    } else if (!eng) {
+                      console.warn(`Row ${i + 1}: Engineer "${val}" not found`);
+                    }
+                  });
+                } else if (mappedKey === 'startDate' || mappedKey === 'endDate') {
+                  task[mappedKey] = parseDateString(String(value));
+                } else if (mappedKey === 'siteName') {
+                  task.siteName = String(value).trim();
+                } else if (mappedKey === 'location') {
+                  task.location = String(value).trim();
+                } else if (mappedKey === 'sofName') {
+                  // sof_name → look up contract_id from available contracts
+                  const sofVal = String(value).trim();
+                  task.sofName = sofVal;
+                  console.log(`Row ${i + 1}: Parsed SOF "${sofVal}"`);
+                  const contract = availableContracts.find(c => {
+                    const sofLower = sofVal.toLowerCase();
+                    return c.sof_name && c.sof_name.toLowerCase() === sofLower;
+                  });
+                  if (contract) {
+                    task.contractId = contract.contract_id;
+                    console.log(`Row ${i + 1}: Found contract_id ${contract.contract_id} for SOF "${sofVal}"`);
+                  } else {
+                    console.warn(`Row ${i + 1}: SOF "${sofVal}" not found in contracts. Available SOFs:`, availableContracts.map(c => c.sof_name).filter(Boolean));
+                  }
+                } else if (mappedKey === 'coverageScope') {
+                  task.coverageScope = String(value).trim();
+                } else if (mappedKey === 'notes') {
+                  task.notes = String(value).trim();
+                } else {
+                  task[mappedKey] = String(value).trim();
+                }
+              }
+            });
+
+            // Coverage Scope should come from CSV column "Coverage Scope" - DO NOT OVERRIDE if provided
+            // Generate title as sid-lid format for title (but keep coverageScope from CSV if provided)
+            if (task.siteSid && task.siteLid) {
+              task.title = `${task.siteSid}-${task.siteLid}`;
+            } else {
+              // If sid/lid not found, try to find from siteOptions
+              const siteNameLower = (task.Sname || task.siteName || '').toLowerCase();
+              const locationLower = (task.location || '').toLowerCase();
+              const matchedSite = siteOptions.find(s => {
+                const siteMatch = s.name.toLowerCase().includes(siteNameLower) || 
+                                 siteNameLower.includes(s.name.toLowerCase());
+                const locationMatch = !locationLower || 
+                                     (s.location && s.location.toLowerCase().includes(locationLower)) ||
+                                     (locationLower && locationLower.includes(s.location.toLowerCase()));
+                return siteMatch && locationMatch;
+              });
+              
+              if (matchedSite && matchedSite.sid && matchedSite.lid) {
+                task.siteSid = matchedSite.sid;
+                task.siteLid = matchedSite.lid;
+                task.title = `${matchedSite.sid}-${matchedSite.lid}`;
+              }
+            }
+            
+            // If coverageScope not provided from CSV, use title as fallback
+            // BUT if coverageScope exists from CSV, DO NOT override it
+            if (!task.coverageScope) {
+              if (task.title) {
+                task.coverageScope = task.title;
+              } else if (task.siteSid && task.siteLid) {
+                task.coverageScope = `${task.siteSid}-${task.siteLid}`;
+                task.title = task.coverageScope;
+              }
+            }
+            
+            // Set title if not set (but don't override coverageScope)
+            if (!task.title && task.coverageScope) {
+              task.title = task.coverageScope;
+            }
+            
+            // Ensure taskType is always PM
+            task.taskType = 'PM';
+
+            // Find SLid by Site Name + Location (from sites_location table)
+            if (!task.siteId && task.siteName) {
+              const siteNameLower = task.siteName.toLowerCase();
+              const locationLower = (task.location || '').toLowerCase();
+              
+              // Try to find exact match: Site Name + Location
+              let site = siteOptions.find(s => {
+                const siteMatch = s.name.toLowerCase().includes(siteNameLower) || 
+                                 siteNameLower.includes(s.name.toLowerCase());
+                const locationMatch = !locationLower || 
+                                     (s.location && s.location.toLowerCase().includes(locationLower)) ||
+                                     (locationLower && locationLower.includes(s.location.toLowerCase()));
+                return siteMatch && locationMatch;
+              });
+              
+              // Fallback: Find by Site Name only if location doesn't match
+              if (!site && task.location) {
+                site = siteOptions.find(s => {
+                  const siteMatch = s.name.toLowerCase().includes(siteNameLower) || 
+                                   siteNameLower.includes(s.name.toLowerCase());
+                  return siteMatch;
+                });
+              }
+              
+              // Last fallback: Find by Site Name only
+              if (!site) {
+                site = siteOptions.find(s => 
+                  s.name.toLowerCase().includes(siteNameLower) ||
+                  siteNameLower.includes(s.name.toLowerCase())
+                );
+              }
+              
+              if (site) {
+                task.siteId = site.id; // SLid
+                task.Sid = site.id; // SLid (for devices query)
+                task.Sname = site.name; // SiteName
+                task.siteSid = site.sid; // Sid from sites table
+                task.siteLid = site.lid; // lid from location table
+                console.log(`Row ${i + 1}: Found SLid ${site.id} (Sid: ${site.sid}, lid: ${site.lid}) for Site "${task.siteName}" + Location "${task.location || 'none'}"`);
+              } else {
+                errors.push(`Row ${i + 1}: Site "${task.siteName}"${task.location ? ` + Location "${task.location}"` : ''} not found in sites_location`);
+                console.warn(`Available sites:`, siteOptions.map(s => `${s.name} - ${s.location} (SLid: ${s.id})`));
+                continue;
+              }
+            } else if (task.siteId) {
+              const site = siteOptions.find(s => s.id === String(task.siteId));
+              if (site) {
+                task.Sid = site.id;
+                task.Sname = site.name;
+              }
+            }
+
+            if (!task.Sid && !task.siteId) {
+              errors.push(`Row ${i + 1}: Missing Site Name or Site ID`);
+              continue;
+            }
+            if (!task.startDate) {
+              errors.push(`Row ${i + 1}: Missing Start Date`);
+              continue;
+            }
+            if (!task.Eng_ids || task.Eng_ids.length === 0) {
+              errors.push(`Row ${i + 1}: Missing Engineer`);
+              continue;
+            }
+            
+            // Ensure coverageScope exists (should come from CSV column "Coverage Scope")
+            // If not provided, use title as fallback
+            // BUT if coverageScope exists from CSV, DO NOT override it
+            if (!task.coverageScope) {
+              if (task.title) {
+                task.coverageScope = task.title;
+              } else if (task.siteSid && task.siteLid) {
+                task.coverageScope = `${task.siteSid}-${task.siteLid}`;
+                task.title = task.coverageScope;
+              } else {
+                task.coverageScope = task.Sname || task.siteName || '';
+                task.title = task.coverageScope;
+              }
+            }
+            
+            // Ensure title exists (but don't override coverageScope if it exists)
+            if (!task.title && task.coverageScope) {
+              task.title = task.coverageScope;
+            }
+
+            // Ensure dates are in YYYY-MM-DD format
+            if (task.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(task.startDate)) {
+              const parsed = parseDateString(task.startDate);
+              task.startDate = parsed || task.startDate;
+            }
+            if (task.endDate && !/^\d{4}-\d{2}-\d{2}$/.test(task.endDate)) {
+              const parsed = parseDateString(task.endDate);
+              task.endDate = parsed || task.startDate;
+            }
+            if (!task.endDate && task.startDate) {
+              task.endDate = task.startDate;
+            }
+
+            // Ensure title/coverageScope exists (should already be set above)
+            // BUT if coverageScope exists from CSV, DO NOT override it
+            if (!task.coverageScope && task.title) {
+              task.coverageScope = task.title;
+            } else if (!task.title && task.coverageScope) {
+              task.title = task.coverageScope;
+            }
+
+            tasks.push(task);
+          }
+
+          // After parsing all tasks, fetch devices for each Site + SOF + Location combination
+          const devicesMap: Record<string, {deviceIds: number[]; count: number; devices: any[]}> = {};
+          for (const task of tasks) {
+            console.log(`Processing task:`, {
+              row: tasks.indexOf(task) + 2,
+              siteName: task.siteName,
+              Sid: task.Sid,
+              sofName: task.sofName,
+              location: task.location,
+              contractId: task.contractId
+            });
+            
+            if (task.sofName && task.Sid) {
+              const key = `${task.Sid}_${task.sofName}_${task.location || ''}`;
+              if (!devicesMap[key]) {
+                console.log(`[${key}] Fetching devices for SOF: "${task.sofName}", Site ID: ${task.Sid}, Location: "${task.location || 'none'}"`);
+                const result = await fetchDevicesBySiteSOFLocation(
+                  task.sofName,
+                  Number(task.Sid),
+                  task.location || null
+                );
+                console.log(`[${key}] API returned:`, {
+                  success: result.count > 0,
+                  count: result.count,
+                  deviceIds: result.deviceIds,
+                  devices: result.devices
+                });
+                devicesMap[key] = result;
+              } else {
+                console.log(`[${key}] Using cached devices:`, devicesMap[key].count);
+              }
+              
+              // Assign devices and count to task
+              task.deviceIds = devicesMap[key].deviceIds;
+              task.deviceCount = devicesMap[key].count;
+              task.devices = devicesMap[key].devices;
+              console.log(`✓ Task "${task.siteName}" - SOF "${task.sofName}": ${task.deviceCount} devices assigned`, task.deviceIds);
+            } else {
+              console.warn(`✗ Task missing SOF or Site ID:`, { 
+                sofName: task.sofName, 
+                Sid: task.Sid, 
+                siteName: task.siteName,
+                siteId: task.siteId 
+              });
+              // Set default values
+              task.deviceIds = [];
+              task.deviceCount = 0;
+              task.devices = [];
+            }
+          }
+          
+          console.log('=== Final tasks summary ===');
+          tasks.forEach((t, idx) => {
+            console.log(`Task ${idx + 1}:`, {
+              site: t.Sname || t.siteName,
+              location: t.location,
+              sof: t.sofName,
+              deviceCount: t.deviceCount,
+              deviceIds: t.deviceIds?.length || 0,
+              hasDevices: (t.deviceIds?.length || 0) > 0
+            });
+          });
+
+          if (errors.length > 0) {
+            setImportErrors(errors);
+          }
+          resolve(tasks);
+        } catch (error: any) {
+          reject(new Error(`Failed to parse file: ${error.message}`));
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      if (file.name.endsWith('.csv')) {
+        reader.readAsText(file);
+      } else {
+        reader.readAsArrayBuffer(file);
+      }
+    });
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls') && !file.name.endsWith('.csv')) {
+      toastError('Please upload an Excel file (.xlsx, .xls) or CSV file (.csv)');
+      return;
+    }
+
+    try {
+      setIsImporting(true);
+      setImportErrors([]);
+      console.log('Starting file upload...');
+      const tasks = await parseExcelFile(file);
+      console.log('Parsed tasks:', tasks.length, tasks);
+      setImportedTasks(tasks);
+      setIsImportModalOpen(true);
+    } catch (error: any) {
+      toastError(`Error importing file: ${error.message}`);
+      console.error('Import error:', error);
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleBulkCreate = async () => {
+    if (importedTasks.length === 0) return;
+
+    setIsImporting(true);
+    const errors: string[] = [];
+    let successCount = 0;
+
+    for (let idx = 0; idx < importedTasks.length; idx++) {
+      const task = importedTasks[idx];
+      try {
+        if (!task.Sid && !task.siteId) {
+          errors.push(`Row ${idx + 2}: Missing Site ID`);
+          continue;
+        }
+        if (!task.startDate) {
+          errors.push(`Row ${idx + 2}: Missing Start Date`);
+          continue;
+        }
+        if (!task.Eng_ids || task.Eng_ids.length === 0) {
+          errors.push(`Row ${idx + 2}: Missing Engineer`);
+          continue;
+        }
+        if (!task.title) {
+          errors.push(`Row ${idx + 2}: Missing Title`);
+          continue;
+        }
+
+        // ===== Prepare payload ตาม database schema (tasks.sql) =====
+        // engineers → JSON: [{"id":"9","name":"Chainarin","lastName":"Phosai"}]
+        const engineersArray = task.Eng_ids ? task.Eng_ids.map((e: Engineer) => ({
+          id: String(e.id),
+          name: e.name || '',
+          lastName: e.lastName || ''
+        })) : [];
+        
+        // assets → JSON array with full device data (เหมือนกับข้อมูลที่มีอยู่แล้ว)
+        // ใช้ข้อมูล devices ที่ดึงมาจาก fetchDevicesBySiteSOFLocation
+        let assetsArray: any[] = [];
+        if (task.devices && task.devices.length > 0) {
+          // ใช้ข้อมูล devices ที่มีอยู่แล้ว (มีข้อมูลครบจาก API)
+          assetsArray = task.devices.map((device: any) => ({
+            id: device.Did,
+            name: device.CI_Name || `Device ${device.Did}`,
+            Dtypeid: device.Dtypeid || null,
+            DeRoleid: device.DeRoleid || null,
+            type: 'Device',
+            serialNumber: device.serial || null,
+            site: task.Sname || task.siteName || null,
+            assetState: device.Asset_State || null,
+            assetNumber: device.Asset_Number || null,
+            source: 'site',
+            SLid: Number(task.Sid) || task.SLid || null,
+            role: device.roleName || null,
+            manufacturer: device.manufacturername || null,
+            model: device.model || null,
+          }));
+        } else if (task.deviceIds && task.deviceIds.length > 0) {
+          // Fallback: ถ้าไม่มี devices แต่มี deviceIds ให้ดึงข้อมูล device ทั้งหมดจาก API
+          console.warn(`⚠️ Task "${task.siteName}" has deviceIds but no devices array. Fetching device details...`);
+          try {
+            const devicePromises = task.deviceIds.map(async (did: number) => {
+              try {
+                const res = await fetch(apiUrl(`/api/devices/${did}`));
+                const json = await res.json();
+                if (json.success && json.data) {
+                  const d = json.data;
+                  return {
+                    id: d.Did,
+                    name: d.CI_Name || `Device ${d.Did}`,
+                    Dtypeid: d.Dtypeid || null,
+                    DeRoleid: d.DeRoleid || null,
+                    type: 'Device',
+                    serialNumber: d.serial || null,
+                    site: task.Sname || task.siteName || null,
+                    assetState: d.Asset_State || null,
+                    assetNumber: d.Asset_Number || null,
+                    source: 'site',
+                    SLid: Number(task.Sid) || d.SLid || null,
+                    role: d.roleName || null,
+                    manufacturer: d.manufacturername || null,
+                    model: d.model || null,
+                  };
+                }
+              } catch (err) {
+                console.error(`Error fetching device ${did}:`, err);
+              }
+              return { id: did }; // Fallback ถ้าดึงไม่ได้
+            });
+            assetsArray = await Promise.all(devicePromises);
+          } catch (error) {
+            console.error('Error fetching device details:', error);
+            // Fallback to simple format
+            assetsArray = task.deviceIds.map((did: number) => ({ id: did }));
+          }
+        }
+        
+        // contract_id from sof_name lookup (ถ้ายังไม่มี ให้ค้นหาอีกครั้ง)
+        let contractId = task.contractId ? Number(task.contractId) : null;
+        if (!contractId && task.sofName) {
+          const contract = availableContracts.find(c => 
+            c.sof_name && c.sof_name.toLowerCase() === task.sofName.toLowerCase()
+          );
+          if (contract) contractId = contract.contract_id;
+        }
+        
+        // Combine siteName and location for display
+        const siteNameValue = task.Sname || task.siteName || '';
+        const locationValue = task.location || '';
+        const siteNameWithLocation = locationValue 
+          ? `${siteNameValue} - ${locationValue}` 
+          : siteNameValue;
+        
+        // coverageScope should be the correct value (sid-lid format or PM Task - Site - Location)
+        // notes should be null when importing (only used when moving/rescheduling tasks)
+        const payload = {
+          taskType: 'PM',                                               // task_type always 'PM'
+          contractId: contractId,                                        // contract_id int(11) - from sof_name lookup
+          siteId: Number(task.Sid || task.siteId) || null,              // site_id int(11)
+          siteName: siteNameWithLocation,                                 // site_name varchar(255) - includes location
+          vendorName: task.vendorName || null,                          // vendor_name varchar(255)
+          coverageScope: task.coverageScope || task.title || '',        // coverage_scope text (stored as sid-lid format or PM Task - Site - Location)
+          startDate: task.startDate,                                     // start_date date NOT NULL
+          endDate: task.endDate || task.startDate,                      // end_date date NOT NULL
+          engineers: engineersArray,                                     // engineers longtext JSON
+          assets: assetsArray,                                           // assets longtext JSON
+          assetBinding: task.assetBinding || null,                      // asset_binding varchar(255)
+          replacementDeviceId: null,                                     // replacement_device_id int(11)
+          status: 'not-started',                                         // status enum('not-started','working','stuck','done')
+          actuallyWent: false,                                           // actually_went tinyint(1)
+          notes: null,                                                   // notes text - null when importing (only used when moving/rescheduling tasks)
+          photos: [],                                                    // photos longtext JSON
+        };
+
+        // Call API directly to match database requirements
+        const res = await fetch(apiUrl('/api/tasks'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        
+        const json = await res.json();
+        if (!json.success) {
+          throw new Error(json.message || 'Failed to create task');
+        }
+        
+        // Update local state
+        const mapped = mapTaskToEvent(json.data);
+        setCalendarEvents((events) => [...events, mapped]);
+        successCount++;
+      } catch (error: any) {
+        errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title || 'Unknown'}): ${error.message || 'Failed to create task'}`);
+      }
+    }
+
+    setIsImporting(false);
+    
+    if (errors.length > 0 && successCount === 0) {
+      toastError(`Failed to create tasks. ${errors.slice(0, 5).join(', ')}${errors.length > 5 ? `... and ${errors.length - 5} more` : ''}`);
+    } else if (errors.length > 0) {
+      toastSuccess(`Created ${successCount} tasks successfully. ${errors.length} errors occurred.`);
+      await loadTasksFromApi();
+    } else {
+      toastSuccess(`Successfully created ${successCount} tasks!`);
+      setIsImportModalOpen(false);
+      setImportedTasks([]);
+      setImportErrors([]);
+      await loadTasksFromApi();
+    }
+  };
+
   // Handle task update from detail modal (for status updates only)
   const handleTaskUpdate = async (updatedTask: any) => {
     // Prepare payload - only send status to avoid changing other fields
@@ -561,12 +1295,20 @@ export default function ScheduleManagement() {
           <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
             Schedule Management
           </h1>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors"
-          >
-            <Plus size={16} /> Add Plan PM
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
+            >
+              <Upload size={16} /> Import Tasks
+            </button>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center gap-2 bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors"
+            >
+              <Plus size={16} /> Add Plan PM
+            </button>
+          </div>
         </div>
 
         <AddTaskModal
@@ -643,7 +1385,7 @@ export default function ScheduleManagement() {
 
                           {/* Display events for this day */}
                           <div className="mt-1.5 space-y-0.5">
-                            {dayEvents.map((ev) => {
+                            {dayEvents.map((ev, eventIndex) => {
                               // Determine border color and gradient based on event color
                               const eventStyleMap: { [key: string]: { border: string; gradient: string } } = {
                                 'border-purple-400': {
@@ -714,7 +1456,7 @@ export default function ScheduleManagement() {
                               const isDone = currentStatus === 'done';
                               return (
                                 <div
-                                  key={ev.id}
+                                  key={`${day}-${ev.id}-${eventIndex}`}
                                   draggable={!isDone}
                                   onDragStart={() => !isDone && setDraggedEvent(ev)}
                                   onDragEnd={handleDragEnd}
@@ -881,6 +1623,197 @@ export default function ScheduleManagement() {
         }}
         onDelete={handleDeleteTask}
       />
+      {/* Import Excel/CSV Modal */}
+      {isImportModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsImportModalOpen(false);
+              setImportedTasks([]);
+              setImportErrors([]);
+            }
+          }}
+        >
+          <div
+            className="bg-white w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-green-50 to-emerald-50">
+              <div className="flex items-center gap-3">
+                <FileSpreadsheet size={24} className="text-green-600" />
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Import Tasks from Excel/CSV</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Upload a file to create multiple tasks according to database schema
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsImportModalOpen(false);
+                  setImportedTasks([]);
+                  setImportErrors([]);
+                }}
+                className="p-1.5 bg-white rounded-full hover:bg-slate-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              {/* File Upload */}
+              <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-green-400 transition-colors">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="excel-file-input"
+                />
+                <label
+                  htmlFor="excel-file-input"
+                  className="cursor-pointer flex flex-col items-center gap-3"
+                >
+                  <div className="p-4 bg-green-100 rounded-full">
+                    <Upload size={32} className="text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">
+                      Click to upload Excel/CSV file
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Supports .xlsx, .xls, and .csv formats
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Excel Format Guide */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="text-xs font-bold text-blue-800 mb-2">File Format Guide:</h4>
+                <div className="text-xs text-blue-700 space-y-1">
+                  <p><strong>Required columns:</strong></p>
+                  <ul className="ml-4 list-disc space-y-0.5">
+                    <li><strong>Site</strong> → site_name</li>
+                    <li><strong>Location</strong> → location</li>
+                    <li><strong>Plan Start</strong> → start_date</li>
+                    <li><strong>Plan End</strong> → end_date</li>
+                    <li><strong>Engineer</strong> → engineers (JSON array)</li>
+                    <li><strong>SOF</strong> → contract_id (ค้นหาจาก sof_name, แล้วดึง devices จาก SOF นั้นอัตโนมัติ)</li>
+                  </ul>
+                  <p className="mt-2"><strong>Optional columns:</strong></p>
+                  <ul className="ml-4 list-disc space-y-0.5">
+                    <li><strong>Notes</strong> → notes (text)</li>
+                  </ul>
+                  <p className="mt-2 text-[10px] text-blue-600">
+                    <strong>Note:</strong> Engineers can be separated by newline or comma.
+                    Date format: &quot;Monday, February 23, 2026&quot; is supported.
+                    <br />
+                    <strong>Devices:</strong> จะถูกดึงอัตโนมัติตามเงื่อนไข Site + SOF + Location และแสดงจำนวนใน preview table
+                  </p>
+                </div>
+              </div>
+
+              {/* Import Errors */}
+              {importErrors.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <h4 className="text-xs font-bold text-red-800 mb-2">Validation Errors:</h4>
+                  <ul className="text-xs text-red-700 space-y-1 max-h-32 overflow-y-auto">
+                    {importErrors.map((error, idx) => (
+                      <li key={idx}>• {error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Imported Tasks Preview */}
+              {importedTasks.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-slate-700 mb-2">
+                    Preview ({importedTasks.length} tasks ready to import):
+                  </h4>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="max-h-64 overflow-x-auto overflow-y-auto">
+                      <table className="w-full text-xs min-w-full">
+                        <thead className="bg-slate-100 sticky top-0">
+                          <tr>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Site</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Location</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Plan Start</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Plan End</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Engineer</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">SOF</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Devices</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Coverage Scope</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importedTasks.map((task, idx) => (
+                            <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
+                              <td className="px-2 py-2 min-w-[200px]">{task.Sname || task.siteName || '—'}</td>
+                              <td className="px-2 py-2 min-w-[120px]">{task.location || '—'}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">{task.startDate || '—'}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">{task.endDate || '—'}</td>
+                              <td className="px-2 py-2 min-w-[100px]">
+                                {task.Eng_ids?.map((e: Engineer) => e.name).join(', ') || '—'}
+                              </td>
+                              <td className="px-2 py-2 whitespace-nowrap">
+                                {task.sofName || (task.contractId ? `#${task.contractId}` : '—')}
+                              </td>
+                              <td className="px-2 py-2 text-center whitespace-nowrap">
+                                {task.deviceCount !== undefined && task.deviceCount > 0 ? (
+                                  <span className="font-semibold text-blue-600">{task.deviceCount}</span>
+                                ) : task.deviceIds?.length ? (
+                                  <span className="font-semibold text-blue-600">{task.deviceIds.length}</span>
+                                ) : task.sofName ? (
+                                  <span className="text-orange-600 text-xs">Loading...</span>
+                                ) : (
+                                  <span className="text-slate-400">—</span>
+                                )}
+                              </td>
+                              <td className="px-2 py-2 min-w-[150px]">{task.notes || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-slate-50">
+              <button
+                onClick={() => {
+                  setIsImportModalOpen(false);
+                  setImportedTasks([]);
+                  setImportErrors([]);
+                }}
+                className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkCreate}
+                disabled={importedTasks.length === 0 || isImporting}
+                className={`px-6 py-2 text-sm font-bold text-white rounded-lg transition-all ${
+                  importedTasks.length === 0 || isImporting
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-green-500 hover:bg-green-600'
+                }`}
+              >
+                {isImporting ? 'Importing...' : `Import ${importedTasks.length} Tasks`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );

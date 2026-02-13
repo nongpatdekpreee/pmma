@@ -607,11 +607,13 @@ const getDeviceById = async (req, res) => {
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
                  devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
-                 device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
+                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, devices.DeRoleid,
+                 device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename,
+                 dr.name as roleName
                  FROM devices
                  LEFT JOIN device_type ON devices.Dtypeid = device_type.Dtypeid 
                  LEFT JOIN manufacturer ON device_type.Mid = manufacturer.Mid 
+                 LEFT JOIN device_role dr ON devices.DeRoleid = dr.DeRoleid
                  LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
                  LEFT JOIN sites ON sl.Sid = sites.Sid
                  LEFT JOIN location L ON sl.lid = L.lid
@@ -1223,11 +1225,13 @@ const getDevicesBySOFAndSite = async (req, res) => {
     }
     
     const [rows] = await db.execute(
-      `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
+      `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
        FROM devices d
        LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
        LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
        LEFT JOIN manufacturer m ON dt.Mid = m.Mid
+       LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+       LEFT JOIN location L ON sl.lid = L.lid
        WHERE d.Refer_SOF = ? AND d.SLid = ?
        ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
       [referSOF, siteId]

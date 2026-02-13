@@ -32,6 +32,7 @@ interface TaskDetail {
   year?: number;
   Sid?: string;
   Sname?: string;
+  location?: string;
   Eng_ids?: Engineer[];
   lastName?: string;
   engineer?: string;
@@ -208,18 +209,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               {task.Sname && (
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-slate-500">Site Name</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">{task.Sname}</p>
-                </div>
-              )}
-              {task.notes && (
-                <div className="col-span-2">
-                  <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-3 shadow-sm">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <FileText size={14} className="text-blue-600" />
-                      <label className="text-[10px] font-bold uppercase text-blue-700">Notes</label>
-                    </div>
-                    <p className="text-sm font-medium text-blue-900 leading-relaxed">{task.notes}</p>
-                  </div>
+                  <p className="text-sm font-medium text-slate-800 mt-1">
+                    {task.Sname}{task.location ? ` - ${task.location}` : ''}
+                  </p>
                 </div>
               )}
               
@@ -365,6 +357,17 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
               <h3 className="text-sm font-bold text-slate-700 mb-3">Coverage Scope</h3>
               <p className="text-sm text-slate-700 whitespace-pre-wrap">{task.coverageScope}</p>
+            </div>
+          )}
+          
+          {/* Notes - แสดงเฉพาะเมื่อมี notes (ใช้เมื่อเลื่อนนัด) */}
+          {task.notes && (
+            <div className="bg-blue-50 rounded-xl p-4 border-2 border-blue-200">
+              <div className="flex items-center gap-2 mb-1.5">
+                <FileText size={14} className="text-blue-600" />
+                <label className="text-[10px] font-bold uppercase text-blue-700">Notes</label>
+              </div>
+              <p className="text-sm font-medium text-blue-900 leading-relaxed">{task.notes}</p>
             </div>
           )}
 

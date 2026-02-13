@@ -41,7 +41,7 @@ const createSite = async (req, res) => {
 const getSitesLocation = async (req, res) => {
   try {
     const sql = `
-      SELECT SL.SLid, S.Name AS SiteName, L.Location2
+      SELECT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
