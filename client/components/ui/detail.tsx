@@ -1,12 +1,14 @@
 'use client';
 
-import { X, CheckCircle2, XCircle, Trash2, FileText } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Trash2, FileText, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { apiUrl } from '@/lib/api';
+import ExcelJS from 'exceljs';
 
 interface Device {
   id: string;
   name: string;
+  
   type: string;
   serialNumber?: string;
   site?: string;
@@ -105,7 +107,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               const d = json.data;
               map[String(rid)] = {
                 id: String(d.Did),
-                name: d.CI_Name || d.Asset_Number || 'Device',
+                name: d.CI_Name || d.Asset_Number || '',
                 type: d.model || d.manufacturername || '—',
                 serialNumber: d.serial,
                 site: d.Sitename || d.Location2,
@@ -138,11 +140,100 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
-    return date.toLocaleDateString('th-TH', {
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
     });
+  };
+
+  const downloadAssetsList = async () => {
+    if (!task?.assets || task.assets.length === 0) return;
+    
+    // สร้าง workbook ใหม่
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Assets');
+    
+    // กำหนด headers (ตัวพิมพ์ใหญ่)
+    const headers = ['DEVICE NAME', 'TYPE', 'SERIAL NUMBER', 'SITE', 'ASSET NUMBER'];
+    
+    // สร้าง header row พร้อม styling
+    const headerRow = worksheet.addRow(headers);
+    headerRow.font = { bold: true, size: 12 };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' } // สีเทาอ่อน
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    headerRow.height = 20;
+    
+    // เพิ่ม borders ให้ header
+    headers.forEach((_, colIndex) => {
+      const cell = headerRow.getCell(colIndex + 1);
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+    });
+    
+    // เพิ่มข้อมูล
+    task.assets.forEach(asset => {
+      const row = worksheet.addRow([
+        asset.name || '',
+        asset.type || '',
+        asset.serialNumber || '',
+        asset.site || '',
+        asset.assetNumber || ''
+      ]);
+      
+      // เพิ่ม borders ให้ทุก cell
+      headers.forEach((_, colIndex) => {
+        const cell = row.getCell(colIndex + 1);
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+      });
+    });
+    
+    // ตั้งความกว้างของคอลัมน์ให้พอดีกับข้อมูล
+    worksheet.columns.forEach((column, index) => {
+      let maxLength = headers[index].length;
+      worksheet.getColumn(index + 1).eachCell({ includeEmpty: false }, (cell) => {
+        const cellValue = String(cell.value || '');
+        if (cellValue.length > maxLength) {
+          maxLength = cellValue.length;
+        }
+      });
+      // ตั้งความกว้าง (เพิ่ม padding เล็กน้อย)
+      column.width = Math.min(Math.max(maxLength + 2, 12), 50);
+    });
+    
+    // สร้างชื่อไฟล์จาก site - location
+    const siteName = task.Sname || 'Unknown';
+    const location = task.location || '';
+    const fileName = location 
+      ? `${siteName} - ${location}.xlsx`
+      : `${siteName}.xlsx`;
+    
+    // ทำความสะอาดชื่อไฟล์ (ลบอักขระพิเศษที่ใช้ไม่ได้ในชื่อไฟล์)
+    const cleanFileName = fileName.replace(/[<>:"/\\|?*]/g, '_').trim();
+    
+    // Export file
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = cleanFileName;
+    link.click();
+    window.URL.revokeObjectURL(url);
   };
 
   return (
@@ -278,10 +369,21 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
           {/* Assets / MA: อุปกรณ์ที่เสีย → เปลี่ยนเป็น อุปกรณ์ที่เอาไปเปลี่ยน (แสดงครบทุกคู่) */}
           {(task.assets && task.assets.length > 0) || (task.taskType === 'MA' && task.replacementDeviceId) ? (
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700 mb-3">
-                {task.taskType === 'MA' ? 'อุปกรณ์' : 'Selected Assets'}
-              </h3>
-              <div className="space-y-2">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-slate-700">
+                  {task.taskType === 'MA' ? 'Devices' : 'Selected Assets'}
+                </h3>
+                {task.assets && task.assets.length > 0 && (
+                  <button
+                    onClick={downloadAssetsList}
+                    className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
+                    title="Download Assets List"
+                  >
+                    <Download size={16} />
+                  </button>
+                )}
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-2 pr-2">
                 {/* MA: แต่ละคู่ อุปกรณ์ที่เสีย ต่อด้วย เปลี่ยนเป็น [replacement] */}
                 {task.taskType === 'MA' && task.assets && task.assets.length > 0 && (
                   <>
@@ -299,7 +401,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                           </div>
                           {repId != null && (
                             <>
-                              <span className="text-[9px] font-semibold text-slate-500 shrink-0">เปลี่ยนเป็น</span>
+                              <span className="text-[9px] font-semibold text-slate-500 shrink-0">Replace with</span>
                               <div className="px-2 py-1.5 bg-green-50 rounded-md border border-green-200 min-w-0 flex-1">
                                 {replacementDevice ? (
                                   <>
@@ -338,8 +440,8 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   <div className="space-y-1.5">
                     {task.assets.map((asset) => (
                       <div key={asset.id} className="px-2 py-1.5 bg-white rounded-md border border-slate-200">
-                        <p className="text-[11px] font-medium text-slate-800">{asset.name}</p>
-                        <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5">
+                        <p className="text-[11px] font-medium text-slate-800 truncate">{asset.name}</p>
+                        <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5 flex-wrap">
                           <span>Type: {asset.type}</span>
                           {asset.serialNumber && <span>| SN: {asset.serialNumber}</span>}
                           {asset.site && <span>| Site: {asset.site}</span>}
@@ -388,7 +490,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   <div>
                     <label className="text-[10px] font-semibold uppercase text-slate-500">Travel Cost</label>
                     <p className="text-sm font-medium text-slate-800 mt-1">
-                      {parseFloat(task.travelCost).toLocaleString('th-TH')} THB
+                      {parseFloat(task.travelCost).toLocaleString('en-US')} THB
                     </p>
                   </div>
                 )}
@@ -489,7 +591,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             {onDelete && task && (
               <button
                 onClick={() => {
-                  if (task && onDelete && confirm('คุณแน่ใจหรือไม่ว่าต้องการลบ Task นี้?')) {
+                  if (task && onDelete && confirm('Are you sure you want to delete this task?')) {
                     onDelete(task.id);
                   }
                 }}

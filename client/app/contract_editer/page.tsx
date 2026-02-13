@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { 
   FileText, Calendar, DollarSign, Building2, Cpu, MapPin, 
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
-  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench, Plus 
+  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench, Plus, Info 
 } from 'lucide-react';
 
 interface Equipment {
@@ -730,19 +730,17 @@ export default function ContractEditorPage() {
                 <div className="flex flex-wrap gap-2 min-w-0">
                   <button
                     onClick={() => viewContractDetails(contract)}
-                    className="flex-1 min-w-0 py-1.5 px-2 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm truncate"
+                    className="flex items-center justify-center py-1.5 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
                     title="View Details"
                   >
-                    View Details
-                    
+                    <Info size={18} className="text-white" />
                   </button>
                   <button
                     onClick={() => openAssignSiteForContract(contract)}
-                    className="flex items-center justify-center gap-1 flex-1 min-w-0 py-1.5 px-2 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600 truncate"
+                    className="flex items-center justify-center py-1.5 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600"
                     title="View Site"
                   >
-                    <MapPin size={12} className="flex-shrink-0" />
-                    <span className="truncate">View Site</span>
+                    <MapPin size={18} className="text-white" />
                   </button>
                 </div>
                 <button
@@ -799,19 +797,17 @@ export default function ContractEditorPage() {
                         <div className="flex items-center gap-1 min-w-0">
                           <button
                             onClick={() => viewContractDetails(contract)}
-                            className="flex items-center justify-center gap-0.5 py-1 px-1 rounded-md text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all duration-200 truncate"
+                            className="flex items-center justify-center py-1 px-2 rounded-md text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all duration-200"
                             title="View Details"
                           >
-                            <FileText size={10} className="flex-shrink-0" />
-                            View
+                            <Info size={14} className="text-white" />
                           </button>
                           <button
                             onClick={() => openAssignSiteForContract(contract)}
-                            className="flex items-center justify-center gap-0.5 py-1 px-1 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200 truncate"
+                            className="flex items-center justify-center py-1 px-2 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200"
                             title="View/Edit Site"
                           >
-                            <MapPin size={10} className="flex-shrink-0" />
-                            Site
+                            <MapPin size={14} className="text-white" />
                           </button>
                         </div>
                         <button
