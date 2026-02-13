@@ -105,12 +105,12 @@ const getEmployees = async (req, res) => {
     const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
     console.log(`Found ${rows.length} employees from database`);
 
-    // Map data to match frontend format
+    // Map data to match frontend format (รองรับทั้ง name, Name, Username จาก DB)
     const employees = rows.map((row) => ({
       id: String(row.user_id),
-      name: row.name || '',
+      name: row.name ?? row.Name ?? row.Username ?? row.username ?? '',
       gmail: row.gmail || '',
-      tel: row.phone || '',
+      tel: row.phone || row.Phone || '',
       positionType: row.type || 'Technical',
       employmentType: row.employment || 'Full-Time',
     }));
@@ -162,13 +162,14 @@ const getEmployeeById = async (req, res) => {
       });
     }
 
+    const row = rows[0];
     const employee = {
-      id: String(rows[0].user_id),
-      name: rows[0].name || '',
-      gmail: rows[0].gmail || '',
-      tel: rows[0].phone || '',
-      positionType: rows[0].type || 'Technical',
-      employmentType: rows[0].employment || 'Full-Time',
+      id: String(row.user_id),
+      name: row.name ?? row.Name ?? row.Username ?? row.username ?? '',
+      gmail: row.gmail || '',
+      tel: (row.phone ?? row.Phone) || '',
+      positionType: row.type || 'Technical',
+      employmentType: row.employment || 'Full-Time',
     };
 
     res.status(200).json({
@@ -258,13 +259,14 @@ const createEmployee = async (req, res) => {
 
     const [newEmployee] = await db.execute(getSql, [newUserId]);
 
+    const row = newEmployee[0];
     const employee = {
-      id: String(newEmployee[0].user_id),
-      name: newEmployee[0].name || '',
-      gmail: newEmployee[0].gmail || '',
-      tel: newEmployee[0].phone || '',
-      positionType: newEmployee[0].type || 'Technical',
-      employmentType: newEmployee[0].employment || 'Full-Time',
+      id: String(row.user_id),
+      name: row.name ?? row.Name ?? row.Username ?? row.username ?? '',
+      gmail: row.gmail || '',
+      tel: (row.phone ?? row.Phone) || '',
+      positionType: row.type || 'Technical',
+      employmentType: row.employment || 'Full-Time',
     };
 
     res.status(201).json({

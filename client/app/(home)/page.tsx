@@ -24,8 +24,7 @@ export default function DashboardPage() {
     id: string;
     location: string;
     date: string;
-    priority: 'High' | 'Low';
-    deviceType: string;
+    serial: string;
     count: number;
     assignees: string[];
   }>>([]);
@@ -57,7 +56,7 @@ export default function DashboardPage() {
         const mapped = upcomingPm.map((t: any) => {
           const assets = Array.isArray(t.assets) ? t.assets : [];
           const first = assets[0] || {};
-          const deviceType = first?.type_name || first?.model || first?.DeviceRole || 'Device';
+          const serial = first?.serial || first?.Serial || '—';
           const engineers = Array.isArray(t.engineers) ? t.engineers : [];
           const assignees = engineers.slice(0, 4).map((e: any, i: number) => {
             const seed = (e?.name || e?.id || String(i + 1)).toString();
@@ -67,8 +66,7 @@ export default function DashboardPage() {
             id: `PM-${t.id}`,
             location: String(t.siteName || '—'),
             date: new Date(t.startDate).toLocaleDateString('th-TH'),
-            priority: (t.status === 'done' ? 'Low' : 'High') as 'High' | 'Low',
-            deviceType: String(deviceType),
+            serial: String(serial),
             count: Number(assets.length || 0),
             assignees: (assignees.length > 0 ? assignees : ['https://i.pravatar.cc/150?u=pm']) as string[],
           };
@@ -214,7 +212,6 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-
             {/* ส่วน Preventive Maintenance List */}
             <div>
               <div className="flex justify-between items-center mb-4">
@@ -235,11 +232,9 @@ export default function DashboardPage() {
                       id={c.id}
                       location={c.location}
                       date={c.date}
-                      priority={c.priority}
-                      deviceType={c.deviceType}
+                      serial={c.serial}
                       count={c.count}
-                      assignees={c.assignees}
-                    />
+                      assignees={c.assignees} CI_Name={''}                    />
                   ))
                 )}
               </div>
@@ -266,7 +261,7 @@ export default function DashboardPage() {
                       className="block border-l-4 border-blue-400 pl-4 py-2 bg-blue-50/30 rounded-r-xl hover:bg-blue-50/50 transition-colors"
                     >
                       <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                      <p className="text-[10px] text-gray-500 mt-1">{ev.dateStr} | {ev.timeStr}</p>
+                      <p className="text-[10px] text-gray-500 mt-1">{ev.dateStr}</p>
                     </Link>
                   ))}
                 </div>
@@ -281,11 +276,11 @@ export default function DashboardPage() {
                 </h3>
                 <Link href="/schedule_management" className="text-amber-600 text-xs hover:underline">View all</Link>
               </div>
-              <p className="text-[11px] text-slate-500 mb-3">งานที่เลยกำหนดแล้วยังไม่ดำเนินการ</p>
+              <p className="text-[11px] text-slate-500 mb-3">Overdue tasks</p>
               {loadingEvents ? (
                 <div className="text-sm text-slate-400 py-6 text-center">กำลังโหลด...</div>
               ) : missingEvents.length === 0 ? (
-                <div className="text-sm text-slate-400 py-6 text-center">ไม่มีงานค้าง</div>
+                <div className="text-sm text-slate-400 py-6 text-center">No pending tasks</div>
               ) : (
                 <div className="space-y-3">
                   {missingEvents.map((ev) => (
@@ -295,7 +290,7 @@ export default function DashboardPage() {
                       className="block border-l-4 border-amber-400 pl-4 py-2 bg-amber-50/30 rounded-r-xl hover:bg-amber-50/50 transition-colors"
                     >
                       <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                      <p className="text-[10px] text-amber-600 mt-1">เลยกำหนด {ev.dateStr}</p>
+                      <p className="text-[10px] text-amber-600 mt-1">Overdue {ev.dateStr}</p>
                     </Link>
                   ))}
                 </div>

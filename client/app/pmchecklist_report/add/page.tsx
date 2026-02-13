@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
-import { apiUrl, postPmReport, getTasks, getPmReports, getContractById, uploadReportFile } from '@/lib/api';
+import { apiUrl, postPmReport, getTasks, getPmReportedTaskIds, getContractById, uploadReportFile } from '@/lib/api';
 import { 
   Upload, 
   X, 
@@ -80,14 +80,14 @@ export default function AddPMReportPage() {
   const [reportedTaskIds, setReportedTaskIds] = useState<Set<number>>(new Set());
   const [contractSlaMap, setContractSlaMap] = useState<Record<number, number>>({});
 
-  // Check if there are done PM tasks (แสดงทุก Task ที่ Done รวมถึงที่เคยทำ Report แล้ว)
+  // ดึง task_id ที่มี report_id แล้ว เพื่อกรองออก (แสดงเฉพาะที่ยังไม่มี)
   useEffect(() => {
     const checkDoneTasks = async () => {
       setCheckingTasks(true);
       try {
-        const [tasksRes, reportsRes] = await Promise.all([
+        const [tasksRes, reportedIdsRes] = await Promise.all([
           getTasks(),
-          getPmReports({ limit: 5000 }),
+          getPmReportedTaskIds(),
         ]);
         if (tasksRes.success && tasksRes.data) {
           const done = tasksRes.data.filter(
@@ -96,11 +96,8 @@ export default function AddPMReportPage() {
           setHasDonePMTasks(done.length > 0);
           setDonePMTasks(done);
         }
-        if (reportsRes.success && reportsRes.data) {
-          const ids = new Set(
-            (reportsRes.data as any[]).map((r: any) => Number(r.taskId)).filter((n: number) => !Number.isNaN(n))
-          );
-          setReportedTaskIds(ids);
+        if (reportedIdsRes.success && Array.isArray(reportedIdsRes.taskIds)) {
+          setReportedTaskIds(new Set(reportedIdsRes.taskIds));
         }
       } catch (error) {
         console.error('Error checking tasks:', error);
@@ -110,6 +107,12 @@ export default function AddPMReportPage() {
     };
     checkDoneTasks();
   }, [router]);
+
+  // แสดงเฉพาะ Task ที่ยังไม่มี report_id (task_id ไม่อยู่ใน table report)
+  const availablePMTasks = useMemo(
+    () => donePMTasks.filter((t: any) => !reportedTaskIds.has(Number(t.id))),
+    [donePMTasks, reportedTaskIds]
+  );
 
   // Fallback: เมื่อ Task มี contractId แต่ไม่มี slaTerm ให้ดึง sla_term จาก Contract
   useEffect(() => {
@@ -181,13 +184,13 @@ export default function AddPMReportPage() {
       if (task.replacementDeviceId != null) ids.add(String(task.replacementDeviceId));
     };
     if (selectedTaskId !== null) {
-      const task = donePMTasks.find((t: any) => t.id === selectedTaskId);
+      const task = availablePMTasks.find((t: any) => t.id === selectedTaskId);
       if (task) addTaskDevices(task);
     } else {
-      donePMTasks.forEach(addTaskDevices);
+      availablePMTasks.forEach(addTaskDevices);
     }
     return ids;
-  }, [donePMTasks, selectedTaskId]);
+  }, [availablePMTasks, selectedTaskId]);
 
   // แสดงเฉพาะ Device ที่มาจาก Task (ไม่ fallback เป็น devices ทั้งหมด)
   const allowedDevices = useMemo(() => {
@@ -205,7 +208,7 @@ export default function AddPMReportPage() {
   // sla_term จาก Contract (ผ่าน Task ที่เลือก) ใช้เป็นเกณฑ์ Pass/Fail
   // Fallback: ถ้า Task ไม่มี slaTerm แต่มี contractId ให้ใช้จาก contractSlaMap
   const slaThreshold = useMemo(() => {
-    const task = selectedTaskId != null ? donePMTasks.find((t: any) => t.id === selectedTaskId) : null;
+    const task = selectedTaskId != null ? availablePMTasks.find((t: any) => t.id === selectedTaskId) : null;
     if (!task) return 70;
     let st = task.slaTerm ?? task.sla_term;
     if ((st == null || String(st).trim() === '') && task.contractId != null) {
@@ -214,7 +217,7 @@ export default function AddPMReportPage() {
     if (st == null || String(st).trim() === '') return 70;
     const n = typeof st === 'number' ? st : parseInt(String(st).trim(), 10);
     return Number.isNaN(n) ? 70 : n;
-  }, [donePMTasks, selectedTaskId, contractSlaMap]);
+  }, [availablePMTasks, selectedTaskId, contractSlaMap]);
 
   // ใช้ข้อมูลจาก Task ที่เลือก pre-fill form
   const applyTaskToForm = (task: any) => {
@@ -383,20 +386,24 @@ export default function AddPMReportPage() {
     );
   }
 
-  if (!hasDonePMTasks) {
+  const hasAvailableTasks = availablePMTasks.length > 0;
+  if (!hasAvailableTasks) {
+    const allReported = hasDonePMTasks && donePMTasks.length > 0;
     return (
       <SidebarLayout>
         <DashboardHeader />
         <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-slate-50">
           <div className="text-center p-8">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-amber-100 flex items-center justify-center">
-              <AlertCircle size={40} className="text-amber-500" />
+            <div className={`w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center ${allReported ? 'bg-green-100' : 'bg-amber-100'}`}>
+              <AlertCircle size={40} className={allReported ? 'text-green-600' : 'text-amber-500'} />
             </div>
             <p className="text-slate-700 text-lg font-semibold mb-2">
-              ไม่สามารถสร้าง Report PM ได้
+              {allReported ? 'ทำ Report ครบแล้ว' : 'ไม่สามารถสร้าง Report PM ได้'}
             </p>
             <p className="text-slate-500 text-sm mb-6">
-              กรุณารอให้ Task PM มีสถานะ "Done" ก่อน
+              {allReported
+                ? 'ทุก Task ที่ Done ทำ Report ครบแล้ว ไม่มี Task ที่รอทำ Report'
+                : 'กรุณารอให้ Task PM มีสถานะ "Done" ก่อน'}
             </p>
             <button
               onClick={() => router.push('/pmchecklist_report')}
@@ -435,20 +442,18 @@ export default function AddPMReportPage() {
           </div>
         </div>
 
-        {/* ข้อมูล Task ที่จะ Report */}
-        {donePMTasks.length > 0 && (
+      
+        {availablePMTasks.length > 0 && (
           <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <ClipboardList size={22} className="text-blue-600" />
               <h2 className="text-lg font-bold text-slate-800">ข้อมูล Task ที่จะ Report</h2>
             </div>
             <p className="text-sm text-slate-500 mb-4">
-              เลือก Task ที่ทำเสร็จแล้ว (Status = Done) เพื่อนำข้อมูลมาใส่ใน Report ให้อัตโนมัติ
+              เลือก Task ที่ทำเสร็จแล้ว (Status = Done) และยังไม่มี Report เพื่อนำข้อมูลมาใส่ใน Report ให้อัตโนมัติ
             </p>
             <div className="space-y-3">
-              {donePMTasks.map((task) => {
-                const hasReport = reportedTaskIds.has(Number(task.id));
-                return (
+              {availablePMTasks.map((task) => (
                 <div
                   key={task.id}
                   className={`p-4 rounded-xl border-2 transition-all ${
@@ -459,11 +464,6 @@ export default function AddPMReportPage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap gap-4 text-sm">
-                      {hasReport && (
-                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                          มี Report แล้ว
-                        </span>
-                      )}
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <MapPin size={16} className="text-slate-400" />
                         {task.siteName || task.site_name || '-'}
@@ -506,8 +506,7 @@ export default function AddPMReportPage() {
                     </button>
                   </div>
                 </div>
-              );
-              })}
+              ))}
             </div>
           </div>
         )}
@@ -526,10 +525,10 @@ export default function AddPMReportPage() {
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">
-                {loadingDevices ? 'กำลังโหลด...' : donePMTasks.length > 0 && allowedDevices.length === 0 ? 'กรุณาเลือก Task ด้านบนก่อน' : 'เลือก Device...'}
+                {loadingDevices ? 'กำลังโหลด...' : availablePMTasks.length > 0 && allowedDevices.length === 0 ? 'กรุณาเลือก Task ด้านบนก่อน' : 'เลือก Device...'}
               </option>
               {allowedDevices.map(device => {
-                const isReplacement = selectedTaskId != null && donePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === device.Did;
+                const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === device.Did;
                 return (
                   <option key={device.Did} value={device.Did.toString()}>
                     {device.CI_Name || device.Asset_Number || `Device ${device.Did}`}
@@ -540,13 +539,13 @@ export default function AddPMReportPage() {
                 );
               })}
             </select>
-            {donePMTasks.length > 0 && allowedDevices.length > 0 && (
+            {availablePMTasks.length > 0 && allowedDevices.length > 0 && (
               <p className="mt-1 text-xs text-slate-500"></p>
             )}
             {selectedDeviceId && (() => {
               const selected = allowedDevices.find(d => d.Did.toString() === selectedDeviceId) ?? devices.find(d => d.Did.toString() === selectedDeviceId);
               if (!selected) return null;
-              const isReplacement = selectedTaskId != null && donePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === selected.Did;
+              const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === selected.Did;
               const formatDate = (v: string | null | undefined) => {
                 if (!v) return undefined;
                 try { return new Date(v).toLocaleDateString('th-TH'); } catch { return v; }

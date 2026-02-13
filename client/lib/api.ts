@@ -158,6 +158,12 @@ export async function getTasks(params?: { month?: number; year?: number }): Prom
   return res.json();
 }
 
+/** GET /api/pm-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
+export async function getPmReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
+  const res = await fetch(apiUrl('/api/pm-reports/reported-task-ids'));
+  return res.json();
+}
+
 /** GET /api/pm-reports - ดึงรายการ PM Reports */
 export async function getPmReports(params?: { limit?: number; offset?: number }): Promise<{
   success: boolean;
@@ -212,6 +218,12 @@ export async function postPmReport(body: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  return res.json();
+}
+
+/** GET /api/ma-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
+export async function getMaReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
+  const res = await fetch(apiUrl('/api/ma-reports/reported-task-ids'));
   return res.json();
 }
 

@@ -76,13 +76,13 @@ const EmployeeManagement = () => {
     const q = searchTerm.toLowerCase();
     return employees.filter(
       (emp) =>
-        emp.name.toLowerCase().includes(q) ||
-        emp.gmail.toLowerCase().includes(q) ||
-        emp.tel.toLowerCase().includes(q) ||
-        emp.employmentType.toLowerCase().includes(q) ||
-        emp.id.toLowerCase().includes(q)
+        (emp.name ?? '').toLowerCase().includes(q) ||
+        (emp.gmail ?? '').toLowerCase().includes(q) ||
+        (emp.tel ?? '').toLowerCase().includes(q) ||
+        (emp.employmentType ?? '').toLowerCase().includes(q) ||
+        (emp.id ?? '').toLowerCase().includes(q)
     );
-  }, [searchTerm]);
+  }, [searchTerm, employees]);
 
   /* ================= sort ================= */
   const sortedEmployees = useMemo(() => {
@@ -252,7 +252,7 @@ const EmployeeManagement = () => {
                         >
                           <td className="px-6 py-4">{emp.id}</td>
                           <td className="px-6 py-4 font-medium">
-                            {emp.name}
+                            {emp.name ?? '-'}
                           </td>
                           <td className="px-6 py-4">{emp.gmail || '-'}</td>
                           <td className="px-6 py-4">{emp.tel || '-'}</td>

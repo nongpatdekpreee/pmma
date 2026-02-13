@@ -407,21 +407,24 @@ const updateTask = async (req, res) => {
               );
               
               if (checkExisting.length === 0) {
-                await db.execute(
-                  'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-                  [contractIdNum, replacementIdNum]
-                );
+                const slidToUse = taskSiteId != null ? taskSiteId : replacementSLid;
+                if (slidToUse != null) {
+                  await db.execute(
+                    'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                    [contractIdNum, replacementIdNum, slidToUse]
+                  ).catch(() => db.execute(
+                    'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                    [contractIdNum, replacementIdNum]
+                  ));
+                } else {
+                  await db.execute(
+                    'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
+                    [contractIdNum, replacementIdNum]
+                  );
+                }
                 console.log(`Updated contract_device: Replaced device ${originalIdNum} with ${replacementIdNum} in contract ${contractIdNum}`);
               } else {
                 console.log(`Device ${replacementIdNum} already exists in contract ${contractIdNum}, skipping insert`);
-              }
-              
-              // Ensure task site (SLid) is in contract_site
-              if (taskSiteId) {
-                await db.execute(
-                  'INSERT IGNORE INTO contract_site (contract_id, SLid) VALUES (?, ?)',
-                  [contractIdNum, taskSiteId]
-                );
               }
             } else {
               console.log(`Device ${originalIdNum} not found in contract_device for contract ${contractIdNum}, skipping update`);

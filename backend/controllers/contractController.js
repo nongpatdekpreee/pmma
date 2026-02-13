@@ -406,36 +406,27 @@ const createContract = async (req, res) => {
           [contractId]
         );
 
-        // เพิ่ม devices ใหม่
+        // เพิ่ม devices ใหม่ (SLid อยู่ใน contract_device เท่านั้น)
         if (pairs.length > 0) {
           for (const p of pairs) {
+            const slid = p.site_id != null ? p.site_id : null;
             for (const did of p.device_ids) {
               await conn.execute(
-                'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-                [contractId, did]
+                'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                [contractId, did, slid]
               );
             }
           }
         } else if (deviceIdList.length > 0) {
+          const defaultSlid = siteIdList.length > 0 ? siteIdList[0] : null;
           for (const did of deviceIdList) {
             await conn.execute(
+              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+              [contractId, did, defaultSlid]
+            ).catch(() => conn.execute(
               'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
               [contractId, did]
-            );
-          }
-        }
-
-        // อัพเดท contract_site
-        await conn.execute(
-          'DELETE FROM contract_site WHERE contract_id = ?',
-          [contractId]
-        );
-        if (siteIdList.length > 0) {
-          for (const slid of siteIdList) {
-            await conn.execute(
-              'INSERT INTO contract_site (contract_id, SLid) VALUES (?, ?)',
-              [contractId, slid]
-            );
+            ));
           }
         }
 
@@ -454,32 +445,27 @@ const createContract = async (req, res) => {
         await conn.execute(insertContractSql, insertParams);
         contractId = finalContractId;
 
-        // 2. บันทึก contract_site (ทุก site ที่เลือก)
-        if (siteIdList.length > 0) {
-          for (const slid of siteIdList) {
-            await conn.execute(
-              'INSERT IGNORE INTO contract_site (contract_id, SLid) VALUES (?, ?)',
-              [contractId, slid]
-            );
-          }
-        }
-
-      // 3. บันทึก contract_device (app_db: contract_id, device_id เท่านั้น)
+      // 2. บันทึก contract_device เท่านั้น (SLid อยู่ใน contract_device)
       if (pairs.length > 0) {
         for (const p of pairs) {
+          const slid = p.site_id != null ? p.site_id : null;
           for (const did of p.device_ids) {
             await conn.execute(
-              'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-              [contractId, did]
+              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+              [contractId, did, slid]
             );
           }
         }
       } else if (deviceIdList.length > 0) {
+        const defaultSlid = siteIdList.length > 0 ? siteIdList[0] : null;
         for (const did of deviceIdList) {
           await conn.execute(
+            'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+            [contractId, did, defaultSlid]
+          ).catch(() => conn.execute(
             'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
             [contractId, did]
-          );
+          ));
         }
       }
 
@@ -544,9 +530,7 @@ const createContract = async (req, res) => {
 
     let message = 'Error creating contract';
     if (error.code === 'ER_NO_SUCH_TABLE') {
-      if (String(error.message || '').includes('contract_site')) {
-        message = 'contract_site table does not exist, please run add_contract_site.sql';
-      } else if (String(error.message || '').includes('contract_device')) {
+    if (String(error.message || '').includes('contract_device')) {
         message = 'contract_device table does not exist, please run add_contract_device_table.sql';
       } else if (String(error.message || '').includes('contract')) {
         message = 'contract table does not exist, please run SQL to create the table in the database';
@@ -575,7 +559,7 @@ const getContractsBySite = async (req, res) => {
   try {
     const siteId = req.query.site_id;
 
-    // TccStock (7): contract.site_id = sites_location.SLid; site name มาจาก sites ผ่าน sites_location
+    // กรอง site จาก contract_device.SLid (ใช้แค่ contract_device ไม่ใช้ contract_site)
     const baseSelect = `
       SELECT DISTINCT
         c.contract_id,
@@ -594,7 +578,6 @@ const getContractsBySite = async (req, res) => {
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN contract_device cd ON c.contract_id = cd.contract_id
       LEFT JOIN devices d ON cd.device_id = d.Did
-      LEFT JOIN contract_site cs ON c.contract_id = cs.contract_id
     `;
 
     let sql;
@@ -602,7 +585,7 @@ const getContractsBySite = async (req, res) => {
 
     if (siteId) {
       const siteIdNum = parseInt(siteId, 10);
-      sql = `${baseSelect} WHERE c.site_id = ? OR d.SLid = ? OR cs.SLid = ? ORDER BY c.contract_id DESC`;
+      sql = `${baseSelect} WHERE c.site_id = ? OR d.SLid = ? OR cd.SLid = ? ORDER BY c.contract_id DESC`;
       params = [siteIdNum, siteIdNum, siteIdNum];
     } else {
       sql = `${baseSelect} ORDER BY c.contract_id DESC`;
@@ -671,7 +654,7 @@ const getAvailableDevices = async (req, res) => {
   }
 };
 
-// GET - ดึง Sites ที่ผูกกับ Contract (จาก contract_site + contract.site_id)
+// GET - ดึง Sites ที่ผูกกับ Contract (จาก contract_device.SLid เท่านั้น)
 const getSitesByContract = async (req, res) => {
   try {
     const contractId = req.params.id;
@@ -690,22 +673,18 @@ const getSitesByContract = async (req, res) => {
       });
     }
 
-    // ดึง sites จาก contract_site และ contract.site_id (ถ้ามี)
-    // TccStock (7): sites_location, sites, location
+    // ดึง sites จาก contract_device.SLid เท่านั้น (ไม่ใช้ contract_site)
     const sql = `
       SELECT DISTINCT sl.SLid, s.Name AS SiteName, l.Location2
-      FROM (
-        SELECT SLid FROM contract_site WHERE contract_id = ?
-        UNION
-        SELECT site_id AS SLid FROM contract WHERE contract_id = ? AND site_id IS NOT NULL
-      ) AS site_ids
-      INNER JOIN sites_location sl ON site_ids.SLid = sl.SLid
+      FROM contract_device cd
+      INNER JOIN sites_location sl ON cd.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
+      WHERE cd.contract_id = ? AND cd.SLid IS NOT NULL
       ORDER BY s.Name, l.Location2
     `;
 
-    const [rows] = await db.execute(sql, [cid, cid]);
+    const [rows] = await db.execute(sql, [cid]);
 
     res.status(200).json({
       success: true,
@@ -930,7 +909,7 @@ const getContractById = async (req, res) => {
 
     const contract = contractRows[0];
 
-    // ดึง devices
+    // ดึง devices (ใช้ cd.SLid = site ตอนทำสัญญาจาก contract_device ไม่ใช่ site ปัจจุบันของ device)
     const devicesSql = `
       SELECT 
         d.Did,
@@ -939,40 +918,41 @@ const getContractById = async (req, res) => {
         d.serial,
         d.Asset_State,
         d.SLid,
+        cd.SLid AS contract_SLid,
+        COALESCE(s_contract.Name, s.Name) AS SiteName,
+        COALESCE(l_contract.Location2, l.Location2) AS Location2,
         d.Dtypeid,
         d.DeRoleid,
-        s.Name AS SiteName,
-        l.Location2,
         dt.model AS type_name,
         dr.name AS roleName
       FROM contract_device cd
       INNER JOIN devices d ON cd.device_id = d.Did
+      LEFT JOIN sites_location sl_contract ON cd.SLid = sl_contract.SLid
+      LEFT JOIN sites s_contract ON sl_contract.Sid = s_contract.Sid
+      LEFT JOIN location l_contract ON sl_contract.lid = l_contract.lid
       LEFT JOIN sites_location sl ON d.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
       LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
       LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
       WHERE cd.contract_id = ?
-      ORDER BY d.CI_Name ASC, d.Asset_Number ASC
+      ORDER BY COALESCE(cd.SLid, 999999), d.CI_Name ASC, d.Asset_Number ASC
     `;
 
     const [devicesRows] = await db.execute(devicesSql, [cid]);
 
-    // ดึง sites
+    // ดึง sites จาก contract_device.SLid เท่านั้น
     const sitesSql = `
       SELECT DISTINCT sl.SLid, s.Name AS SiteName, l.Location2
-      FROM (
-        SELECT SLid FROM contract_site WHERE contract_id = ?
-        UNION
-        SELECT site_id AS SLid FROM contract WHERE contract_id = ? AND site_id IS NOT NULL
-      ) AS site_ids
-      INNER JOIN sites_location sl ON site_ids.SLid = sl.SLid
+      FROM contract_device cd
+      INNER JOIN sites_location sl ON cd.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
+      WHERE cd.contract_id = ? AND cd.SLid IS NOT NULL
       ORDER BY s.Name, l.Location2
     `;
 
-    const [sitesRows] = await db.execute(sitesSql, [cid, cid]);
+    const [sitesRows] = await db.execute(sitesSql, [cid]);
 
     // ดึงประวัติการต่อสัญญา
     const historySql = `
@@ -1222,45 +1202,25 @@ const updateContract = async (req, res) => {
       await conn.execute(updateSql, updateValues);
     }
 
-    // อัปเดต contract_device และ contract_site ถ้ามี site_device_pairs
-    // ถ้าไม่ส่ง site_device_pairs หมายความว่าไม่ต้องการเปลี่ยน devices
+    // อัปเดต contract_device เท่านั้น (SLid อยู่ใน contract_device)
     if (site_device_pairs !== undefined) {
       if (pairs.length > 0) {
-        // ลบ devices เก่าออก
         await conn.execute(
           'DELETE FROM contract_device WHERE contract_id = ?',
           [cid]
         );
-
-        // เพิ่ม devices ใหม่
         for (const p of pairs) {
+          const slid = p.site_id != null ? p.site_id : null;
           for (const did of p.device_ids) {
             await conn.execute(
-              'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-              [cid, did]
+              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+              [cid, did, slid]
             );
           }
         }
-
-        // อัปเดต contract_site
-        await conn.execute(
-          'DELETE FROM contract_site WHERE contract_id = ?',
-          [cid]
-        );
-        for (const slid of siteIdList) {
-          await conn.execute(
-            'INSERT INTO contract_site (contract_id, SLid) VALUES (?, ?)',
-            [cid, slid]
-          );
-        }
       } else {
-        // ถ้าส่ง site_device_pairs แต่เป็น array ว่าง หมายความว่าต้องการลบ devices ทั้งหมด
         await conn.execute(
           'DELETE FROM contract_device WHERE contract_id = ?',
-          [cid]
-        );
-        await conn.execute(
-          'DELETE FROM contract_site WHERE contract_id = ?',
           [cid]
         );
       }

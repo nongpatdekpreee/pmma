@@ -18,6 +18,25 @@ mysql -u USER -p DB_NAME < migrations/apply_tccstock7_compat.sql
 
 ---
 
+### add_contract_device_slid.sql (ใช้แค่ contract_device + SLid)
+
+ใช้ตาราง **contract_device** อย่างเดียว โดยเก็บ **SLid** (site) ไว้ในตารางนี้ — ไม่ต้องใช้ `contract_site` อีก (รายการ site ของสัญญา = DISTINCT SLid จาก contract_device)
+
+- เพิ่มคอลัมน์ `SLid` (INT NULL, FK -> sites_location.SLid) ใน `contract_device`
+- ถ้าคอลัมน์มีอยู่แล้วจะ error ได้ ให้ข้ามหรือ comment บรรทัด ALTER
+
+รัน: `mysql -u USER -p DB_NAME < migrations/add_contract_device_slid.sql`
+
+---
+
+### drop_contract_site.sql (ลบตาราง contract_site)
+
+เมื่อใช้แค่ `contract_device` + SLid แล้ว สามารถลบตาราง `contract_site` ได้ — แนะนำสำรองข้อมูลก่อน
+
+รัน: `mysql -u USER -p DB_NAME < migrations/drop_contract_site.sql`
+
+---
+
 ### add_contract_history_fk.sql
 
 เพิ่ม Foreign Key ให้ตาราง `contract_history` เพื่อความถูกต้องของข้อมูล (referential integrity):

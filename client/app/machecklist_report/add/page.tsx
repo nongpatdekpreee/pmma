@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
-import { apiUrl, postMaReport, getTasks, getMaReports, getContractById, uploadMaReportFile } from '@/lib/api';
+import { apiUrl, postMaReport, getTasks, getMaReports, getMaReportedTaskIds, getContractById, uploadMaReportFile } from '@/lib/api';
 import { 
   Upload, 
   X, 
@@ -80,14 +80,20 @@ export default function AddMAReportPage() {
   const [reportedTaskIds, setReportedTaskIds] = useState<Set<number>>(new Set());
   const [contractSlaMap, setContractSlaMap] = useState<Record<number, number>>({});
 
-  // Check if there are done MA tasks (แสดงทุก Task ที่ Done รวมถึงที่เคยทำ Report แล้ว)
+  // แสดงเฉพาะ Task ที่ยังไม่มี report_id (task_id ไม่อยู่ใน table report)
+  const availableMATasks = useMemo(
+    () => doneMATasks.filter((t: any) => !reportedTaskIds.has(Number(t.id))),
+    [doneMATasks, reportedTaskIds]
+  );
+
+  // Check if there are done MA tasks
   useEffect(() => {
     const checkDoneTasks = async () => {
       setCheckingTasks(true);
       try {
-        const [tasksRes, reportsRes] = await Promise.all([
+        const [tasksRes, reportedIdsRes] = await Promise.all([
           getTasks(),
-          getMaReports({ limit: 5000 }),
+          getMaReportedTaskIds(), // ดึง task_id ที่มี report_id แล้ว เพื่อกรองออก (แสดงเฉพาะที่ยังไม่มี)
         ]);
         if (tasksRes.success && tasksRes.data) {
           const done = tasksRes.data.filter(
@@ -96,11 +102,8 @@ export default function AddMAReportPage() {
           setHasDoneMATasks(done.length > 0);
           setDoneMATasks(done);
         }
-        if (reportsRes.success && reportsRes.data) {
-          const ids = new Set(
-            (reportsRes.data as any[]).map((r: any) => Number(r.taskId)).filter((n: number) => !Number.isNaN(n))
-          );
-          setReportedTaskIds(ids);
+        if (reportedIdsRes.success && Array.isArray(reportedIdsRes.taskIds)) {
+          setReportedTaskIds(new Set(reportedIdsRes.taskIds));
         }
       } catch (error) {
         console.error('Error checking tasks:', error);
@@ -157,13 +160,13 @@ export default function AddMAReportPage() {
       if (task.replacementDeviceId != null) ids.add(String(task.replacementDeviceId));
     };
     if (selectedTaskId !== null) {
-      const task = doneMATasks.find((t: any) => t.id === selectedTaskId);
+      const task = availableMATasks.find((t: any) => t.id === selectedTaskId);
       if (task) addTaskDevices(task);
     } else {
-      doneMATasks.forEach(addTaskDevices);
+      availableMATasks.forEach(addTaskDevices);
     }
     return ids;
-  }, [doneMATasks, selectedTaskId]);
+  }, [availableMATasks, selectedTaskId]);
 
   // แสดงเฉพาะ Device ที่มาจาก Task (ไม่ fallback เป็น devices ทั้งหมด)
   const allowedDevices = useMemo(() => {
@@ -203,7 +206,7 @@ export default function AddMAReportPage() {
     if (st == null || String(st).trim() === '') return 70;
     const n = typeof st === 'number' ? st : parseInt(String(st).trim(), 10);
     return Number.isNaN(n) ? 70 : n;
-  }, [doneMATasks, selectedTaskId, contractSlaMap]);
+  }, [availableMATasks, selectedTaskId, contractSlaMap]);
 
   // Add new checklist item
   const addChecklistItem = () => {
@@ -358,20 +361,24 @@ export default function AddMAReportPage() {
     );
   }
 
-  if (!hasDoneMATasks) {
+  const hasAvailableTasks = availableMATasks.length > 0;
+  if (!hasAvailableTasks) {
+    const allReported = hasDoneMATasks && doneMATasks.length > 0;
     return (
       <SidebarLayout>
         <DashboardHeader />
         <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/20 to-slate-50">
           <div className="text-center p-8">
-            <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-amber-100 flex items-center justify-center">
-              <AlertCircle size={40} className="text-amber-500" />
+            <div className={`w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center ${allReported ? 'bg-green-100' : 'bg-amber-100'}`}>
+              <AlertCircle size={40} className={allReported ? 'text-green-600' : 'text-amber-500'} />
             </div>
             <p className="text-slate-700 text-lg font-semibold mb-2">
-              ไม่สามารถสร้าง Report MA ได้
+              {allReported ? 'ทำ Report ครบแล้ว' : 'ไม่สามารถสร้าง Report MA ได้'}
             </p>
             <p className="text-slate-500 text-sm mb-6">
-              กรุณารอให้ Task MA มีสถานะ "Done" ก่อน
+              {allReported
+                ? 'ทุก Task ที่ Done ทำ Report ครบแล้ว ไม่มี Task ที่รอทำ Report'
+                : 'กรุณารอให้ Task MA มีสถานะ "Done" ก่อน'}
             </p>
             <button
               onClick={() => router.push('/pmchecklist_report?tab=ma')}
@@ -411,19 +418,17 @@ export default function AddMAReportPage() {
         </div>
 
         {/* ข้อมูล Task ที่จะ Report */}
-        {doneMATasks.length > 0 && (
+        {availableMATasks.length > 0 && (
           <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <ClipboardList size={22} className="text-green-600" />
               <h2 className="text-lg font-bold text-slate-800">ข้อมูล Task ที่จะ Report</h2>
             </div>
             <p className="text-sm text-slate-500 mb-4">
-              เลือก Task ที่ทำเสร็จแล้ว (Status = Done) เพื่อนำข้อมูลมาใส่ใน Report ให้อัตโนมัติ
+              
             </p>
             <div className="space-y-3">
-              {doneMATasks.map((task) => {
-                const hasReport = reportedTaskIds.has(Number(task.id));
-                return (
+              {availableMATasks.map((task) => (
                 <div
                   key={task.id}
                   className={`p-4 rounded-xl border-2 transition-all ${
@@ -434,11 +439,6 @@ export default function AddMAReportPage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap gap-4 text-sm">
-                      {hasReport && (
-                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                          มี Report แล้ว
-                        </span>
-                      )}
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <MapPin size={16} className="text-slate-400" />
                         {task.siteName || task.site_name || '-'}
@@ -489,8 +489,7 @@ export default function AddMAReportPage() {
                     </button>
                   </div>
                 </div>
-              );
-              })}
+              ))}
             </div>
           </div>
         )}
@@ -509,10 +508,10 @@ export default function AddMAReportPage() {
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">
-                {loadingDevices ? 'Loading...' : doneMATasks.length > 0 && allowedDevices.length === 0 ? 'Please select a Task above' : 'Select Device...'}
+                {loadingDevices ? 'Loading...' : availableMATasks.length > 0 && allowedDevices.length === 0 ? 'Please select a Task above' : 'Select Device...'}
               </option>
               {allowedDevices.map(device => {
-                const task = selectedTaskId != null ? doneMATasks.find((t: any) => t.id === selectedTaskId) : null;
+                const task = selectedTaskId != null ? availableMATasks.find((t: any) => t.id === selectedTaskId) : null;
                 const isReplacement = task && (task.replacementDeviceId === device.Did || task.assets?.some((a: any, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === device.Did));
                 return (
                   <option key={device.Did} value={device.Did.toString()}>
@@ -531,7 +530,7 @@ export default function AddMAReportPage() {
             {selectedDeviceId && (() => {
               const selected = allowedDevices.find(d => d.Did.toString() === selectedDeviceId) ?? devices.find(d => d.Did.toString() === selectedDeviceId);
               if (!selected) return null;
-              const task = selectedTaskId != null ? doneMATasks.find((t: any) => t.id === selectedTaskId) : null;
+              const task = selectedTaskId != null ? availableMATasks.find((t: any) => t.id === selectedTaskId) : null;
               const isReplacement = task && (task.replacementDeviceId === selected.Did || task.assets?.some((a: any, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === selected.Did));
               const formatDate = (v: string | null | undefined) => {
                 if (!v) return undefined;

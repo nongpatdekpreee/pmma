@@ -272,8 +272,43 @@ const getReports = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/ma-reports/reported-task-ids - ดึง task_id ที่มี report_id ใน table report แล้ว
+ * Frontend จะใช้กรองออก แสดงเฉพาะ Task ที่ยังไม่มี report_id
+ */
+const getReportedTaskIds = async (req, res) => {
+  try {
+    const base = (req.baseUrl || '').toLowerCase();
+    const taskType = base.includes('ma-reports') ? 'MA' : 'PM';
+
+    const [rows] = await db.execute(
+      `SELECT DISTINCT r.id AS taskId FROM report r
+       INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
+       ORDER BY r.id`,
+      [taskType]
+    );
+
+    const taskIds = rows
+      .map((r) => (r.taskId != null ? Number(r.taskId) : null))
+      .filter((n) => n != null && !Number.isNaN(n));
+
+    res.status(200).json({
+      success: true,
+      taskIds,
+    });
+  } catch (error) {
+    console.error('[getReportedTaskIds] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง task IDs ที่มี report แล้ว',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   submitReport,
   getReports,
+  getReportedTaskIds,
   uploadReportFile,
 };
