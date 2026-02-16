@@ -1185,7 +1185,7 @@ export default function AddContractPage() {
             {!selectedSOF?.trim() ? (
               <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-10 text-center text-sm text-slate-500">
                 <span>Please select or enter SOF</span>
-                <span className="text-xs">Hello</span>
+                
               </div>
             ) : (
               <div className="space-y-4">

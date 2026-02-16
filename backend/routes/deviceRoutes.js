@@ -11,6 +11,7 @@ const {
   getVendors,
   getReferSOFList,
   getDevicesBySOFAndSite,
+  getDevicesBySerials,
   getDevicesBySiteNoSOF,
   getDevicesBySite,
   getDevicesByAssetState,
@@ -40,6 +41,9 @@ router.get('/refer-sof', getReferSOFList);
 
 // GET - Devices ตาม Refer_SOF และ site_id (สำหรับ Contract)
 router.get('/by-sof-and-site', getDevicesBySOFAndSite);
+
+// GET - Devices ตาม Serial หลายตัว (สำหรับ Import Contract) ?serials=FGL2314A91L,FGL2314A92L
+router.get('/by-serials', getDevicesBySerials);
 
 // GET - Devices ตาม site_id ที่ยังไม่มี SOF (สำหรับ Contract เมื่อพิมพ์ SOF ใหม่)
 router.get('/by-site-no-sof', getDevicesBySiteNoSOF);

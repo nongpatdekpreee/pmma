@@ -1,17 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, getSitesLocation } from '@/lib/api';
 import Link from 'next/link';
+import * as XLSX from 'xlsx';
 import { 
   FileText, Calendar, DollarSign, Building2, Cpu, MapPin, 
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
-  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench, Plus, Info 
+  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight 
 } from 'lucide-react';
+
+const EQUIPMENT_PAGE_SIZE = 6;
+const CONTRACT_CARD_PAGE_SIZE = 6;
+const CONTRACT_TABLE_PAGE_SIZE = 8;
 
 interface Equipment {
   name: string;
@@ -111,7 +116,8 @@ export default function ContractEditorPage() {
   const [contractsError, setContractsError] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
+  const [contractPage, setContractPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -145,8 +151,17 @@ export default function ContractEditorPage() {
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
   const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
   const [selectedDetailSiteSlid, setSelectedDetailSiteSlid] = useState<number | null>(null);
+  const [detailEquipmentPage, setDetailEquipmentPage] = useState(0);
   // Assign modal: เลือกดูตาม Site จาก contract_device.SLid (เหมือน detail)
   const [assignModalSelectedSiteSlid, setAssignModalSelectedSiteSlid] = useState<number | null>(null);
+
+  // Import Contract (เหมือน Import PM)
+  const [isImportContractModalOpen, setIsImportContractModalOpen] = useState(false);
+  const [importedContracts, setImportedContracts] = useState<any[]>([]);
+  const [importContractErrors, setImportContractErrors] = useState<string[]>([]);
+  const [isImportingContract, setIsImportingContract] = useState(false);
+  const [importContractSites, setImportContractSites] = useState<Array<{ SLid: number; SiteName?: string; Location2?: string; label: string }>>([]);
+  const importContractFileRef = useRef<HTMLInputElement>(null);
 
   // Form state
   const [contractForm, setContractForm] = useState({
@@ -238,6 +253,17 @@ export default function ContractEditorPage() {
     return true;
   });
 
+  const totalContracts = filteredContracts.length;
+  const cardTotalPages = Math.max(1, Math.ceil(totalContracts / CONTRACT_CARD_PAGE_SIZE));
+  const tableTotalPages = Math.max(1, Math.ceil(totalContracts / CONTRACT_TABLE_PAGE_SIZE));
+  const currentPage = viewMode === 'card' ? Math.min(contractPage, cardTotalPages) : Math.min(contractPage, tableTotalPages);
+  const pageSize = viewMode === 'card' ? CONTRACT_CARD_PAGE_SIZE : CONTRACT_TABLE_PAGE_SIZE;
+  const paginatedContracts = filteredContracts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  useEffect(() => {
+    setContractPage(1);
+  }, [activeFilter, searchTerm, viewMode]);
+
   const openAddModal = () => {
     setFormType('add');
     setCurrentEquipmentList([]);
@@ -261,6 +287,7 @@ export default function ContractEditorPage() {
     setShowEquipmentModal(false);
     setShowAssignSiteModal(false);
     setShowRenewModal(false);
+    setIsImportContractModalOpen(false);
     setRenewContractTarget(null);
     setCurrentContract(null);
     setFullContractDetails(null);
@@ -279,6 +306,10 @@ export default function ContractEditorPage() {
       setSelectedDetailSiteSlid(null);
     }
   }, [fullContractDetails?.sites]);
+
+  useEffect(() => {
+    setDetailEquipmentPage(0);
+  }, [fullContractDetails?.contract_id, selectedDetailSiteSlid]);
 
   const openEquipmentModal = (index?: number) => {
     if (index !== undefined) {
@@ -547,6 +578,296 @@ export default function ContractEditorPage() {
     }
   };
 
+  // Load sites when opening Import Contract modal (เหมือน Import PM)
+  useEffect(() => {
+    if (!isImportContractModalOpen) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const result = await getSitesLocation();
+        if (cancelled || !result.success || !result.data) return;
+        const list = (result.data as any[]).map((item: any) => ({
+          SLid: item.SLid,
+          SiteName: item.SiteName || 'Site',
+          Location2: item.Location2 || item.Location || '',
+          label: `${item.SiteName || 'Site'}${item.Location2 ? ` - ${item.Location2}` : ''}`,
+        }));
+        setImportContractSites(list);
+      } catch (e) {
+        console.error('Load sites for import:', e);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [isImportContractModalOpen]);
+
+  /** แปลงค่าวันที่จาก string หรือ Excel serial number เป็น YYYY-MM-DD */
+  const parseDateStringForContract = (dateVal: string | number | null | undefined): string => {
+    if (dateVal == null || dateVal === '') return '';
+    const str = String(dateVal).trim();
+    if (!str) return '';
+    // Excel เก็บวันที่เป็น serial (วันนับจาก 1900-01-01) — ถ้าเป็นตัวเลขให้แปลง
+    const num = typeof dateVal === 'number' ? dateVal : parseFloat(str);
+    if (!isNaN(num) && num >= 1 && num <= 1000000) {
+      const excelEpoch = new Date(1899, 11, 30);
+      const d = new Date(excelEpoch.getTime() + num * 86400000);
+      if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+    }
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+    const match = str.match(/(\w+)\s+(\d+),\s+(\d{4})/);
+    if (match) {
+      const months: Record<string, string> = {
+        january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',
+        july: '07', august: '08', september: '09', october: '10', november: '11', december: '12',
+      };
+      const month = months[match[1].toLowerCase()] || '01';
+      return `${match[3]}-${month}-${String(match[2]).padStart(2, '0')}`;
+    }
+    return str;
+  };
+
+  const fetchDevicesBySofAndSite = async (sofName: string, siteId: number, location?: string | null) => {
+    try {
+      const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sofName)}&site_id=${siteId}`));
+      const json = await res.json();
+      if (!json.success || !json.data) return [];
+      let devices = json.data;
+      if (location && String(location).trim()) {
+        const locLower = String(location).trim().toLowerCase();
+        devices = devices.filter((d: any) => (d.Location2 || '').toLowerCase().includes(locLower) || locLower.includes((d.Location2 || '').toLowerCase()));
+      }
+      return devices.map((d: any) => d.Did);
+    } catch {
+      return [];
+    }
+  };
+
+  const parseContractExcelFile = async (
+    file: File,
+    sitesList: Array<{ SLid: number; SiteName?: string; Location2?: string; label: string }>
+  ): Promise<{ contracts: any[]; errors: string[] }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          let jsonData: any[][];
+          if (file.name.endsWith('.csv')) {
+            const text = e.target?.result as string;
+            const workbook = XLSX.read(text, { type: 'string', sheetRows: 0 });
+            const ws = workbook.Sheets[workbook.SheetNames[0]];
+            jsonData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
+          } else {
+            const data = new Uint8Array(e.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const ws = workbook.Sheets[workbook.SheetNames[0]];
+            jsonData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+          }
+          if (jsonData.length < 2) {
+            reject(new Error('File must have header and at least one data row'));
+            return;
+          }
+          const headers = (jsonData[0] as any[]).map((h: any) => String(h || '').replace(/\uFEFF/g, '').trim().toLowerCase());
+          const norm = (h: string) => h.replace(/\s+/g, ' ').trim();
+          const map: Record<string, string> = {
+            'contract name': 'contract_name', 'contract_name': 'contract_name', 'contractname': 'contract_name',
+            'sof': 'sof_name', 'sof name': 'sof_name', 'sof_name': 'sof_name', 'refer_sof': 'sof_name',
+            'site': 'siteName', 'site name': 'siteName', 'sitename': 'siteName',
+            'location': 'location', 'location2': 'location',
+            'start date': 'start_date', 'start_date': 'start_date', 'startdate': 'start_date',
+            'end date': 'end_date', 'end_date': 'end_date', 'enddate': 'end_date',
+            'sla term': 'sla_term', 'sla_term': 'sla_term', 'slaterm': 'sla_term',
+            'sale account': 'sale_account', 'sale_account': 'sale_account', 'saleaccount': 'sale_account',
+            'contract value': 'contract_value', 'contract_value': 'contract_value', 'contractvalue': 'contract_value',
+            'coverage scope': 'coverage_scope', 'coverage_scope': 'coverage_scope', 'coveragescope': 'coverage_scope',
+            'devices': 'device_ids', 'device ids': 'device_ids', 'device_ids': 'device_ids', 'device': 'device_ids',
+          };
+          const contracts: any[] = [];
+          const errors: string[] = [];
+          for (let i = 1; i < jsonData.length; i++) {
+            const row = jsonData[i] as any[];
+            if (!row || row.every((c: any) => c == null || c === '')) continue;
+            const rowData: any = {};
+            headers.forEach((header, colIndex) => {
+              const key = map[norm(header)] || map[header];
+              if (key && row[colIndex] != null && row[colIndex] !== '') rowData[key] = String(row[colIndex]).trim();
+            });
+            if (!rowData.contract_name) {
+              errors.push(`Row ${i + 2}: Missing Contract Name`);
+              continue;
+            }
+            if (!rowData.sof_name) {
+              errors.push(`Row ${i + 2}: Missing SOF`);
+              continue;
+            }
+            if (!rowData.start_date) {
+              errors.push(`Row ${i + 2}: Missing Start Date`);
+              continue;
+            }
+            if (!rowData.sla_term) {
+              errors.push(`Row ${i + 2}: Missing SLA Term`);
+              continue;
+            }
+            const siteNameLower = (rowData.siteName || '').toLowerCase();
+            const locationLower = (rowData.location || '').toLowerCase();
+            const site = sitesList.find(s => {
+              const siteMatch = (s.SiteName || '').toLowerCase().includes(siteNameLower) || siteNameLower.includes((s.SiteName || '').toLowerCase());
+              const locMatch = !locationLower || (s.Location2 || '').toLowerCase().includes(locationLower) || locationLower.includes((s.Location2 || '').toLowerCase());
+              return siteMatch && locMatch;
+            });
+            if (!site) {
+              errors.push(`Row ${i + 2}: Site "${rowData.siteName || ''}"${rowData.location ? ` + Location "${rowData.location}"` : ''} not found`);
+              continue;
+            }
+            // รองรับหลาย device: คอลัมน์ Devices ใส่ Serial (เช่น FGL2314A91L) หรือ Did คั่นด้วย comma/semicolon. ถ้าว่าง = ดึงจาก SOF+Site
+            let deviceIds: number[] = [];
+            const devicesRaw = rowData.device_ids != null ? String(rowData.device_ids).trim() : '';
+            if (devicesRaw) {
+              const parts = devicesRaw.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean);
+              const numericIds = parts.filter((s: string) => /^\d+$/.test(s)).map((s: string) => parseInt(s, 10));
+              const serials = parts.filter((s: string) => !/^\d+$/.test(s));
+              deviceIds = [...numericIds];
+              if (serials.length > 0) {
+                try {
+                  const res = await fetch(apiUrl(`/api/devices/by-serials?serials=${serials.map((s: string) => encodeURIComponent(s)).join(',')}`));
+                  const json = await res.json();
+                  if (json.success && Array.isArray(json.data)) {
+                    const found = json.data as { Did: number; serial?: string }[];
+                    deviceIds.push(...found.map((d) => d.Did));
+                    if (found.length < serials.length) {
+                      const foundSerials = new Set(found.map((d) => String(d.serial || '').trim()));
+                      const missing = serials.filter((s) => !foundSerials.has(s.trim()));
+                      if (missing.length) errors.push(`Row ${i + 2}: Serial not found: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ` (+${missing.length - 5} more)` : ''}`);
+                    }
+                  }
+                } catch (_) { /* ignore */ }
+              }
+            }
+            if (deviceIds.length === 0) {
+              deviceIds = await fetchDevicesBySofAndSite(rowData.sof_name, site.SLid, rowData.location);
+            }
+            rowData.site_device_pairs = deviceIds.length > 0 ? [{ site_id: site.SLid, device_ids: deviceIds }] : [];
+            rowData.Sid = site.SLid;
+            rowData.start_date = parseDateStringForContract(rowData.start_date) || rowData.start_date;
+            rowData.end_date = rowData.end_date ? parseDateStringForContract(rowData.end_date) : rowData.start_date;
+            if (!rowData.end_date) rowData.end_date = rowData.start_date;
+            if (rowData.contract_value) rowData.contract_value = String(rowData.contract_value).replace(/,/g, '');
+            if (rowData.site_device_pairs.length === 0) {
+              errors.push(`Row ${i + 2}: No devices found for SOF "${rowData.sof_name}" at site ${site.label}`);
+            }
+            contracts.push(rowData);
+          }
+          resolve({ contracts, errors });
+        } catch (err: any) {
+          reject(err);
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      if (file.name.endsWith('.csv')) reader.readAsText(file);
+      else reader.readAsArrayBuffer(file);
+    });
+  };
+
+  const handleImportContractFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls') && !file.name.endsWith('.csv')) {
+      toastError('Please upload .xlsx, .xls or .csv');
+      return;
+    }
+    try {
+      setIsImportingContract(true);
+      setImportContractErrors([]);
+      const { contracts: list, errors } = await parseContractExcelFile(file, importContractSites);
+      setImportContractErrors(errors);
+      setImportedContracts(list);
+    } catch (err: any) {
+      toastError(err?.message || 'Import failed');
+    } finally {
+      setIsImportingContract(false);
+      if (importContractFileRef.current) importContractFileRef.current.value = '';
+    }
+  };
+
+  const handleBulkCreateContracts = async () => {
+    if (importedContracts.length === 0) return;
+    setIsImportingContract(true);
+    const errors: string[] = [];
+    let successCount = 0;
+    for (let idx = 0; idx < importedContracts.length; idx++) {
+      const row = importedContracts[idx];
+      try {
+        if (!row.site_device_pairs || row.site_device_pairs.length === 0) {
+          errors.push(`Row ${idx + 2}: No devices - skip`);
+          continue;
+        }
+        const body = {
+          contract_name: row.contract_name,
+          start_date: row.start_date,
+          end_date: row.end_date,
+          sof_name: row.sof_name,
+          sla_term: row.sla_term || '12',
+          sale_account: row.sale_account || null,
+          contract_value: row.contract_value || null,
+          coverage_scope: row.coverage_scope || null,
+          site_device_pairs: row.site_device_pairs,
+        };
+        const res = await fetch(apiUrl('/api/contracts'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const json = await res.json();
+        if (json.success) {
+          successCount++;
+        } else {
+          errors.push(`Row ${idx + 2}: ${json.message || 'Failed'}`);
+        }
+      } catch (err: any) {
+        errors.push(`Row ${idx + 2}: ${err?.message || 'Failed'}`);
+      }
+    }
+    setIsImportingContract(false);
+    if (errors.length > 0 && successCount === 0) {
+      toastError(errors.slice(0, 3).join('; '));
+    } else if (errors.length > 0) {
+      toastSuccess(`Created ${successCount} contract(s). Some errors: ${errors.length}`);
+      setImportedContracts(importedContracts.filter((_, i) => !errors.some(e => e.startsWith(`Row ${i + 2}:`))));
+    } else {
+      toastSuccess(`Created ${successCount} contract(s) successfully`);
+      setIsImportContractModalOpen(false);
+      setImportedContracts([]);
+      setImportContractErrors([]);
+      router.refresh();
+    }
+    loadContracts();
+  };
+
+  const loadContracts = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/contracts'));
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        const list = (json.data as any[]).map((c: any) => ({
+          id: String(c.contract_id),
+          name: c.contract_name || '—',
+          partner: c.sale_account || c.site_name || '—',
+          startDate: c.start_date || '',
+          endDate: c.end_date || '',
+          value: String(c.contract_value ?? ''),
+          formattedValue: c.contract_value != null ? Number(c.contract_value).toLocaleString('th-TH') : '—',
+          formattedStartDate: formatDateThai(c.start_date),
+          formattedEndDate: formatDateThai(c.end_date),
+          status: deriveStatus(c.end_date),
+          deviceCount: c.device_count ?? 0,
+        }));
+        setContracts(list);
+      }
+    } catch (e) {
+      console.error('Load contracts:', e);
+    }
+  };
+
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -598,13 +919,18 @@ export default function ContractEditorPage() {
         </div>
           );
         })()}
-        <div className="flex gap-4 items-center mb-6 justify-end">
+        <div className="flex gap-3 items-center mb-6 justify-end">
+          <button
+            onClick={() => { setImportedContracts([]); setImportContractErrors([]); setIsImportContractModalOpen(true); }}
+            className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
+          >
+            <Download size={16} /> Import Contract
+          </button>
           <button
             onClick={() => router.push('/contract_editer/add')}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold text-sm cursor-pointer transition-all duration-300 flex items-center gap-2 hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
+            className="flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-blue-700 transition-colors"
           >
-            <Plus size={18} className="text-slate-500" />
-            Add New Contract
+            <Plus size={16} /> Add New Contract
           </button>
         </div>
 
@@ -672,8 +998,9 @@ export default function ContractEditorPage() {
         {/* Contracts Grid or Table */}
         {!contractsLoading && (
         viewMode === 'card' ? (
+        <div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(350px,1fr))] gap-6">
-          {filteredContracts.map((contract, idx) => (
+          {paginatedContracts.map((contract, idx) => (
             <div
               key={contract.id}
               className="bg-white border border-slate-200 rounded-[2rem] p-6 
@@ -762,6 +1089,33 @@ export default function ContractEditorPage() {
             </div>
           ))}
         </div>
+        {totalContracts > CONTRACT_CARD_PAGE_SIZE && (
+          <div className="flex items-center justify-between mt-6 py-3 px-4 bg-slate-50 rounded-xl border border-slate-200">
+            <span className="text-sm text-slate-600">
+              Show {(currentPage - 1) * CONTRACT_CARD_PAGE_SIZE + 1}–{Math.min(currentPage * CONTRACT_CARD_PAGE_SIZE, totalContracts)} from {totalContracts} list
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setContractPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={16} /> Previous Page
+              </button>
+              <span className="text-sm text-slate-600">Page {currentPage} / {cardTotalPages}</span>
+              <button
+                type="button"
+                onClick={() => setContractPage((p) => Math.min(cardTotalPages, p + 1))}
+                disabled={currentPage >= cardTotalPages}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next Page <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+        </div>
         ) : (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
@@ -779,7 +1133,7 @@ export default function ContractEditorPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredContracts.map((contract) => (
+                {paginatedContracts.map((contract) => (
                   <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                     <td className="py-4 px-4 text-sm font-medium text-slate-800">{contract.name}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.partner}</td>
@@ -832,6 +1186,32 @@ export default function ContractEditorPage() {
               </tbody>
             </table>
           </div>
+          {totalContracts > CONTRACT_TABLE_PAGE_SIZE && (
+            <div className="flex items-center justify-between py-3 px-4 border-t border-slate-200 bg-slate-50">
+              <span className="text-sm text-slate-600">
+                Show {(currentPage - 1) * CONTRACT_TABLE_PAGE_SIZE + 1}–{Math.min(currentPage * CONTRACT_TABLE_PAGE_SIZE, totalContracts)} from {totalContracts} list
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setContractPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={16} /> Previous Page
+                </button>
+                <span className="text-sm text-slate-600">Page {currentPage} / {tableTotalPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setContractPage((p) => Math.min(tableTotalPages, p + 1))}
+                  disabled={currentPage >= tableTotalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next Page <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         )
         )}
@@ -1368,48 +1748,82 @@ export default function ContractEditorPage() {
                     const getDevicesForSite = (slid: number) =>
                       devices.filter((d) => (d.contract_SLid ?? null) === slid);
 
-                    const renderDeviceTable = (deviceList: typeof devices) => (
-                      <div className="max-h-96 overflow-y-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-slate-50 sticky top-0">
-                            <tr>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">#</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Equipment Name</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Asset Number</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Serial</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Site</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Type</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Role</th>
-                              <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {deviceList.map((device, idx) => (
-                              <tr key={device.Did} className="border-b border-slate-100 hover:bg-slate-50">
-                                <td className="px-4 py-3 text-slate-500">{idx + 1}</td>
-                                <td className="px-4 py-3 font-medium text-slate-700">{device.CI_Name || '—'}</td>
-                                <td className="px-4 py-3 text-slate-600">{device.Asset_Number || '—'}</td>
-                                <td className="px-4 py-3 text-slate-600 font-mono text-xs">{device.serial || '—'}</td>
-                                <td className="px-4 py-3 text-slate-600">
-                                  {device.SiteName ? `${device.SiteName}${device.Location2 ? ` – ${device.Location2}` : ''}` : '—'}
-                                </td>
-                                <td className="px-4 py-3 text-slate-600">{device.type_name || '—'}</td>
-                                <td className="px-4 py-3">
-                                  {device.roleName ? (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-xs font-medium text-blue-700 border border-blue-200">
-                                      {device.roleName}
-                                    </span>
-                                  ) : (
-                                    <span className="text-xs text-slate-400">—</span>
-                                  )}
-                                </td>
-                                <td className="px-4 py-3 text-slate-600 text-xs">{device.Asset_State || '—'}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    );
+                    const renderDeviceTable = (deviceList: typeof devices) => {
+                      const total = deviceList.length;
+                      const maxPage = Math.max(0, Math.ceil(total / EQUIPMENT_PAGE_SIZE) - 1);
+                      const page = Math.min(detailEquipmentPage, maxPage);
+                      const start = page * EQUIPMENT_PAGE_SIZE;
+                      const sliced = deviceList.slice(start, start + EQUIPMENT_PAGE_SIZE);
+                      return (
+                        <div>
+                          <div className="max-h-96 overflow-y-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-slate-50 sticky top-0">
+                                <tr>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">#</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Equipment Name</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Asset Number</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Serial</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Site</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Type</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Role</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sliced.map((device, idx) => (
+                                  <tr key={device.Did} className="border-b border-slate-100 hover:bg-slate-50">
+                                    <td className="px-4 py-3 text-slate-500">{start + idx + 1}</td>
+                                    <td className="px-4 py-3 font-medium text-slate-700">{device.CI_Name || '—'}</td>
+                                    <td className="px-4 py-3 text-slate-600">{device.Asset_Number || '—'}</td>
+                                    <td className="px-4 py-3 text-slate-600 font-mono text-xs">{device.serial || '—'}</td>
+                                    <td className="px-4 py-3 text-slate-600">
+                                      {device.SiteName ? `${device.SiteName}${device.Location2 ? ` – ${device.Location2}` : ''}` : '—'}
+                                    </td>
+                                    <td className="px-4 py-3 text-slate-600">{device.type_name || '—'}</td>
+                                    <td className="px-4 py-3">
+                                      {device.roleName ? (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-xs font-medium text-blue-700 border border-blue-200">
+                                          {device.roleName}
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs text-slate-400">—</span>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-3 text-slate-600 text-xs">{device.Asset_State || '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          {total > EQUIPMENT_PAGE_SIZE && (
+                            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50">
+                              <span className="text-xs text-slate-600">
+                                Show {start + 1}–{start + sliced.length} from {total} list
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setDetailEquipmentPage((p) => Math.max(0, p - 1))}
+                                  disabled={page <= 0}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <ChevronLeft size={14} /> หน้าก่อน
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDetailEquipmentPage((p) => Math.min(maxPage, p + 1))}
+                                  disabled={page >= maxPage}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  หน้าถัดไป <ChevronRight size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    };
 
                     if (sites.length <= 1) {
                       const siteLabel = sites.length === 1
@@ -2070,6 +2484,183 @@ export default function ContractEditorPage() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Import Contract Modal (แบบเดียวกับ Import PM) */}
+      {isImportContractModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsImportContractModalOpen(false);
+              setImportedContracts([]);
+              setImportContractErrors([]);
+            }
+          }}
+        >
+          <div
+            className="bg-white w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-green-50 to-emerald-50">
+              <div className="flex items-center gap-3">
+                <FileSpreadsheet size={24} className="text-green-600" />
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Import Contracts from Excel/CSV</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Upload a file to create multiple contracts (Contract Name, SOF, Site, Location, dates, SLA, etc.)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsImportContractModalOpen(false);
+                  setImportedContracts([]);
+                  setImportContractErrors([]);
+                }}
+                className="p-1.5 bg-white rounded-full hover:bg-slate-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-green-400 transition-colors">
+                <input
+                  ref={importContractFileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  onChange={handleImportContractFileUpload}
+                  className="hidden"
+                  id="import-contract-file-input"
+                />
+                <label
+                  htmlFor="import-contract-file-input"
+                  className="cursor-pointer flex flex-col items-center gap-3"
+                >
+                  <div className="p-4 bg-green-100 rounded-full">
+                    <Download size={32} className="text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">
+                      {isImportingContract ? 'Parsing file...' : 'Click to upload Excel/CSV file'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Supports .xlsx, .xls, and .csv — Required: Contract Name, SOF, Site, Start Date, SLA Term
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                  <h4 className="text-xs font-bold text-blue-800">File Format Guide:</h4>
+                  <span className="inline-flex items-center gap-3">
+                    <a
+                      href="/contract_upload_template.csv"
+                      download="contract_upload_template.csv"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Template (CSV)
+                    </a>
+
+                  </span>
+                </div>
+                <div className="text-xs text-blue-700 space-y-1">
+                  <p><strong>Required columns:</strong></p>
+                  <ul className="ml-4 list-disc space-y-0.5">
+                    <li><strong>Contract Name</strong> — contract_name</li>
+                    <li><strong>SOF</strong> — sof number</li>
+                    <li><strong>Site</strong> — site name (must match Site + Location)</li>
+                    <li><strong>Location</strong> — optional, helps match site</li>
+                    <li><strong>Start Date</strong> — start date (e.g. 2026-01-01)</li>
+                    <li><strong>End Date</strong> — end date (optional, defaults to start)</li>
+                    <li><strong>SLA Term</strong> — sla term (e.g. 100)</li>
+                  </ul>
+                  <p className="mt-2"><strong>Optional:</strong> Sale Account, Contract Value, Coverage Scope</p>
+                  <p className="mt-2"><strong>Devices :</strong> Devices เช่น FGL2314A91L,FGL2314A92L หรือ FGL2314B01L;FGL2314B02L </p>
+
+                </div>
+              </div>
+
+              {importContractErrors.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <h4 className="text-xs font-bold text-red-800 mb-2">Validation Errors:</h4>
+                  <ul className="text-xs text-red-700 space-y-1 max-h-32 overflow-y-auto">
+                    {importContractErrors.map((error, idx) => (
+                      <li key={idx}>• {error}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {importedContracts.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-slate-700 mb-2">
+                    Preview ({importedContracts.length} contract(s) ready to import):
+                  </h4>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="max-h-64 overflow-x-auto overflow-y-auto">
+                      <table className="w-full text-xs min-w-full">
+                        <thead className="bg-slate-100 sticky top-0">
+                          <tr>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Contract Name</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">SOF</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Site</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Start</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">End</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">SLA</th>
+                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Devices</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importedContracts.map((row, idx) => (
+                            <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
+                              <td className="px-2 py-2 min-w-[160px]">{row.contract_name || '—'}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">{row.sof_name || '—'}</td>
+                              <td className="px-2 py-2 min-w-[120px]">{row.siteName || '—'} {row.location ? `(${row.location})` : ''}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">{row.start_date || '—'}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">{row.end_date || '—'}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">{row.sla_term || '—'}</td>
+                              <td className="px-2 py-2 text-center">
+                                {row.site_device_pairs?.reduce((n: number, p: any) => n + (p.device_ids?.length || 0), 0) ?? 0}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-slate-50">
+              <button
+                onClick={() => {
+                  setIsImportContractModalOpen(false);
+                  setImportedContracts([]);
+                  setImportContractErrors([]);
+                }}
+                className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkCreateContracts}
+                disabled={importedContracts.length === 0 || isImportingContract}
+                className={`px-6 py-2 text-sm font-bold text-white rounded-lg transition-all ${
+                  importedContracts.length === 0 || isImportingContract
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-green-500 hover:bg-green-600'
+                }`}
+              >
+                {isImportingContract ? 'Importing...' : `Import ${importedContracts.length} Contract(s)`}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -251,7 +251,7 @@ const createContract = async (req, res) => {
       siteId && !isNaN(siteId) ? siteId : null,
       sofValue,
       slaTermInt,
-      assignedServiceVal || null,
+      (assignedServiceVal && String(assignedServiceVal).trim()) ? assignedServiceVal.trim() : '',
       sale_account && String(sale_account).trim() ? sale_account.trim() : null,
       contractValue,
       coverage_scope && String(coverage_scope).trim() ? coverage_scope.trim() : null,

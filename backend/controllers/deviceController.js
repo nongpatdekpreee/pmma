@@ -1248,6 +1248,29 @@ const getDevicesBySOFAndSite = async (req, res) => {
   }
 };
 
+// GET - ดึง Devices ตาม Serial (หลายตัว คั่นด้วย comma) สำหรับ Import Contract
+// query: serials=FGL2314A91L,FGL2314A92L หรือ serials=FGL2314A91L
+const getDevicesBySerials = async (req, res) => {
+  try {
+    const raw = req.query.serials || req.query.serial || '';
+    const list = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+    if (list.length === 0) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+    const placeholders = list.map(() => 'TRIM(serial) = ?').join(' OR ');
+    const sql = `SELECT Did, serial FROM devices WHERE ${placeholders}`;
+    const [rows] = await db.execute(sql, list);
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices by serials:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Serial',
+      error: error.message
+    });
+  }
+};
+
 // GET - ดึง Devices ที่ยังไม่มี SOF (Refer_SOF เป็น NULL, '' หรือ 'Not Assigned') และยังไม่มี contract
 // เงื่อนไข: ไม่มี contract (contract.device_id, contract_device) และ Refer_SOF = NULL หรือ 'Not Assigned'
 // ถ้ามี site_id = กรองตาม site นั้น; ถ้าไม่มี = แสดงทุกอันที่ SLid = 2
@@ -1969,6 +1992,7 @@ module.exports = {
   getVendors,                // GET (distinct Project_purchase สำหรับ dropdown)
   getReferSOFList,           // GET (unique Refer_SOF values)
   getDevicesBySOFAndSite,    // GET (devices ตาม Refer_SOF และ site_id)
+  getDevicesBySerials,       // GET (devices ตาม serial หลายตัว ?serials=A,B,C)
   getDevicesBySiteNoSOF,     // GET (devices ตาม site_id ที่ยังไม่มี SOF)
   getDevicesBySite,          // GET (devices ตาม site_id สำหรับ Asset Binding)
   getDevicesByAssetState,    // GET (devices ตาม Asset_State สำหรับ MA)
