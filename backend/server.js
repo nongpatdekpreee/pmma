@@ -1,8 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const path = require('path');
-const fs = require('fs');
 require('dotenv').config();
 
 // โหลด config database เพื่อทดสอบการเชื่อมต่อตอน start server
@@ -10,17 +8,6 @@ require('./config/database');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// สร้างโฟลเดอร์ uploads สำหรับเก็บไฟล์และรูป
-const uploadsDir = path.join(__dirname, 'uploads');
-const contractsUploadDir = path.join(uploadsDir, 'contracts');
-const reportsUploadDir = path.join(uploadsDir, 'reports');
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-if (!fs.existsSync(contractsUploadDir)) fs.mkdirSync(contractsUploadDir, { recursive: true });
-if (!fs.existsSync(reportsUploadDir)) fs.mkdirSync(reportsUploadDir, { recursive: true });
-
-// เสิร์ฟไฟล์ใน uploads (รูป/ไฟล์ที่อัปโหลด)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Middleware
 app.use(cors());
@@ -42,24 +29,6 @@ app.use('/api/device-types', deviceTypeRoutes);
 
 const deviceRoutes = require('./routes/deviceRoutes');
 app.use('/api/devices', deviceRoutes);
-
-const contractRoutes = require('./routes/contractRoutes');
-app.use('/api/contracts', contractRoutes);
-
-const taskRoutes = require('./routes/taskRoutes');
-app.use('/api/tasks', taskRoutes);
-
-const employeeRoutes = require('./routes/employeeRoutes');
-app.use('/api/employees', employeeRoutes);
-
-const analyticsRoutes = require('./routes/analyticsRoutes');
-app.use('/api/analytics', analyticsRoutes);
-
-const reportRoutes = require('./routes/reportRoutes');
-app.use('/api/reports', reportRoutes);
-// backward compatibility
-app.use('/api/pm-reports', reportRoutes);
-app.use('/api/ma-reports', reportRoutes);
 
 app.get('/', (req, res) => {
   res.json({
