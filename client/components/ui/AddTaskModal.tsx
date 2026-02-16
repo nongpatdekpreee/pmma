@@ -6,6 +6,7 @@ import {
   Link as LinkIcon,
   ShieldCheck,
   CalendarClock,
+  Calendar,
   Plus,
   Search,
   ChevronDown,
@@ -81,12 +82,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   /* ===== MA Contract fields (เหมือน PM) ===== */
   const [vendorName, setVendorName] = useState('');
+  const [vendorTel, setVendorTel] = useState('');
+  const [vendorTelError, setVendorTelError] = useState('');
   const [duration, setDuration] = useState('');
   const [assetBinding, setAssetBinding] = useState('');
   const [replacementDevices, setReplacementDevices] = useState<Device[]>([]);
   const [selectedReplacementDevice, setSelectedReplacementDevice] = useState<Device | null>(null);
   const [loadingReplacementDevices, setLoadingReplacementDevices] = useState(false);
-  
+
   interface BrokenDevicePair {
     id: string; // unique ID for this pair
     brokenDevice: Device;
@@ -131,6 +134,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const siteDropdownRef = useRef<HTMLDivElement>(null);
   const contractDropdownRef = useRef<HTMLDivElement>(null);
   const devicesMappedRef = useRef<string>('');
+  const startDatePickerRef = useRef<HTMLInputElement>(null);
+  const endDatePickerRef = useRef<HTMLInputElement>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [loadingEngineers, setLoadingEngineers] = useState(false);
 
@@ -145,6 +150,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setEndDate('');
     setCoverageScope('');
     setVendorName('');
+    setVendorTel('');
+    setVendorTelError('');
     setDuration('');
     setAssetBinding('');
     setContractOptions([]);
@@ -173,7 +180,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     name: item.CI_Name || item.name || item.Asset_Number || 'Device',
     Dtypeid: item.Dtypeid,
     DeRoleid: item.DeRoleid,
-    type: item.model || item.type || 'Device',
+    type: item.model || item.type || item.type_name || '',
     serialNumber: item.serial || item.serialNumber || '',
     site: item.SiteName || item.site || (item.SLid ? `SL-${item.SLid}` : undefined),
     assetState: item.Asset_State || item.assetState,
@@ -321,12 +328,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getContractsBySite();
       if (!result.success) {
-        throw new Error('ไม่สามารถดึงข้อมูลสัญญาได้');
+        throw new Error('Cannot load contracts');
       }
       return result.data || [];
     } catch (error: any) {
       console.error('fetchAllContracts error:', error);
-      throw new Error(error.message || 'โหลดสัญญาไม่สำเร็จ');
+      throw new Error(error.message || 'Cannot load contracts');
     }
   };
 
@@ -339,7 +346,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setContractOptions(contracts);
     } catch (error: any) {
       console.error('loadAllContracts error:', error);
-      setDeviceError(error.message || 'ไม่สามารถโหลดสัญญาได้');
+      setDeviceError(error.message || 'Cannot load contracts');
       setContractOptions([]);
     } finally {
       setLoadingContracts(false);
@@ -376,7 +383,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }
     } catch (error: any) {
       console.error('loadSitesForContract error:', error);
-      setDeviceError(error.message || 'ไม่สามารถโหลด Sites ได้');
+      setDeviceError(error.message || 'Cannot load sites');
       setSiteOptions([]);
     } finally {
       setLoadingSites(false);
@@ -391,7 +398,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       // For MA: only load devices from Contract (broken devices must be from contract)
       // For PM: load from contract only
       const contractList = contractId ? await fetchDevicesByContract(contractId) : [];
-      
+
       // Only load available devices for replacement device selection (not for broken device selection)
       if (currentTaskType === 'MA') {
         const availableList = await fetchAvailableDevices();
@@ -399,10 +406,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       } else {
         setAvailableNewDevices([]);
       }
-      
+
       // For broken device selection: only use contract devices
       setDevices(contractList);
-      
+
       // If we have preserved devices from editing, keep them (don't filter them out)
       if (preserveSelectedDevices.length > 0) {
         // Keep preserved devices - they should already be valid from the contract
@@ -414,7 +421,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setShowAll(false);
     } catch (error: any) {
       console.error('loadDevicesForSelection error:', error);
-      setDeviceError(error.message || 'ไม่สามารถโหลดอุปกรณ์ได้');
+      setDeviceError(error.message || 'Cannot load devices');
     } finally {
       setLoadingDevices(false);
     }
@@ -431,10 +438,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setSid(editingEvent.Sid ? String(editingEvent.Sid) : editingEvent.siteId ? String(editingEvent.siteId) : '');
       setSname(editingEvent.Sname || editingEvent.siteName || '');
       setSelectedEngineers(editingEvent.Eng_ids || editingEvent.engineers || []);
-      setStartDate(editingEvent.startDate || '');
-      setEndDate(editingEvent.endDate || '');
+      const start = editingEvent.startDate || '';
+      const end = editingEvent.endDate || '';
+      setStartDate(start);
+      setEndDate(end);
       setCoverageScope(editingEvent.coverageScope || '');
       setVendorName(editingEvent.vendorName || '');
+      setVendorTel(editingEvent.vendorTel || editingEvent.vendor_tel || '');
       setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
       setAssetBinding(editingEvent.assetBinding || '');
       const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
@@ -465,7 +475,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             }
             return { id: repId } as Device;
           };
-          
+
           const fetchDeviceDetails = async (deviceId: string | number): Promise<Device> => {
             try {
               const res = await fetch(apiUrl(`/api/devices/${deviceId}`));
@@ -478,11 +488,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             }
             return editingAssets.find((a: Device) => String(a.id) === String(deviceId)) || { id: deviceId } as Device;
           };
-          
+
           const brokenDevicesWithDetails = await Promise.all(
             editingAssets.map((asset: Device) => fetchDeviceDetails(asset.id))
           );
-          
+
           // แต่ละ asset อาจมี replacementDeviceId (จากที่ save ไว้) หรือใช้ task.replacementDeviceId สำหรับตัวแรก
           const replacementIds = editingAssets.map((a: any, i: number) =>
             a.replacementDeviceId ?? (i === 0 ? editingEvent.replacementDeviceId : null)
@@ -490,7 +500,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           const replacementDetails = await Promise.all(
             replacementIds.map((id) => fetchReplacementDetails(id))
           );
-          
+
           const pairs: BrokenDevicePair[] = brokenDevicesWithDetails.map((device: Device, index: number) => ({
             id: crypto.randomUUID(),
             brokenDevice: device,
@@ -498,16 +508,16 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             replacementDevices: [],
             loading: false,
           }));
-          
+
           setBrokenDevicePairs(pairs);
-          
+
           pairs.forEach((pair) => {
             if (pair.brokenDevice.Dtypeid && pair.brokenDevice.DeRoleid) {
               loadReplacementDevicesForPair(pair.id, pair.brokenDevice.Dtypeid, pair.brokenDevice.DeRoleid);
             }
           });
         };
-        
+
         initializeBrokenDevicePairs();
       } else {
         setBrokenDevicePairs([]);
@@ -545,7 +555,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   // Load engineers from API when modal opens
   useEffect(() => {
     if (!isOpen) return;
-    
+
     const loadEngineers = async () => {
       setLoadingEngineers(true);
       try {
@@ -569,14 +579,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         setLoadingEngineers(false);
       }
     };
-    
+
     loadEngineers();
   }, [isOpen]);
 
   // Load manufacturers, device roles, and device types when modal opens
   useEffect(() => {
     if (!isOpen) return;
-    
+
     const loadManufacturers = async () => {
       setLoadingManufacturers(true);
       try {
@@ -660,27 +670,27 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       return;
     }
     if (deviceRoles.length === 0 && deviceTypes.length === 0) return;
-    
+
     // Only re-map if we haven't mapped these devices yet, or if roles/types have changed
     const currentDevicesKey = devices.map(d => `${d.id}-${d.DeRoleid}-${d.Dtypeid}`).join(',');
     const rolesKey = deviceRoles.map(r => `${r.DeRoleid}-${r.name}`).join(',');
     const typesKey = deviceTypes.map(t => `${t.Dtypeid}-${t.manufacturer_name}`).join(',');
     const cacheKey = `${currentDevicesKey}|${rolesKey}|${typesKey}`;
-    
+
     if (devicesMappedRef.current === cacheKey) return;
-    
+
     const remappedDevices = devices.map((device) => {
-      const role = device.DeRoleid != null 
-        ? deviceRoles.find(r => r.DeRoleid === device.DeRoleid)?.name 
+      const role = device.DeRoleid != null
+        ? deviceRoles.find(r => r.DeRoleid === device.DeRoleid)?.name
         : device.role;
-      
+
       const deviceType = device.Dtypeid != null
         ? deviceTypes.find(t => t.Dtypeid === device.Dtypeid)
         : null;
-      
+
       const manufacturer = deviceType?.manufacturer_name || device.manufacturer;
       const model = deviceType?.model || device.type; // Use model from deviceTypes, fallback to type
-      
+
       return {
         ...device,
         role,
@@ -688,18 +698,18 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         model,
       };
     });
-    
+
     setDevices(remappedDevices);
     devicesMappedRef.current = cacheKey;
-    
+
     // Also update selectedDevices to maintain role, manufacturer, and model
     setSelectedDevices(prev => prev.map(selected => {
       const updated = remappedDevices.find(d => d.id === selected.id);
-      return updated ? { 
-        ...selected, 
-        role: updated.role, 
+      return updated ? {
+        ...selected,
+        role: updated.role,
         manufacturer: updated.manufacturer,
-        model: updated.model 
+        model: updated.model
       } : selected;
     }));
   }, [devices, deviceRoles, deviceTypes]);
@@ -730,7 +740,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const months = parseInt(duration, 10);
       const end = new Date(start);
       end.setMonth(end.getMonth() + months);
-      setEndDate(end.toISOString().split('T')[0]);
+      const endStr = end.toISOString().split('T')[0];
+      setEndDate(endStr);
     }
   }, [startDate, duration, taskType]);
 
@@ -938,25 +949,25 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   // กรอง sites ตามคำค้นหา
   const filteredSiteOptions = siteSearch.trim()
     ? siteOptions.filter((s) => {
-        const searchLower = siteSearch.toLowerCase();
-        return (
-          s.label.toLowerCase().includes(searchLower) ||
-          s.name.toLowerCase().includes(searchLower) ||
-          s.id.toLowerCase().includes(searchLower)
-        );
-      })
+      const searchLower = siteSearch.toLowerCase();
+      return (
+        s.label.toLowerCase().includes(searchLower) ||
+        s.name.toLowerCase().includes(searchLower) ||
+        s.id.toLowerCase().includes(searchLower)
+      );
+    })
     : siteOptions;
 
   // กรอง contracts ตามคำค้นหา
   const filteredContractOptions = contractSearch.trim()
     ? contractOptions.filter((c) => {
-        const searchLower = contractSearch.toLowerCase();
-        return (
-          (c.contract_name || '').toLowerCase().includes(searchLower) ||
-          String(c.contract_id).toLowerCase().includes(searchLower) ||
-          (c.sof_name || '').toLowerCase().includes(searchLower)
-        );
-      })
+      const searchLower = contractSearch.toLowerCase();
+      return (
+        (c.contract_name || '').toLowerCase().includes(searchLower) ||
+        String(c.contract_id).toLowerCase().includes(searchLower) ||
+        (c.sof_name || '').toLowerCase().includes(searchLower)
+      );
+    })
     : contractOptions;
 
   // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices)
@@ -967,7 +978,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const uniqueDeviceTypes = Array.from(new Set(devicesToShow.map(d => d.type).filter(Boolean))).sort();
   const uniqueDeviceSites = Array.from(new Set(devicesToShow.map(d => d.site).filter(Boolean))).sort();
   const uniqueDeviceRoles = Array.from(new Set(devicesToShow.map(d => d.role).filter(Boolean))).sort();
-  
+
   // Get unique models from devicesToShow, but use deviceTypes data if available for better accuracy
   // Filter out 'Device' fallback value and empty values
   const modelsFromDevices = devicesToShow
@@ -982,7 +993,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     })
     .filter(Boolean) as string[];
   const uniqueDeviceModels = Array.from(new Set(modelsFromDevices)).sort();
-  
+
   // Use manufacturers from API (database) - sorted by name
   // Similar to DeviceSelectModal - use all manufacturers from API for better coverage
   const uniqueDeviceManufacturers = manufacturers.map(m => m.name).sort();
@@ -991,9 +1002,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const deviceSearchPmQ = deviceSearchPm.trim().toLowerCase();
   let devicesToShowFilteredPm = deviceSearchPmQ
     ? devicesToShow.filter((d) => {
-        const s = [d.name, d.type, d.serialNumber, d.assetNumber, d.site, d.assetState].filter(Boolean).join(' ').toLowerCase();
-        return deviceSearchPmQ.split(/\s+/).filter(Boolean).every((p) => s.includes(p));
-      })
+      const s = [d.name, d.type, d.serialNumber, d.assetNumber, d.site, d.assetState].filter(Boolean).join(' ').toLowerCase();
+      return deviceSearchPmQ.split(/\s+/).filter(Boolean).every((p) => s.includes(p));
+    })
     : devicesToShow;
 
   // Apply type filter
@@ -1054,10 +1065,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const handleSelectAll = () => {
     const allIds = new Set(paginatedDevices.map(d => d.id));
     const currentSelectedIds = new Set(selectedDevices.map(d => d.id));
-    
+
     // Check if all current page items are selected
     const allSelected = paginatedDevices.every(d => currentSelectedIds.has(d.id));
-    
+
     if (allSelected) {
       // Deselect all items on current page
       setSelectedDevices(prev => prev.filter(d => !allIds.has(d.id)));
@@ -1072,10 +1083,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     // Use availableDevices (already filtered out selected ones)
     const allAvailableIds = new Set(availableDevices.map(d => d.id));
     const currentSelectedIds = new Set(selectedDevices.map(d => d.id));
-    
+
     // Check if all available items are selected
     const allSelected = availableDevices.length > 0 && availableDevices.every(d => currentSelectedIds.has(d.id));
-    
+
     if (allSelected) {
       // Deselect all filtered items
       setSelectedDevices(prev => prev.filter(d => !allAvailableIds.has(d.id)));
@@ -1108,6 +1119,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         alert('Please fill required MA fields: Vendor Name and Start Date');
         return;
       }
+      // Validate Tel number: if provided, must be 4-10 digits
+      if (vendorTel && (vendorTel.length < 4 || vendorTel.length > 10)) {
+        alert('Tel number must be between 4 and 10 digits');
+        return;
+      }
       // Contract is required for MA because broken devices must come from contract
       if (!selectedContractId) {
         alert('กรุณาเลือก Contract ก่อน (อุปกรณ์เสียต้องเป็นอุปกรณ์ที่ผูกกับ Contract)');
@@ -1135,27 +1151,27 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     // For MA: use brokenDevicePairs (แต่ละ asset มี replacementDeviceId ของตัวเอง), for PM: use selectedDevices
     const maAssets = taskType === 'MA' && brokenDevicePairs.length > 0
       ? brokenDevicePairs.map(pair => ({
-          ...pair.brokenDevice,
-          replacementDeviceId: pair.replacementDevice
-            ? (typeof pair.replacementDevice.id === 'number' ? pair.replacementDevice.id : parseInt(String(pair.replacementDevice.id), 10))
-            : null,
-        }))
+        ...pair.brokenDevice,
+        replacementDeviceId: pair.replacementDevice
+          ? (typeof pair.replacementDevice.id === 'number' ? pair.replacementDevice.id : parseInt(String(pair.replacementDevice.id), 10))
+          : null,
+      }))
       : selectedDevices;
-    
+
     // Backward compat: first replacement for replacement_device_id column
     const maReplacementDeviceId = taskType === 'MA' && brokenDevicePairs.length > 0 && brokenDevicePairs[0].replacementDevice
       ? (() => {
-          const id = brokenDevicePairs[0].replacementDevice!.id;
-          const num = typeof id === 'number' ? id : parseInt(String(id), 10);
-          return isNaN(num) ? null : num;
-        })()
+        const id = brokenDevicePairs[0].replacementDevice!.id;
+        const num = typeof id === 'number' ? id : parseInt(String(id), 10);
+        return isNaN(num) ? null : num;
+      })()
       : taskType === 'MA' && selectedReplacementDevice
-      ? (() => {
+        ? (() => {
           const id = selectedReplacementDevice.id;
           const num = typeof id === 'number' ? id : parseInt(String(id), 10);
           return isNaN(num) ? null : num;
         })()
-      : null;
+        : null;
 
     const payload = {
       ...(editingEvent?.id && { id: editingEvent.id }),
@@ -1173,6 +1189,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       assets: maAssets,
       // MA Contract fields (เหมือน PM)
       vendorName: taskType === 'MA' ? vendorName : null,
+      vendorTel: taskType === 'MA' ? vendorTel : null,
       assetBinding: taskType === 'MA' ? assetBinding : null,
       replacementDeviceId: maReplacementDeviceId,
       status: editingEvent?.status || 'not-started',
@@ -1194,7 +1211,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   /* ================= render ================= */
   return (
-    <div 
+    <div
       className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={(e) => {
         // ปิด modal เมื่อคลิกที่ overlay (นอก modal content)
@@ -1203,7 +1220,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         }
       }}
     >
-      <div 
+      <div
         className="w-full max-w-4xl h-[90vh] max-h-[800px] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => {
           // ป้องกันไม่ให้ปิด modal เมื่อคลิกที่ modal content
@@ -1248,31 +1265,15 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         {/* ===== body ===== */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
 
-          {/* MA Contract Info (Vendor & SLA) */}
-          {taskType === 'MA' && (
-            <div className={sectionCard}>
-              <h3 className="text-xs font-bold text-slate-700">Contract Information</h3>
 
-              <div>
-                <label className={fieldLabel}>Vendor Name *</label>
-                <input
-                  type="text"
-                  value={vendorName}
-                  onChange={(e) => setVendorName(e.target.value)}
-                  placeholder="Enter vendor name"
-                  className={inputBase}
-                />
-              </div>
-            </div>
-          )}
 
           {/* Site & Contract (เลือก Site ก่อน แล้วค่อย Contract) */}
           <div className={sectionCard}>
             <h3 className="text-xs font-bold text-slate-700">Site & Contract Information</h3>
 
             <div>
-              <label className={fieldLabel}>Site Name *</label>
-              
+              <label className={fieldLabel}>Site Name <span className="text-red-500">*</span></label>
+
               {/* Custom Searchable Combobox for Sites */}
               <div className="relative" ref={siteDropdownRef}>
                 <div className="relative">
@@ -1294,24 +1295,24 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     }}
                     placeholder={loadingSites ? 'Loading sites...' : 'ค้นหาหรือเลือก Site...'}
                     disabled={loadingSites}
-                    className={`w-full pl-10 ${Sid || siteSearch ? 'pr-20' : 'pr-10'} py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingSites ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
+                    className={`w-full pl-10 pr-16 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingSites ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
                   />
-                  {Sid || siteSearch ? (
+                  {(Sid || siteSearch.trim()) && !loadingSites && (
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleClearSite();
                       }}
-                      className="absolute right-8 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                      title="เคลียร์ Site"
+                      className="absolute right-9 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                      title="Clear"
                     >
-                      <X size={14} />
+                      <X size={16} />
                     </button>
-                  ) : null}
-                  <ChevronDown 
-                    size={16} 
-                    className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showSiteDropdown ? 'rotate-180' : ''}`} 
+                  )}
+                  <ChevronDown
+                    size={16}
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showSiteDropdown ? 'rotate-180' : ''}`}
                   />
                 </div>
 
@@ -1355,21 +1356,21 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Contract Selection - appears after site is selected */}
             {Sid && (
               <div>
-                <label className={fieldLabel}>Contract *</label>
-                
+                <label className={fieldLabel}>Contract <span className="text-red-500">*</span></label>
+
                 {/* Custom Searchable Combobox for Contracts */}
                 <div className="relative" ref={contractDropdownRef}>
                   <div className="relative">
                     <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                     <input
                       type="text"
-                      value={showContractDropdown ? contractSearch : (selectedContractId 
+                      value={showContractDropdown ? contractSearch : (selectedContractId
                         ? (() => {
-                            const contract = contractOptions.find(c => String(c.contract_id) === selectedContractId);
-                            return contract 
-                              ? `${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`
-                              : '';
-                          })()
+                          const contract = contractOptions.find(c => String(c.contract_id) === selectedContractId);
+                          return contract
+                            ? `${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`
+                            : '';
+                        })()
                         : '')}
                       onChange={(e) => {
                         setContractSearch(e.target.value);
@@ -1388,11 +1389,25 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       }}
                       placeholder={loadingContracts ? 'Loading contracts...' : 'ค้นหาหรือเลือก Contract...'}
                       disabled={loadingContracts}
-                      className={`w-full pl-10 pr-10 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingContracts ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
+                      className={`w-full pl-10 pr-16 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingContracts ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
                     />
-                    <ChevronDown 
-                      size={16} 
-                      className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showContractDropdown ? 'rotate-180' : ''}`} 
+                    {(selectedContractId || contractSearch.trim()) && !loadingContracts && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleContractChange('');
+                          setContractSearch('');
+                          setShowContractDropdown(false);
+                        }}
+                        className="absolute right-9 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                        title="Clear"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                    <ChevronDown
+                      size={16}
+                      className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showContractDropdown ? 'rotate-180' : ''}`}
                     />
                   </div>
 
@@ -1435,16 +1450,16 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               </div>
             )}
           </div>
-          
+
           <div className={sectionCard}>
-          {taskType === 'PM' && (
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-700">Asset Binding</h3>
-              <span className="text-xs text-slate-400">
-                {selectedDevices.length} selected
-              </span>
-            </div>
-            )} 
+            {taskType === 'PM' && (
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-700">Asset Binding</h3>
+                <span className="text-xs text-slate-400">
+                  {selectedDevices.length} selected
+                </span>
+              </div>
+            )}
 
             {deviceError && <p className="text-xs text-red-500">{deviceError}</p>}
             {loadingDevices && <p className="text-xs text-slate-400">กำลังโหลดข้อมูลอุปกรณ์...</p>}
@@ -1463,22 +1478,21 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                     />
                   </div>
-                  
+
                   {/* Filter Controls */}
                   <div className="space-y-2">
                     {/* First Row: Role, Model, Manufacturer, Select All, Clear All */}
                     <div className="grid grid-cols-5 gap-2">
                       {/* Role Filter */}
                       <div className="relative">
-                        
+
                         <select
                           value={deviceRoleFilter}
                           onChange={(e) => setDeviceRoleFilter(e.target.value)}
-                          className={`w-full pl-9 ${deviceRoleFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${
-                            deviceRoleFilter
+                          className={`w-full pl-9 ${deviceRoleFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${deviceRoleFilter
                               ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
                               : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
-                          }`}
+                            }`}
                         >
                           <option value="">All Role</option>
                           {uniqueDeviceRoles.map((role) => (
@@ -1500,23 +1514,22 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             <X size={12} />
                           </button>
                         )}
-                        <ChevronDown 
-                          size={14} 
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10" 
+                        <ChevronDown
+                          size={14}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"
                         />
                       </div>
-                      
+
                       {/* Model Filter */}
                       <div className="relative">
-                        
+
                         <select
                           value={deviceModelFilter}
                           onChange={(e) => setDeviceModelFilter(e.target.value)}
-                          className={`w-full pl-9 ${deviceModelFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${
-                            deviceModelFilter
+                          className={`w-full pl-9 ${deviceModelFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${deviceModelFilter
                               ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
                               : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
-                          }`}
+                            }`}
                         >
                           <option value="">All Model</option>
                           {uniqueDeviceModels.map((model) => (
@@ -1538,23 +1551,22 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             <X size={12} />
                           </button>
                         )}
-                        <ChevronDown 
-                          size={14} 
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10" 
+                        <ChevronDown
+                          size={14}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"
                         />
                       </div>
-                      
+
                       {/* Manufacturer Filter */}
                       <div className="relative">
                         <select
                           value={deviceManufacturerFilter}
                           onChange={(e) => setDeviceManufacturerFilter(e.target.value)}
                           disabled={loadingManufacturers}
-                          className={`w-full pl-9 ${deviceManufacturerFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                            deviceManufacturerFilter
+                          className={`w-full pl-9 ${deviceManufacturerFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${deviceManufacturerFilter
                               ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
                               : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
-                          }`}
+                            }`}
                         >
                           <option value="">All Manufacturer</option>
                           {loadingManufacturers ? (
@@ -1581,34 +1593,33 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             <X size={12} />
                           </button>
                         )}
-                        <ChevronDown 
-                          size={14} 
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10" 
+                        <ChevronDown
+                          size={14}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"
                         />
                       </div>
-                      
+
                       {/* Select All Button */}
                       <div className="flex items-center">
                         {(() => {
                           const allSelected = availableDevices.length > 0 && availableDevices.every((d) => selectedDevices.some(s => s.id === d.id));
-                          
+
                           return (
                             <button
                               type="button"
                               onClick={handleSelectAllFiltered}
-                              className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                                allSelected
+                              className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${allSelected
                                   ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm'
                                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200 shadow-sm'
-                              }`}
+                                }`}
                             >
-                              
+
                               <span>Select All</span>
                             </button>
                           );
                         })()}
                       </div>
-                      
+
                       {/* Clear All Button */}
                       <div className="flex items-center">
                         <button
@@ -1622,7 +1633,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     </div>
                   </div>
                 </div>
-                
+
                 {/* Device List with Pagination */}
                 <div className="space-y-1.5 max-h-48 overflow-y-auto">
                   {paginatedDevices.map((d) => {
@@ -1636,7 +1647,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         <div>
                           <p className="text-xs font-medium">{d.name}</p>
                           <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400">
-                            <span>Type: {d.type}</span>
+                            <span>Type: {d.role || d.type || '-'}</span>
                             {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
                             {d.site && <span>| Site: {d.site}</span>}
                             {d.assetState && <span>| State: {d.assetState}</span>}
@@ -1709,7 +1720,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
                         >
                           <td className="px-3 py-2 text-slate-800">{d.name}</td>
-                          <td className="px-3 py-2 text-slate-600">{d.type || '-'}</td>
+                          <td className="px-3 py-2 text-slate-600">{d.role || '-'}</td>
                           <td className="px-3 py-2 text-slate-600">{d.serialNumber || '-'}</td>
                           <td className="px-3 py-2 text-slate-600">{d.site || '-'}</td>
                           <td className="px-3 py-2 text-slate-600">{d.assetState || '-'}</td>
@@ -1734,14 +1745,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Broken Device Pairs (for MA only) */}
             {taskType === 'MA' && (
               <div className="border-slate-200">
-                <label className={fieldLabel}>Broken Device and Replacement Device *</label>
+                <label className={fieldLabel}>Broken Device and Replacement Device <span className="text-red-500">*</span></label>
 
                 {/* First broken device selection (if no pairs yet) */}
                 {brokenDevicePairs.length === 0 && (
                   <div className="space-y-3">
                     <div>
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Broken Device 1 *
+                        Broken Device 1 <span className="text-red-500">*</span>
                       </label>
                       {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
@@ -1768,7 +1779,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           Broken Device {index + 1}: {pair.brokenDevice.name}
                         </p>
                         <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-500">
-                          <span>Type: {pair.brokenDevice.type}</span>
+                          <span>Type: {pair.brokenDevice.role || pair.brokenDevice.type || '-'}</span>
                           {pair.brokenDevice.serialNumber && <span>| SN: {pair.brokenDevice.serialNumber}</span>}
                           {pair.brokenDevice.assetNumber && <span>| Asset: {pair.brokenDevice.assetNumber}</span>}
                         </div>
@@ -1784,7 +1795,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Replacement Device *
+                        Replacement Device <span className="text-red-500">*</span>
                       </label>
                       {pair.loading ? (
                         <p className="text-xs text-slate-400">กำลังโหลด...</p>
@@ -1828,13 +1839,106 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             )}
 
           </div>
+          {/* MA Contract Info (Vendor & SLA) */}
+          {taskType === 'MA' && (
+            <div className={sectionCard}>
+              <h3 className="text-xs font-bold text-slate-700">Contract Information</h3>
 
+              <div className="grid grid-cols-[70%_1fr] gap-4 items-end">
+                <div>
+                  <label className={fieldLabel}>Vendor Name <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={vendorName}
+                    onChange={(e) => setVendorName(e.target.value)}
+                    placeholder="Enter vendor name"
+                    className={`${inputBase} border-2 focus:border-2`}
+                  />
+                </div>
+                <div>
+                  <label className={fieldLabel}>Tel number</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={vendorTel}
+                      onKeyDown={(e) => {
+                        // อนุญาตเฉพาะตัวเลขและคีย์พิเศษ (Backspace, Delete, Arrow keys, Tab, etc.)
+                        const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Home', 'End'];
+                        const isDigit = /^[0-9]$/.test(e.key);
+                        const isAllowedKey = allowedKeys.includes(e.key) || (e.ctrlKey && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase()));
+                        
+                        if (!isDigit && !isAllowedKey) {
+                          // ป้องกันตัวอักษรและอักขระอื่นๆ
+                          e.preventDefault();
+                          setVendorTelError('Please enter only numbers');
+                          setTimeout(() => setVendorTelError(''), 2000);
+                          return;
+                        }
+                        
+                        // ถ้ามี 10 ตัวแล้วและกดตัวเลข ให้แสดงข้อความเตือน
+                        if (vendorTel.length >= 10 && isDigit) {
+                          e.preventDefault();
+                          setVendorTelError('Only 10 digits');
+                          setTimeout(() => setVendorTelError(''), 2000);
+                        }
+                      }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pastedText = e.clipboardData.getData('text').replace(/[^\d]/g, ''); // กรองเฉพาะตัวเลข
+                        const newValue = vendorTel + pastedText;
+                        if (newValue.length <= 10) {
+                          setVendorTel(newValue);
+                          setVendorTelError('');
+                        } else {
+                          setVendorTelError('Only 10 digits');
+                          setTimeout(() => setVendorTelError(''), 2000);
+                        }
+                      }}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/[^\d]/g, ''); // รับเฉพาะตัวเลข
+                        if (value.length <= 10) {
+                          setVendorTel(value);
+                          setVendorTelError('');
+                        } else {
+                          setVendorTel(value.slice(0, 10)); // ตัดให้เหลือ 10 ตัว
+                          setVendorTelError('Only 10 digits');
+                          setTimeout(() => setVendorTelError(''), 2000);
+                        }
+                      }}
+                      placeholder="Enter tel number (4-10 digits)"
+                      maxLength={10}
+                      className={`${inputBase} pr-10 border-2 focus:border-2 ${vendorTel && vendorTel.length < 4 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''} ${vendorTelError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
+                    />
+                    {vendorTel && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setVendorTel('');
+                          setVendorTelError('');
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                        title="Clear"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {vendorTelError && (
+                    <p className="text-[10px] text-red-500 mt-1">{vendorTelError}</p>
+                  )}
+                  {!vendorTelError && vendorTel && vendorTel.length < 4 && (
+                    <p className="text-[10px] text-red-500 mt-1">Tel number must be at least 4 digits</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           {/* Assignment Section */}
           <div className={sectionCard}>
             <h3 className="text-xs font-bold text-slate-700">Assignment</h3>
 
             <div className="relative">
-              <label className={fieldLabel}>Assign Engineer *</label>
+              <label className={fieldLabel}>Assign Engineer <span className="text-red-500">*</span></label>
 
               {/* Email-style input container */}
               <div
@@ -1918,32 +2022,23 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           <div className={sectionCard}>
             <h3 className="text-sm font-bold text-slate-700">Schedule</h3>
             {editingEvent?.status === 'done' && (
-              <p className="text-xs text-amber-600 mb-2">Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้</p>
+              <p className="text-xs text-amber-600 mb-2">Task that is already done cannot be edited</p>
             )}
             <div className={taskType === 'MA' ? 'grid grid-cols-2 gap-4' : 'grid grid-cols-2 gap-4'}>
               <div>
                 <label className={fieldLabel}>Start Date</label>
                 <div 
                   className="relative cursor-pointer"
-                  onClick={(e) => {
-                    if (editingEvent?.status !== 'done') {
-                      const input = e.currentTarget.querySelector('input[type="date"]') as HTMLInputElement;
-                      if (input) {
-                        try {
-                          if (typeof input.showPicker === 'function') {
-                            input.showPicker();
-                          } else {
-                            input.focus();
-                          }
-                        } catch {
-                          input.focus();
-                        }
-                      }
+                  onClick={() => {
+                    if (editingEvent?.status !== 'done' && startDatePickerRef.current) {
+                      startDatePickerRef.current.showPicker?.();
                     }
                   }}
                 >
                   <input
+                    ref={startDatePickerRef}
                     type="date"
+                    lang="en-US"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                     disabled={editingEvent?.status === 'done'}
@@ -1955,25 +2050,16 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 <label className={fieldLabel}>End Date</label>
                 <div 
                   className="relative cursor-pointer"
-                  onClick={(e) => {
-                    if (editingEvent?.status !== 'done') {
-                      const input = e.currentTarget.querySelector('input[type="date"]') as HTMLInputElement;
-                      if (input) {
-                        try {
-                          if (typeof input.showPicker === 'function') {
-                            input.showPicker();
-                          } else {
-                            input.focus();
-                          }
-                        } catch {
-                          input.focus();
-                        }
-                      }
+                  onClick={() => {
+                    if (editingEvent?.status !== 'done' && endDatePickerRef.current) {
+                      endDatePickerRef.current.showPicker?.();
                     }
                   }}
                 >
                   <input
+                    ref={endDatePickerRef}
                     type="date"
+                    lang="en-US"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     disabled={editingEvent?.status === 'done'}
@@ -2013,8 +2099,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       </div>
       <AssetSelectModal
         open={assetModalOpen}
-        devices={devicesToShow.filter(d => 
-          taskType === 'MA' 
+        devices={devicesToShow.filter(d =>
+          taskType === 'MA'
             ? !brokenDevicePairs.some(pair => pair.brokenDevice.id === d.id)
             : true
         )}
@@ -2051,12 +2137,13 @@ const fieldLabel =
   'block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1';
 
 const inputBase =
-  'w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none transition focus:ring-2 focus:ring-blue-500 focus:border-blue-400';
+  'w-full h-9 px-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm outline-none transition focus:ring-2 focus:ring-blue-500 focus:border-blue-400';
 
 const selectBase = inputBase;
 
 const sectionCard =
   'rounded-xl border border-slate-100 bg-white p-3 space-y-3';
+
 
 const assetCard = (active: boolean) =>
   `flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition ${active
@@ -2087,9 +2174,9 @@ function SearchableDeviceSelect({
   const q = search.trim().toLowerCase();
   const filtered = q
     ? devices.filter((d) => {
-        const s = [d.name, d.type, d.serialNumber, d.assetNumber, d.site].filter(Boolean).join(' ').toLowerCase();
-        return q.split(/\s+/).filter(Boolean).every((p) => s.includes(p));
-      })
+      const s = [d.name, d.type, d.serialNumber, d.assetNumber, d.site].filter(Boolean).join(' ').toLowerCase();
+      return q.split(/\s+/).filter(Boolean).every((p) => s.includes(p));
+    })
     : devices;
 
   useEffect(() => {
@@ -2204,13 +2291,13 @@ function AssetSelectModal({
   const q = deviceSearch.trim().toLowerCase();
   const filteredDevices = q
     ? devices.filter((d) => {
-        const searchable = [d.name, d.type, d.serialNumber, d.site, d.assetState, d.assetNumber]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        const parts = q.split(/\s+/).filter(Boolean);
-        return parts.every((part) => searchable.includes(part));
-      })
+      const searchable = [d.name, d.type, d.serialNumber, d.site, d.assetState, d.assetNumber]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const parts = q.split(/\s+/).filter(Boolean);
+      return parts.every((part) => searchable.includes(part));
+    })
     : devices;
 
   if (!open) return null;
@@ -2305,7 +2392,7 @@ function AssetSelectModal({
             <p className="text-sm text-slate-500 text-center py-8">ไม่พบอุปกรณ์ที่ตรงกับคำค้นหา</p>
           ) : (
             filteredDevices.map((d) => {
-              const checked = taskType === 'MA' 
+              const checked = taskType === 'MA'
                 ? singleSelected?.id === d.id
                 : localSelected.some((x) => x.id === d.id);
               return (
@@ -2316,7 +2403,7 @@ function AssetSelectModal({
                   <div>
                     <p className="text-sm font-medium">{d.name}</p>
                     <div className="flex gap-2 text-xs text-slate-400">
-                      <span>Type: {d.type}</span>
+                      <span>Type: {d.role || d.type || '-'}</span>
                       {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
                       {d.site && <span>| Site: {d.site}</span>}
                       {d.assetState && <span>| State: {d.assetState}</span>}
@@ -2355,11 +2442,10 @@ function AssetSelectModal({
               onClose();
             }}
             disabled={taskType === 'MA' && !singleSelected}
-            className={`px-5 py-2 text-sm rounded-xl font-bold ${
-              taskType === 'MA' && !singleSelected
+            className={`px-5 py-2 text-sm rounded-xl font-bold ${taskType === 'MA' && !singleSelected
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-blue-500 text-white hover:bg-blue-600'
-            }`}
+              }`}
           >
             Confirm
           </button>

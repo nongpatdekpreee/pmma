@@ -72,6 +72,7 @@ const mapTaskRow = (row) => {
   siteId: row.site_id,
   siteName: row.site_name,
   vendorName: row.vendor_name,
+  vendorTel: row.vendor_tel,
   ...(slaVal != null && slaVal !== '' ? { slaTerm: slaVal } : {}),
   coverageScope: row.coverage_scope,
   startDate: row.start_date,
@@ -106,6 +107,7 @@ const createTask = async (req, res) => {
       siteId,
       siteName,
       vendorName,
+      vendorTel,
       coverageScope,
       startDate,
       endDate,
@@ -144,9 +146,9 @@ const createTask = async (req, res) => {
 
     const insertSql = `
       INSERT INTO tasks (
-        id, task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name
+        id, task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name, vendor_tel
         , coverage_scope, start_date, end_date, engineers, assets, asset_binding, status, actually_went, notes, photos
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const safeParseInt = (value) => {
@@ -163,6 +165,7 @@ const createTask = async (req, res) => {
       safeParseInt(siteId),
       siteName || null,
       vendorName || null,
+      vendorTel || null,
       coverageScope || null,
       startDate,
       endDate,
@@ -261,6 +264,7 @@ const updateTask = async (req, res) => {
       siteId,
       siteName,
       vendorName,
+      vendorTel,
       coverageScope,
       startDate,
       endDate,
@@ -304,6 +308,7 @@ const updateTask = async (req, res) => {
     if (siteId !== undefined) addUpdate('site_id', siteId || null);
     if (siteName !== undefined) addUpdate('site_name', siteName || null);
     if (vendorName !== undefined) addUpdate('vendor_name', vendorName || null);
+    if (vendorTel !== undefined) addUpdate('vendor_tel', vendorTel || null);
     if (coverageScope !== undefined) addUpdate('coverage_scope', coverageScope || null);
     // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
     if (existing[0].status !== 'done') {

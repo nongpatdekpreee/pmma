@@ -621,7 +621,7 @@ const getAvailableDevices = async (req, res) => {
       params.push(parseInt(siteId, 10));
     }
 
-    // TccStock (7): devices.SLid = sites_location.SLid; site name จาก sites ผ่าน sites_location
+    // TccStock (7): devices.SLid = sites_location.SLid; ดึง type (model) และ role จาก database
     const sql = `
       SELECT 
         d.Did,
@@ -630,10 +630,17 @@ const getAvailableDevices = async (req, res) => {
         d.serial,
         d.Asset_State,
         d.SLid,
-        s.Name AS SiteName
+        d.Dtypeid,
+        d.DeRoleid,
+        s.Name AS SiteName,
+        dt.model AS model,
+        dt.model AS type,
+        dr.name AS roleName
       FROM devices d
       LEFT JOIN sites_location sl ON d.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+      LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
       ${whereCondition}
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC;
     `;
@@ -712,7 +719,7 @@ const getDevicesByContract = async (req, res) => {
       });
     }
 
-    // TccStock (7): SLid = sites_location.SLid; site name จาก sites ผ่าน sites_location
+    // TccStock (7): SLid = sites_location.SLid; ดึง type (model) และ role จาก database
     const sql = `
       SELECT 
         d.Did,
@@ -723,11 +730,16 @@ const getDevicesByContract = async (req, res) => {
         d.SLid,
         d.Dtypeid,
         d.DeRoleid,
-        s.Name AS SiteName
+        s.Name AS SiteName,
+        dt.model AS model,
+        dt.model AS type,
+        dr.name AS roleName
       FROM contract_device cd
       INNER JOIN devices d ON cd.device_id = d.Did
       LEFT JOIN sites_location sl ON d.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+      LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
       WHERE cd.contract_id = ?
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC
     `;
