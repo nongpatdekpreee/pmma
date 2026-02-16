@@ -1740,26 +1740,46 @@ export default function ScheduleManagement() {
 
               {/* Excel Format Guide */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="text-xs font-bold text-blue-800 mb-2">File Format Guide:</h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-blue-800">File Format Guide:</h4>
+                  <span className="inline-flex items-center gap-3">
+                    <a
+                      href="/task_upload_template.xlsx"
+                      download="task_upload_template.xlsx"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Excel (.xlsx)
+                    </a>
+                    <a
+                      href="/task_upload_template.csv"
+                      download="task_upload_template.csv"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      CSV
+                    </a>
+                  </span>
+                </div>
                 <div className="text-xs text-blue-700 space-y-1">
                   <p><strong>Required columns:</strong></p>
                   <ul className="ml-4 list-disc space-y-0.5">
-                    <li><strong>Site</strong> → site_name</li>
-                    <li><strong>Location</strong> → location</li>
-                    <li><strong>Plan Start</strong> → start_date</li>
-                    <li><strong>Plan End</strong> → end_date</li>
-                    <li><strong>Engineer</strong> → engineers (JSON array)</li>
-                    <li><strong>SOF</strong> → contract_id (ค้นหาจาก sof_name, แล้วดึง devices จาก SOF นั้นอัตโนมัติ)</li>
+                    <li><strong>Site</strong> → site_name Example: "Thai Beverage Public Company Limited"</li>
+                    <li><strong>Location</strong> → location Example: "Beer Thai"</li>
+                    <li><strong>Plan Start</strong> → start_date Example: "Monday, February 23, 2026"</li>
+                    <li><strong>Plan End</strong> → end_date Example: "Friday, February 27, 2026"</li>
+                    <li><strong>Engineer</strong> → engineers (JSON array) Example: ["John Doe", "Jane Smith"]</li>
+                    <li><strong>SOF</strong> → contract_id (From sof_name, then fetch devices from that SOF automatically)</li>
                   </ul>
                   <p className="mt-2"><strong>Optional columns:</strong></p>
                   <ul className="ml-4 list-disc space-y-0.5">
-                    <li><strong>Notes</strong> → notes (text)</li>
+                    <li><strong>Coverage Scope</strong> → coverage_scope (text)</li>
                   </ul>
                   <p className="mt-2 text-[10px] text-blue-600">
                     <strong>Note:</strong> Engineers can be separated by newline or comma.
                     Date format: &quot;Monday, February 23, 2026&quot; is supported.
                     <br />
-                    <strong>Devices:</strong> จะถูกดึงอัตโนมัติตามเงื่อนไข Site + SOF + Location และแสดงจำนวนใน preview table
+                    <strong>Devices:</strong> Will be fetched automatically based on Site + SOF + Location and shown in preview table
                   </p>
                 </div>
               </div>
