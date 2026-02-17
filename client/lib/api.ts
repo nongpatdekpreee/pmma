@@ -158,6 +158,32 @@ export async function getTasks(params?: { month?: number; year?: number }): Prom
   return res.json();
 }
 
+/** GET /api/tasks/check-conflict - เช็คว่า engineer มีงานซ้อนทับหรือไม่ */
+export async function checkEngineerConflict(params: {
+  engineerId: string | number;
+  startDate: string;
+  endDate?: string;
+  excludeTaskId?: string | number;
+}): Promise<{
+  success: boolean;
+  hasConflict?: boolean;
+  conflictingTask?: {
+    id: number;
+    siteName: string;
+    startDate: string;
+    endDate: string;
+  } | null;
+}> {
+  const q = new URLSearchParams();
+  q.set('engineerId', String(params.engineerId));
+  q.set('startDate', params.startDate);
+  if (params.endDate) q.set('endDate', params.endDate);
+  if (params.excludeTaskId) q.set('excludeTaskId', String(params.excludeTaskId));
+  
+  const res = await fetch(apiUrl(`/api/tasks/check-conflict?${q.toString()}`));
+  return res.json();
+}
+
 /** GET /api/pm-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getPmReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
   const res = await fetch(apiUrl('/api/pm-reports/reported-task-ids'));

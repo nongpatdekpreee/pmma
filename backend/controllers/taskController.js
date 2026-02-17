@@ -497,10 +497,97 @@ const deleteTask = async (req, res) => {
   }
 };
 
+// GET /api/tasks/check-conflict - เช็คว่า engineer มีงานซ้อนทับหรือไม่
+const checkEngineerConflict = async (req, res) => {
+  try {
+    const { engineerId, startDate, endDate, excludeTaskId } = req.query;
+
+    if (!engineerId || !startDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ engineerId และ startDate',
+      });
+    }
+
+    // Parse dates
+    const start = new Date(startDate);
+    const end = endDate ? new Date(endDate) : new Date(startDate);
+    
+    // Format dates as YYYY-MM-DD for SQL comparison
+    const formatDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    const startDateStr = formatDate(start);
+    const endDateStr = formatDate(end);
+
+    // Query tasks ที่ engineer คนนี้มีงานและ overlap กับวันที่ที่ระบุ
+    // engineers เก็บเป็น JSON array เช่น [{"id":"9","name":"Chainarin","lastName":"Phosai"}]
+    // ใช้ JSON_SEARCH เพื่อหา engineer ID ใน array โดยเช็คทั้ง id property และ value โดยตรง
+    // Overlap condition: (newStart <= existingEnd AND newEnd >= existingStart)
+    let sql = `
+      SELECT t.id, t.site_name, t.start_date, t.end_date, t.engineers
+      FROM tasks t
+      WHERE t.start_date IS NOT NULL
+        AND t.engineers IS NOT NULL
+        AND (
+          JSON_SEARCH(t.engineers, 'one', ?, NULL, '$[*].id') IS NOT NULL
+          OR JSON_CONTAINS(t.engineers, JSON_QUOTE(?))
+        )
+        AND (
+          (t.start_date <= ? AND COALESCE(t.end_date, t.start_date) >= ?)
+        )
+    `;
+    
+    const params = [String(engineerId), String(engineerId), endDateStr, startDateStr];
+
+    // ถ้ามี excludeTaskId (เช่น ตอน edit) ให้ข้าม task นั้น
+    if (excludeTaskId) {
+      sql += ` AND t.id != ?`;
+      params.push(excludeTaskId);
+    }
+
+    sql += ` ORDER BY t.start_date ASC LIMIT 1`;
+
+    const [rows] = await db.execute(sql, params);
+
+    if (rows.length > 0) {
+      const conflictingTask = mapTaskRow(rows[0]);
+      return res.status(200).json({
+        success: true,
+        hasConflict: true,
+        conflictingTask: {
+          id: conflictingTask.id,
+          siteName: conflictingTask.siteName,
+          startDate: conflictingTask.startDate,
+          endDate: conflictingTask.endDate,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      hasConflict: false,
+      conflictingTask: null,
+    });
+  } catch (error) {
+    console.error('Error checking engineer conflict:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการเช็ค conflict',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createTask,
   getTasks,
   getTaskById,
   updateTask,
   deleteTask,
+  checkEngineerConflict,
 };
