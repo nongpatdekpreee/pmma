@@ -672,6 +672,7 @@ export default function ContractEditorPage() {
           const map: Record<string, string> = {
             'contract name': 'contract_name', 'contract_name': 'contract_name', 'contractname': 'contract_name',
             'sof': 'sof_name', 'sof name': 'sof_name', 'sof_name': 'sof_name', 'refer_sof': 'sof_name',
+            'service': 'assigned_service', 'assigned service': 'assigned_service', 'assigned_service': 'assigned_service',
             'site': 'siteName', 'site name': 'siteName', 'sitename': 'siteName',
             'location': 'location', 'location2': 'location',
             'start date': 'start_date', 'start_date': 'start_date', 'startdate': 'start_date',
@@ -806,6 +807,7 @@ export default function ContractEditorPage() {
           start_date: row.start_date,
           end_date: row.end_date,
           sof_name: row.sof_name,
+          assigned_service: row.assigned_service || null,
           sla_term: row.sla_term || '12',
           sale_account: row.sale_account || null,
           contract_value: row.contract_value || null,
@@ -2285,7 +2287,15 @@ export default function ContractEditorPage() {
                           <button
                             key={site.SLid}
                             type="button"
-                            onClick={() => setAssignModalSelectedSiteSlid(site.SLid)}
+                            onClick={() => {
+                              setAssignModalSelectedSiteSlid(site.SLid);
+                              // ถ้ามีอุปกรณ์แค่ตัวเดียว ให้ติ๊กแค่อันเดียวและล้างการเลือกอื่นๆ
+                              const devicesForSite = getDevicesForSite(site.SLid);
+                              if (devicesForSite.length === 1) {
+                                const singleDeviceId = String(devicesForSite[0].Did);
+                                setAssignDeviceSelected(new Set([singleDeviceId]));
+                              }
+                            }}
                             className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${
                               isSelected
                                 ? 'bg-blue-600 text-white'
@@ -2580,7 +2590,7 @@ export default function ContractEditorPage() {
                     <li><strong>End Date</strong> — end date (optional, defaults to start)</li>
                     <li><strong>SLA Term</strong> — sla term (e.g. 100)</li>
                   </ul>
-                  <p className="mt-2"><strong>Optional:</strong> Sale Account, Contract Value, Coverage Scope</p>
+                  <p className="mt-2"><strong>Optional:</strong> Sale Account, Service, Contract Value, Coverage Scope</p>
                   <p className="mt-2"><strong>Devices :</strong> Devices เช่น FGL2314A91L,FGL2314A92L หรือ FGL2314B01L;FGL2314B02L </p>
 
                 </div>

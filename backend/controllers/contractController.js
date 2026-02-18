@@ -612,13 +612,28 @@ const getContractsBySite = async (req, res) => {
 const getAvailableDevices = async (req, res) => {
   try {
     const siteId = req.query.site_id;
+    const contractId = req.query.contract_id; // สำหรับกรณี edit contract
     
-    let whereCondition = 'WHERE d.Did NOT IN (SELECT DISTINCT device_id FROM contract_device WHERE device_id IS NOT NULL)';
+    // กรอง devices ที่มี contract อื่น (แต่ไม่รวม contract ปัจจุบันถ้ามี contract_id)
+    let excludeContractCondition = 'SELECT DISTINCT device_id FROM contract_device WHERE device_id IS NOT NULL';
     const params = [];
+    
+    if (contractId) {
+      const cid = parseInt(contractId, 10);
+      if (!isNaN(cid)) {
+        excludeContractCondition += ' AND contract_id != ?';
+        params.push(cid);
+      }
+    }
+    
+    let whereCondition = `WHERE d.Did NOT IN (${excludeContractCondition})`;
 
     if (siteId) {
-      whereCondition += ' AND d.SLid = ?';
-      params.push(parseInt(siteId, 10));
+      const sid = parseInt(siteId, 10);
+      if (!isNaN(sid)) {
+        whereCondition += ' AND d.SLid = ?';
+        params.push(sid);
+      }
     }
 
     // TccStock (7): devices.SLid = sites_location.SLid; ดึง type (model) และ role จาก database
