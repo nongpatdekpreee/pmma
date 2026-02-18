@@ -17,6 +17,12 @@ type EventItem = {
   timeStr: string;
   taskType: 'PM' | 'MA';
   siteName?: string;
+  startDate?: string;
+  endDate?: string;
+  location?: string;
+  engineers?: Array<{ name: string; lastName?: string }>;
+  status?: string;
+  vendorName?: string;
 };
 
 export default function DashboardPage() {
@@ -37,6 +43,8 @@ export default function DashboardPage() {
   const [missingEvents, setMissingEvents] = useState<EventItem[]>([]);
   const [missingEventsPage, setMissingEventsPage] = useState(1);
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [hoveredEvent, setHoveredEvent] = useState<EventItem | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
 
   const PM_CARDS_PAGE_SIZE = 5;
   const pmTotalPages = Math.max(1, Math.ceil(pmCards.length / PM_CARDS_PAGE_SIZE));
@@ -136,6 +144,7 @@ export default function DashboardPage() {
 
         const toEventItem = (t: any): EventItem => {
           const start = t.startDate || t.start_date;
+          const end = t.endDate || t.end_date;
           const d = start ? new Date(start) : new Date();
           const taskType = (String(t.taskType || t.task_type || 'PM').toUpperCase() === 'MA' ? 'MA' : 'PM') as 'PM' | 'MA';
           const siteName = t.siteName || t.site_name || t.Sname || '';
@@ -144,6 +153,13 @@ export default function DashboardPage() {
             : `PM: ${siteName || 'Preventive Maintenance'}`;
           const timeStr = t.time || '09:00';
           const dateStr = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+          const engineers = Array.isArray(t.engineers) ? t.engineers.map((e: any) => ({
+            name: e.name || e.id || '',
+            lastName: e.lastName || e.last_name || ''
+          })) : Array.isArray(t.Eng_ids) ? t.Eng_ids.map((e: any) => ({
+            name: e.name || e.id || '',
+            lastName: e.lastName || e.last_name || ''
+          })) : undefined;
           return {
             id: String(t.id),
             title,
@@ -151,6 +167,12 @@ export default function DashboardPage() {
             timeStr,
             taskType,
             siteName,
+            startDate: start || undefined,
+            endDate: end || undefined,
+            location: t.location || t.Location2 || undefined,
+            engineers,
+            status: t.status || undefined,
+            vendorName: t.vendorName || t.vendor_name || undefined,
           };
         };
 
@@ -213,8 +235,7 @@ export default function DashboardPage() {
               <Link href="/" className="text-3xl font-bold text-slate-800">
                 Dashboard 
                 </Link>
-              <DateTime />  
-
+              
             </div>
 
             {/* Placeholder สำหรับ Graph */}
@@ -318,10 +339,32 @@ export default function DashboardPage() {
                       <Link
                         key={ev.id}
                         href={`/schedule_management?task=${ev.id}`}
-                        className="block border-l-4 border-blue-400 pl-4 py-2 bg-blue-50/30 rounded-r-xl hover:bg-blue-50/50 transition-colors"
+                        onMouseEnter={(e) => {
+                          setHoveredEvent(ev);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const tooltipWidth = 320;
+                          const tooltipHeight = 400;
+                          const padding = 16;
+                          const spaceOnRight = window.innerWidth - rect.right;
+                          const spaceOnLeft = rect.left;
+                          const spaceOnBottom = window.innerHeight - rect.bottom;
+                          let x = rect.right + 10;
+                          let y = rect.top;
+                          if (spaceOnRight < tooltipWidth + 20 && spaceOnLeft >= tooltipWidth + 20) x = rect.left - tooltipWidth - 10;
+                          if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) y = rect.bottom - tooltipHeight;
+                          x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
+                          y = Math.max(padding, Math.min(y, window.innerHeight - tooltipHeight - padding));
+                          setTooltipPosition({ x, y });
+                        }}
+                        onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
+                        className={`block border-l-4 pl-4 py-2 rounded-r-xl transition-colors ${
+                          ev.taskType === 'MA'
+                            ? 'border-red-400 bg-red-50/30 hover:bg-red-50/50'
+                            : 'border-blue-400 bg-blue-50/30 hover:bg-blue-50/50'
+                        }`}
                       >
                         <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                        <p className="text-[10px] text-gray-500 mt-1">{ev.dateStr}</p>
+                        <p className={`text-[10px] mt-1 ${ev.taskType === 'MA' ? 'text-red-600' : 'text-gray-500'}`}>{ev.dateStr}</p>
                       </Link>
                     ))}
                   </div>
@@ -375,6 +418,24 @@ export default function DashboardPage() {
                       <Link
                         key={ev.id}
                         href={`/schedule_management?task=${ev.id}`}
+                        onMouseEnter={(e) => {
+                          setHoveredEvent(ev);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const tooltipWidth = 320;
+                          const tooltipHeight = 400;
+                          const padding = 16;
+                          const spaceOnRight = window.innerWidth - rect.right;
+                          const spaceOnLeft = rect.left;
+                          const spaceOnBottom = window.innerHeight - rect.bottom;
+                          let x = rect.right + 10;
+                          let y = rect.top;
+                          if (spaceOnRight < tooltipWidth + 20 && spaceOnLeft >= tooltipWidth + 20) x = rect.left - tooltipWidth - 10;
+                          if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) y = rect.bottom - tooltipHeight;
+                          x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
+                          y = Math.max(padding, Math.min(y, window.innerHeight - tooltipHeight - padding));
+                          setTooltipPosition({ x, y });
+                        }}
+                        onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                         className="block border-l-4 border-amber-400 pl-4 py-2 bg-amber-50/30 rounded-r-xl hover:bg-amber-50/50 transition-colors"
                       >
                         <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
@@ -416,6 +477,96 @@ export default function DashboardPage() {
           </div>
 
         </div>
+
+      {/* Hover Tooltip */}
+      {hoveredEvent && tooltipPosition && (
+        <div
+          className="fixed z-[300] bg-white rounded-lg shadow-2xl border border-slate-200 p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
+          style={{
+            left: `${tooltipPosition.x}px`,
+            top: `${tooltipPosition.y}px`,
+            transform: 'translateY(0)',
+            maxWidth: 'min(320px, calc(100vw - 32px))'
+          }}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                hoveredEvent.taskType === 'MA'
+                  ? 'bg-rose-100 text-rose-700'
+                  : 'bg-blue-100 text-blue-700'
+              }`}>
+                {hoveredEvent.taskType || 'PM'}
+              </span>
+              {hoveredEvent.status && (
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                  hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
+                  hoveredEvent.status === 'working' ? 'bg-orange-100 text-orange-700' :
+                  hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-100 text-gray-700'
+                }`}>
+                  {hoveredEvent.status === 'done' ? 'Done' :
+                   hoveredEvent.status === 'working' ? 'Working' :
+                   hoveredEvent.status === 'stuck' ? 'Stuck' :
+                   'Not Started'}
+                </span>
+              )}
+            </div>
+
+            {/* Location ก่อน Site */}
+            {hoveredEvent.location && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">Location</p>
+                <p className="text-sm font-bold text-slate-800">{hoveredEvent.location}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-0.5">Site</p>
+              <p className="text-sm font-bold text-slate-800">{hoveredEvent.siteName || hoveredEvent.title || '-'}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {hoveredEvent.startDate && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date</p>
+                  <p className="text-sm text-slate-700">
+                    {new Date(hoveredEvent.startDate).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}
+                  </p>
+                </div>
+              )}
+              {hoveredEvent.endDate && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">End Date</p>
+                  <p className="text-sm text-slate-700">
+                    {new Date(hoveredEvent.endDate).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {hoveredEvent.engineers && hoveredEvent.engineers.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
+                <div className="flex flex-wrap gap-1">
+                  {hoveredEvent.engineers.map((eng, idx) => (
+                    <span key={idx} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                      {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </SidebarLayout>
   );
 }
