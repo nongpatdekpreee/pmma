@@ -591,7 +591,7 @@ export default function ScheduleManagement() {
       );
       setEditingEvent(null);
       setIsModalOpen(false);
-      toastSuccess(editingEvent ? 'แก้ไข Task สำเร็จ' : 'เพิ่ม Task สำเร็จ');
+      toastSuccess('Plan success');
     } catch (error: any) {
       console.error('handleSaveFromModal error', error);
       toastError(error.message || 'บันทึก Task ไม่สำเร็จ');

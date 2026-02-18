@@ -12,6 +12,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getTasks, checkEngineerConflict } from '@/lib/api';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -942,7 +943,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       return;
     }
 
-    // เช็ค conflict และแจ้งเตือน (แต่ยังเพิ่มได้)
+    // เช็ค conflict - แจ้งเตือนแต่ยังเพิ่มได้
     const conflictCheck = await checkSingleEngineerConflict(engineer);
     if (conflictCheck.hasConflict) {
       const engineerName = `${engineer.name}${engineer.lastName ? ' ' + engineer.lastName : ''}`;
@@ -954,12 +955,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             day: 'numeric'
           })
         : '';
-      const alertMessage = `${engineerName} มีงานในวันที่ ${taskDate} ที่ ${taskInfo} แล้ว`;
-      showWarning(alertMessage, 5000);
-      // แจ้งเตือนแล้ว แต่ยังเพิ่มได้ (ไม่ return)
+      showWarning(`${engineerName} มีงานในวันที่ ${taskDate} ที่ ${taskInfo} แล้ว (งานซ้อนทับ)`, 5000);
+      // ไม่ return - ให้เพิ่ม engineer ได้
     }
 
-    // เพิ่ม engineer (แม้จะมี conflict ก็ตาม)
+    // เพิ่ม engineer
     setSelectedEngineers([...selectedEngineers, engineer]);
     setEngineerInput('');
     setShowEngineerDropdown(false);
@@ -1259,7 +1259,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       return;
     }
 
-    // เช็ค conflict ของ engineer และแจ้งเตือน (แต่ยังบันทึกได้)
+    // เช็ค conflict ของ engineer - แจ้งเตือนแต่ยังบันทึกได้
     const conflictCheck = await checkEngineerConflicts();
     if (conflictCheck.hasConflict) {
       const conflictMessages = conflictCheck.conflicts.map(c => {
@@ -1267,8 +1267,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         const taskDate = c.conflictingTask.startDate ? new Date(c.conflictingTask.startDate).toLocaleDateString('th-TH') : '';
         return `${c.engineerName} มี task ที่ ${taskInfo} ในวันที่ ${taskDate}`;
       });
-      showWarning(`แจ้งเตือน: Engineer มี task ซ้อนทับในวันเดียวกัน\n\n${conflictMessages.join('\n')}`, 8000);
-      // แจ้งเตือนแล้ว แต่ยังบันทึกได้ (ไม่ return)
+      showWarning(`Engineer มี task ซ้อนทับในวันเดียวกัน:\n${conflictMessages.join('\n')}\n\nคุณสามารถบันทึกได้`, 6000);
+      // ไม่ return - ให้บันทึกได้
     }
 
     // MA-specific validation (เหมือน PM)
@@ -2106,7 +2106,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   type="date"
                   lang="en-US"
                   value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setStartDate(v);
+                    if (v && endDate && new Date(v) > new Date(endDate)) setEndDate(v);
+                  }}
                   onClick={(e) => {
                     e.preventDefault();
                     if (editingEvent?.status !== 'done' && e.target instanceof HTMLInputElement) {
@@ -2124,7 +2128,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   type="date"
                   lang="en-US"
                   value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  min={startDate || undefined}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) {
+                      setEndDate(val);
+                      return;
+                    }
+                    if (startDate && new Date(val) < new Date(startDate)) {
+                      setEndDate(startDate);
+                      return;
+                    }
+                    setEndDate(val);
+                  }}
                   onClick={(e) => {
                     e.preventDefault();
                     if (editingEvent?.status !== 'done' && e.target instanceof HTMLInputElement) {
@@ -2248,8 +2264,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         </div>
       </div>
 
-      {/* Toast Notifications */}
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      {/* Toast Notifications - ใช้ portal เพื่อให้แสดงเหนือ modal และไม่ถูก clip */}
+      {typeof document !== 'undefined' && createPortal(
+        <ToastContainer toasts={toasts} onRemove={removeToast} />,
+        document.body
+      )}
 
       <AssetSelectModal
         open={assetModalOpen}
