@@ -1,3 +1,3 @@
-Contract Name,SOF,Site,Location,Start Date,End Date,SLA Term,Sale Account,Contract Value,Coverage Scope,Devices
-Sample Contract A,Refer SOF Name A,Site Name A,Location A,2026-01-01,2026-12-31,12,Account A,100000,Full coverage,FGL2314A91L,FGL2314A92L,FGL2314A93L
+Contract Name,SOF,Service,Site,Location,Start Date,End Date,SLA Term,Sale Account,Contract Value,Coverage Scope,Devices
+Sample Contract A,Refer SOF Name A,Device Network Manage Service,Site Name A,Location A,2026-01-01,2026-12-31,12,Account A,100000,Full coverage,FGL2314A91L,FGL2314A92L,FGL2314A93L
 

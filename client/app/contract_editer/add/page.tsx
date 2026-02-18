@@ -428,6 +428,9 @@ export default function AddContractPage() {
 
   const loadDevicesForSite = async (siteId: string): Promise<DeviceItem[]> => {
     if (!selectedSOF?.trim()) return [];
+    
+    const allDevices: DeviceItem[] = [];
+    
     if (sofExistsInDb) {
       // SOF มีใน DB: ดึง devices ตาม SOF+site
       if (!siteId) return [];
@@ -435,14 +438,46 @@ export default function AddContractPage() {
         apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedSOF.trim())}&site_id=${siteId}`)
       );
       const json = await res.json();
-      if (res.ok && json.data) return json.data;
-      throw new Error(json.message || 'Load Devices failed');
+      if (res.ok && json.data) {
+        allDevices.push(...json.data);
+      } else {
+        throw new Error(json.message || 'Load Devices failed');
+      }
+    } else {
+      // SOF ไม่มีใน DB: แสดงทุก devices ที่ยังไม่มีเลข SOF (ทุก site, ไม่กรองตาม site)
+      const res = await fetch(apiUrl(`/api/devices/by-site-no-sof`));
+      const json = await res.json();
+      if (res.ok && json.data) {
+        allDevices.push(...json.data);
+      } else {
+        throw new Error(json.message || 'Load Devices failed');
+      }
     }
-    // SOF ไม่มีใน DB: แสดงทุก devices ที่ยังไม่มีเลข SOF (ทุก site, ไม่กรองตาม site)
-    const res = await fetch(apiUrl(`/api/devices/by-site-no-sof`));
-    const json = await res.json();
-    if (res.ok && json.data) return json.data;
-    throw new Error(json.message || 'Load Devices failed');
+    
+    // ในกรณี edit contract: เพิ่ม devices ที่ยังไม่มี contract อื่น (available devices)
+    // แต่ไม่รวม devices ที่อยู่ใน contract ปัจจุบัน (ส่ง contract_id เพื่อกรองออก)
+    if (editContractId) {
+      try {
+        const queryParams = new URLSearchParams();
+        if (siteId) queryParams.append('site_id', siteId);
+        queryParams.append('contract_id', editContractId);
+        const availableRes = await fetch(
+          apiUrl(`/api/contracts/devices/available?${queryParams.toString()}`)
+        );
+        const availableJson = await availableRes.json();
+        if (availableRes.ok && availableJson.data) {
+          // รวม available devices โดยไม่ให้ซ้ำ (ใช้ Did เป็น key)
+          const existingDeviceIds = new Set(allDevices.map(d => d.Did));
+          const newDevices = availableJson.data.filter((d: DeviceItem) => !existingDeviceIds.has(d.Did));
+          allDevices.push(...newDevices);
+        }
+      } catch (e) {
+        // ถ้าโหลด available devices ไม่ได้ ไม่ต้อง throw error แค่ข้ามไป
+        console.warn('Failed to load available devices:', e);
+      }
+    }
+    
+    return allDevices;
   };
 
   const openDeviceModalForSite = async (entryId: string, siteId: string, siteLabel: string) => {
@@ -647,11 +682,11 @@ export default function AddContractPage() {
             body: JSON.stringify(body),
           });
           const data = await res.json();
-          if (!res.ok) throw new Error(data.message || data.error || 'บันทึกไม่สำเร็จ');
-          toastSuccess(`ต่อสัญญาสำเร็จ (SOF เก่า: ${oldContractSOF} → SOF ใหม่: ${selectedSOF})`);
+          if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
+          toastSuccess(`Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`);
           router.push('/contract_editer');
         } catch (err) {
-          const msg = err instanceof Error ? err.message : 'บันทึกไม่สำเร็จ';
+          const msg = err instanceof Error ? err.message : 'Save failed';
           setSaveError(msg);
           toastError(msg);
         } finally {
@@ -770,7 +805,7 @@ export default function AddContractPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
       toastSuccess(editContractId
-        ? 'แก้ไขสัญญาสำเร็จ'
+        ? 'Contract updated successfully'
         : renewContractId 
           ? `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`
           : 'New contract saved successfully'
@@ -807,7 +842,7 @@ export default function AddContractPage() {
                 </h1>
                 <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
                   <span>{editContractId ? '🔧' : '✨'}</span>
-                  <span>{editContractId ? 'แก้ไขข้อมูลสัญญา' : 'Enter contract information completely'}</span>
+                  <span>{editContractId ? 'Edit contract information' : 'Enter contract information completely'}</span>
                 </p>
               </div>
             </div>
@@ -929,6 +964,49 @@ export default function AddContractPage() {
                   )}
                 </div>
               </FormField>
+              {!renewContractId && (
+                <FormField label="SOF (Refer SOF from Device)" required>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      list="sof-list"
+                      value={selectedSOF}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d+$/.test(value)) {
+                          setSelectedSOF(value);
+                          setSofName(value);
+                        }
+                      }}
+                      placeholder="Select from list or enter SOF"
+                      className={`${inputBase} ${selectedSOF && !referSOFLoading ? 'pr-16' : ''}`}
+                      disabled={referSOFLoading}
+                      required
+                    />
+                    {selectedSOF && !referSOFLoading && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedSOF(''); setSofName(''); }}
+                        className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        title="ล้าง"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <datalist id="sof-list">
+                    {referSOFList.map((sof) => (
+                      <option key={sof} value={sof} />
+                    ))}
+                  </datalist>
+                  {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
+                  {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
+                    <p className="mt-1 text-xs text-amber-600">SOF is not in the system</p>
+                  )}
+                </FormField>
+              )}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Service ">
                 <div className="relative">
                   <input
@@ -942,6 +1020,37 @@ export default function AddContractPage() {
                     <button
                       type="button"
                       onClick={() => setAssignedService('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </FormField>
+              <FormField label="SLA Term (%)" required>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={slaTerm}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // อนุญาตให้กรอกเฉพาะตัวเลข 0-100
+                      if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
+                        setSlaTerm(value);
+                      }
+                    }}
+                    placeholder="0-100"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    className={`${inputBase} pr-9`}
+                    required
+                  />
+                  {slaTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSlaTerm('')}
                       className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
                       title="ล้าง"
                     >
@@ -990,83 +1099,6 @@ export default function AddContractPage() {
                 </div>
                 <p className="mt-1 text-xs text-slate-500"></p>
               </FormField>
-                            <FormField label="SLA Term (%)" required>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={slaTerm}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      // อนุญาตให้กรอกเฉพาะตัวเลข 0-100
-                      if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
-                        setSlaTerm(value);
-                      }
-                    }}
-                    placeholder="0-100"
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    className={`${inputBase} pr-9`}
-                    required
-                  />
-                  {slaTerm && (
-                    <button
-                      type="button"
-                      onClick={() => setSlaTerm('')}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ล้าง"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-         
-              </FormField>
-              {!renewContractId && (
-                <FormField label="SOF (Refer SOF from Device)" required>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      list="sof-list"
-                      value={selectedSOF}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === '' || /^\d+$/.test(value)) {
-                          setSelectedSOF(value);
-                          setSofName(value);
-                        }
-                      }}
-                      placeholder="Select from list or enter SOF"
-                      className={`${inputBase} ${selectedSOF && !referSOFLoading ? 'pr-16' : ''}`}
-                      disabled={referSOFLoading}
-                      required
-                    />
-                    {selectedSOF && !referSOFLoading && (
-                      <button
-                        type="button"
-                        onClick={() => { setSelectedSOF(''); setSofName(''); }}
-                        className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        title="ล้าง"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                  <datalist id="sof-list">
-                    {referSOFList.map((sof) => (
-                      <option key={sof} value={sof} />
-                    ))}
-                  </datalist>
-                  {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
-                  {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
-                    <p className="mt-1 text-xs text-amber-600">SOF is not in the system</p>
-                  )}
-                </FormField>
-                
-              )}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-
               <FormField label="Sale Account">
                 <div className="relative">
                   <input
@@ -1455,7 +1487,7 @@ export default function AddContractPage() {
               ) : (
                 <>
                   <span className="text-lg">💾</span>
-                  <span>{editContractId ? 'บันทึกการแก้ไข' : 'Save Contract'}</span>
+                  <span>{editContractId ? 'Save Changes' : 'Save Contract'}</span>
                 </>
               )}
             </button>
