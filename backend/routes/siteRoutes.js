@@ -5,6 +5,7 @@ const {
   getSites,
   getSitesLocation,
   getSitesLocationBySOF,
+  getSitesLocationWithContracts,
   updateSite,
   deleteSite
 } = require('../controllers/siteController');
@@ -20,6 +21,9 @@ router.get('/locations', getSitesLocation);
 
 // GET - ดึง Sites_Location เฉพาะที่มี device ที่มี Refer_SOF นี้
 router.get('/locations-by-sof', getSitesLocationBySOF);
+
+// GET - ดึง Sites_Location เฉพาะที่มี contract
+router.get('/locations-with-contracts', getSitesLocationWithContracts);
 
 // PUT - แก้ไขข้อมูล Site
 router.put('/:id', updateSite);

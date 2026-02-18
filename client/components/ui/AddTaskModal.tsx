@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getTasks, checkEngineerConflict } from '@/lib/api';
+import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getSitesLocationWithContracts, getTasks, checkEngineerConflict } from '@/lib/api';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 
@@ -196,9 +196,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   const fetchAllSites = async () => {
     try {
-      const result = await getSitesLocation();
+      // ใช้ endpoint ที่กรองเฉพาะ sites ที่มี contract
+      const result = await getSitesLocationWithContracts();
       if (!result.success) {
-        throw new Error('ไม่สามารถดึงข้อมูล Site ได้');
+        // ถ้าไม่มีข้อมูล contract ให้ return empty array แทนที่จะ throw error
+        console.warn('No sites with contracts found: No sites with contracts found');
+        return [];
+      }
+      // แม้ว่า result.success จะเป็น true แต่ถ้าไม่มีข้อมูลก็ return empty array
+      if (!result.data || result.data.length === 0) {
+        console.warn('No sites with contracts found');
+        return [];
       }
       return (result.data || []).map((item: any) => ({
         id: String(item.SLid),
@@ -208,7 +216,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }));
     } catch (error: any) {
       console.error('fetchAllSites error:', error);
-      throw new Error(error.message || 'โหลด Sites ไม่สำเร็จ');
+      // ถ้าเกิด error ให้ return empty array แทนที่จะ throw error
+      // เพื่อให้ modal ยังเปิดได้ แต่จะไม่มี site ให้เลือก
+      return [];
     }
   };
 
@@ -2106,10 +2116,42 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   type="date"
                   lang="en-US"
                   value={startDate}
+                  min={(() => {
+                    // สามารถเลือกได้จากวันปัจจุบันไปอนาคตเท่านั้น (ไม่ให้เลือกวันย้อนหลัง)
+                    const today = new Date();
+                    const year = today.getFullYear();
+                    const month = String(today.getMonth() + 1).padStart(2, '0');
+                    const day = String(today.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                  })()}
                   onChange={(e) => {
                     const v = e.target.value;
+                    // ตรวจสอบว่าวันที่ที่เลือกไม่ก่อนวันปัจจุบัน (เลือกได้เฉพาะวันปัจจุบันและอนาคต)
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0); // ตั้งเวลาเป็นเริ่มวันเพื่อเปรียบเทียบ
+                    const selectedDate = v ? new Date(v) : null;
+                    
+                    if (selectedDate && selectedDate < today) {
+                      // ถ้าเลือกวันที่ก่อนวันปัจจุบัน ให้ใช้วันนี้แทน
+                      const year = today.getFullYear();
+                      const month = String(today.getMonth() + 1).padStart(2, '0');
+                      const day = String(today.getDate()).padStart(2, '0');
+                      const todayStr = `${year}-${month}-${day}`;
+                      setStartDate(todayStr);
+                      // ถ้า endDate มีค่าและน้อยกว่าวันนี้ ให้ปรับ endDate ด้วย
+                      if (endDate && new Date(endDate) < today) {
+                        setEndDate(todayStr);
+                      } else if (endDate && new Date(todayStr) > new Date(endDate)) {
+                        setEndDate(todayStr);
+                      }
+                      return;
+                    }
+                    
                     setStartDate(v);
-                    if (v && endDate && new Date(v) > new Date(endDate)) setEndDate(v);
+                    // ถ้าเลือก startDate ที่หลัง endDate ให้ปรับ endDate ให้เท่ากับ startDate
+                    if (v && endDate && new Date(v) > new Date(endDate)) {
+                      setEndDate(v);
+                    }
                   }}
                   onClick={(e) => {
                     e.preventDefault();

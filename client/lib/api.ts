@@ -13,6 +13,12 @@ export async function getSitesLocation(): Promise<{ success: boolean; data: { SL
   return res.json();
 }
 
+/** GET /api/sites/locations-with-contracts - สำหรับ dropdown Site เฉพาะที่มี contract (SLid, SiteName, Location2) */
+export async function getSitesLocationWithContracts(): Promise<{ success: boolean; data: { SLid: number; SiteName: string; Location2?: string }[] }> {
+  const res = await fetch(apiUrl('/api/sites/locations-with-contracts'));
+  return res.json();
+}
+
 /** GET /api/devices/by-site?site_id= - Devices ตาม SLid */
 export async function getDevicesBySite(siteId: number | string): Promise<{ success: boolean; data: { Did: number; CI_Name?: string; Asset_Number?: string }[] }> {
   const res = await fetch(apiUrl(`/api/devices/by-site?site_id=${encodeURIComponent(String(siteId))}`));
