@@ -124,15 +124,25 @@ export default function ScheduleManagement() {
         ? engineers.map((e: Engineer) => (e.name || e.id) + (e.lastName ? ' ' + e.lastName : '')).join(', ')
         : 'Unassigned';
     const taskType = task.taskType || task.task_type || 'PM';
-    const siteName = task.siteName || task.site_name || task.Sname;
-    const location = task.location || task.Location2 || '';
+    let siteName = task.siteName || task.site_name || task.Sname || '';
+    let location = task.location || task.Location2 || '';
+    // API ส่งแค่ site_name (ข้อความรวม) → แยก "Site - Location" เป็น location + site แล้วแสดง location ก่อน site
+    if (!location && siteName && siteName.includes(' - ')) {
+      const parts = siteName.split(' - ');
+      const sitePart = parts[0]?.trim() || '';
+      const locationPart = parts.slice(1).join(' - ').trim();
+      if (locationPart) {
+        location = locationPart;
+        siteName = sitePart;
+      }
+    }
     const title =
       taskType === 'MA'
         ? `MA: ${task.vendorName || task.vendor_name || siteName || 'Maintenance Agreement'}`
-        : location && siteName 
-          ? `${siteName} - ${location}`
-          : location 
-            ? location 
+        : location && siteName
+          ? `${location} - ${siteName}`
+          : location
+            ? location
             : (siteName || 'Preventive Maintenance');
 
     return {
@@ -1561,7 +1571,7 @@ export default function ScheduleManagement() {
                                         {ev.title}
                                       </p>
                                       {engineerNames && (
-                                        <p className={`text-[5px] ${engineerColor} font-medium truncate`}>
+                                        <p className={`text-[7px] ${engineerColor} font-medium leading-tight line-clamp-2 break-words`}>
                                           {engineerNames}
                                         </p>
                                       )}
@@ -1575,23 +1585,7 @@ export default function ScheduleManagement() {
                                         <div className={`w-1 h-1 rounded-full border-1 ${getStatusBorderColor()} bg-transparent`}></div>
                                         <div className={`w-1 h-1 rounded-full border-1 ${getStatusBorderColor()} bg-transparent`}></div>
                                       </div>
-                                      {/* Status text - split into two lines if needed */}
-                                      {/* <div className="text-center leading-tight mt-0.3">
-                                        {statusLine2 ? (
-                                          <>
-                                            <p className={`text-[1.5px] font-extrabold ${titleColor}`}>
-                                              {statusLine1}
-                                            </p>
-                                            <p className={`text-[1.5px] font-extrabold ${titleColor}`}>
-                                              {statusLine2}
-                                            </p>
-                                          </>
-                                        ) : (
-                                          <p className={`text-[1.5px] font-extrabold ${titleColor}`}>
-                                            {statusLabel}
-                                          </p>
-                                        )}
-                                      </div> */}
+                                     
                                     </div>
                                   </div>
                                 </div>
@@ -1644,19 +1638,20 @@ export default function ScheduleManagement() {
               )}
             </div>
 
+
+            {hoveredEvent.location && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">Location</p>
+                <p className="text-sm font-bold text-slate-800">{hoveredEvent.location}</p>
+              </div>
+            )}
             {/* Site Name */}
             <div>
               <p className="text-xs font-semibold text-slate-500 mb-0.5">Site</p>
               <p className="text-sm font-bold text-slate-800">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
             </div>
 
-            {/* Location */}
-            {hoveredEvent.location && (
-              <div>
-                <p className="text-xs font-semibold text-slate-500 mb-0.5">Location</p>
-                <p className="text-sm text-slate-700">{hoveredEvent.location}</p>
-              </div>
-            )}
+            
 
             {/* Dates */}
             <div className="grid grid-cols-2 gap-2">

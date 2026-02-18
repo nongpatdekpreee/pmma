@@ -297,12 +297,17 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   <p className="text-sm font-medium text-slate-800 mt-1">{formatDate(task.endDate)}</p>
                 </div>
               )}
+              {/* Location ก่อน Site, Location เด่น (bold) */}
+              {task.location && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Location</label>
+                  <p className="text-sm font-bold text-slate-800 mt-1">{task.location}</p>
+                </div>
+              )}
               {task.Sname && (
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Site Name</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">
-                    {task.Sname}{task.location ? ` - ${task.location}` : ''}
-                  </p>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Site</label>
+                  <p className="text-sm font-bold text-slate-800 mt-1">{task.Sname}</p>
                 </div>
               )}
               
