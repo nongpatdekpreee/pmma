@@ -58,6 +58,7 @@ interface CalendarEvent {
   coverageScope?: string;
   assets?: Device[];
   vendorName?: string;
+  vendorTel?: string;
   slaTerm?: string;
   duration?: string;
   assetBinding?: string;
@@ -91,6 +92,8 @@ export default function ScheduleManagement() {
     newStartDate: string;
     newEndDate: string;
   } | null>(null);
+  const [hoveredEvent, setHoveredEvent] = useState<CalendarEvent | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   
   /* ===== Excel/CSV Import ===== */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -160,6 +163,7 @@ export default function ScheduleManagement() {
       coverageScope: task.coverageScope,
       assets: task.assets || [],
       vendorName: task.vendorName || task.vendor_name,
+      vendorTel: task.vendorTel || task.vendor_tel,
       ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
       assetBinding: task.assetBinding || task.asset_binding,
@@ -1507,6 +1511,39 @@ export default function ScheduleManagement() {
                                   onDragStart={() => !isDone && setDraggedEvent(ev)}
                                   onDragEnd={handleDragEnd}
                                   onClick={() => handleTaskClick(ev)}
+                                  onMouseEnter={(e) => {
+                                    setHoveredEvent(ev);
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const tooltipWidth = 320; // max-w-sm = 384px, use 320 for safety
+                                    const tooltipHeight = 400; // estimated max height
+                                    const spaceOnRight = window.innerWidth - rect.right;
+                                    const spaceOnLeft = rect.left;
+                                    const spaceOnBottom = window.innerHeight - rect.bottom;
+                                    
+                                    let x = rect.right + 10;
+                                    let y = rect.top;
+                                    
+                                    // ถ้ามีที่ว่างทางขวาเพียงพอ ให้แสดงทางขวา, ไม่งั้นแสดงทางซ้าย
+                                    if (spaceOnRight >= tooltipWidth + 20) {
+                                      x = rect.right + 10;
+                                    } else if (spaceOnLeft >= tooltipWidth + 20) {
+                                      x = rect.left - tooltipWidth - 10;
+                                    } else {
+                                      // ถ้าทั้งสองข้างไม่พอ ให้แสดงทางขวา (อาจจะถูกตัดแต่ดีกว่าไม่มี)
+                                      x = rect.right + 10;
+                                    }
+                                    
+                                    // ปรับตำแหน่ง y ถ้าเกินขอบล่าง
+                                    if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) {
+                                      y = rect.bottom - tooltipHeight;
+                                    }
+                                    
+                                    setTooltipPosition({ x, y });
+                                  }}
+                                  onMouseLeave={() => {
+                                    setHoveredEvent(null);
+                                    setTooltipPosition(null);
+                                  }}
                                   className={`mt-1 p-1.5 bg-white ${borderColor} border-l-[4px] rounded-xl shadow-sm ${isDone ? 'cursor-pointer' : 'cursor-move'} hover:shadow-lg ${hoverBg} transition-all ${draggedEvent?.id === ev.id ? 'opacity-50' : ''
                                     }`}
                                 >
@@ -1571,6 +1608,100 @@ export default function ScheduleManagement() {
           </div>
         </div>
       </main>
+
+      {/* Task Detail Tooltip */}
+      {hoveredEvent && tooltipPosition && (
+        <div
+          className="fixed z-[300] bg-white rounded-lg shadow-2xl border border-slate-200 p-4 max-w-sm pointer-events-none"
+          style={{
+            left: `${tooltipPosition.x}px`,
+            top: `${tooltipPosition.y}px`,
+            transform: 'translateY(0)'
+          }}
+        >
+          <div className="space-y-2">
+            {/* Task Type Badge */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                hoveredEvent.taskType === 'MA' 
+                  ? 'bg-rose-100 text-rose-700' 
+                  : 'bg-blue-100 text-blue-700'
+              }`}>
+                {hoveredEvent.taskType || 'PM'}
+              </span>
+              {hoveredEvent.status && (
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                  hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
+                  hoveredEvent.status === 'working' ? 'bg-orange-100 text-orange-700' :
+                  hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-100 text-gray-700'
+                }`}>
+                  {hoveredEvent.status === 'done' ? 'Done' :
+                   hoveredEvent.status === 'working' ? 'Working' :
+                   hoveredEvent.status === 'stuck' ? 'Stuck' :
+                   'Not Started'}
+                </span>
+              )}
+            </div>
+
+            {/* Site Name */}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-0.5">Site</p>
+              <p className="text-sm font-bold text-slate-800">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
+            </div>
+
+            {/* Location */}
+            {hoveredEvent.location && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">Location</p>
+                <p className="text-sm text-slate-700">{hoveredEvent.location}</p>
+              </div>
+            )}
+
+            {/* Dates */}
+            <div className="grid grid-cols-2 gap-2">
+              {hoveredEvent.startDate && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date</p>
+                  <p className="text-sm text-slate-700">
+                    {new Date(hoveredEvent.startDate).toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric' 
+                    })}
+                  </p>
+                </div>
+              )}
+              {hoveredEvent.endDate && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">End Date</p>
+                  <p className="text-sm text-slate-700">
+                    {new Date(hoveredEvent.endDate).toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric' 
+                    })}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Engineers */}
+            {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
+                <div className="flex flex-wrap gap-1">
+                  {hoveredEvent.Eng_ids.map((eng, idx) => (
+                    <span key={idx} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                      {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Move Task Reason Modal */}
       {isMoveModalOpen && pendingMove && (

@@ -12,8 +12,9 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
-import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation } from '@/lib/api';
+import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getTasks, checkEngineerConflict } from '@/lib/api';
 import { getEmployees } from '@/data/employee.mock';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 
 
 
@@ -138,6 +139,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const endDatePickerRef = useRef<HTMLInputElement>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [loadingEngineers, setLoadingEngineers] = useState(false);
+  const { toasts, removeToast, warning: showWarning } = useToast();
 
   const resetForm = () => {
     setTaskType('PM');
@@ -893,22 +895,84 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         eng.id.toLowerCase().includes(engineerInput.toLowerCase()))
   );
 
-  const addEngineer = (engineer: Engineer) => {
-    if (!selectedEngineers.some((e) => e.id === engineer.id)) {
+  // ฟังก์ชันเช็ค conflict สำหรับ engineer คนเดียว (เช็คจาก database)
+  const checkSingleEngineerConflict = async (engineer: Engineer): Promise<{ hasConflict: boolean; conflictingTask: any | null }> => {
+    if (!startDate) {
+      return { hasConflict: false, conflictingTask: null };
+    }
+
+    try {
+      const result = await checkEngineerConflict({
+        engineerId: engineer.id,
+        startDate,
+        endDate: endDate || undefined,
+        excludeTaskId: editingEvent?.id ? String(editingEvent.id) : undefined,
+      });
+
+      if (!result.success) {
+        return { hasConflict: false, conflictingTask: null };
+      }
+
+      if (result.hasConflict) {
+        return {
+          hasConflict: true,
+          conflictingTask: result.conflictingTask,
+        };
+      }
+
+      return { hasConflict: false, conflictingTask: null };
+    } catch (error) {
+      console.error('Error checking engineer conflict:', error);
+      return { hasConflict: false, conflictingTask: null };
+    }
+  };
+
+  const addEngineer = async (engineer: Engineer) => {
+    // เช็คว่า engineer คนนี้ถูกเลือกแล้วหรือยัง
+    if (selectedEngineers.some((e) => e.id === engineer.id)) {
+      return;
+    }
+
+    // เช็ค conflict ก่อนเพิ่ม (ต้องมี startDate)
+    if (!startDate) {
+      // ถ้ายังไม่มี startDate ให้เพิ่มได้เลย (จะเช็คตอน save)
       setSelectedEngineers([...selectedEngineers, engineer]);
       setEngineerInput('');
       setShowEngineerDropdown(false);
+      return;
     }
+
+    // เช็ค conflict
+    const conflictCheck = await checkSingleEngineerConflict(engineer);
+    if (conflictCheck.hasConflict) {
+      const engineerName = `${engineer.name}${engineer.lastName ? ' ' + engineer.lastName : ''}`;
+      const taskInfo = conflictCheck.conflictingTask?.siteName || conflictCheck.conflictingTask?.Sname || 'Unknown Task';
+      const taskDate = conflictCheck.conflictingTask?.startDate 
+        ? new Date(conflictCheck.conflictingTask.startDate).toLocaleDateString('th-TH', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          })
+        : '';
+      const alertMessage = `${engineerName} มีงานในวันที่ ${taskDate} ที่ ${taskInfo} แล้ว\nไม่สามารถเพิ่มได้`;
+      showWarning(alertMessage, 5000);
+      return;
+    }
+
+    // ถ้าไม่มี conflict ให้เพิ่ม engineer
+    setSelectedEngineers([...selectedEngineers, engineer]);
+    setEngineerInput('');
+    setShowEngineerDropdown(false);
   };
 
   const removeEngineer = (engineerId: string) => {
     setSelectedEngineers(selectedEngineers.filter((e) => e.id !== engineerId));
   };
 
-  const handleEngineerInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleEngineerInputKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && filteredEngineers.length > 0) {
       e.preventDefault();
-      addEngineer(filteredEngineers[0]);
+      await addEngineer(filteredEngineers[0]);
     } else if (e.key === 'Backspace' && engineerInput === '' && selectedEngineers.length > 0) {
       removeEngineer(selectedEngineers[selectedEngineers.length - 1].id);
     }
@@ -1107,9 +1171,103 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setDeviceSearchPm('');
   };
 
+  // ฟังก์ชันเช็ค conflict ระหว่าง tasks
+  const checkEngineerConflicts = async (): Promise<{ hasConflict: boolean; conflicts: Array<{ engineerId: string; engineerName: string; conflictingTask: any }> }> => {
+    if (!startDate || selectedEngineers.length === 0) {
+      return { hasConflict: false, conflicts: [] };
+    }
+
+    try {
+      // ดึง tasks ที่มีอยู่ในช่วงวันที่เดียวกัน
+      const startDateObj = new Date(startDate);
+      const endDateObj = endDate ? new Date(endDate) : new Date(startDate); // ถ้าไม่มี endDate ให้ใช้ startDate
+      
+      // ดึง tasks จากเดือนของ startDate และ endDate (ถ้ามี)
+      const startMonth = startDateObj.getMonth() + 1;
+      const startYear = startDateObj.getFullYear();
+      const endMonth = endDateObj.getMonth() + 1;
+      const endYear = endDateObj.getFullYear();
+
+      // ดึง tasks จากทั้งสองเดือน (ถ้าต่างเดือน)
+      const tasksPromises = [];
+      tasksPromises.push(getTasks({ month: startMonth, year: startYear }));
+      if (startMonth !== endMonth || startYear !== endYear) {
+        tasksPromises.push(getTasks({ month: endMonth, year: endYear }));
+      }
+      
+      const tasksResponses = await Promise.all(tasksPromises);
+      const allTasks = tasksResponses
+        .filter(res => res.success && res.data)
+        .flatMap(res => res.data || []);
+
+      const existingTasks = allTasks.filter((task: any) => {
+        // ข้าม task ที่กำลังแก้ไข (ถ้าเป็น edit mode)
+        if (editingEvent?.id && task.id === editingEvent.id) {
+          return false;
+        }
+        return task.startDate; // ต้องมี startDate อย่างน้อย
+      });
+
+      const conflicts: Array<{ engineerId: string; engineerName: string; conflictingTask: any }> = [];
+      const selectedEngineerIds = selectedEngineers.map(e => String(e.id));
+
+      // เช็คแต่ละ engineer ที่เลือก
+      for (const engineer of selectedEngineers) {
+        const engineerId = String(engineer.id);
+        const engineerName = `${engineer.name}${engineer.lastName ? ' ' + engineer.lastName : ''}`;
+
+        // หา tasks ที่ engineer คนนี้มีอยู่แล้ว
+        const engineerTasks = existingTasks.filter((task: any) => {
+          const taskEngineerIds = task.Eng_ids?.map((e: any) => String(e.id)) || 
+                                   task.Eng_id?.map((id: any) => String(id)) || [];
+          return taskEngineerIds.includes(engineerId);
+        });
+
+        // เช็คว่า task ใด overlap กับวันที่ที่เลือก
+        for (const task of engineerTasks) {
+          const taskStart = new Date(task.startDate);
+          const taskEnd = task.endDate ? new Date(task.endDate) : new Date(task.startDate); // ถ้าไม่มี endDate ให้ใช้ startDate
+
+          // เช็คว่า overlap หรือไม่: ถ้าวันที่ทับกัน
+          const isOverlap = (startDateObj <= taskEnd && endDateObj >= taskStart);
+
+          if (isOverlap) {
+            conflicts.push({
+              engineerId,
+              engineerName,
+              conflictingTask: task
+            });
+            break; // หาแค่ task แรกที่ conflict
+          }
+        }
+      }
+
+      return {
+        hasConflict: conflicts.length > 0,
+        conflicts
+      };
+    } catch (error) {
+      console.error('Error checking engineer conflicts:', error);
+      // ถ้าเกิด error ให้ผ่านไป (ไม่บล็อกการ save)
+      return { hasConflict: false, conflicts: [] };
+    }
+  };
+
   const handleSave = async () => {
     if (!Sname || !startDate || selectedEngineers.length === 0) {
       alert('Please fill required fields');
+      return;
+    }
+
+    // เช็ค conflict ของ engineer
+    const conflictCheck = await checkEngineerConflicts();
+    if (conflictCheck.hasConflict) {
+      const conflictMessages = conflictCheck.conflicts.map(c => {
+        const taskInfo = c.conflictingTask.siteName || c.conflictingTask.Sname || 'Unknown Task';
+        const taskDate = c.conflictingTask.startDate ? new Date(c.conflictingTask.startDate).toLocaleDateString('th-TH') : '';
+        return `${c.engineerName} มี task ที่ ${taskInfo} ในวันที่ ${taskDate}`;
+      });
+      alert(`ไม่สามารถบันทึกได้: Engineer มี task ซ้อนทับในวันเดียวกัน\n\n${conflictMessages.join('\n')}`);
       return;
     }
 
@@ -1293,7 +1451,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         setSiteSearch(Sid ? siteOptions.find(s => s.id === Sid)?.label || '' : '');
                       }
                     }}
-                    placeholder={loadingSites ? 'Loading sites...' : 'ค้นหาหรือเลือก Site...'}
+                    placeholder={loadingSites ? 'Loading sites...' : 'Find or select site...'}
                     disabled={loadingSites}
                     className={`w-full pl-10 pr-16 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingSites ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
                   />
@@ -1322,7 +1480,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <div className="overflow-y-auto max-h-60">
                       {filteredSiteOptions.length === 0 ? (
                         <div className="px-3 py-2 text-xs text-slate-400 text-center">
-                          {siteSearch.trim() ? 'ไม่พบ Site ที่ตรงกับคำค้นหา' : 'ไม่พบ Site'}
+                          {siteSearch.trim() ? 'No sites found' : 'No sites'}
                         </div>
                       ) : (
                         filteredSiteOptions.map((s) => (
@@ -1344,13 +1502,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                     {siteSearch.trim() && filteredSiteOptions.length > 0 && (
                       <div className="px-3 py-1.5 border-t border-slate-200 text-[10px] text-slate-400 text-center bg-slate-50">
-                        แสดง {filteredSiteOptions.length}/{siteOptions.length} Site
+                        Showing {filteredSiteOptions.length}/{siteOptions.length} sites
                       </div>
                     )}
                   </div>
                 )}
               </div>
-              {loadingSites && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลไซต์...</p>}
+                {loadingSites && <p className="text-[10px] text-slate-400 mt-1">Loading sites...</p>}
             </div>
 
             {/* Contract Selection - appears after site is selected */}
@@ -1387,7 +1545,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           }
                         }
                       }}
-                      placeholder={loadingContracts ? 'Loading contracts...' : 'ค้นหาหรือเลือก Contract...'}
+                      placeholder={loadingContracts ? 'Loading contracts...' : 'Find or select contract...'}
                       disabled={loadingContracts}
                       className={`w-full pl-10 pr-16 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingContracts ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
                     />
@@ -1417,7 +1575,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       <div className="overflow-y-auto max-h-60">
                         {filteredContractOptions.length === 0 ? (
                           <div className="px-3 py-2 text-xs text-slate-400 text-center">
-                            {contractSearch.trim() ? 'ไม่พบ Contract ที่ตรงกับคำค้นหา' : 'ไม่พบ Contract ใน Site นี้'}
+                            {contractSearch.trim() ? 'No contracts found' : 'No contracts in this site'}
                           </div>
                         ) : (
                           filteredContractOptions.map((contract) => (
@@ -1440,13 +1598,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                       {contractSearch.trim() && filteredContractOptions.length > 0 && (
                         <div className="px-3 py-1.5 border-t border-slate-200 text-[10px] text-slate-400 text-center bg-slate-50">
-                          แสดง {filteredContractOptions.length}/{contractOptions.length} Contract
+                          Showing {filteredContractOptions.length}/{contractOptions.length} contracts
                         </div>
                       )}
                     </div>
                   )}
                 </div>
-                {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">กำลังโหลดข้อมูลสัญญา...</p>}
+                {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">Loading contracts...</p>}
               </div>
             )}
           </div>
@@ -1462,7 +1620,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             )}
 
             {deviceError && <p className="text-xs text-red-500">{deviceError}</p>}
-            {loadingDevices && <p className="text-xs text-slate-400">กำลังโหลดข้อมูลอุปกรณ์...</p>}
+            {loadingDevices && <p className="text-xs text-slate-400">Loading devices...</p>}
 
             {devicesToShow.length > 0 && taskType === 'PM' && (
               <div className="space-y-1.5">
@@ -1472,7 +1630,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                      placeholder="ค้นหาอุปกรณ์..."
+                        placeholder="Find device..."
                       value={deviceSearchPm}
                       onChange={(e) => setDeviceSearchPm(e.target.value)}
                       className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
@@ -1602,13 +1760,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       {/* Select All Button */}
                       <div className="flex items-center">
                         {(() => {
-                          const allSelected = availableDevices.length > 0 && availableDevices.every((d) => selectedDevices.some(s => s.id === d.id));
+                          // ตรวจสอบว่าทุกรายการที่ถูกกรองแล้วถูกเลือกหรือไม่
+                          const allFilteredSelected = devicesToShowFilteredPm.length > 0 && devicesToShowFilteredPm.every((d) => selectedDevices.some(s => s.id === d.id));
 
                           return (
                             <button
                               type="button"
                               onClick={handleSelectAllFiltered}
-                              className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${allSelected
+                              className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${allFilteredSelected
                                   ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm'
                                   : 'bg-slate-100 text-slate-700 hover:bg-slate-200 shadow-sm'
                                 }`}
@@ -1665,7 +1824,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 {totalDevicePages > 1 && (
                   <div className="flex items-center justify-between pt-2 border-t border-slate-200">
                     <div className="text-xs text-slate-500">
-                      แสดง {startDeviceIndex + 1}-{Math.min(endDeviceIndex, availableDevices.length)} จาก {availableDevices.length} รายการ
+                      Showing {startDeviceIndex + 1}-{Math.min(endDeviceIndex, availableDevices.length)} from {availableDevices.length} devices
                     </div>
                     <div className="flex items-center gap-1">
                       <button
@@ -1674,10 +1833,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         disabled={devicePage === 1}
                         className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        ก่อนหน้า
+                        Previous
                       </button>
                       <span className="px-2 py-1 text-xs text-slate-600">
-                        หน้า {devicePage} / {totalDevicePages}
+                        Page {devicePage} / {totalDevicePages}
                       </span>
                       <button
                         type="button"
@@ -1685,14 +1844,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         disabled={devicePage === totalDevicePages}
                         className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        ถัดไป
+                        Next
                       </button>
                     </div>
                   </div>
                 )}
 
                 {deviceSearchPm && availableDevices.length < devicesToShow.length && (
-                  <p className="text-xs text-slate-500 mt-1">แสดง {availableDevices.length}/{devicesToShow.length} รายการ (กรองแล้ว)</p>
+                  <p className="text-xs text-slate-500 mt-1">Showing {availableDevices.length}/{devicesToShow.length} devices (filtered)</p>
                 )}
               </div>
             )}
@@ -1756,7 +1915,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       </label>
                       {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                          {!Sid ? 'เลือก Site' : !selectedContractId ? 'เลือก Contract เพื่อแสดงอุปกรณ์' : 'ไม่พบอุปกรณ์ที่ Site นี้'}
+                            {!Sid ? 'Select Site' : !selectedContractId ? 'Select Contract to show devices' : 'No devices in this site'}
                         </p>
                       ) : (
                         <SearchableDeviceSelect
@@ -1798,7 +1957,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         Replacement Device <span className="text-red-500">*</span>
                       </label>
                       {pair.loading ? (
-                        <p className="text-xs text-slate-400">กำลังโหลด...</p>
+                        <p className="text-xs text-slate-400">Loading...</p>
                       ) : pair.replacementDevices.length === 0 ? (
                         <p className="text-xs text-slate-400">No devices in store</p>
                       ) : (
@@ -1933,8 +2092,52 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               </div>
             </div>
           )}
-          {/* Assignment Section */}
+        
           <div className={sectionCard}>
+            <h3 className="text-sm font-bold text-slate-700">Schedule</h3>
+            {editingEvent?.status === 'done' && (
+              <p className="text-xs text-amber-600 mb-2">Task that is already done cannot be edited</p>
+            )}
+            <div className={taskType === 'MA' ? 'grid grid-cols-2 gap-4' : 'grid grid-cols-2 gap-4'}>
+              <div>
+                <label className={fieldLabel}>Start Date</label>
+                <input
+                  ref={startDatePickerRef}
+                  type="date"
+                  lang="en-US"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (editingEvent?.status !== 'done' && e.target instanceof HTMLInputElement) {
+                      e.target.showPicker?.();
+                    }
+                  }}
+                  disabled={editingEvent?.status === 'done'}
+                  className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                />
+              </div>
+              <div>
+                <label className={fieldLabel}>End Date</label>
+                <input
+                  ref={endDatePickerRef}
+                  type="date"
+                  lang="en-US"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (editingEvent?.status !== 'done' && e.target instanceof HTMLInputElement) {
+                      e.target.showPicker?.();
+                    }
+                  }}
+                  disabled={editingEvent?.status === 'done'}
+                  className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                />
+              </div>
+            </div>
+            {/* Assignment Section */}
+      
             <h3 className="text-xs font-bold text-slate-700">Assignment</h3>
 
             <div className="relative">
@@ -1995,7 +2198,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   {filteredEngineers.map((eng) => (
                     <div
                       key={eng.id}
-                      onClick={() => addEngineer(eng)}
+                      onClick={async () => await addEngineer(eng)}
                       className="px-3 py-2 hover:bg-blue-50 cursor-pointer transition"
                     >
                       <p className="text-sm font-medium text-slate-700">
@@ -2014,60 +2217,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 </div>
               )}
             </div>
-          </div>
-
-
-
-
-          <div className={sectionCard}>
-            <h3 className="text-sm font-bold text-slate-700">Schedule</h3>
-            {editingEvent?.status === 'done' && (
-              <p className="text-xs text-amber-600 mb-2">Task that is already done cannot be edited</p>
-            )}
-            <div className={taskType === 'MA' ? 'grid grid-cols-2 gap-4' : 'grid grid-cols-2 gap-4'}>
-              <div>
-                <label className={fieldLabel}>Start Date</label>
-                <div 
-                  className="relative cursor-pointer"
-                  onClick={() => {
-                    if (editingEvent?.status !== 'done' && startDatePickerRef.current) {
-                      startDatePickerRef.current.showPicker?.();
-                    }
-                  }}
-                >
-                  <input
-                    ref={startDatePickerRef}
-                    type="date"
-                    lang="en-US"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    disabled={editingEvent?.status === 'done'}
-                    className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className={fieldLabel}>End Date</label>
-                <div 
-                  className="relative cursor-pointer"
-                  onClick={() => {
-                    if (editingEvent?.status !== 'done' && endDatePickerRef.current) {
-                      endDatePickerRef.current.showPicker?.();
-                    }
-                  }}
-                >
-                  <input
-                    ref={endDatePickerRef}
-                    type="date"
-                    lang="en-US"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    disabled={editingEvent?.status === 'done'}
-                    className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
-                  />
-                </div>
-              </div>
-            </div>
+     
 
             <div>
               <label className={fieldLabel}>Coverage Scope</label>
@@ -2097,6 +2247,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+
       <AssetSelectModal
         open={assetModalOpen}
         devices={devicesToShow.filter(d =>
@@ -2215,7 +2369,7 @@ function SearchableDeviceSelect({
               <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="ค้นหา..."
+                placeholder="Find device..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.stopPropagation()}
@@ -2352,24 +2506,26 @@ function AssetSelectModal({
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="ค้นหาอุปกรณ์ (ชื่อ, Type, Serial, Site...)"
+              placeholder="Find device..."
               value={deviceSearch}
               onChange={(e) => setDeviceSearch(e.target.value)}
               className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
             />
           </div>
           {filteredDevices.length < devices.length && (
-            <p className="text-xs text-slate-500 mt-1">แสดง {filteredDevices.length}/{devices.length} รายการ</p>
+            <p className="text-xs text-slate-500 mt-1">Showing {filteredDevices.length}/{devices.length} devices</p>
           )}
         </div>
 
         {/* actions */}
-        {taskType === 'PM' && (
+        {taskType === 'PM' && (() => {
+          const allFilteredSelected = filteredDevices.length > 0 && filteredDevices.every((d) => localSelected.some((x) => x.id === d.id));
+          return (
           <div className="flex justify-between px-6 py-3 border-b">
             <div className="flex gap-2">
               <button
                 onClick={selectAll}
-                className="px-3 py-1.5 text-xs font-semibold bg-blue-50 text-blue-600 rounded-lg"
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${allFilteredSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
               >
                 Select all
               </button>
@@ -2384,12 +2540,13 @@ function AssetSelectModal({
               {localSelected.length} selected
             </span>
           </div>
-        )}
+          );
+        })()}
 
         {/* list */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
           {filteredDevices.length === 0 ? (
-            <p className="text-sm text-slate-500 text-center py-8">ไม่พบอุปกรณ์ที่ตรงกับคำค้นหา</p>
+            <p className="text-sm text-slate-500 text-center py-8">No devices found</p>
           ) : (
             filteredDevices.map((d) => {
               const checked = taskType === 'MA'
