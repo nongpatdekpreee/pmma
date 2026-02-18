@@ -2,7 +2,7 @@
 
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { MaintenanceCard } from '@/components/ui/MaintenanceCard';
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link'; 
 import DateTime from '@/components/ui/DateTime';
 import DashboardHeader from '@/components/ui/Header';
@@ -28,12 +28,29 @@ export default function DashboardPage() {
     count: number;
     assignees: string[];
   }>>([]);
+  const [pmCardsPage, setPmCardsPage] = useState(1);
   const [vendorBars, setVendorBars] = useState<Array<{ name: string; value: number }>>([]);
   const [loadingPm, setLoadingPm] = useState(true);
   const [loadingMa, setLoadingMa] = useState(true);
   const [nearestEvents, setNearestEvents] = useState<EventItem[]>([]);
+  const [nearestEventsPage, setNearestEventsPage] = useState(1);
   const [missingEvents, setMissingEvents] = useState<EventItem[]>([]);
+  const [missingEventsPage, setMissingEventsPage] = useState(1);
   const [loadingEvents, setLoadingEvents] = useState(true);
+
+  const PM_CARDS_PAGE_SIZE = 5;
+  const pmTotalPages = Math.max(1, Math.ceil(pmCards.length / PM_CARDS_PAGE_SIZE));
+  const pmPage = Math.min(pmCardsPage, pmTotalPages);
+  const paginatedPmCards = pmCards.slice((pmPage - 1) * PM_CARDS_PAGE_SIZE, pmPage * PM_CARDS_PAGE_SIZE);
+
+  const NEAREST_EVENTS_PAGE_SIZE = 4;
+  const MISSING_EVENTS_PAGE_SIZE = 4;
+  const nearestTotalPages = Math.max(1, Math.ceil(nearestEvents.length / NEAREST_EVENTS_PAGE_SIZE));
+  const nearestPage = Math.min(nearestEventsPage, nearestTotalPages);
+  const paginatedNearestEvents = nearestEvents.slice((nearestPage - 1) * NEAREST_EVENTS_PAGE_SIZE, nearestPage * NEAREST_EVENTS_PAGE_SIZE);
+  const missingTotalPages = Math.max(1, Math.ceil(missingEvents.length / MISSING_EVENTS_PAGE_SIZE));
+  const missingPage = Math.min(missingEventsPage, missingTotalPages);
+  const paginatedMissingEvents = missingEvents.slice((missingPage - 1) * MISSING_EVENTS_PAGE_SIZE, missingPage * MISSING_EVENTS_PAGE_SIZE);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +68,7 @@ export default function DashboardPage() {
           .map((t: any) => ({ ...t, _start: new Date(t.startDate) }))
           .filter((t: any) => !Number.isNaN(t._start.getTime()) && t._start >= today)
           .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
-          .slice(0, 3);
+          .slice(0, 4); 
 
         const mapped = upcomingPm.map((t: any) => {
           const assets = Array.isArray(t.assets) ? t.assets : [];
@@ -126,7 +143,7 @@ export default function DashboardPage() {
             ? `MA: ${t.vendorName || t.vendor_name || siteName || 'Maintenance Agreement'}`
             : `PM: ${siteName || 'Preventive Maintenance'}`;
           const timeStr = t.time || '09:00';
-          const dateStr = d.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+          const dateStr = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
           return {
             id: String(t.id),
             title,
@@ -137,22 +154,22 @@ export default function DashboardPage() {
           };
         };
 
-        // Nearest: งานที่เริ่มวันนี้หรือหลังนี้ ยังไม่ done
+        // Nearest: งานที่เริ่มวันนี้หรือหลังนี้ ยังไม่ done (โหลดหลายรายการ สำหรับ pagination)
         const nearest = all
           .filter((t: any) => t.startDate || t.start_date)
           .map((t: any) => ({ ...t, _start: new Date(t.startDate || t.start_date) }))
           .filter((t: any) => !Number.isNaN(t._start.getTime()) && t._start >= today)
           .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
-          .slice(0, 5)
+          .slice(0, 50)
           .map(toEventItem);
 
-        // Missing: งานที่เลยวันสิ้นสุดแล้ว ยังไม่ done
+        // Missing: งานที่เลยวันสิ้นสุดแล้ว ยังไม่ done (โหลดหลายรายการ สำหรับ pagination)
         const missing = all
           .filter((t: any) => (t.status || 'not-started') !== 'done' && (t.endDate || t.end_date))
           .map((t: any) => ({ ...t, _end: new Date(t.endDate || t.end_date) }))
           .filter((t: any) => !Number.isNaN(t._end.getTime()) && t._end < today)
           .sort((a: any, b: any) => b._end.getTime() - a._end.getTime())
-          .slice(0, 5)
+          .slice(0, 50)
           .map(toEventItem);
 
         if (!cancelled) {
@@ -170,6 +187,18 @@ export default function DashboardPage() {
     };
     loadEvents();
   }, []);
+
+  useEffect(() => {
+    setPmCardsPage(1);
+  }, [pmCards.length]);
+
+  useEffect(() => {
+    setNearestEventsPage(1);
+  }, [nearestEvents.length]);
+
+  useEffect(() => {
+    setMissingEventsPage(1);
+  }, [missingEvents.length]);
 
   return (
     <SidebarLayout>
@@ -226,16 +255,46 @@ export default function DashboardPage() {
                 ) : pmCards.length === 0 ? (
                   <div className="text-sm text-slate-400 py-6 text-center">ยังไม่มีงาน PM</div>
                 ) : (
-                  pmCards.map((c) => (
-                    <MaintenanceCard
-                      key={c.id}
-                      id={c.id}
-                      location={c.location}
-                      date={c.date}
-                      serial={c.serial}
-                      count={c.count}
-                      assignees={c.assignees} CI_Name={''}                    />
-                  ))
+                  <>
+                    <div className="space-y-3">
+                      {paginatedPmCards.map((c) => (
+                        <MaintenanceCard
+                          key={c.id}
+                          id={c.id}
+                          location={c.location}
+                          date={c.date}
+                          serial={c.serial}
+                          count={c.count}
+                          assignees={c.assignees} CI_Name={''}                    />
+                      ))}
+                    </div>
+                    {pmCards.length > PM_CARDS_PAGE_SIZE && (
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                        <span className="text-xs text-slate-500">
+                          {(pmPage - 1) * PM_CARDS_PAGE_SIZE + 1}–{Math.min(pmPage * PM_CARDS_PAGE_SIZE, pmCards.length)} of {pmCards.length}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setPmCardsPage((p) => Math.max(1, p - 1))}
+                            disabled={pmPage <= 1}
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                          <span className="text-xs text-slate-600 px-1">Page {pmPage}/{pmTotalPages}</span>
+                          <button
+                            type="button"
+                            onClick={() => setPmCardsPage((p) => Math.min(pmTotalPages, p + 1))}
+                            disabled={pmPage >= pmTotalPages}
+                            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ChevronRight size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -253,18 +312,46 @@ export default function DashboardPage() {
               ) : nearestEvents.length === 0 ? (
                 <div className="text-sm text-slate-400 py-6 text-center">ยังไม่มีงานที่กำลังจะถึง</div>
               ) : (
-                <div className="space-y-3">
-                  {nearestEvents.map((ev) => (
-                    <Link
-                      key={ev.id}
-                      href={`/schedule_management?task=${ev.id}`}
-                      className="block border-l-4 border-blue-400 pl-4 py-2 bg-blue-50/30 rounded-r-xl hover:bg-blue-50/50 transition-colors"
-                    >
-                      <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                      <p className="text-[10px] text-gray-500 mt-1">{ev.dateStr}</p>
-                    </Link>
-                  ))}
-                </div>
+                <>
+                  <div className="space-y-3">
+                    {paginatedNearestEvents.map((ev) => (
+                      <Link
+                        key={ev.id}
+                        href={`/schedule_management?task=${ev.id}`}
+                        className="block border-l-4 border-blue-400 pl-4 py-2 bg-blue-50/30 rounded-r-xl hover:bg-blue-50/50 transition-colors"
+                      >
+                        <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
+                        <p className="text-[10px] text-gray-500 mt-1">{ev.dateStr}</p>
+                      </Link>
+                    ))}
+                  </div>
+                  {nearestEvents.length > NEAREST_EVENTS_PAGE_SIZE && (
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                      <span className="text-xs text-slate-500">
+                        {(nearestPage - 1) * NEAREST_EVENTS_PAGE_SIZE + 1}–{Math.min(nearestPage * NEAREST_EVENTS_PAGE_SIZE, nearestEvents.length)} of {nearestEvents.length}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setNearestEventsPage((p) => Math.max(1, p - 1))}
+                          disabled={nearestPage <= 1}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft size={16} />
+                        </button>
+                        <span className="text-xs text-slate-600 px-1">Page {nearestPage}/{nearestTotalPages}</span>
+                        <button
+                          type="button"
+                          onClick={() => setNearestEventsPage((p) => Math.min(nearestTotalPages, p + 1))}
+                          disabled={nearestPage >= nearestTotalPages}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -272,7 +359,7 @@ export default function DashboardPage() {
               <div className="flex justify-between mb-4">
                 <h3 className="font-bold text-slate-700 flex items-center gap-2">
                   <CircleAlert size={18} className="text-amber-500" />
-                  Missing
+                  Missing Events
                 </h3>
                 <Link href="/schedule_management" className="text-amber-600 text-xs hover:underline">View all</Link>
               </div>
@@ -282,28 +369,50 @@ export default function DashboardPage() {
               ) : missingEvents.length === 0 ? (
                 <div className="text-sm text-slate-400 py-6 text-center">No pending tasks</div>
               ) : (
-                <div className="space-y-3">
-                  {missingEvents.map((ev) => (
-                    <Link
-                      key={ev.id}
-                      href={`/schedule_management?task=${ev.id}`}
-                      className="block border-l-4 border-amber-400 pl-4 py-2 bg-amber-50/30 rounded-r-xl hover:bg-amber-50/50 transition-colors"
-                    >
-                      <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                      <p className="text-[10px] text-amber-600 mt-1">Overdue {ev.dateStr}</p>
-                    </Link>
-                  ))}
-                </div>
+                <>
+                  <div className="space-y-3">
+                    {paginatedMissingEvents.map((ev) => (
+                      <Link
+                        key={ev.id}
+                        href={`/schedule_management?task=${ev.id}`}
+                        className="block border-l-4 border-amber-400 pl-4 py-2 bg-amber-50/30 rounded-r-xl hover:bg-amber-50/50 transition-colors"
+                      >
+                        <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
+                        <p className="text-[10px] text-amber-600 mt-1">Overdue {ev.dateStr}</p>
+                      </Link>
+                    ))}
+                  </div>
+                  {missingEvents.length > MISSING_EVENTS_PAGE_SIZE && (
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                      <span className="text-xs text-slate-500">
+                        {(missingPage - 1) * MISSING_EVENTS_PAGE_SIZE + 1}–{Math.min(missingPage * MISSING_EVENTS_PAGE_SIZE, missingEvents.length)} of {missingEvents.length}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setMissingEventsPage((p) => Math.max(1, p - 1))}
+                          disabled={missingPage <= 1}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft size={16} />
+                        </button>
+                        <span className="text-xs text-slate-600 px-1">Page {missingPage}/{missingTotalPages}</span>
+                        <button
+                          type="button"
+                          onClick={() => setMissingEventsPage((p) => Math.min(missingTotalPages, p + 1))}
+                          disabled={missingPage >= missingTotalPages}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm">
-              <h3 className="font-bold text-slate-700 mb-4">Activity Stream</h3>
-              <div className="space-y-4">
-                <ActivityItem name="Yotsawan" action="Assigned new PM task to 'Router HQ-01'" />
-                <ActivityItem name="Emily Tyler" action="Attached files to the task" />
-              </div>
-            </div>
+
           </div>
 
         </div>

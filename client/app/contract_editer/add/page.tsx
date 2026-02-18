@@ -851,51 +851,46 @@ export default function AddContractPage() {
                           readOnly
                           className={`${inputBase} bg-slate-100 cursor-not-allowed`}
                         />
-                        <p className="mt-1 text-xs text-amber-600">SOF from old contract (will be stored in the database)</p>
+                        <p className="mt-1 text-xs text-amber-600">SOF from old contract</p>
                       </FormField>
-                      {selectedSOF && (
-                        <FormField label="New SOF ">
+                      <FormField label="New SOF" required>
+                        <div className="relative">
                           <input
                             type="text"
+                            list="sof-list-renew"
                             value={selectedSOF}
-                            readOnly
-                            className={`${inputBase} bg-blue-50 cursor-not-allowed`}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === '' || /^\d+$/.test(value)) {
+                                setSelectedSOF(value);
+                                setSofName(value);
+                              }
+                            }}
+                            placeholder="Enter new SOF"
+                            className={`${inputBase} ${selectedSOF && !referSOFLoading ? 'pr-16' : ''}`}
+                            disabled={referSOFLoading}
+                            required
                           />
-                          <p className="mt-1 text-xs text-blue-600">New SOF for this contract</p>
-                        </FormField>
-                      )}
-                    </div>
-                  )}
-                  {oldContractDevices.length > 0 && (
-                    <div className="mt-4">
-                      <FormField label={`Devices จากสัญญาเก่า (${oldContractDevices.length} รายการ)`}>
-                        <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-3 bg-slate-50">
-                          {oldContractDevices.map((device) => (
-                            <label key={device.Did} className="flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={selectedOldDevices.has(device.Did)}
-                                onChange={(e) => {
-                                  const newSet = new Set(selectedOldDevices);
-                                  if (e.target.checked) {
-                                    newSet.add(device.Did);
-                                  } else {
-                                    newSet.delete(device.Did);
-                                  }
-                                  setSelectedOldDevices(newSet);
-                                }}
-                                className="w-4 h-4 text-blue-600"
-                              />
-                              <span className="text-sm text-slate-700">
-                                {device.CI_Name || device.Asset_Number || `Device #${device.Did}`}
-                                {device.Asset_Number && ` (${device.Asset_Number})`}
-                              </span>
-                            </label>
-                          ))}
+                          {selectedSOF && !referSOFLoading && (
+                            <button
+                              type="button"
+                              onClick={() => { setSelectedSOF(''); setSofName(''); }}
+                              className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              title="ล้าง"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
                         </div>
-                        <p className="mt-2 text-xs text-slate-500">
-                          Select devices to use in the new contract (mostly the same devices)
-                        </p>
+                        <datalist id="sof-list-renew">
+                          {referSOFList.map((sof) => (
+                            <option key={sof} value={sof} />
+                          ))}
+                        </datalist>
+                        {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
+                        {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
+                          <p className="mt-1 text-xs text-amber-600">New SOF is not in the system (will be created)</p>
+                        )}
                       </FormField>
                     </div>
                   )}
@@ -995,56 +990,7 @@ export default function AddContractPage() {
                 </div>
                 <p className="mt-1 text-xs text-slate-500"></p>
               </FormField>
-              <FormField label={renewContractId ? "New SOF" : "SOF (Refer SOF from Device)"} required>
-                <div className="relative">
-                  <input
-                    type="text"
-                    list="sof-list"
-                    value={selectedSOF}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      // อนุญาตเฉพาะตัวเลขเท่านั้น
-                      if (value === '' || /^\d+$/.test(value)) {
-                        setSelectedSOF(value);
-                        setSofName(value);
-                      }
-                    }}
-                    placeholder={renewContractId ? "Enter new SOF" : "Select from list or enter SOF"}
-                    className={`${inputBase} ${selectedSOF && !referSOFLoading ? 'pr-16' : ''}`}
-                    disabled={referSOFLoading}
-                    required
-                  />
-                  {selectedSOF && !referSOFLoading && (
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedSOF(''); setSofName(''); }}
-                      className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ล้าง"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-                <datalist id="sof-list">
-                  {referSOFList.map((sof) => (
-                    <option key={sof} value={sof} />
-                  ))}
-                </datalist>
-                {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
-                {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
-                  <p className="mt-1 text-xs text-amber-600">
-                    {renewContractId ? "New SOF is not in the system (will be created)" : "SOF is not in the system"}
-                  </p>
-                )}
-                {renewContractId && oldContractSOF && (
-                  <p className="mt-1 text-xs text-blue-600">
-                    Old SOF: {oldContractSOF} → New SOF: {selectedSOF || '(please enter)'}
-                  </p>
-                )}
-              </FormField>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="SLA Term (%)" required>
+                            <FormField label="SLA Term (%)" required>
                 <div className="relative">
                   <input
                     type="number"
@@ -1074,8 +1020,53 @@ export default function AddContractPage() {
                     </button>
                   )}
                 </div>
-                <p className="mt-1 text-xs text-slate-500">Enter only numbers between 0 and 100</p>
+         
               </FormField>
+              {!renewContractId && (
+                <FormField label="SOF (Refer SOF from Device)" required>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      list="sof-list"
+                      value={selectedSOF}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '' || /^\d+$/.test(value)) {
+                          setSelectedSOF(value);
+                          setSofName(value);
+                        }
+                      }}
+                      placeholder="Select from list or enter SOF"
+                      className={`${inputBase} ${selectedSOF && !referSOFLoading ? 'pr-16' : ''}`}
+                      disabled={referSOFLoading}
+                      required
+                    />
+                    {selectedSOF && !referSOFLoading && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedSOF(''); setSofName(''); }}
+                        className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        title="ล้าง"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <datalist id="sof-list">
+                    {referSOFList.map((sof) => (
+                      <option key={sof} value={sof} />
+                    ))}
+                  </datalist>
+                  {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
+                  {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
+                    <p className="mt-1 text-xs text-amber-600">SOF is not in the system</p>
+                  )}
+                </FormField>
+                
+              )}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+
               <FormField label="Sale Account">
                 <div className="relative">
                   <input
