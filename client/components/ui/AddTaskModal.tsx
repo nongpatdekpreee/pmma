@@ -942,7 +942,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       return;
     }
 
-    // เช็ค conflict
+    // เช็ค conflict และแจ้งเตือน (แต่ยังเพิ่มได้)
     const conflictCheck = await checkSingleEngineerConflict(engineer);
     if (conflictCheck.hasConflict) {
       const engineerName = `${engineer.name}${engineer.lastName ? ' ' + engineer.lastName : ''}`;
@@ -954,12 +954,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             day: 'numeric'
           })
         : '';
-      const alertMessage = `${engineerName} มีงานในวันที่ ${taskDate} ที่ ${taskInfo} แล้ว\nไม่สามารถเพิ่มได้`;
+      const alertMessage = `${engineerName} มีงานในวันที่ ${taskDate} ที่ ${taskInfo} แล้ว`;
       showWarning(alertMessage, 5000);
-      return;
+      // แจ้งเตือนแล้ว แต่ยังเพิ่มได้ (ไม่ return)
     }
 
-    // ถ้าไม่มี conflict ให้เพิ่ม engineer
+    // เพิ่ม engineer (แม้จะมี conflict ก็ตาม)
     setSelectedEngineers([...selectedEngineers, engineer]);
     setEngineerInput('');
     setShowEngineerDropdown(false);
@@ -1259,7 +1259,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       return;
     }
 
-    // เช็ค conflict ของ engineer
+    // เช็ค conflict ของ engineer และแจ้งเตือน (แต่ยังบันทึกได้)
     const conflictCheck = await checkEngineerConflicts();
     if (conflictCheck.hasConflict) {
       const conflictMessages = conflictCheck.conflicts.map(c => {
@@ -1267,8 +1267,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         const taskDate = c.conflictingTask.startDate ? new Date(c.conflictingTask.startDate).toLocaleDateString('th-TH') : '';
         return `${c.engineerName} มี task ที่ ${taskInfo} ในวันที่ ${taskDate}`;
       });
-      alert(`ไม่สามารถบันทึกได้: Engineer มี task ซ้อนทับในวันเดียวกัน\n\n${conflictMessages.join('\n')}`);
-      return;
+      showWarning(`แจ้งเตือน: Engineer มี task ซ้อนทับในวันเดียวกัน\n\n${conflictMessages.join('\n')}`, 8000);
+      // แจ้งเตือนแล้ว แต่ยังบันทึกได้ (ไม่ return)
     }
 
     // MA-specific validation (เหมือน PM)

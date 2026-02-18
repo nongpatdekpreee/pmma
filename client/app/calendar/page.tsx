@@ -3,7 +3,7 @@
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Fragment } from 'react';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees } from '@/lib/api';
@@ -246,21 +246,28 @@ export default function CalendarPage() {
     });
   }, [calendarEvents, selectedEngineerFilter]);
 
-  // Get events for a specific day
+  // เช็คว่าเป็นงานหลายวัน (แสดงเป็นแถบต่อเนื่อง ไม่ใช่ pill แยก)
+  const isMultiDayEvent = (e: CalendarEvent): boolean => {
+    if (!e.startDate || !e.endDate) return false;
+    const eventStart = new Date(e.startDate);
+    const eventEnd = new Date(e.endDate);
+    const startDay = eventStart.getDate();
+    const endDay = eventEnd.getDate();
+    if (eventStart.getMonth() !== eventEnd.getMonth() || eventStart.getFullYear() !== eventEnd.getFullYear()) return true;
+    return startDay !== endDay;
+  };
+
+  // Get events for a specific day (เฉพาะงานวันเดียว — งานหลายวันแสดงเป็นแถบต่อกัน)
   const getEventsForDay = (day: number | null) => {
     if (!day) return [];
-    // Create date object for the current day being checked
     const checkDate = new Date(currentYear, currentMonth, day);
-    
     return filteredCalendarEvents.filter(e => {
-      // If event has startDate and endDate, use them for accurate cross-month checking
+      if (isMultiDayEvent(e)) return false; // งานหลายวันไปแสดงที่แถบต่อเนื่อง
       if (e.startDate && e.endDate) {
         const eventStart = new Date(e.startDate);
         const eventEnd = new Date(e.endDate);
-        // Check if the current day falls within the event date range
         return checkDate >= eventStart && checkDate <= eventEnd;
       }
-      // Fallback to old logic for backward compatibility
       return (
         day >= e.startDay &&
         day <= e.endDay &&
@@ -269,7 +276,36 @@ export default function CalendarPage() {
       );
     });
   };
-  
+
+  // คำนวณแถบงานหลายวันต่อสัปดาห์ (colStart, colEnd สำหรับ grid)
+  const getMultiDaySpansForWeek = (week: (number | null)[]) => {
+    const weekDays = week.filter((d): d is number => d !== null);
+    if (weekDays.length === 0) return [];
+    const weekMin = Math.min(...weekDays);
+    const weekMax = Math.max(...weekDays);
+    const firstOfMonth = new Date(currentYear, currentMonth, 1);
+    const lastOfMonth = new Date(currentYear, currentMonth + 1, 0);
+    const spans: { event: CalendarEvent; colStart: number; colEnd: number }[] = [];
+    filteredCalendarEvents.forEach(e => {
+      if (!isMultiDayEvent(e) || !e.startDate || !e.endDate) return;
+      const eventStart = new Date(e.startDate);
+      const eventEnd = new Date(e.endDate);
+      if (eventEnd < firstOfMonth || eventStart > lastOfMonth) return;
+      const eventStartInMonth = eventStart < firstOfMonth ? firstOfMonth : eventStart;
+      const eventEndInMonth = eventEnd > lastOfMonth ? lastOfMonth : eventEnd;
+      const eventStartDay = eventStartInMonth.getDate();
+      const eventEndDay = eventEndInMonth.getDate();
+      const spanStart = Math.max(eventStartDay, weekMin);
+      const spanEnd = Math.min(eventEndDay, weekMax);
+      if (spanStart > spanEnd) return;
+      const colStart = week.indexOf(spanStart);
+      const colEnd = week.indexOf(spanEnd);
+      if (colStart === -1 || colEnd === -1) return;
+      spans.push({ event: e, colStart, colEnd });
+    });
+    return spans;
+  };
+
   // Generate calendar days grouped by weeks (Sunday first)
   const calendarWeeks = useMemo(() => {
     const first = new Date(currentYear, currentMonth, 1);
@@ -298,21 +334,15 @@ export default function CalendarPage() {
     setCurrentDate(new Date(currentYear, currentMonth + 1, 1));
   };
 
-  // Format date for display (YYYY-MM-DD format, no time)
+  // Format date for display (YYYY-MM-DD format, no time) — ใช้ local date เพื่อไม่ให้ timezone เลื่อนวัน
   const formatDateForDisplay = (dateString: string | undefined): string => {
     if (!dateString) return '';
     try {
-      // Handle ISO 8601 format (e.g., "2026-02-18T17:00:00.000Z")
-      if (dateString.includes('T')) {
-        const dateOnly = dateString.split('T')[0];
-        const [year, month, day] = dateOnly.split('-');
-        if (year && month && day && year.length === 4) {
-          return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-        }
+      // If already in YYYY-MM-DD format (no time), return as is
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+        return dateString;
       }
-      
-      // Handle date string that might start with day (e.g., "18T17:00:00.000Z")
-      // Try to parse as Date object
+      // Parse as Date and use local date (getFullYear/getMonth/getDate) so timezone doesn't shift the day
       const dateObj = new Date(dateString);
       if (!isNaN(dateObj.getTime())) {
         const year = dateObj.getFullYear();
@@ -320,12 +350,6 @@ export default function CalendarPage() {
         const day = String(dateObj.getDate()).padStart(2, '0');
         return `${year}-${month}-${day}`;
       }
-      
-      // If already in YYYY-MM-DD format, return as is
-      if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
-        return dateString;
-      }
-      
       return dateString;
     } catch {
       return dateString;
@@ -630,183 +654,132 @@ export default function CalendarPage() {
             </div>
             
             {/* Calendar weeks */}
-            {calendarWeeks.map((week, weekIndex) => (
-              <div key={weekIndex} className="grid grid-cols-7 gap-px">
-                {week.map((day, dayIndex) => {
-                  const dayEvents = getEventsForDay(day);
-                  
-                  return (
-                    <div
-                      key={dayIndex}
-                      onDrop={e => handleDrop(e, day)}
-                      onDragOver={e => handleDragOver(e, day)}
-                      className={`min-h-[100px] p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : 'bg-white'
-                        } ${day !== null && dragOverDay === day && draggedEvent
-                          ? 'bg-blue-50 border-2 border-blue-300'
-                          : ''
-                        }`}
-                    >
-                      {day !== null && (
-                        <>
-                          <span 
-                            className={`text-xs font-bold ${
-                              isToday(day) 
-                                ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-md' 
-                                : 'bg-gradient-to-r from-slate-400 to-slate-500 bg-clip-text text-transparent'
-                            }`}
-                          >
-                            {day}
-                          </span>
-                          
-                          {/* Display events for this day */}
-                          <div className="mt-1.5 space-y-0.5">
-                            {dayEvents.map((ev) => {
-                              // Determine border color and gradient based on event color
-                              const eventStyleMap: { [key: string]: { border: string; gradient: string } } = {
-                                'border-purple-400': {
-                                  border: 'border-purple-400',
-                                  gradient: 'from-purple-500 to-pink-500'
-                                },
-                                'border-blue-500': {
-                                  border: 'border-blue-400',
-                                  gradient: 'from-blue-500 to-indigo-500'
-                                },
-                                'border-red-500': {
-                                  border: 'border-red-400',
-                                  gradient: 'from-red-500 to-rose-500'
-                                },
-                              };
-                              const eventStyle = eventStyleMap[ev.color] || {
-                                border: 'border-blue-400',
-                                gradient: 'from-blue-500 to-indigo-500'
-                              };
-
-                              // Status configuration
-                              const statusConfig = {
-                                'done': { dot: 'bg-green-500', badge: 'bg-green-500', label: 'Done' },
-                                'working': { dot: 'bg-orange-500', badge: 'bg-orange-500', label: 'Working on it' },
-                                'stuck': { dot: 'bg-red-500', badge: 'bg-red-500', label: 'Stuck' },
-                                'not-started': { dot: 'bg-gray-400', badge: 'bg-gray-400', label: 'Not Started' },
-                              };
-                              const currentStatus = ev.status || 'not-started';
-                              const statusInfo = statusConfig[currentStatus];
-
-                              // Determine card border color based on task type
-                              const isMA = ev.taskType === 'MA';
-                              const borderColor = isMA ? 'border-l-[#C2185B]' : 'border-l-blue-500'; // MA: สีม่วงแดง, PM: สีฟ้า
-                              const titleColor = isMA ? 'text-[#C2185B]' : 'text-blue-900';
-                              const timeColor = isMA ? 'text-[#E91E63]' : 'text-blue-900';
-                              const engineerColor = isMA ? 'text-pink-900' : 'text-slate-800';
-                              const hoverBg = isMA ? 'hover:bg-rose-50/30' : 'hover:bg-blue-50/30';
-
-                              // Extract time from ev.time (format: "9:00 AM" or "09:00")
-                              const extractTime = (timeStr: string) => {
-                                if (!timeStr) return '9:00';
-                                // Remove AM/PM and extract just the time
-                                const timeOnly = timeStr.replace(/\s*(AM|PM)/i, '').trim();
-                                return timeOnly;
-                              };
-
-                              const displayTime = extractTime(ev.time);
-
-                              // โชว์ชื่อเต็ม (ชื่อ + นามสกุล)
-                              const engineerNames = ev.Eng_ids && ev.Eng_ids.length > 0
-                                ? ev.Eng_ids.map((e: Engineer) => (e.name || e.id) + (e.lastName ? ' ' + e.lastName : '')).join(', ')
-                                : ev.engineer || '';
-
-                              // Get status label for display (split into two lines if needed)
-                              const statusLabel = statusInfo.label.toUpperCase();
-                              const statusWords = statusLabel.split(' ');
-                              const statusLine1 = statusWords[0] || '';
-                              const statusLine2 = statusWords.slice(1).join(' ') || '';
-
-                              // Get border color for status circles
-                              const getStatusBorderColor = () => {
-                                if (currentStatus === 'done') return 'border-green-500';
-                                if (currentStatus === 'working') return 'border-orange-500';
-                                if (currentStatus === 'stuck') return 'border-red-500';
-                                return 'border-gray-400';
-                              };
-
-                              const isDone = currentStatus === 'done';
-                              return (
-                                <div
-                                  key={ev.id}
-                                  draggable={!isDone}
-                                  onDragStart={(e) => !isDone && handleDragStart(e, ev)}
-                                  onDragEnd={handleDragEnd}
-                                  onClick={() => handleTaskClick(ev)}
-                                  onMouseEnter={(e) => {
-                                    setHoveredEvent(ev);
-                                    const rect = e.currentTarget.getBoundingClientRect();
-                                    const tooltipWidth = 320;
-                                    const tooltipHeight = 400;
-                                    const spaceOnRight = window.innerWidth - rect.right;
-                                    const spaceOnLeft = rect.left;
-                                    const spaceOnBottom = window.innerHeight - rect.bottom;
-                                    let x = rect.right + 10;
-                                    let y = rect.top;
-                                    if (spaceOnRight >= tooltipWidth + 20) {
-                                      x = rect.right + 10;
-                                    } else if (spaceOnLeft >= tooltipWidth + 20) {
-                                      x = rect.left - tooltipWidth - 10;
-                                    } else {
-                                      x = rect.right + 10;
-                                    }
-                                    if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) {
-                                      y = rect.bottom - tooltipHeight;
-                                    }
-                                    setTooltipPosition({ x, y });
-                                  }}
-                                  onMouseLeave={() => {
-                                    setHoveredEvent(null);
-                                    setTooltipPosition(null);
-                                  }}
-                                  className={`mt-1 p-1.5 bg-white ${borderColor} border-l-[4px] rounded-xl shadow-sm ${isDone ? 'cursor-pointer' : 'cursor-move'} hover:shadow-lg ${hoverBg} transition-all ${
-                                    draggedEvent?.id === ev.id ? 'opacity-50' : ''
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    {/* Left: Time Box */}
-                                    <div className={`flex-shrink-0 w-7 h-9 ${isMA ? 'bg-gradient-to-br from-pink-50 to-rose-100 ' : 'bg-gradient-to-br from-blue-50 to-blue-100 '} rounded-lg flex items-center justify-center shadow-sm`}>
-                                      <p className={`text-[8px] font-extrabold ${timeColor}`}>
-                                        {displayTime}
-                                      </p>
-                                    </div>
-
-                                    {/* Middle: Task Title and Engineers */}
-                                    <div className="flex-1 min-w-0 ">
-                                      <p className={`text-[8px] font-extrabold truncate ${titleColor} leading-tight mb-3`}>
-                                        {ev.title}
-                                      </p>
-                                      {engineerNames && (
-                                        <p className={`text-[7px] ${engineerColor} font-medium leading-tight line-clamp-2 break-words`}>
-                                          {engineerNames}
-                                        </p>
-                                      )}
-                                    </div>
-
-                                    {/* Right: Status Box with circles */}
-                                    <div className={` ${isMA ? ' ' : ''} rounded-lg flex flex-col items-center justify-center gap-0.5 `}>
-                                      {/* Three circles */}
-                                      <div className="flex flex-col items-center gap-0.5 -mt-0.5">
-                                        <div className={`w-1 h-1 rounded-full ${statusInfo.dot} shadow-sm`}></div>
-                                        <div className={`w-1 h-1 rounded-full border-1 ${getStatusBorderColor()} bg-transparent`}></div>
-                                        <div className={`w-1 h-1 rounded-full border-1 ${getStatusBorderColor()} bg-transparent`}></div>
-                                      </div>
-                                    </div>
+            {calendarWeeks.map((week, weekIndex) => {
+              const multiDaySpans = getMultiDaySpansForWeek(week);
+              return (
+                <div key={weekIndex} className="relative grid grid-cols-7 gap-px">
+                  {week.map((day, dayIndex) => {
+                    const dayEvents = getEventsForDay(day);
+                    // กรองงานหลายวันออกจาก pills ในวันแรก (เพราะจะแสดงเป็นแถบต่อกันแล้ว)
+                    const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
+                    const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
+                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ (colStart <= dayIndex <= colEnd) → เว้นที่ให้แถบ ไม่ให้ pill ซ้อน
+                    const hasMultiDayBarAbove = multiDaySpans.some(({ colStart, colEnd }) => dayIndex >= colStart && dayIndex <= colEnd);
+                    return (
+                      <div
+                        key={dayIndex}
+                        onDrop={e => handleDrop(e, day)}
+                        onDragOver={e => handleDragOver(e, day)}
+                        className={`min-h-[100px] p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : 'bg-white'
+                          } ${day !== null && dragOverDay === day && draggedEvent
+                            ? 'bg-blue-50 border-2 border-blue-300'
+                            : ''
+                          }`}
+                      >
+                        {day !== null && (
+                          <>
+                            <span
+                              className={`text-xs font-bold ${
+                                isToday(day)
+                                  ? 'bg-gradient-to-br from-sky-500 to-pink-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md text-[10px]'
+                                  : 'bg-gradient-to-r from-slate-400 to-slate-500 bg-clip-text text-transparent'
+                              }`}
+                            >
+                              {day}
+                            </span>
+                            {/* งานวันเดียว — แสดงเป็น pill (ไม่รวมงานหลายวัน), เว้นที่ด้านบนถ้ามีแถบงานหลายวัน */}
+                            <div
+                              className="mt-1.5 space-y-0.5 relative z-10"
+                              style={hasMultiDayBarAbove ? { marginTop: '36px' } : undefined}
+                            >
+                              {singleDayEventsOnly.map((ev) => {
+                                const isMA = ev.taskType === 'MA';
+                                const pillBg = isMA ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-500 hover:bg-blue-600';
+                                const isDone = ev.status === 'done';
+                                return (
+                                  <div
+                                    key={ev.id}
+                                    draggable={!isDone}
+                                    onDragStart={(e) => !isDone && handleDragStart(e, ev)}
+                                    onDragEnd={handleDragEnd}
+                                    onClick={() => handleTaskClick(ev)}
+                                    onMouseEnter={(e) => {
+                                      setHoveredEvent(ev);
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      const tooltipWidth = 320;
+                                      const tooltipHeight = 400;
+                                      const padding = 16;
+                                      const spaceOnRight = window.innerWidth - rect.right;
+                                      const spaceOnLeft = rect.left;
+                                      const spaceOnBottom = window.innerHeight - rect.bottom;
+                                      let x = rect.right + 10;
+                                      let y = rect.top;
+                                      if (spaceOnRight < tooltipWidth + 20 && spaceOnLeft >= tooltipWidth + 20) x = rect.left - tooltipWidth - 10;
+                                      if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) y = rect.bottom - tooltipHeight;
+                                      x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
+                                      y = Math.max(padding, Math.min(y, window.innerHeight - tooltipHeight - padding));
+                                      setTooltipPosition({ x, y });
+                                    }}
+                                    onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
+                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-full px-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer' : 'cursor-move'} transition-colors ${pillBg} ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
+                                  >
+                                    {ev.title || '(No title)'}
                                   </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง */}
+                  {multiDaySpans.map(({ event, colStart, colEnd }) => {
+                    const isMA = event.taskType === 'MA';
+                    const barBg = isMA ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-500 hover:bg-blue-600';
+                    const isDone = event.status === 'done';
+                    return (
+                      <div
+                        key={event.id}
+                        style={{
+                          gridColumn: `${colStart + 1} / ${colEnd + 2}`,
+                          position: 'absolute',
+                          top: '32px',
+                          left: '8px',
+                          right: '8px',
+                          height: '28px',
+                        }}
+                        draggable={!isDone}
+                        onDragStart={(e) => !isDone && handleDragStart(e, event)}
+                        onDragEnd={handleDragEnd}
+                        onClick={() => handleTaskClick(event)}
+                        onMouseEnter={(e) => {
+                          setHoveredEvent(event);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const tooltipWidth = 320;
+                          const tooltipHeight = 400;
+                          const padding = 16;
+                          const spaceOnRight = window.innerWidth - rect.right;
+                          const spaceOnLeft = rect.left;
+                          const spaceOnBottom = window.innerHeight - rect.bottom;
+                          let x = rect.right + 10;
+                          let y = rect.top;
+                          if (spaceOnRight < tooltipWidth + 20 && spaceOnLeft >= tooltipWidth + 20) x = rect.left - tooltipWidth - 10;
+                          if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) y = rect.bottom - tooltipHeight;
+                          x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
+                          y = Math.max(padding, Math.min(y, window.innerHeight - tooltipHeight - padding));
+                          setTooltipPosition({ x, y });
+                        }}
+                        onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
+                        className={`flex items-center rounded-full pl-3 pr-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer' : 'cursor-move'} transition-colors ${barBg} ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                      >
+                        {event.title || '(No title)'}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </div>
       </main>
@@ -814,11 +787,12 @@ export default function CalendarPage() {
       {/* Task Detail Tooltip - เหมือน schedule_management */}
       {hoveredEvent && tooltipPosition && (
         <div
-          className="fixed z-[300] bg-white rounded-lg shadow-2xl border border-slate-200 p-4 max-w-sm pointer-events-none"
+          className="fixed z-[300] bg-white rounded-lg shadow-2xl border border-slate-200 p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,
-            transform: 'translateY(0)'
+            transform: 'translateY(0)',
+            maxWidth: 'min(320px, calc(100vw - 32px))'
           }}
         >
           <div className="space-y-2">
