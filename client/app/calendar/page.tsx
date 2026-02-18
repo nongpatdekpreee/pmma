@@ -38,6 +38,7 @@ interface CalendarEvent {
   replacementDeviceId?: number;
   Sid?: string;
   Sname?: string;
+  location?: string;
   Eng_ids?: Engineer[];
   startDate?: string;
   endDate?: string;
@@ -77,6 +78,8 @@ export default function CalendarPage() {
   } | null>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string | null>(null);
+  const [hoveredEvent, setHoveredEvent] = useState<CalendarEvent | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -89,12 +92,25 @@ export default function CalendarPage() {
         ? engineers.map((e: Engineer) => (e.name || e.id) + (e.lastName ? ' ' + e.lastName : '')).join(', ')
         : 'Unassigned';
     const taskType = task.taskType || task.task_type || 'PM';
-    const siteName = task.siteName || task.site_name || task.Sname;
-
+    let siteName = task.siteName || task.site_name || task.Sname || '';
+    let location = task.location || task.Location2 || '';
+    if (!location && siteName && siteName.includes(' - ')) {
+      const parts = siteName.split(' - ');
+      const sitePart = parts[0]?.trim() || '';
+      const locationPart = parts.slice(1).join(' - ').trim();
+      if (locationPart) {
+        location = locationPart;
+        siteName = sitePart;
+      }
+    }
     const title =
       taskType === 'MA'
         ? `MA: ${task.vendorName || task.vendor_name || siteName || 'Maintenance Agreement'}`
-        : `PM: ${siteName || 'Preventive Maintenance'}`;
+        : location && siteName
+          ? `${location} - ${siteName}`
+          : location
+            ? location
+            : (siteName || 'Preventive Maintenance');
 
     return {
       id: String(task.id ?? task.taskId ?? task.task_id ?? Date.now()),
@@ -116,6 +132,7 @@ export default function CalendarPage() {
       replacementDeviceId: task.replacementDeviceId || task.replacement_device_id || undefined,
       Sid: task.siteId ? String(task.siteId) : task.Sid,
       Sname: siteName,
+      location,
       Eng_ids: engineers,
       startDate: start,
       endDate: end,
@@ -692,9 +709,9 @@ export default function CalendarPage() {
 
                               const displayTime = extractTime(ev.time);
 
-                              // Get engineer names for display (truncate if too long)
+                              // โชว์ชื่อเต็ม (ชื่อ + นามสกุล)
                               const engineerNames = ev.Eng_ids && ev.Eng_ids.length > 0
-                                ? ev.Eng_ids.map((e: Engineer) => e.name + (e.lastName ? ' ' + e.lastName : '')).join(', ')
+                                ? ev.Eng_ids.map((e: Engineer) => (e.name || e.id) + (e.lastName ? ' ' + e.lastName : '')).join(', ')
                                 : ev.engineer || '';
 
                               // Get status label for display (split into two lines if needed)
@@ -719,6 +736,32 @@ export default function CalendarPage() {
                                   onDragStart={(e) => !isDone && handleDragStart(e, ev)}
                                   onDragEnd={handleDragEnd}
                                   onClick={() => handleTaskClick(ev)}
+                                  onMouseEnter={(e) => {
+                                    setHoveredEvent(ev);
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const tooltipWidth = 320;
+                                    const tooltipHeight = 400;
+                                    const spaceOnRight = window.innerWidth - rect.right;
+                                    const spaceOnLeft = rect.left;
+                                    const spaceOnBottom = window.innerHeight - rect.bottom;
+                                    let x = rect.right + 10;
+                                    let y = rect.top;
+                                    if (spaceOnRight >= tooltipWidth + 20) {
+                                      x = rect.right + 10;
+                                    } else if (spaceOnLeft >= tooltipWidth + 20) {
+                                      x = rect.left - tooltipWidth - 10;
+                                    } else {
+                                      x = rect.right + 10;
+                                    }
+                                    if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) {
+                                      y = rect.bottom - tooltipHeight;
+                                    }
+                                    setTooltipPosition({ x, y });
+                                  }}
+                                  onMouseLeave={() => {
+                                    setHoveredEvent(null);
+                                    setTooltipPosition(null);
+                                  }}
                                   className={`mt-1 p-1.5 bg-white ${borderColor} border-l-[4px] rounded-xl shadow-sm ${isDone ? 'cursor-pointer' : 'cursor-move'} hover:shadow-lg ${hoverBg} transition-all ${
                                     draggedEvent?.id === ev.id ? 'opacity-50' : ''
                                   }`}
@@ -737,7 +780,7 @@ export default function CalendarPage() {
                                         {ev.title}
                                       </p>
                                       {engineerNames && (
-                                        <p className={`text-[5px] ${engineerColor} font-medium truncate`}>
+                                        <p className={`text-[7px] ${engineerColor} font-medium leading-tight line-clamp-2 break-words`}>
                                           {engineerNames}
                                         </p>
                                       )}
@@ -767,6 +810,95 @@ export default function CalendarPage() {
           </div>
         </div>
       </main>
+
+      {/* Task Detail Tooltip - เหมือน schedule_management */}
+      {hoveredEvent && tooltipPosition && (
+        <div
+          className="fixed z-[300] bg-white rounded-lg shadow-2xl border border-slate-200 p-4 max-w-sm pointer-events-none"
+          style={{
+            left: `${tooltipPosition.x}px`,
+            top: `${tooltipPosition.y}px`,
+            transform: 'translateY(0)'
+          }}
+        >
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                hoveredEvent.taskType === 'MA'
+                  ? 'bg-rose-100 text-rose-700'
+                  : 'bg-blue-100 text-blue-700'
+              }`}>
+                {hoveredEvent.taskType || 'PM'}
+              </span>
+              {hoveredEvent.status && (
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                  hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
+                  hoveredEvent.status === 'working' ? 'bg-orange-100 text-orange-700' :
+                  hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-100 text-gray-700'
+                }`}>
+                  {hoveredEvent.status === 'done' ? 'Done' :
+                   hoveredEvent.status === 'working' ? 'Working' :
+                   hoveredEvent.status === 'stuck' ? 'Stuck' :
+                   'Not Started'}
+                </span>
+              )}
+            </div>
+
+            {/* Location ก่อน Site */}
+            {hoveredEvent.location && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">Location</p>
+                <p className="text-sm font-bold text-slate-800">{hoveredEvent.location}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-xs font-semibold text-slate-500 mb-0.5">Site</p>
+              <p className="text-sm font-bold text-slate-800">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {hoveredEvent.startDate && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date</p>
+                  <p className="text-sm text-slate-700">
+                    {new Date(hoveredEvent.startDate).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}
+                  </p>
+                </div>
+              )}
+              {hoveredEvent.endDate && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">End Date</p>
+                  <p className="text-sm text-slate-700">
+                    {new Date(hoveredEvent.endDate).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
+                <div className="flex flex-wrap gap-1">
+                  {hoveredEvent.Eng_ids.map((eng, idx) => (
+                    <span key={idx} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                      {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Move Task Reason Modal */}
       {isMoveModalOpen && pendingMove && (
