@@ -274,16 +274,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 <label className="text-[10px] font-semibold uppercase text-slate-500">Title</label>
                 <p className="text-sm font-medium text-slate-800 mt-1">{task.title}</p>
               </div>
-              <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-500">Time</label>
-                <p className="text-sm font-medium text-slate-800 mt-1">{task.time}</p>
-              </div>
-              {task.Sid && (
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Site ID</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">{task.Sid}</p>
-                </div>
-              )}
+            
               {task.startDate && (
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-slate-500">Start Date</label>
