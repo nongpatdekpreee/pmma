@@ -1275,9 +1275,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const conflictMessages = conflictCheck.conflicts.map(c => {
         const taskInfo = c.conflictingTask.siteName || c.conflictingTask.Sname || 'Unknown Task';
         const taskDate = c.conflictingTask.startDate ? new Date(c.conflictingTask.startDate).toLocaleDateString('th-TH') : '';
-        return `${c.engineerName} มี task ที่ ${taskInfo} ในวันที่ ${taskDate}`;
+        return `${c.engineerName} has task at ${taskInfo} on ${taskDate}`;
       });
-      showWarning(`Engineer มี task ซ้อนทับในวันเดียวกัน:\n${conflictMessages.join('\n')}\n\nคุณสามารถบันทึกได้`, 6000);
+      showWarning(`Engineer has task overlap on the same day:\n${conflictMessages.join('\n')}\n\nYou can save it`, 6000);
       // ไม่ return - ให้บันทึกได้
     }
 
