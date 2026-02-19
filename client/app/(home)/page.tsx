@@ -227,19 +227,18 @@ export default function DashboardPage() {
       <DashboardHeader />
 
       {/* Content Body */}
-      <div className="flex p-6 pt-0 gap-6 md:mt-0 mt-16">
-          
-          {/* ฝั่งซ้าย: Dashboard & Maintenance */}
-          <div className="flex-[2] space-y-6">
-            <div className="flex items-center justify-between">
-              <Link href="/" className="text-3xl font-bold text-slate-800">
-                Dashboard 
-                </Link>
-              
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8 md:mt-0 mt-16">
+        <div className="flex flex-col lg:flex-row gap-6 lg:gap-8">
+          {/* Left: Dashboard & Maintenance */}
+          <div className="flex-1 min-w-0 lg:max-w-[65%] space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <Link href="/" className="text-2xl sm:text-3xl font-bold text-slate-800">
+                Dashboard
+              </Link>
             </div>
 
-            {/* Placeholder สำหรับ Graph */}
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50">
+            {/* Maintenance Agreement Chart */}
+            <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
                 <Link href="/mapage" className="text-blue-600 text-sm font-medium hover:underline">
@@ -248,9 +247,9 @@ export default function DashboardPage() {
               </div>
               <div className="h-64 bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
                 {loadingMa ? (
-                  <div className="h-full flex items-center justify-center text-slate-400">กำลังโหลด...</div>
+                  <div className="h-full flex items-center justify-center text-slate-400">Loading...</div>
                 ) : vendorBars.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-slate-400">ยังไม่มีข้อมูล</div>
+                  <div className="h-full flex items-center justify-center text-slate-400">No data yet</div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={vendorBars} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
@@ -262,19 +261,19 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
-            {/* ส่วน Preventive Maintenance List */}
-            <div>
+            {/* Preventive Maintenance List */}
+            <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">Preventive Maintenance</h3>
                 <Link href="/pmpage" className="text-blue-600 text-sm font-medium hover:underline">
-                View all &gt;
+                  View all &gt;
                 </Link>
               </div>
               <div className="space-y-3">
                 {loadingPm ? (
-                  <div className="text-sm text-slate-400 py-6 text-center">กำลังโหลด...</div>
+                  <div className="text-sm text-slate-400 py-6 text-center">Loading...</div>
                 ) : pmCards.length === 0 ? (
-                  <div className="text-sm text-slate-400 py-6 text-center">ยังไม่มีงาน PM</div>
+                  <div className="text-sm text-slate-400 py-6 text-center">No PM tasks yet</div>
                 ) : (
                   <>
                     <div className="space-y-3">
@@ -286,7 +285,9 @@ export default function DashboardPage() {
                           date={c.date}
                           serial={c.serial}
                           count={c.count}
-                          assignees={c.assignees} CI_Name={''}                    />
+                          assignees={c.assignees}
+                          CI_Name=""
+                        />
                       ))}
                     </div>
                     {pmCards.length > PM_CARDS_PAGE_SIZE && (
@@ -321,17 +322,17 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ฝั่งขวา: Events & Stream */}
-          <div className="flex-1 space-y-6">
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm">
+          {/* Right: Events */}
+          <div className="flex-shrink-0 w-full lg:w-[380px] xl:w-[420px] space-y-6">
+            <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-slate-100">
               <div className="flex justify-between mb-4">
                 <h3 className="font-bold text-slate-700">Nearest Events</h3>
                 <Link href="/schedule_management" className="text-blue-500 text-xs hover:underline">View all</Link>
               </div>
               {loadingEvents ? (
-                <div className="text-sm text-slate-400 py-6 text-center">กำลังโหลด...</div>
+                <div className="text-sm text-slate-400 py-6 text-center">Loading...</div>
               ) : nearestEvents.length === 0 ? (
-                <div className="text-sm text-slate-400 py-6 text-center">ยังไม่มีงานที่กำลังจะถึง</div>
+                <div className="text-sm text-slate-400 py-6 text-center">No upcoming tasks</div>
               ) : (
                 <>
                   <div className="space-y-3">
@@ -408,7 +409,7 @@ export default function DashboardPage() {
               </div>
               <p className="text-[11px] text-slate-500 mb-3">Overdue tasks</p>
               {loadingEvents ? (
-                <div className="text-sm text-slate-400 py-6 text-center">กำลังโหลด...</div>
+                <div className="text-sm text-slate-400 py-6 text-center">Loading...</div>
               ) : missingEvents.length === 0 ? (
                 <div className="text-sm text-slate-400 py-6 text-center">No pending tasks</div>
               ) : (
@@ -472,11 +473,9 @@ export default function DashboardPage() {
                 </>
               )}
             </div>
-
-
           </div>
-
         </div>
+      </div>
 
       {/* Hover Tooltip */}
       {hoveredEvent && tooltipPosition && (

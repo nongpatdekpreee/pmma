@@ -28,9 +28,8 @@ export function MaintenanceCard({ id, location, date, serial, count, assignees }
       </div>
 
       <div className="flex-shrink-0 w-32">
-        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-tight">Serial</p>
-        <p className="font-bold text-slate-700 text-sm truncate" title={serial}>{serial || '—'}</p>
-        <p className="text-xs text-slate-500">{count} items</p>
+        <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-tight">Items</p>
+        <p className="font-bold text-slate-700 text-lg">{count}</p>
       </div>
 
       <div className="flex flex-col items-end flex-shrink-0">
