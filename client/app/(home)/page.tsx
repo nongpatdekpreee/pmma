@@ -90,7 +90,7 @@ export default function DashboardPage() {
           return {
             id: `PM-${t.id}`,
             location: String(t.siteName || '—'),
-            date: new Date(t.startDate).toLocaleDateString('th-TH'),
+            date: new Date(t.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }),
             serial: String(serial),
             count: Number(assets.length || 0),
             assignees: (assignees.length > 0 ? assignees : ['https://i.pravatar.cc/150?u=pm']) as string[],
