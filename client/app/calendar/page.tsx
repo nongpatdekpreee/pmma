@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useState, useMemo, useEffect, Fragment } from 'react';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getEmployees } from '@/lib/api';
+import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds } from '@/lib/api';
 
 interface Device {
   id: string;
@@ -80,6 +80,8 @@ export default function CalendarPage() {
   const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string | null>(null);
   const [hoveredEvent, setHoveredEvent] = useState<CalendarEvent | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
+  const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -105,7 +107,13 @@ export default function CalendarPage() {
     }
     const title =
       taskType === 'MA'
-        ? `MA: ${task.vendorName || task.vendor_name || siteName || 'Maintenance Agreement'}`
+        ? location && siteName
+          ? `${location} - ${siteName}`
+          : location
+            ? `${location}`
+            : siteName
+              ? ` ${siteName}`
+              : `${task.vendorName || task.vendor_name || 'Maintenance Agreement'}`
         : location && siteName
           ? `${location} - ${siteName}`
           : location
@@ -168,17 +176,36 @@ export default function CalendarPage() {
     }
   };
 
+  const loadReportedTaskIds = async () => {
+    try {
+      const [pmRes, maRes] = await Promise.all([
+        getPmReportedTaskIds(),
+        getMaReportedTaskIds(),
+      ]);
+      if (pmRes.success && Array.isArray(pmRes.taskIds)) {
+        setReportedPMTaskIds(new Set(pmRes.taskIds));
+      }
+      if (maRes.success && Array.isArray(maRes.taskIds)) {
+        setReportedMATaskIds(new Set(maRes.taskIds));
+      }
+    } catch (e) {
+      console.error('loadReportedTaskIds error', e);
+    }
+  };
+
   // Load events from API on mount and when page is focused
   useEffect(() => {
     loadTasksFromApi();
-    
+    loadReportedTaskIds();
+
     // Reload events when page gains focus (when user navigates back)
     const handleFocus = () => {
       loadTasksFromApi();
+      loadReportedTaskIds();
     };
-    
+
     window.addEventListener('focus', handleFocus);
-    
+
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
@@ -229,10 +256,21 @@ export default function CalendarPage() {
     );
   };
   
+  // ซ่อน task ที่ done และทำ report เสร็จแล้ว (ไม่แสดงในปฏิทิน) — เหมือน schedule
+  const calendarEventsWithoutDoneReported = useMemo(() => {
+    return calendarEvents.filter((e) => {
+      if (e.status !== 'done') return true;
+      const id = Number(e.id);
+      if (e.taskType === 'PM') return !reportedPMTaskIds.has(id);
+      if (e.taskType === 'MA') return !reportedMATaskIds.has(id);
+      return true;
+    });
+  }, [calendarEvents, reportedPMTaskIds, reportedMATaskIds]);
+
   // Filter events by selected engineer
   const filteredCalendarEvents = useMemo(() => {
-    if (!selectedEngineerFilter) return calendarEvents;
-    return calendarEvents.filter(e => {
+    if (!selectedEngineerFilter) return calendarEventsWithoutDoneReported;
+    return calendarEventsWithoutDoneReported.filter(e => {
       // Check if event has Eng_ids array
       if (e.Eng_ids && e.Eng_ids.length > 0) {
         return e.Eng_ids.some((eng: Engineer) => String(eng.id) === String(selectedEngineerFilter));
@@ -244,7 +282,7 @@ export default function CalendarPage() {
       }
       return false;
     });
-  }, [calendarEvents, selectedEngineerFilter]);
+  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter]);
 
   // เช็คว่าเป็นงานหลายวัน (แสดงเป็นแถบต่อเนื่อง ไม่ใช่ pill แยก)
   const isMultiDayEvent = (e: CalendarEvent): boolean => {
@@ -692,13 +730,24 @@ export default function CalendarPage() {
                               className="mt-1.5 space-y-0.5 relative z-10"
                               style={hasMultiDayBarAbove ? { marginTop: '36px' } : undefined}
                             >
-                              {singleDayEventsOnly.map((ev) => {
+                              {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
-                                const pillBg = isMA ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-500 hover:bg-blue-600';
                                 const isDone = ev.status === 'done';
+                                const endDateStr = ev.endDate || ev.startDate || '';
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                const endDate = endDateStr ? new Date(endDateStr) : null;
+                                if (endDate) endDate.setHours(0, 0, 0, 0);
+                                const isOverdue = !isDone && endDate && endDate < today;
+                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า (เหมือน schedule)
+                                const pillStyle = isDone
+                                  ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
+                                  : isOverdue
+                                    ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
+                                    : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
                                   <div
-                                    key={ev.id}
+                                    key={`${day}-${ev.id}-${eventIndex}`}
                                     draggable={!isDone}
                                     onDragStart={(e) => !isDone && handleDragStart(e, ev)}
                                     onDragEnd={handleDragEnd}
@@ -721,9 +770,17 @@ export default function CalendarPage() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-full px-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer' : 'cursor-move'} transition-colors ${pillBg} ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
+                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
                                   >
-                                    {ev.title || '(No title)'}
+                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                                      {isMA ? 'MA' : 'PM'}
+                                    </span>
+                                    <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                                      {ev.title || '(No title)'}
+                                    </span>
+                                    {isDone && (
+                                      <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -733,11 +790,21 @@ export default function CalendarPage() {
                       </div>
                     );
                   })}
-                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง */}
+                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง (สไตล์เหมือน schedule) */}
                   {multiDaySpans.map(({ event, colStart, colEnd }) => {
                     const isMA = event.taskType === 'MA';
-                    const barBg = isMA ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-500 hover:bg-blue-600';
                     const isDone = event.status === 'done';
+                    const endDateStr = event.endDate || event.startDate || '';
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const endDate = endDateStr ? new Date(endDateStr) : null;
+                    if (endDate) endDate.setHours(0, 0, 0, 0);
+                    const isOverdue = !isDone && endDate && endDate < today;
+                    const barStyle = isDone
+                      ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
+                      : isOverdue
+                        ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
+                        : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                     return (
                       <div
                         key={event.id}
@@ -771,9 +838,17 @@ export default function CalendarPage() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-full pl-3 pr-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer' : 'cursor-move'} transition-colors ${barBg} ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
-                        {event.title || '(No title)'}
+                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                          {isMA ? 'MA' : 'PM'}
+                        </span>
+                        <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                          {event.title || '(No title)'}
+                        </span>
+                        {isDone && (
+                          <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
+                        )}
                       </div>
                     );
                   })}
@@ -799,7 +874,7 @@ export default function CalendarPage() {
             <div className="flex items-center gap-2 mb-2">
               <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                 hoveredEvent.taskType === 'MA'
-                  ? 'bg-rose-100 text-rose-700'
+                  ? 'bg-purple-100 text-purple-700'
                   : 'bg-blue-100 text-blue-700'
               }`}>
                 {hoveredEvent.taskType || 'PM'}
@@ -861,11 +936,11 @@ export default function CalendarPage() {
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-col gap-0.5">
                   {hoveredEvent.Eng_ids.map((eng, idx) => (
-                    <span key={idx} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                    <div key={idx} className="text-xs text-slate-800">
                       {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
-                    </span>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -964,7 +1039,6 @@ export default function CalendarPage() {
         }}
         task={selectedTask}
         onUpdate={handleTaskUpdate}
-        
       />
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
