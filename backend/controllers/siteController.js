@@ -88,6 +88,75 @@ const getSitesLocationBySOF = async (req, res) => {
   }
 };
 
+// GET - ดึง Sites_Location เฉพาะที่มี contract (สำหรับ dropdown Site ให้แสดงเฉพาะ site ที่มี contract)
+const getSitesLocationWithContracts = async (req, res) => {
+  try {
+    // ตรวจสอบว่ามีตาราง contract_device และ contracts หรือไม่
+    // ถ้าไม่มีข้อมูล contract ก็ return empty array แทนที่จะ error
+    
+    // ลองดึง sites จาก contract_device ก่อน
+    let siteIds = [];
+    
+    try {
+      const contractDeviceSql = `
+        SELECT DISTINCT cd.SLid 
+        FROM contract_device cd 
+        WHERE cd.SLid IS NOT NULL
+      `;
+      const [contractDeviceRows] = await db.execute(contractDeviceSql);
+      siteIds = contractDeviceRows.map(row => row.SLid);
+    } catch (err) {
+      console.log('contract_device table may not exist or has no data:', err.message);
+    }
+    
+    // ลองดึง sites จาก contracts
+    try {
+      const contractsSql = `
+        SELECT DISTINCT CAST(c.site_id AS UNSIGNED) AS SLid
+        FROM contracts c 
+        WHERE c.site_id IS NOT NULL AND c.site_id != ''
+      `;
+      const [contractsRows] = await db.execute(contractsSql);
+      const contractSiteIds = contractsRows.map(row => row.SLid);
+      // รวม site IDs จากทั้งสองตาราง
+      siteIds = [...new Set([...siteIds, ...contractSiteIds])];
+    } catch (err) {
+      console.log('contracts table may not exist or has no data:', err.message);
+    }
+    
+    // ถ้าไม่มี site IDs ที่มี contract ให้ return empty array
+    if (siteIds.length === 0) {
+      return res.status(200).json({ 
+        success: true, 
+        data: [],
+        message: 'ไม่มี sites ที่มี contract'
+      });
+    }
+    
+    // ดึงข้อมูล sites_location สำหรับ site IDs ที่มี contract
+    const placeholders = siteIds.map(() => '?').join(',');
+    const sql = `
+      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
+      FROM sites_location SL
+      JOIN sites S ON SL.Sid = S.Sid
+      JOIN location L ON SL.lid = L.lid
+      WHERE SL.SLid IN (${placeholders})
+      ORDER BY S.Name, L.Location2
+    `;
+    const [rows] = await db.execute(sql, siteIds);
+    res.status(200).json({ success: true, data: rows || [] });
+  } catch (error) {
+    console.error('Error getting sites-location with contracts:', error);
+    // ถ้าเกิด error ให้ return empty array แทน
+    res.status(200).json({ 
+      success: true, 
+      data: [],
+      message: 'เกิดข้อผิดพลาดในการดึง sites ที่มี contract',
+      error: error.message
+    });
+  }
+};
+
 // GET - ดึงข้อมูล Sites
 const getSites = async (req, res) => {
   try {
@@ -226,11 +295,12 @@ const deleteSite = async (req, res) => {
 };
 
 module.exports = {
-  createSite,              // POST
-  getSites,                // GET
-  getSitesLocation,        // GET /locations
-  getSitesLocationBySOF,   // GET /locations-by-sof?refer_sof=XXX
-  updateSite,              // PUT
-  deleteSite               // DELETE
+  createSite,                    // POST
+  getSites,                      // GET
+  getSitesLocation,              // GET /locations
+  getSitesLocationBySOF,         // GET /locations-by-sof?refer_sof=XXX
+  getSitesLocationWithContracts, // GET /locations-with-contracts
+  updateSite,                    // PUT
+  deleteSite                     // DELETE
 };
 

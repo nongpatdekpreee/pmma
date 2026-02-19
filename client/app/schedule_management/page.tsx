@@ -16,7 +16,7 @@ import {
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getSitesLocation, getEmployees, getContractsBySite, getDevicesByContract } from '@/lib/api';
+import { apiUrl, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract } from '@/lib/api';
 import * as XLSX from 'xlsx';
 
 
@@ -138,7 +138,13 @@ export default function ScheduleManagement() {
     }
     const title =
       taskType === 'MA'
-        ? `MA: ${task.vendorName || task.vendor_name || siteName || 'Maintenance Agreement'}`
+        ? location && siteName
+          ? `${location} - ${siteName}`
+          : location
+            ? `${location}`
+            : siteName
+              ? ` ${siteName}`
+              : `${task.vendorName || task.vendor_name || 'Maintenance Agreement'}`
         : location && siteName
           ? `${location} - ${siteName}`
           : location
@@ -208,7 +214,8 @@ export default function ScheduleManagement() {
     // Load sites and engineers for Excel import
     const loadSitesAndEngineers = async () => {
       try {
-        const result = await getSitesLocation();
+        // ใช้ endpoint ที่กรองเฉพาะ sites ที่มี contract
+        const result = await getSitesLocationWithContracts();
         if (result.success) {
           const sites = (result.data || []).map((item: any) => ({
             id: String(item.SLid), // SLid from sites_location table
@@ -1477,8 +1484,13 @@ export default function ScheduleManagement() {
                             >
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
-                                const pillBg = isMA ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-500 hover:bg-blue-600';
                                 const isDone = ev.status === 'done';
+                                // ถ้าเป็น done ให้ใช้สีเขียวอ่อนและเพิ่ม strikethrough
+                                const pillBg = isDone 
+                                  ? 'bg-green-400 hover:bg-green-500' 
+                                  : isMA 
+                                    ? 'bg-red-400 hover:bg-red-600' 
+                                    : 'bg-blue-500 hover:bg-blue-600';
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
@@ -1504,9 +1516,14 @@ export default function ScheduleManagement() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-full px-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer' : 'cursor-move'} transition-colors ${pillBg} ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
+                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-full px-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${pillBg} ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
                                   >
-                                    {ev.title || '(No title)'}
+                                    <span className={isDone ? 'line-through' : ''}>
+                                      {ev.title || '(No title)'}
+                                    </span>
+                                    {isDone && (
+                                      <span className="ml-1.5 text-xs">✓</span>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -1519,8 +1536,13 @@ export default function ScheduleManagement() {
                   {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง */}
                   {multiDaySpans.map(({ event, colStart, colEnd }) => {
                     const isMA = event.taskType === 'MA';
-                    const barBg = isMA ? 'bg-rose-500 hover:bg-rose-600' : 'bg-blue-500 hover:bg-blue-600';
                     const isDone = event.status === 'done';
+                    // ถ้าเป็น done ให้ใช้สีเขียวอ่อนและเพิ่ม strikethrough
+                    const barBg = isDone 
+                      ? 'bg-green-400 hover:bg-green-500' 
+                      : isMA 
+                        ? 'bg-purple-500 hover:bg-purple-600' 
+                        : 'bg-blue-500 hover:bg-blue-600';
                     return (
                       <div
                         key={event.id}
@@ -1554,9 +1576,14 @@ export default function ScheduleManagement() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-full pl-3 pr-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer' : 'cursor-move'} transition-colors ${barBg} ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        className={`flex items-center rounded-full pl-3 pr-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${barBg} ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
-                        {event.title || '(No title)'}
+                        <span className={isDone ? 'line-through' : ''}>
+                          {event.title || '(No title)'}
+                        </span>
+                        {isDone && (
+                          <span className="ml-1.5 text-xs">✓</span>
+                        )}
                       </div>
                     );
                   })}
@@ -1583,7 +1610,7 @@ export default function ScheduleManagement() {
             <div className="flex items-center gap-2 mb-2">
               <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                 hoveredEvent.taskType === 'MA' 
-                  ? 'bg-rose-100 text-rose-700' 
+                  ? 'bg-purple-100 text-purple-700' 
                   : 'bg-blue-100 text-blue-700'
               }`}>
                 {hoveredEvent.taskType || 'PM'}
