@@ -583,12 +583,13 @@ const getContractsBySite = async (req, res) => {
     let sql;
     let params = [];
 
+    const notExpiredCondition = ' (c.end_date IS NULL OR c.end_date >= CURDATE()) ';
     if (siteId) {
       const siteIdNum = parseInt(siteId, 10);
-      sql = `${baseSelect} WHERE c.site_id = ? OR d.SLid = ? OR cd.SLid = ? ORDER BY c.contract_id DESC`;
+      sql = `${baseSelect} WHERE (c.site_id = ? OR d.SLid = ? OR cd.SLid = ?) AND ${notExpiredCondition} ORDER BY c.contract_id DESC`;
       params = [siteIdNum, siteIdNum, siteIdNum];
     } else {
-      sql = `${baseSelect} ORDER BY c.contract_id DESC`;
+      sql = `${baseSelect} WHERE ${notExpiredCondition} ORDER BY c.contract_id DESC`;
     }
 
     const [rows] = await db.execute(sql, params);
