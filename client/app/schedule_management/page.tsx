@@ -635,36 +635,58 @@ export default function ScheduleManagement() {
   };
 
   /* ===== Excel/CSV Import Functions ===== */
-  // Function to fetch devices by Site + SOF + Location
+  // Function to fetch devices: 1) จาก contract_device (contract_id + SLid) 2) fallback จาก devices (Refer_SOF + SLid)
   const fetchDevicesBySiteSOFLocation = async (
     sofName: string, 
     siteId: number | null, 
-    location: string | null
+    location: string | null,
+    contractId?: number | null
   ): Promise<{deviceIds: number[]; count: number; devices: Array<{Did: number; CI_Name?: string; Asset_Number?: string; Location2?: string}>}> => {
     if (!sofName || !siteId) {
       return { deviceIds: [], count: 0, devices: [] };
     }
     
-    try {
-      // Get devices by Refer_SOF and Site (SLid) - API now returns Location2
-      const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sofName)}&site_id=${siteId}`));
+    const doFetchByContract = async () => {
+      if (!contractId) return [];
+      const res = await fetch(apiUrl(`/api/devices/by-contract-and-site?contract_id=${contractId}&slid=${siteId}`));
       const json = await res.json();
-      
-      if (!json.success || !json.data) {
-        return { deviceIds: [], count: 0, devices: [] };
+      if (!json.success || !json.data) return [];
+      return json.data;
+    };
+    const doFetchBySof = async (sof: string) => {
+      const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sof)}&site_id=${siteId}`));
+      const json = await res.json();
+      if (!json.success || !json.data) return [];
+      return json.data;
+    };
+
+    try {
+      // 1) ลองจาก contract_device ก่อน (Site+Location → SLid, เช็ค contract_device ว่ามี device อะไรบ้าง)
+      let devices = contractId ? await doFetchByContract() : [];
+      // 2) ถ้าไม่ได้จาก contract_device ให้ลองจาก devices.Refer_SOF + SLid
+      if (devices.length === 0) devices = await doFetchBySof(sofName);
+      if (devices.length === 0 && /^\d+$/.test(sofName)) {
+        const altSof = parseInt(sofName, 10).toString(); // 0987 → 987
+        if (altSof !== sofName) devices = await doFetchBySof(altSof);
+        if (devices.length === 0) devices = await doFetchBySof(sofName.padStart(4, '0')); // 987 → 0987
       }
-      
-      let devices = json.data;
       
       // Filter by Location if provided (match Location2 from database)
+      let filteredDevices = devices;
       if (location && location.trim()) {
         const locationLower = location.trim().toLowerCase();
-        devices = devices.filter((d: any) => {
+        const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+        filteredDevices = devices.filter((d: any) => {
           const deviceLocation = (d.Location2 || '').toLowerCase();
-          // Match if Location2 contains the search location or vice versa
-          return deviceLocation.includes(locationLower) || locationLower.includes(deviceLocation);
+          const devLocNorm = norm(deviceLocation);
+          const locNorm = norm(locationLower);
+          return deviceLocation.includes(locationLower) || locationLower.includes(deviceLocation)
+            || (devLocNorm && locNorm && (devLocNorm.includes(locNorm) || locNorm.includes(devLocNorm)));
         });
+        // ถ้า filter แล้ว 0 devices ให้ใช้ทั้งหมด (location อาจไม่ตรงเป๊ะ)
+        if (filteredDevices.length === 0 && devices.length > 0) filteredDevices = devices;
       }
+      devices = filteredDevices;
       
       const deviceIds = devices.map((d: any) => d.Did);
       return {
@@ -691,12 +713,24 @@ export default function ScheduleManagement() {
     }
   };
 
-  const parseDateString = (dateStr: string): string => {
-    if (!dateStr) return '';
-    // Handle format: "Monday, February 23, 2026"
-    const dateMatch = dateStr.match(/(\w+day,?\s+)?(\w+)\s+(\d+),\s+(\d{4})/);
+  const parseDateString = (dateStr: string | number): string => {
+    if (dateStr === null || dateStr === undefined) return '';
+    const str = String(dateStr).trim();
+    if (!str) return '';
+    // Excel serial number (days since 1899-12-30)
+    const serial = typeof dateStr === 'number' ? dateStr : parseInt(str, 10);
+    if (!isNaN(serial) && serial > 0 && serial < 1000000) {
+      const excelEpoch = new Date(1899, 11, 30);
+      const dateObj = new Date(excelEpoch.getTime() + serial * 86400000);
+      if (!isNaN(dateObj.getTime())) {
+        const y = dateObj.getFullYear(), m = dateObj.getMonth(), d = dateObj.getDate();
+        return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+    }
+    // Handle format: "Friday, February 20, 2026" or "February 20, 2026" (day-of-week optional, flexible spaces/comma)
+    const dateMatch = str.match(/(?:\w+day\s*,?\s*)?(\w+)\s+(\d{1,2})\s*,\s*(\d{4})/i);
     if (dateMatch) {
-      const [, , monthName, day, year] = dateMatch;
+      const [, monthName, day, year] = dateMatch;
       const monthMap: Record<string, string> = {
         'january': '01', 'february': '02', 'march': '03', 'april': '04',
         'may': '05', 'june': '06', 'july': '07', 'august': '08',
@@ -706,12 +740,39 @@ export default function ScheduleManagement() {
       const dayPadded = String(day).padStart(2, '0');
       return `${year}-${month}-${dayPadded}`;
     }
-    // Try standard Date parsing
-    const dateObj = new Date(dateStr);
-    if (!isNaN(dateObj.getTime())) {
-      return dateObj.toISOString().split('T')[0];
+    // Already YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    // Malformed ISO like +046072-12-31: first number can be Excel serial
+    const serialMatch = str.match(/^\+?0*(\d+)-\d{2}-\d{2}/);
+    if (serialMatch) {
+      const serial = parseInt(serialMatch[1], 10);
+      if (serial > 0 && serial < 1000000) {
+        const excelEpoch = new Date(1899, 11, 30);
+        const dateObj = new Date(excelEpoch.getTime() + serial * 86400000);
+        if (!isNaN(dateObj.getTime())) {
+          const y = dateObj.getFullYear(), m = dateObj.getMonth(), d = dateObj.getDate();
+          return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        }
+      }
     }
-    return dateStr;
+    // Try standard Date parsing (avoid malformed ISO like +046072-12-31)
+    const dateObj = new Date(str);
+    if (!isNaN(dateObj.getTime())) {
+      const y = dateObj.getFullYear();
+      if (y > 1900 && y < 2100) {
+        const m = dateObj.getMonth(), d = dateObj.getDate();
+        return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+    }
+    return str;
+  };
+
+  /** Format YYYY-MM-DD for display as month-day-year (e.g. 20/02/2026 or Feb 20, 2026) */
+  const formatDateMonthDayYear = (dateStr: string | undefined): string => {
+    if (!dateStr) return '—';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y}`;
   };
 
   const parseEngineerNames = (engineerStr: string): string[] => {
@@ -829,19 +890,21 @@ export default function ScheduleManagement() {
                     }
                   });
                 } else if (mappedKey === 'startDate' || mappedKey === 'endDate') {
-                  task[mappedKey] = parseDateString(String(value));
+                  task[mappedKey] = parseDateString(typeof value === 'number' ? value : String(value));
                 } else if (mappedKey === 'siteName') {
                   task.siteName = String(value).trim();
                 } else if (mappedKey === 'location') {
                   task.location = String(value).trim();
                 } else if (mappedKey === 'sofName') {
-                  // sof_name → look up contract_id from available contracts
-                  const sofVal = String(value).trim();
+                  // เก็บ SOF เป็นข้อความ; เติม 0 นำหน้าถ้าเป็นตัวเลข (Excel อาจแปลง 0987 เป็น 987)
+                  const raw = String(value).trim();
+                  const sofVal = /^\d+$/.test(raw) ? raw.padStart(4, '0') : raw;
                   task.sofName = sofVal;
                   console.log(`Row ${i + 1}: Parsed SOF "${sofVal}"`);
+                  const norm = (s: string) => (/^\d+$/.test(s) ? s.padStart(4, '0') : s).toLowerCase();
                   const contract = availableContracts.find(c => {
-                    const sofLower = sofVal.toLowerCase();
-                    return c.sof_name && c.sof_name.toLowerCase() === sofLower;
+                    if (!c.sof_name) return false;
+                    return norm(c.sof_name) === norm(sofVal);
                   });
                   if (contract) {
                     task.contractId = contract.contract_id;
@@ -1024,13 +1087,14 @@ export default function ScheduleManagement() {
             });
             
             if (task.sofName && task.Sid) {
-              const key = `${task.Sid}_${task.sofName}_${task.location || ''}`;
+              const key = `${task.Sid}_${task.sofName}_${task.location || ''}_${task.contractId ?? 'none'}`;
               if (!devicesMap[key]) {
                 console.log(`[${key}] Fetching devices for SOF: "${task.sofName}", Site ID: ${task.Sid}, Location: "${task.location || 'none'}"`);
                 const result = await fetchDevicesBySiteSOFLocation(
                   task.sofName,
                   Number(task.Sid),
-                  task.location || null
+                  task.location || null,
+                  task.contractId ? Number(task.contractId) : null
                 );
                 console.log(`[${key}] API returned:`, {
                   success: result.count > 0,
@@ -1485,12 +1549,12 @@ export default function ScheduleManagement() {
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
                                 const isDone = ev.status === 'done';
-                                // ถ้าเป็น done ให้ใช้สีเขียวอ่อนและเพิ่ม strikethrough
-                                const pillBg = isDone 
-                                  ? 'bg-green-400 hover:bg-green-500' 
+                                // สไตล์ Morning Sync: แถบสีตรงหัว + พื้นหลังอ่อน
+                                const pillStyle = isDone 
+                                  ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
                                   : isMA 
-                                    ? 'bg-red-400 hover:bg-red-600' 
-                                    : 'bg-blue-500 hover:bg-blue-600';
+                                    ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
+                                    : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
@@ -1516,7 +1580,7 @@ export default function ScheduleManagement() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-full px-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${pillBg} ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
+                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
                                   >
                                     <span className={isDone ? 'line-through' : ''}>
                                       {ev.title || '(No title)'}
@@ -1537,12 +1601,12 @@ export default function ScheduleManagement() {
                   {multiDaySpans.map(({ event, colStart, colEnd }) => {
                     const isMA = event.taskType === 'MA';
                     const isDone = event.status === 'done';
-                    // ถ้าเป็น done ให้ใช้สีเขียวอ่อนและเพิ่ม strikethrough
-                    const barBg = isDone 
-                      ? 'bg-green-400 hover:bg-green-500' 
+                    // สไตล์ Morning Sync: แถบสีตรงหัว + พื้นหลังอ่อน
+                    const barStyle = isDone 
+                      ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
                       : isMA 
-                        ? 'bg-purple-500 hover:bg-purple-600' 
-                        : 'bg-blue-500 hover:bg-blue-600';
+                        ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
+                        : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                     return (
                       <div
                         key={event.id}
@@ -1576,7 +1640,7 @@ export default function ScheduleManagement() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-full pl-3 pr-3 py-1.5 text-white text-[10px] font-semibold shadow-sm truncate ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${barBg} ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
                         <span className={isDone ? 'line-through' : ''}>
                           {event.title || '(No title)'}
@@ -1940,8 +2004,8 @@ export default function ScheduleManagement() {
                             <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
                               <td className="px-2 py-2 min-w-[200px]">{task.Sname || task.siteName || '—'}</td>
                               <td className="px-2 py-2 min-w-[120px]">{task.location || '—'}</td>
-                              <td className="px-2 py-2 whitespace-nowrap">{task.startDate || '—'}</td>
-                              <td className="px-2 py-2 whitespace-nowrap">{task.endDate || '—'}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.startDate)}</td>
+                              <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.endDate)}</td>
                               <td className="px-2 py-2 min-w-[100px]">
                                 {task.Eng_ids?.map((e: Engineer) => e.name).join(', ') || '—'}
                               </td>
@@ -1953,10 +2017,8 @@ export default function ScheduleManagement() {
                                   <span className="font-semibold text-blue-600">{task.deviceCount}</span>
                                 ) : task.deviceIds?.length ? (
                                   <span className="font-semibold text-blue-600">{task.deviceIds.length}</span>
-                                ) : task.sofName ? (
-                                  <span className="text-orange-600 text-xs">Loading...</span>
                                 ) : (
-                                  <span className="text-slate-400">—</span>
+                                  <span className="text-slate-400">{task.sofName ? '0' : '—'}</span>
                                 )}
                               </td>
                               <td className="px-2 py-2 min-w-[150px]">{task.coverageScope || '—'}</td>

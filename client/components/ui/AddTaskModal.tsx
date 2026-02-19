@@ -1399,7 +1399,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         {/* ===== header ===== */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="text-lg font-extrabold">Add New Task</h2>
-          <button onClick={onClose} className="p-1.5 bg-slate-100 rounded-full">
+          <button onClick={onClose} className="p-1.5 bg-slate-100 rounded-none">
             <X size={18} />
           </button>
         </div>
@@ -1956,7 +1956,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       <button
                         type="button"
                         onClick={() => removeBrokenDevicePair(pair.id)}
-                        className="p-1 text-red-500 hover:bg-red-50 rounded"
+                        className="p-1 text-red-500 hover:bg-red-50 rounded-none"
                       >
                         <X size={14} />
                       </button>
@@ -2214,7 +2214,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 {selectedEngineers.map((eng) => (
                   <span
                     key={eng.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-none text-xs font-medium"
                   >
                     {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
                     <button
@@ -2556,7 +2556,7 @@ function AssetSelectModal({
           <h3 className="text-lg font-bold">
             {taskType === 'MA' ? 'Select Broken Device' : 'Select Assets'}
           </h3>
-          <button onClick={onClose} className="p-2 bg-slate-100 rounded-full">
+          <button onClick={onClose} className="p-2 bg-slate-100 rounded-none">
             <X size={18} />
           </button>
         </div>
