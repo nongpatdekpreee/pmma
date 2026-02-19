@@ -685,7 +685,7 @@ export default function AddPMReportPage() {
             )}
           </div>
 
-          {/* PM Result - อิงตาม sla_term จาก Contract (ไม่แสดง threshold) */}
+          {/* PM Result - อิงตาม sla_term จาก Contract (ไม่แสดง threshold)
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
               PM Result * <span className="font-normal text-slate-500">(SLA Term)</span>
@@ -707,7 +707,7 @@ export default function AddPMReportPage() {
                 </span>
               )}
             </div>
-          </div>
+          </div> */}
 
           {/* Comment Field */}
           <div className="mb-6">
