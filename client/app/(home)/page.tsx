@@ -555,11 +555,11 @@ export default function DashboardPage() {
             {hoveredEvent.engineers && hoveredEvent.engineers.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-col gap-0.5">
                   {hoveredEvent.engineers.map((eng, idx) => (
-                    <span key={idx} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                    <div key={idx} className="text-xs text-slate-800">
                       {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
-                    </span>
+                    </div>
                   ))}
                 </div>
               </div>

@@ -323,19 +323,19 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
           {(task.Eng_ids && task.Eng_ids.length > 0) || task.engineer ? (
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
               <h3 className="text-sm font-bold text-slate-700 mb-3">Assigned Engineers</h3>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-1">
                 {task.Eng_ids?.map((eng) => (
-                  <span
+                  <div
                     key={eng.id}
-                    className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
+                    className="text-sm font-medium text-slate-800"
                   >
                     {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
-                  </span>
+                  </div>
                 ))}
                 {!task.Eng_ids && task.engineer && (
-                  <span className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                  <div className="text-sm font-medium text-slate-800">
                     {task.engineer}
-                  </span>
+                  </div>
                 )}
               </div>
             </div>
@@ -507,26 +507,6 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 }`}
               >
                 Done
-              </button>
-              <button
-                onClick={() => setStatus('working')}
-                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
-                  status === 'working'
-                    ? 'bg-orange-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-orange-300'
-                }`}
-              >
-                Working on it
-              </button>
-              <button
-                onClick={() => setStatus('stuck')}
-                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
-                  status === 'stuck'
-                    ? 'bg-red-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-red-300'
-                }`}
-              >
-                Stuck
               </button>
               <button
                 onClick={() => setStatus('not-started')}

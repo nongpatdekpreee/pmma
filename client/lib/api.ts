@@ -7,6 +7,24 @@ export function apiUrl(path: string): string {
   return `${API_BASE}${p}`;
 }
 
+/** Parse response as JSON; if body is HTML (e.g. 404 page) return { success: false } to avoid SyntaxError */
+async function parseJsonResponse<T = object>(res: Response): Promise<T> {
+  const text = await res.text();
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    if (text.trimStart().startsWith('<!')) {
+      console.error('API returned HTML instead of JSON (wrong URL or server error):', res.url);
+      return { success: false, message: 'Server returned invalid response' } as T;
+    }
+  }
+  try {
+    return text ? JSON.parse(text) : ({} as T);
+  } catch {
+    console.error('Invalid JSON from API:', res.url, text.slice(0, 100));
+    return { success: false, message: 'Invalid JSON response' } as T;
+  }
+}
+
 /** GET /api/sites/locations - สำหรับ dropdown Site (SLid, SiteName, Location2) */
 export async function getSitesLocation(): Promise<{ success: boolean; data: { SLid: number; SiteName: string; Location?: string }[] }> {
   const res = await fetch(apiUrl('/api/sites/locations'));
@@ -193,7 +211,7 @@ export async function checkEngineerConflict(params: {
 /** GET /api/pm-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getPmReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
   const res = await fetch(apiUrl('/api/pm-reports/reported-task-ids'));
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 /** GET /api/pm-reports - ดึงรายการ PM Reports */
@@ -216,7 +234,7 @@ export async function getPmReports(params?: { limit?: number; offset?: number })
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
   const res = await fetch(apiUrl(`/api/pm-reports?${q.toString()}`));
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 /** POST /api/pm-reports/upload - อัปโหลดไฟล์ Report */
@@ -224,7 +242,7 @@ export async function uploadReportFile(file: File): Promise<{ success: boolean; 
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch(apiUrl('/api/pm-reports/upload'), { method: 'POST', body: fd });
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 /** POST /api/pm-reports - ส่ง PM Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
@@ -250,13 +268,13 @@ export async function postPmReport(body: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 /** GET /api/ma-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getMaReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
   const res = await fetch(apiUrl('/api/ma-reports/reported-task-ids'));
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 /** GET /api/ma-reports - ดึงรายการ MA Reports */
@@ -279,7 +297,7 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
   const res = await fetch(apiUrl(`/api/ma-reports?${q.toString()}`));
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 /** POST /api/ma-reports/upload - อัปโหลดไฟล์ Report */
@@ -287,7 +305,7 @@ export async function uploadMaReportFile(file: File): Promise<{ success: boolean
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch(apiUrl('/api/ma-reports/upload'), { method: 'POST', body: fd });
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 /** POST /api/ma-reports - ส่ง MA Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
@@ -313,7 +331,7 @@ export async function postMaReport(body: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return res.json();
+  return parseJsonResponse(res);
 }
 
 /** GET /api/devices/with-pm - ดึง Devices พร้อม PM Information สำหรับ Asset & Site Database */
