@@ -1223,7 +1223,8 @@ const getDevicesBySOFAndSite = async (req, res) => {
         message: 'กรุณาระบุ site_id (SLid)'
       });
     }
-    
+    // รองรับ SOF ทั้งแบบมีและไม่มี 0 นำหน้า (เช่น 0987 กับ 987)
+    const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
     const [rows] = await db.execute(
       `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
        FROM devices d
@@ -1232,9 +1233,9 @@ const getDevicesBySOFAndSite = async (req, res) => {
        LEFT JOIN manufacturer m ON dt.Mid = m.Mid
        LEFT JOIN sites_location sl ON d.SLid = sl.SLid
        LEFT JOIN location L ON sl.lid = L.lid
-       WHERE d.Refer_SOF = ? AND d.SLid = ?
+       WHERE d.SLid = ? AND (d.Refer_SOF = ? OR TRIM(LEADING '0' FROM COALESCE(d.Refer_SOF, '')) = ?)
        ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
-      [referSOF, siteId]
+      [siteId, referSOF, referSOFTrim]
     );
     
     res.status(200).json({ success: true, data: rows });
@@ -1243,6 +1244,45 @@ const getDevicesBySOFAndSite = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Refer_SOF และ Site',
+      error: error.message
+    });
+  }
+};
+
+// GET - ดึง Devices จาก contract_device ตาม contract_id และ SLid (Site+Location)
+// เช็คจาก Site+Location → SLid แล้วดึง devices ใน contract_device ที่ SLid ตรงกัน
+const getDevicesByContractAndSite = async (req, res) => {
+  try {
+    const contractId = req.query.contract_id;
+    const slid = req.query.slid || req.query.site_id;
+
+    if (!contractId || !slid) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ contract_id และ slid (site_id)'
+      });
+    }
+
+    const [rows] = await db.execute(
+      `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
+       FROM contract_device cd
+       INNER JOIN devices d ON cd.device_id = d.Did
+       LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+       LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+       LEFT JOIN manufacturer m ON dt.Mid = m.Mid
+       LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+       LEFT JOIN location L ON sl.lid = L.lid
+       WHERE cd.contract_id = ? AND (cd.SLid = ? OR (cd.SLid IS NULL AND d.SLid = ?))
+       ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
+      [parseInt(contractId, 10), parseInt(slid, 10), parseInt(slid, 10)]
+    );
+
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices by contract and site:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Devices จาก contract_device',
       error: error.message
     });
   }
@@ -1992,6 +2032,7 @@ module.exports = {
   getVendors,                // GET (distinct Project_purchase สำหรับ dropdown)
   getReferSOFList,           // GET (unique Refer_SOF values)
   getDevicesBySOFAndSite,    // GET (devices ตาม Refer_SOF และ site_id)
+  getDevicesByContractAndSite, // GET (devices จาก contract_device ตาม contract_id + slid)
   getDevicesBySerials,       // GET (devices ตาม serial หลายตัว ?serials=A,B,C)
   getDevicesBySiteNoSOF,     // GET (devices ตาม site_id ที่ยังไม่มี SOF)
   getDevicesBySite,          // GET (devices ตาม site_id สำหรับ Asset Binding)
