@@ -94,7 +94,7 @@ function formatDateThai(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' | 'expiring' | 'expired' {
@@ -345,8 +345,8 @@ export default function ContractEditorPage() {
     e.preventDefault();
     const contractId = `MA-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
     const formattedValue = parseFloat(contractForm.value).toLocaleString('th-TH');
-    const formattedStartDate = new Date(contractForm.startDate).toLocaleDateString('th-TH');
-    const formattedEndDate = new Date(contractForm.endDate).toLocaleDateString('th-TH');
+    const formattedStartDate = new Date(contractForm.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    const formattedEndDate = new Date(contractForm.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 
     const newContract: Contract = {
       id: contractId,
@@ -368,8 +368,8 @@ export default function ContractEditorPage() {
     if (!currentContract) return;
 
     const formattedValue = parseFloat(contractForm.value).toLocaleString('th-TH');
-    const formattedStartDate = new Date(contractForm.startDate).toLocaleDateString('th-TH');
-    const formattedEndDate = new Date(contractForm.endDate).toLocaleDateString('th-TH');
+    const formattedStartDate = new Date(contractForm.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    const formattedEndDate = new Date(contractForm.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 
     const updatedContract: Contract = {
       ...currentContract,

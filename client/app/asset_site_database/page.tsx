@@ -45,7 +45,7 @@ const ITEMS_PER_PAGE = 10;
 const formatDate = (dateString: string | null) => {
   if (!dateString) return "N/A";
   const date = new Date(dateString);
-  return date.toLocaleDateString("th-TH", { year: "numeric", month: "short", day: "numeric" });
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 };
 
 const getDaysUntilPM = (dateString: string | null) => {
@@ -441,35 +441,33 @@ const AssetSiteDatabase = () => {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto w-full">
-            <table className="w-full text-xs table-fixed" style={{ minWidth: '800px' }}>
+          <div className="overflow-x-auto w-full -mx-4 md:mx-0">
+            <table className="w-full text-xs min-w-full">
               <thead className="bg-gray-50 text-xs uppercase text-gray-400">
                 <tr>
                   <th
-                    className="cursor-pointer px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap"
+                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap w-[70px] md:w-[80px]"
                     onClick={() => handleSort("deviceId")}
-                    style={{ width: '80px' }}
                   >
                     <div className="flex items-center justify-center gap-1">
                       Device ID
                       <SortIcon field="deviceId" />
                     </div>
                   </th>
-                  <th className="px-3 py-3 text-center align-middle" style={{ width: '200px' }}>Device Name</th>
-                  <th className="px-3 py-3 text-center align-middle whitespace-nowrap" style={{ width: '70px' }}>Role</th>
+                  <th className="px-2 md:px-3 py-3 text-center align-middle min-w-[150px] md:min-w-[200px]">Device Name</th>
+                  <th className="px-2 md:px-3 py-3 text-center align-middle whitespace-nowrap w-[60px] md:w-[70px]">Role</th>
                   <th
-                    className="cursor-pointer px-3 py-3 text-center align-middle hover:bg-gray-100"
+                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-gray-100 min-w-[120px] md:min-w-[180px]"
                     onClick={() => handleSort("site")}
-                    style={{ width: '325px' }}
                   >
                     <div className="flex items-center justify-center gap-1">
                       Site
                       <SortIcon field="site" />
                     </div>
                   </th>
-                  <th className="px-3 py-3 text-center align-middle whitespace-nowrap hidden lg:table-cell" style={{ width: '100px' }}>Location</th>
+                  <th className="px-2 md:px-3 py-3 text-center align-middle whitespace-nowrap hidden lg:table-cell w-[80px] md:w-[100px]">Location</th>
                   <th
-                    className="cursor-pointer px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap"
+                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap w-[90px] md:w-auto"
                     onClick={() => handleSort("lastPM")}
                   >
                     <div className="flex items-center justify-center gap-1">
@@ -478,7 +476,7 @@ const AssetSiteDatabase = () => {
                     </div>
                   </th>
                   <th
-                    className="cursor-pointer px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap"
+                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap w-[90px] md:w-auto"
                     onClick={() => handleSort("nextPM")}
                   >
                     <div className="flex items-center justify-center gap-1">
@@ -486,21 +484,21 @@ const AssetSiteDatabase = () => {
                       <SortIcon field="nextPM" />
                     </div>
                   </th>
-                  <th className="px-2 py-3 text-center align-middle whitespace-nowrap" style={{ width: '72px' }}>Status</th>
-                  <th className="px-2 py-3 text-center align-middle whitespace-nowrap" style={{ width: '72px' }}></th>
+                  <th className="px-1 md:px-2 py-3 text-center align-middle whitespace-nowrap w-[60px] md:w-[72px]">Status</th>
+                  <th className="px-1 md:px-2 py-3 text-center align-middle whitespace-nowrap w-[50px] md:w-[72px]"></th>
                 </tr>
               </thead>
 
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="px-2 py-4 text-center text-gray-500">
+                    <td colSpan={9} className="px-2 md:px-3 py-4 text-center text-gray-500">
                       Loading devices...
                     </td>
                   </tr>
                 ) : paginatedDevices.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-2 py-4 text-center text-gray-500">
+                    <td colSpan={9} className="px-2 md:px-3 py-4 text-center text-gray-500">
                       No devices found matching your criteria
                     </td>
                   </tr>
@@ -516,10 +514,10 @@ const AssetSiteDatabase = () => {
                         key={device.deviceId}
                         className="border-t hover:bg-gray-50 transition-colors"
                       >
-                        <td className="px-3 py-3 align-middle text-center font-medium text-indigo-600 whitespace-nowrap">
+                        <td className="px-2 md:px-3 py-3 align-middle text-center font-medium text-indigo-600 whitespace-nowrap">
                           {device.deviceId}
                         </td>
-                        <td className="px-3 py-3 align-middle">
+                        <td className="px-2 md:px-3 py-3 align-middle">
                           <div className="flex items-center gap-2 min-w-0">
                             <DeviceIcon className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
                             <div className="min-w-0">
@@ -528,28 +526,28 @@ const AssetSiteDatabase = () => {
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-3 align-middle text-center">
+                        <td className="px-2 md:px-3 py-3 align-middle text-center">
                           <span className="inline-block rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700 whitespace-nowrap">
                             {device.deviceRole}
                           </span>
                         </td>
-                        <td className="px-3 py-3 align-middle">
+                        <td className="px-2 md:px-3 py-3 align-middle">
                           <div className="flex items-center gap-2 min-w-0">
                             <MapPin className="h-3 w-3 text-gray-400 flex-shrink-0" />
                             <span className="line-clamp-2 break-words">{device.site}</span>
                           </div>
                         </td>
-                        <td className="px-3 py-3 align-middle text-gray-600 hidden lg:table-cell">
+                        <td className="px-2 md:px-3 py-3 align-middle text-gray-600 hidden lg:table-cell">
                           <span className="line-clamp-2 break-words block">{device.location || 'N/A'}</span>
                         </td>
-                        <td className="px-3 py-3 align-middle text-center whitespace-nowrap">
+                        <td className="px-2 md:px-3 py-3 align-middle text-center whitespace-nowrap">
                           {device.lastPM ? (
                             <span className="text-gray-700">{formatDate(device.lastPM)}</span>
                           ) : (
                             <span className="text-gray-400">Never</span>
                           )}
                         </td>
-                        <td className="px-3 py-3 align-middle text-center">
+                        <td className="px-2 md:px-3 py-3 align-middle text-center">
                           {device.nextPM ? (
                             <div className="flex flex-col items-center">
                               <span
@@ -585,14 +583,14 @@ const AssetSiteDatabase = () => {
                             <span className="text-gray-400">Not scheduled</span>
                           )}
                         </td>
-                        <td className="px-2 py-3 align-middle text-center">
+                        <td className="px-1 md:px-2 py-3 align-middle text-center">
                           <span
                             className={`inline-block rounded-full px-1.5 py-0.5 text-[11px] ${getStatusColor(device.status)} whitespace-nowrap`}
                           >
                             {device.status}
                           </span>
                         </td>
-                        <td className="px-2 py-3 align-middle text-center">
+                        <td className="px-1 md:px-2 py-3 align-middle text-center">
                           <button
                             onClick={() => {
                               setSelectedDevice(device);

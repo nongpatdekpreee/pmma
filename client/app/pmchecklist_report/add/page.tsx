@@ -470,8 +470,8 @@ export default function AddPMReportPage() {
                       </span>
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <Calendar size={16} className="text-slate-400" />
-                        {task.startDate ? new Date(task.startDate).toLocaleDateString('th-TH') : '-'}
-                        {task.endDate && ` - ${new Date(task.endDate).toLocaleDateString('th-TH')}`}
+                        {task.startDate ? new Date(task.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
+                        {task.endDate && ` - ${new Date(task.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                       </span>
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <User size={16} className="text-slate-400" />
@@ -548,7 +548,7 @@ export default function AddPMReportPage() {
               const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === selected.Did;
               const formatDate = (v: string | null | undefined) => {
                 if (!v) return undefined;
-                try { return new Date(v).toLocaleDateString('th-TH'); } catch { return v; }
+                try { return new Date(v).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return v; }
               };
               const deviceFields: { label: string; value?: string | number | null }[] = [
                 { label: 'CI Name', value: selected.CI_Name },
