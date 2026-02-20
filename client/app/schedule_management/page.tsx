@@ -16,7 +16,7 @@ import {
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract } from '@/lib/api';
+import { apiUrl, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds } from '@/lib/api';
 import * as XLSX from 'xlsx';
 
 
@@ -109,8 +109,10 @@ export default function ScheduleManagement() {
     lid?: number; // lid from location table
   }>>([]);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
-  const [availableContracts, setAvailableContracts] = useState<Array<{contract_id: number; sof_name: string; contract_name?: string; site_id?: number}>>([]);
+  const [availableContracts, setAvailableContracts] = useState<Array<{contract_id: number; sof_name: string; contract_name?: string; site_id?: number; end_date?: string}>>([]);
   const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string | null>(null);
+  const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
+  const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
@@ -208,9 +210,27 @@ export default function ScheduleManagement() {
     }
   };
 
+  const loadReportedTaskIds = async () => {
+    try {
+      const [pmRes, maRes] = await Promise.all([
+        getPmReportedTaskIds(),
+        getMaReportedTaskIds(),
+      ]);
+      if (pmRes.success && Array.isArray(pmRes.taskIds)) {
+        setReportedPMTaskIds(new Set(pmRes.taskIds));
+      }
+      if (maRes.success && Array.isArray(maRes.taskIds)) {
+        setReportedMATaskIds(new Set(maRes.taskIds));
+      }
+    } catch (e) {
+      console.error('loadReportedTaskIds error', e);
+    }
+  };
+
   useEffect(() => {
     loadTasksFromApi();
-    
+    loadReportedTaskIds();
+
     // Load sites and engineers for Excel import
     const loadSitesAndEngineers = async () => {
       try {
@@ -252,6 +272,7 @@ export default function ScheduleManagement() {
             sof_name: c.sof_name || '',
             contract_name: c.contract_name || '',
             site_id: c.site_id || null,
+            end_date: c.end_date || undefined,
           })));
         }
       } catch (error) {
@@ -323,10 +344,21 @@ export default function ScheduleManagement() {
     }
   };
 
+  // ซ่อน task ที่ done และทำ report เสร็จแล้ว (ไม่แสดงในปฏิทิน)
+  const calendarEventsWithoutDoneReported = useMemo(() => {
+    return calendarEvents.filter((e) => {
+      if (e.status !== 'done') return true;
+      const id = Number(e.id);
+      if (e.taskType === 'PM') return !reportedPMTaskIds.has(id);
+      if (e.taskType === 'MA') return !reportedMATaskIds.has(id);
+      return true;
+    });
+  }, [calendarEvents, reportedPMTaskIds, reportedMATaskIds]);
+
   // Filter events by selected engineer
   const filteredCalendarEvents = useMemo(() => {
-    if (!selectedEngineerFilter) return calendarEvents;
-    return calendarEvents.filter(e => {
+    if (!selectedEngineerFilter) return calendarEventsWithoutDoneReported;
+    return calendarEventsWithoutDoneReported.filter(e => {
       // Check if event has Eng_ids array
       if (e.Eng_ids && e.Eng_ids.length > 0) {
         return e.Eng_ids.some((eng: Engineer) => String(eng.id) === String(selectedEngineerFilter));
@@ -338,7 +370,7 @@ export default function ScheduleManagement() {
       }
       return false;
     });
-  }, [calendarEvents, selectedEngineerFilter]);
+  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter]);
 
   const isMultiDayEvent = (e: CalendarEvent): boolean => {
     if (!e.startDate || !e.endDate) return false;
@@ -908,6 +940,7 @@ export default function ScheduleManagement() {
                   });
                   if (contract) {
                     task.contractId = contract.contract_id;
+                    task._contractEndDate = contract.end_date; // เก็บไว้เช็คหมดอายุ
                     console.log(`Row ${i + 1}: Found contract_id ${contract.contract_id} for SOF "${sofVal}"`);
                   } else {
                     console.warn(`Row ${i + 1}: SOF "${sofVal}" not found in contracts. Available SOFs:`, availableContracts.map(c => c.sof_name).filter(Boolean));
@@ -1071,6 +1104,25 @@ export default function ScheduleManagement() {
               task.title = task.coverageScope;
             }
 
+            // เช็ค contract: ต้องมี contract และยังไม่หมดอายุ ถึงจะ add task ได้
+            if (task.sofName) {
+              if (!task.contractId) {
+                errors.push(`Row ${i + 1}: SOF "${task.sofName}" ไม่มี contract ในระบบ — ไม่สามารถเพิ่ม task ได้`);
+                continue;
+              }
+              const endDateStr = task._contractEndDate || availableContracts.find(c => c.contract_id === task.contractId)?.end_date;
+              if (endDateStr) {
+                const endDate = new Date(endDateStr);
+                endDate.setHours(0, 0, 0, 0);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                if (endDate < today) {
+                  errors.push(`Row ${i + 1}: Contract หมดอายุแล้ว (SOF "${task.sofName}") — ไม่สามารถเพิ่ม task ได้`);
+                  continue;
+                }
+              }
+            }
+
             tasks.push(task);
           }
 
@@ -1208,6 +1260,26 @@ export default function ScheduleManagement() {
         if (!task.title) {
           errors.push(`Row ${idx + 2}: Missing Title`);
           continue;
+        }
+
+        // เช็ค contract: ต้องมี contract และยังไม่หมดอายุ ถึงจะ add task ได้
+        if (task.sofName) {
+          const contractId = task.contractId ? Number(task.contractId) : null;
+          if (!contractId) {
+            errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): SOF "${task.sofName}" ไม่มี contract ในระบบ — ไม่สามารถเพิ่ม task ได้`);
+            continue;
+          }
+          const contract = availableContracts.find(c => c.contract_id === contractId);
+          if (contract?.end_date) {
+            const endDate = new Date(contract.end_date);
+            endDate.setHours(0, 0, 0, 0);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (endDate < today) {
+              errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): Contract หมดอายุแล้ว (SOF "${task.sofName}") — ไม่สามารถเพิ่ม task ได้`);
+              continue;
+            }
+          }
         }
 
         // ===== Prepare payload ตาม database schema (tasks.sql) =====
@@ -1549,10 +1621,16 @@ export default function ScheduleManagement() {
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
                                 const isDone = ev.status === 'done';
-                                // สไตล์ Morning Sync: แถบสีตรงหัว + พื้นหลังอ่อน
+                                const endDateStr = ev.endDate || ev.startDate || '';
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                const endDate = endDateStr ? new Date(endDateStr) : null;
+                                if (endDate) endDate.setHours(0, 0, 0, 0);
+                                const isOverdue = !isDone && endDate && endDate < today;
+                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า
                                 const pillStyle = isDone 
                                   ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
-                                  : isMA 
+                                  : isOverdue 
                                     ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
                                     : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
@@ -1582,11 +1660,14 @@ export default function ScheduleManagement() {
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                                     className={`mt-1 min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
                                   >
-                                    <span className={isDone ? 'line-through' : ''}>
+                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                                      {isMA ? 'MA' : 'PM'}
+                                    </span>
+                                    <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
                                       {ev.title || '(No title)'}
                                     </span>
                                     {isDone && (
-                                      <span className="ml-1.5 text-xs">✓</span>
+                                      <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                                     )}
                                   </div>
                                 );
@@ -1601,11 +1682,17 @@ export default function ScheduleManagement() {
                   {multiDaySpans.map(({ event, colStart, colEnd }) => {
                     const isMA = event.taskType === 'MA';
                     const isDone = event.status === 'done';
-                    // สไตล์ Morning Sync: แถบสีตรงหัว + พื้นหลังอ่อน
+                    const endDateStr = event.endDate || event.startDate || '';
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const endDate = endDateStr ? new Date(endDateStr) : null;
+                    if (endDate) endDate.setHours(0, 0, 0, 0);
+                    const isOverdue = !isDone && endDate && endDate < today;
+                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า
                     const barStyle = isDone 
                       ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
-                      : isMA 
-                        ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
+                      : isOverdue 
+                        ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
                         : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                     return (
                       <div
@@ -1642,11 +1729,14 @@ export default function ScheduleManagement() {
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                         className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
-                        <span className={isDone ? 'line-through' : ''}>
+                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                          {isMA ? 'MA' : 'PM'}
+                        </span>
+                        <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
                           {event.title || '(No title)'}
                         </span>
                         {isDone && (
-                          <span className="ml-1.5 text-xs">✓</span>
+                          <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                         )}
                       </div>
                     );
@@ -1741,11 +1831,11 @@ export default function ScheduleManagement() {
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-col gap-0.5">
                   {hoveredEvent.Eng_ids.map((eng, idx) => (
-                    <span key={idx} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
+                    <div key={idx} className="text-xs text-slate-800">
                       {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
-                    </span>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -2007,7 +2097,15 @@ export default function ScheduleManagement() {
                               <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.startDate)}</td>
                               <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.endDate)}</td>
                               <td className="px-2 py-2 min-w-[100px]">
-                                {task.Eng_ids?.map((e: Engineer) => e.name).join(', ') || '—'}
+                                {task.Eng_ids && task.Eng_ids.length > 0 ? (
+                                  <div className="flex flex-col gap-0.5">
+                                    {task.Eng_ids.map((e: Engineer) => (
+                                      <div key={e.id} className="text-sm">
+                                        {e.name}{e.lastName ? ` ${e.lastName}` : ''}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : '—'}
                               </td>
                               <td className="px-2 py-2 whitespace-nowrap">
                                 {task.sofName || (task.contractId ? `#${task.contractId}` : '—')}
