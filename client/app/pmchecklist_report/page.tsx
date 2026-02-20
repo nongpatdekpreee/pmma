@@ -236,7 +236,7 @@ export default function ReportPage() {
   const handleCreatePM = () => {
     setShowCreateMenu(false);
     if (remainingPMTasks.length === 0) {
-      alert('ไม่มี Task PM ที่ยังไม่มี Report สำหรับสร้าง');
+      alert('There are no Task PM tasks that do not yet have a report to create.');
       return;
     }
     router.push('/pmchecklist_report/add');
@@ -278,12 +278,12 @@ export default function ReportPage() {
                 loadingTasks
                   ? 'กำลังตรวจสอบ Tasks...'
                   : remainingPMTasks.length === 0 && remainingMATasks.length === 0
-                  ? 'ไม่มี Task ที่ยังไม่มี Report สำหรับสร้าง'
+                  ? 'There are no tasks that do not yet have a report to create.'
                   : ''
               }
             >
               <Plus size={20} />
-              สร้าง Report ใหม่
+              Create a Report
               <ChevronDown size={18} className={`transition-transform duration-200 ${showCreateMenu ? 'rotate-180' : ''}`} />
             </button>
             
@@ -399,17 +399,17 @@ export default function ReportPage() {
               <FileText size={32} className="text-slate-500" />
             </div>
             <p className="text-slate-700 text-lg font-semibold mb-2">
-              {searchTerm ? 'ไม่พบรายการที่ค้นหา' : `ยังไม่มีรายการ Report ${tab === 'pm' ? 'PM' : 'MA'}`}
+              {searchTerm ? 'Searched item was not found' : ` There are no reports for ${tab === 'pm' ? 'PM' : 'MA'}`}
             </p>
             <p className="text-slate-500 text-sm mb-6">
-              {searchTerm ? 'ลองค้นหาด้วยคำอื่น' : 'กดปุ่ม "สร้าง Report ใหม่" เพื่อเริ่มต้น'}
-            </p>
+              {searchTerm ? 'ลองค้นหาด้วยคำอื่น' : 'Click the "Create New Report"'}
+            </p>  
             {!searchTerm && (
               <button
                 onClick={() => setShowCreateMenu(true)}
                 className="px-5 py-2 bg-slate-800 text-white rounded-lg text-sm font-semibold hover:bg-slate-900 transition-colors shadow-md"
               >
-                สร้าง Report ใหม่
+              Create a Report
               </button>
             )}
           </div>
