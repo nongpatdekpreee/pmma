@@ -959,7 +959,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const engineerName = `${engineer.name}${engineer.lastName ? ' ' + engineer.lastName : ''}`;
       const taskInfo = conflictCheck.conflictingTask?.siteName || conflictCheck.conflictingTask?.Sname || 'Unknown Task';
       const taskDate = conflictCheck.conflictingTask?.startDate 
-        ? new Date(conflictCheck.conflictingTask.startDate).toLocaleDateString('th-TH', {
+        ? new Date(conflictCheck.conflictingTask.startDate).toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'long',
             day: 'numeric'
@@ -1274,7 +1274,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     if (conflictCheck.hasConflict) {
       const conflictMessages = conflictCheck.conflicts.map(c => {
         const taskInfo = c.conflictingTask.siteName || c.conflictingTask.Sname || 'Unknown Task';
-        const taskDate = c.conflictingTask.startDate ? new Date(c.conflictingTask.startDate).toLocaleDateString('th-TH') : '';
+        const taskDate = c.conflictingTask.startDate ? new Date(c.conflictingTask.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
         return `${c.engineerName} has task at ${taskInfo} on ${taskDate}`;
       });
       showWarning(`Engineer has task overlap on the same day:\n${conflictMessages.join('\n')}\n\nYou can save it`, 6000);

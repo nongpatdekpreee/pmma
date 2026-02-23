@@ -7,21 +7,17 @@ export function apiUrl(path: string): string {
   return `${API_BASE}${p}`;
 }
 
-/** Parse response as JSON; if body is HTML (e.g. 404 page) return { success: false } to avoid SyntaxError */
-async function parseJsonResponse<T = object>(res: Response): Promise<T> {
+/** Parse response as JSON; if server returns HTML (e.g. 404 page), return a safe error object instead of throwing */
+async function parseJsonResponse<T>(res: Response, fallback: T): Promise<T> {
   const text = await res.text();
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    if (text.trimStart().startsWith('<!')) {
-      console.error('API returned HTML instead of JSON (wrong URL or server error):', res.url);
-      return { success: false, message: 'Server returned invalid response' } as T;
-    }
+  const trimmed = text.trim();
+  if (trimmed.startsWith('<') || !trimmed.startsWith('{')) {
+    return { ...fallback, success: false, message: 'Server returned invalid response. Check that the backend is running.' } as T;
   }
   try {
-    return text ? JSON.parse(text) : ({} as T);
+    return JSON.parse(text) as T;
   } catch {
-    console.error('Invalid JSON from API:', res.url, text.slice(0, 100));
-    return { success: false, message: 'Invalid JSON response' } as T;
+    return { ...fallback, success: false, message: 'Invalid JSON response' } as T;
   }
 }
 
@@ -211,7 +207,7 @@ export async function checkEngineerConflict(params: {
 /** GET /api/pm-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getPmReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
   const res = await fetch(apiUrl('/api/pm-reports/reported-task-ids'));
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false, taskIds: [] });
 }
 
 /** GET /api/pm-reports - ดึงรายการ PM Reports */
@@ -234,7 +230,7 @@ export async function getPmReports(params?: { limit?: number; offset?: number })
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
   const res = await fetch(apiUrl(`/api/pm-reports?${q.toString()}`));
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false, data: [] });
 }
 
 /** POST /api/pm-reports/upload - อัปโหลดไฟล์ Report */
@@ -242,7 +238,7 @@ export async function uploadReportFile(file: File): Promise<{ success: boolean; 
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch(apiUrl('/api/pm-reports/upload'), { method: 'POST', body: fd });
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false });
 }
 
 /** POST /api/pm-reports - ส่ง PM Checklist Report */
@@ -267,13 +263,13 @@ export async function postPmReport(body: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false });
 }
 
 /** GET /api/ma-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getMaReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
   const res = await fetch(apiUrl('/api/ma-reports/reported-task-ids'));
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false, taskIds: [] });
 }
 
 /** GET /api/ma-reports - ดึงรายการ MA Reports */
@@ -296,7 +292,7 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
   const res = await fetch(apiUrl(`/api/ma-reports?${q.toString()}`));
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false, data: [] });
 }
 
 /** POST /api/ma-reports/upload - อัปโหลดไฟล์ Report */
@@ -304,7 +300,7 @@ export async function uploadMaReportFile(file: File): Promise<{ success: boolean
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch(apiUrl('/api/ma-reports/upload'), { method: 'POST', body: fd });
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false });
 }
 
 /** POST /api/ma-reports - ส่ง MA Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
@@ -330,7 +326,7 @@ export async function postMaReport(body: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false });
 }
 
 /** GET /api/devices/with-pm - ดึง Devices พร้อม PM Information สำหรับ Asset & Site Database */
