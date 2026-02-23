@@ -304,11 +304,7 @@ export default function AddPMReportPage() {
       alert('กรุณาเลือก Device');
       return;
     }
-    const num = slaResult.trim() === '' ? NaN : Number(slaResult);
-    if (slaResult.trim() === '' || Number.isNaN(num)) {
-      alert('กรุณากรอกคะแนน PM Result (ตัวเลข)');
-      return;
-    }
+
 
     const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
 
@@ -331,7 +327,6 @@ export default function AddPMReportPage() {
         device: selectedDevice,
         checklistItems,
         uploadedFiles: filesWithPath,
-        sla_result: num,
         comment,
         technicianName,
         pmDate,
