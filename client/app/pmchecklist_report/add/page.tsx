@@ -324,7 +324,7 @@ export default function AddPMReportPage() {
       const reportData = {
         taskId: selectedTaskId,
         deviceId: selectedDeviceId,
-        device: selectedDevice,
+        device: selectedDevice ?? undefined,
         checklistItems,
         uploadedFiles: filesWithPath,
         comment,
@@ -335,7 +335,7 @@ export default function AddPMReportPage() {
 
       const res = await postPmReport(reportData);
       if (res.success) {
-        alert('บันทึกข้อมูล PM Checklist Report สำเร็จ\n\nรายการที่ส่งไป: ' + (res.list?.length ?? checklistItems.length) + ' รายการ');
+        alert('Save PM Checklist Report Success\n\nSent: ' + (res.list?.length ?? checklistItems.length) + ' items');
         // Redirect กลับไปหน้า list
         router.push('/pmchecklist_report');
       } else {

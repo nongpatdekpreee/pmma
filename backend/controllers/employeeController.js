@@ -284,8 +284,68 @@ const createEmployee = async (req, res) => {
   }
 };
 
+// POST - Import หลายคน (body: { employees: [{ name, gmail, tel, positionType?, employmentType? }] })
+const importEmployees = async (req, res) => {
+  try {
+    const list = req.body?.employees;
+    if (!Array.isArray(list) || list.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาส่ง employees เป็น array',
+      });
+    }
+
+    const results = { created: 0, failed: 0, errors: [] };
+
+    for (let i = 0; i < list.length; i++) {
+      const row = list[i] || {};
+      const name = (row.name ?? row.Name ?? '').toString().trim();
+      const gmail = (row.gmail ?? row.Gmail ?? '').toString().trim();
+      const tel = (row.tel ?? row.phone ?? row.Phone ?? '').toString().trim();
+
+      if (!name || !gmail || !tel) {
+        results.failed++;
+        results.errors.push({ row: i + 1, message: 'name, gmail, tel ต้องไม่ว่าง' });
+        continue;
+      }
+
+      let employment = (row.employmentType ?? row.employment ?? 'Full-Time') || 'Full-Time';
+      if (employment.toLowerCase().includes('full')) employment = 'Full-Time';
+      else if (employment.toLowerCase().includes('contract')) employment = 'Contract';
+      else if (employment.toLowerCase().includes('part')) employment = 'Part-Time';
+
+      let type = (row.positionType ?? row.type ?? 'Technical') || 'Technical';
+      if (type !== 'Technical' && type !== 'Management') type = 'Technical';
+
+      try {
+        const newUserId = await generateNextUserId();
+        const insertSql = `INSERT INTO user_profiles (user_id, name, gmail, phone, type, employment) VALUES (?, ?, ?, ?, ?, ?)`;
+        await db.execute(insertSql, [newUserId, name, gmail, tel, type, employment]);
+        results.created++;
+      } catch (err) {
+        results.failed++;
+        results.errors.push({ row: i + 1, message: err.message || 'Insert failed' });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Import เสร็จ: สร้าง ${results.created} คน, ล้มเหลว ${results.failed}`,
+      data: results,
+    });
+  } catch (error) {
+    console.error('Error importing employees:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการ Import',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getEmployees,
   getEmployeeById,
   createEmployee,
+  importEmployees,
 };
