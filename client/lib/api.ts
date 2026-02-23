@@ -241,14 +241,13 @@ export async function uploadReportFile(file: File): Promise<{ success: boolean; 
   return parseJsonResponse(res, { success: false });
 }
 
-/** POST /api/pm-reports - ส่ง PM Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
+/** POST /api/pm-reports - ส่ง PM Checklist Report */
 export async function postPmReport(body: {
   taskId: number;
   deviceId: string;
   device?: object;
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
-  sla_result: number;
   comment?: string;
   technicianName?: string;
   pmDate?: string;
@@ -427,4 +426,36 @@ export async function getEmployees(params?: { limit?: number; page?: number; sea
       error: 'Network error'
     };
   }
+}
+
+/** POST /api/employees - สร้าง Employee ใหม่ */
+export async function createEmployee(body: {
+  name: string;
+  gmail: string;
+  tel: string;
+  positionType?: string;
+  employmentType?: string;
+}): Promise<{ success: boolean; data?: object; message?: string }> {
+  const res = await fetch(apiUrl('/api/employees'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+/** POST /api/employees/import - Import หลายคน */
+export async function importEmployees(employees: Array<{
+  name: string;
+  gmail: string;
+  tel: string;
+  positionType?: string;
+  employmentType?: string;
+}>): Promise<{ success: boolean; message?: string; data?: { created: number; failed: number; errors?: Array<{ row: number; message: string }> } }> {
+  const res = await fetch(apiUrl('/api/employees/import'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employees }),
+  });
+  return res.json();
 }
