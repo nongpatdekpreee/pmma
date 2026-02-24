@@ -39,6 +39,12 @@ export async function getDevicesBySite(siteId: number | string): Promise<{ succe
   return res.json();
 }
 
+/** GET /api/devices/assigned-services - รายการ Assigned_Service (DISTINCT จาก devices สำหรับ Add Contract) */
+export async function getAssignedServices(): Promise<{ success: boolean; data: string[] }> {
+  const res = await fetch(apiUrl('/api/devices/assigned-services'));
+  return parseJsonResponse(res, { success: false, data: [] });
+}
+
 /** GET /api/contracts?site_id=xxx - รายการ Contract ตาม site_id (ไม่ส่ง site_id = ดึงทั้งหมด) */
 export async function getContractsBySite(siteId?: number | string | null): Promise<{
   success: boolean;
