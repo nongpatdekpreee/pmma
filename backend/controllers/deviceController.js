@@ -1204,6 +1204,29 @@ const getReferSOFList = async (req, res) => {
   }
 };
 
+// GET - ดึง unique Assigned_Service values จาก Devices table (สำหรับ dropdown Service ใน Add Contract)
+const getAssignedServicesList = async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT DISTINCT Assigned_Service AS assigned_service
+       FROM devices
+       WHERE Assigned_Service IS NOT NULL AND TRIM(Assigned_Service) != ''
+       ORDER BY Assigned_Service ASC`
+    );
+    res.status(200).json({
+      success: true,
+      data: rows.map(r => (r.assigned_service != null ? String(r.assigned_service).trim() : '')).filter(Boolean)
+    });
+  } catch (error) {
+    console.error('Error getting Assigned_Service list:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงรายการ Assigned_Service',
+      error: error.message
+    });
+  }
+};
+
 // GET - ดึง Devices ตาม Refer_SOF และ Site (SLid)
 const getDevicesBySOFAndSite = async (req, res) => {
   try {
@@ -2035,6 +2058,7 @@ module.exports = {
   getDevicesByModel,         // GET (grouped by model)
   getVendors,                // GET (distinct Project_purchase สำหรับ dropdown)
   getReferSOFList,           // GET (unique Refer_SOF values)
+  getAssignedServicesList,   // GET (unique Assigned_Service สำหรับ dropdown Service)
   getDevicesBySOFAndSite,    // GET (devices ตาม Refer_SOF และ site_id)
   getDevicesByContractAndSite, // GET (devices จาก contract_device ตาม contract_id + slid)
   getDevicesBySerials,       // GET (devices ตาม serial หลายตัว ?serials=A,B,C)

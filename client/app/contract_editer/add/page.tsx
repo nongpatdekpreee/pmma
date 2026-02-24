@@ -4,7 +4,7 @@ import { ArrowLeft, FileText, Calendar, Cpu, Paperclip, Loader2, Plus, Trash2, X
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, getAssignedServices } from '@/lib/api';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { FormSection } from '../../../components/ui/FormSection';
@@ -37,7 +37,8 @@ export default function AddContractPage() {
   const [slaTerm, setSlaTerm] = useState('');
   const [selectedSOF, setSelectedSOF] = useState('');
   const [saleAccount, setSaleAccount] = useState('');
-  const [contractValue, setContractValue] = useState('');
+  const [emailAcc, setEmailAcc] = useState('');
+  const [telAcc, setTelAcc] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
   const [remark, setRemark] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -66,6 +67,10 @@ export default function AddContractPage() {
   const [deviceFilter, setDeviceFilter] = useState('');
   // เลือกดูตาม Site (เหมือนหน้า detail: filter ตาม SLid ใน contract_device)
   const [selectedViewSiteId, setSelectedViewSiteId] = useState<string | null>(null);
+
+  // Service options จาก Assigned_Service ใน devices (เลือกได้ + ค้นหาได้)
+  const [assignedServiceOptions, setAssignedServiceOptions] = useState<string[]>([]);
+  const [serviceDropdownOpen, setServiceDropdownOpen] = useState(false);
 
   // Loading & errors
   const [referSOFLoading, setReferSOFLoading] = useState(false);
@@ -118,6 +123,19 @@ export default function AddContractPage() {
     load();
   }, []);
 
+  // โหลดรายการ Assigned_Service จาก devices (สำหรับ dropdown Service)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await getAssignedServices();
+        if (res.success && Array.isArray(res.data)) setAssignedServiceOptions(res.data);
+      } catch {
+        // ignore
+      }
+    };
+    load();
+  }, []);
+
   // โหลดข้อมูลสัญญาเพื่อแก้ไขเมื่อมี editContractId
   useEffect(() => {
     if (!editContractId) return;
@@ -159,9 +177,8 @@ export default function AddContractPage() {
         if (contract.Assigned_Service) setAssignedService(contract.Assigned_Service);
         if (contract.sla_term != null) setSlaTerm(String(contract.sla_term));
         if (contract.sale_account) setSaleAccount(contract.sale_account);
-        if (contract.contract_value != null) {
-          setContractValue(contract.contract_value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-        }
+        if (contract.email_acc) setEmailAcc(contract.email_acc);
+        if (contract.tel_acc) setTelAcc(contract.tel_acc);
         if (contract.coverage_scope) setCoverageScope(contract.coverage_scope);
         if (contract.remark) setRemark(contract.remark);
         if (contract.start_date) setStartDate(String(contract.start_date).split('T')[0]);
@@ -293,6 +310,8 @@ export default function AddContractPage() {
           if (contract.sale_account) {
             setSaleAccount(contract.sale_account);
           }
+          if (contract.email_acc) setEmailAcc(contract.email_acc);
+          if (contract.tel_acc) setTelAcc(contract.tel_acc);
           if (contract.coverage_scope) {
             setCoverageScope(contract.coverage_scope);
           }
@@ -523,6 +542,18 @@ export default function AddContractPage() {
     );
   };
 
+  /** ลบ devices ทั้งหมดของ entry เดียว */
+  const clearDevicesFromEntry = (entryId: string) => {
+    setSiteEntries((prev) =>
+      prev.map((e) => (e.id === entryId ? { ...e, devices: [] } : e))
+    );
+  };
+
+  /** ลบ devices ที่เลือกทั้งหมดทุก site */
+  const clearAllDevices = () => {
+    setSiteEntries((prev) => prev.map((e) => ({ ...e, devices: [] })));
+  };
+
   const activeEntry = siteEntries.find((e) => e.id === activeSiteEntryId);
   const activeEntryDevices = activeEntry?.devices ?? [];
 
@@ -590,9 +621,21 @@ export default function AddContractPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e: React.FormEvent, isDraft?: boolean) => {
+    e?.preventDefault?.();
     setSaveError('');
+    if (!contractName.trim()) {
+      const msg = 'Please enter Contract Name';
+      setSaveError(msg);
+      toastError(msg);
+      return;
+    }
+    if (contractName.trim().length < 5) {
+      const msg = 'Contract Name must be at least 5 characters';
+      setSaveError(msg);
+      toastError(msg);
+      return;
+    }
     if (!slaTerm.trim()) {
       const msg = 'Please enter SLA Term';
       setSaveError(msg);
@@ -607,17 +650,6 @@ export default function AddContractPage() {
       setSaveError(msg);
       toastError(msg);
       return;
-    }
-    
-    // Validate Contract Value เป็นจำนวนเงิน (ตัวเลขบวกเท่านั้น)
-    if (contractValue.trim() && contractValue.trim() !== '') {
-      const contractValueNum = parseFloat(contractValue.replace(/,/g, '').trim());
-      if (isNaN(contractValueNum) || contractValueNum < 0) {
-        const msg = 'Contract Value must be a positive number';
-        setSaveError(msg);
-        toastError(msg);
-        return;
-      }
     }
     
     if (!selectedSOF?.trim()) {
@@ -666,7 +698,8 @@ export default function AddContractPage() {
             assigned_service: assignedService.trim() || null,
             sla_term: slaTerm.trim(),
             sale_account: saleAccount.trim() || null,
-            contract_value: contractValue.trim() ? contractValue.replace(/,/g, '').trim() : null,
+            email_acc: emailAcc.trim() || null,
+            tel_acc: telAcc.trim() || null,
             coverage_scope: coverageScope.trim() || null,
             remark: remark.trim() || null,
             contract_sign_date: contractSignDate || null,
@@ -675,6 +708,7 @@ export default function AddContractPage() {
             image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
             old_contract_id: renewContractId ? parseInt(renewContractId, 10) : null,
             old_sof: renewContractId && oldContractSOF ? oldContractSOF : null,
+            status: isDraft ? 'draft' : 'official',
           };
           const res = await fetch(apiUrl('/api/contracts'), {
             method: 'POST',
@@ -683,8 +717,8 @@ export default function AddContractPage() {
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
-          toastSuccess(`Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`);
-          router.push('/contract_editer');
+          const msg = `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`;
+          router.push('/contract_editer?toast=success&msg=' + encodeURIComponent(msg));
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Save failed';
           setSaveError(msg);
@@ -768,13 +802,15 @@ export default function AddContractPage() {
         assigned_service: assignedService.trim() || null,
         sla_term: slaTerm.trim(),
         sale_account: saleAccount.trim() || null,
-        contract_value: contractValue.trim() ? contractValue.replace(/,/g, '').trim() : null,
+        email_acc: emailAcc.trim() || null,
+        tel_acc: telAcc.trim() || null,
         coverage_scope: coverageScope.trim() || null,
         remark: remark.trim() || null,
         contract_sign_date: contractSignDate || null,
         pm_time_per_year: pmTimePerYear ? parseInt(pmTimePerYear, 10) : null,
         file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
         image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
+        status: isDraft ? 'draft' : 'official',
       };
 
       // เพิ่ม site_device_pairs
@@ -804,13 +840,14 @@ export default function AddContractPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
-      toastSuccess(editContractId
-        ? 'Contract updated successfully'
-        : renewContractId 
+      const message = editContractId
+        ? (isDraft ? 'Saved as draft' : 'Contract updated successfully')
+        : renewContractId
           ? `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`
-          : 'New contract saved successfully'
-      );
-      router.push('/contract_editer');
+          : isDraft
+            ? 'Saved as draft'
+            : 'New contract saved successfully';
+      router.push('/contract_editer?toast=success&msg=' + encodeURIComponent(message));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Save failed';
       setSaveError(msg);
@@ -950,7 +987,8 @@ export default function AddContractPage() {
                     value={contractName}
                     onChange={(e) => setContractName(e.target.value)}
                     placeholder="contract name"
-                    className={`${inputBase} pr-9`}
+                    className={`${inputBase} pr-9 ${contractName.trim().length > 0 && contractName.trim().length < 5 ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`}
+                    minLength={5}
                   />
                   {contractName && (
                     <button
@@ -963,6 +1001,9 @@ export default function AddContractPage() {
                     </button>
                   )}
                 </div>
+                {contractName.trim().length > 0 && contractName.trim().length < 5 && (
+                  <p className="mt-1 text-xs text-red-600">Contract Name must be at least 5 characters</p>
+                )}
               </FormField>
               {!renewContractId && (
                 <FormField label="SOF (Refer SOF from Device)" required>
@@ -1001,7 +1042,7 @@ export default function AddContractPage() {
                   </datalist>
                   {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
                   {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
-                    <p className="mt-1 text-xs text-amber-600">SOF is not in the system</p>
+                    <p className="mt-1 text-xs text-amber-600">New SOF</p>
                   )}
                 </FormField>
               )}
@@ -1012,19 +1053,54 @@ export default function AddContractPage() {
                   <input
                     type="text"
                     value={assignedService}
-                    onChange={(e) => setAssignedService(e.target.value)}
+                    onChange={(e) => {
+                      setAssignedService(e.target.value);
+                      setServiceDropdownOpen(true);
+                    }}
+                    onFocus={() => setServiceDropdownOpen(true)}
+                    onBlur={() => setTimeout(() => setServiceDropdownOpen(false), 180)}
                     placeholder="Device Network Manage Service"
                     className={`${inputBase} pr-9`}
+                    autoComplete="off"
                   />
                   {assignedService && (
                     <button
                       type="button"
-                      onClick={() => setAssignedService('')}
+                      onClick={() => { setAssignedService(''); setServiceDropdownOpen(false); }}
                       className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
                       title="ล้าง"
                     >
                       <X size={14} />
                     </button>
+                  )}
+                  {serviceDropdownOpen && (
+                    <ul
+                      className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                      onMouseDown={(e) => e.preventDefault()}
+                    >
+                      {assignedServiceOptions
+                        .filter((s) => s.toLowerCase().includes(assignedService.trim().toLowerCase()))
+                        .slice(0, 50)
+                        .map((s) => (
+                          <li key={s}>
+                            <button
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 focus:bg-slate-100"
+                              onMouseDown={() => {
+                                setAssignedService(s);
+                                setServiceDropdownOpen(false);
+                              }}
+                            >
+                              {s}
+                            </button>
+                          </li>
+                        ))}
+                      {assignedServiceOptions.filter((s) =>
+                        s.toLowerCase().includes(assignedService.trim().toLowerCase())
+                      ).length === 0 && (
+                        <li className="px-3 py-2 text-sm text-slate-500">No have any Service</li>
+                      )}
+                    </ul>
                   )}
                 </div>
               </FormField>
@@ -1061,44 +1137,6 @@ export default function AddContractPage() {
               </FormField>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Contract Value (THB)">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={contractValue}
-                    onChange={(e) => {
-                      let value = e.target.value.replace(/,/g, ''); // ลบ comma ออกก่อน
-                      // อนุญาตให้กรอกเฉพาะตัวเลขบวก (จำนวนเงิน)
-                      if (value === '' || (!isNaN(parseFloat(value)) && parseFloat(value) >= 0)) {
-                        // Format ด้วย comma separator
-                        if (value !== '' && !isNaN(parseFloat(value))) {
-                          const numValue = parseFloat(value);
-                          const formatted = numValue.toLocaleString('en-US', {
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 2
-                          });
-                          setContractValue(formatted);
-                        } else {
-                          setContractValue(value);
-                        }
-                      }
-                    }}
-                    placeholder="0.00"
-                    className={`${inputBase} pr-9`}
-                  />
-                  {contractValue && (
-                    <button
-                      type="button"
-                      onClick={() => setContractValue('')}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ล้าง"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-                <p className="mt-1 text-xs text-slate-500"></p>
-              </FormField>
               <FormField label="Sale Account">
                 <div className="relative">
                   <input
@@ -1112,6 +1150,48 @@ export default function AddContractPage() {
                     <button
                       type="button"
                       onClick={() => setSaleAccount('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </FormField>
+              <FormField label="Email">
+                <div className="relative">
+                  <input
+                    type="email"
+                    value={emailAcc}
+                    onChange={(e) => setEmailAcc(e.target.value)}
+                    placeholder="Sale_account@example.com"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {emailAcc && (
+                    <button
+                      type="button"
+                      onClick={() => setEmailAcc('')}
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="ล้าง"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </FormField>
+              <FormField label="Telephone">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={telAcc}
+                    onChange={(e) => setTelAcc(e.target.value)}
+                    placeholder="Sale account telephone"
+                    className={`${inputBase} pr-9`}
+                  />
+                  {telAcc && (
+                    <button
+                      type="button"
+                      onClick={() => setTelAcc('')}
                       className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
                       title="ล้าง"
                     >
@@ -1212,19 +1292,21 @@ export default function AddContractPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
                     Site and Device *
                   </span>
-                  <button
-                    type="button"
-                    onClick={addSiteEntry}
-                    disabled={dataLoading}
-                    className="flex items-center gap-1.5 rounded-xl bg-green-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Plus size={16} />
-                    Add Site
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={addSiteEntry}
+                      disabled={dataLoading}
+                      className="flex items-center gap-1.5 rounded-xl bg-green-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Plus size={16} />
+                      Add Site
+                    </button>
+                  </div>
                 </div>
                 {dataLoading && ( 
                   <p className="text-sm text-slate-500">Loading site list...</p>
@@ -1313,9 +1395,19 @@ export default function AddContractPage() {
                       </div>
                       {entry.devices.length > 0 && (
                         <div className="space-y-2">
-                          <p className="text-xs font-semibold text-slate-600">
-                            Selected <span className="text-blue-600">{entry.devices.length}</span> items
-                          </p>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-600">
+                              Selected <span className="text-blue-600">{entry.devices.length}</span> items
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => clearDevicesFromEntry(entry.id)}
+                              className="flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-red-100"
+                            >
+                              <Trash2 size={14} />
+                              Remove all
+                            </button>
+                          </div>
                           <div className="overflow-x-auto rounded-xl border border-slate-200">
                             <table className="w-full min-w-[280px] text-sm">
                               <thead>
@@ -1474,23 +1566,43 @@ export default function AddContractPage() {
               <ArrowLeft size={18} />
               <span>Back</span>
             </Link>
-            <button
-              type="submit"
-              disabled={saveLoading}
-              className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3 font-semibold text-white shadow-lg shadow-blue-200/50 transition-all hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl hover:shadow-blue-300/50 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
-            >
-              {saveLoading ? (
-                <>
-                  <Loader2 size={18} className="animate-spin" />
-                  <span>{editContractId ? 'กำลังบันทึก...' : 'Saving...'}</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-lg">💾</span>
-                  <span>{editContractId ? 'Save Changes' : 'Save Contract'}</span>
-                </>
-              )}
-            </button>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={(e) => handleSubmit(e, true)}
+                disabled={saveLoading}
+                className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-slate-100 px-6 py-3 font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {saveLoading ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-lg">📄</span>
+                    <span>Save as draft</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="submit"
+                disabled={saveLoading}
+                className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3 font-semibold text-white shadow-lg shadow-blue-200/50 transition-all hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl hover:shadow-blue-300/50 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
+              >
+                {saveLoading ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    <span>{editContractId ? 'กำลังบันทึก...' : 'Saving...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-lg">💾</span>
+                    <span>{editContractId ? 'Save Changes' : 'Save Contract'}</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </form>
       </div>

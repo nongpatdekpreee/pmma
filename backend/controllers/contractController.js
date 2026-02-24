@@ -94,7 +94,6 @@ const createContract = async (req, res) => {
       assigned_service,
       sla_term,
       sale_account,
-      contract_value,
       coverage_scope,
       file_paths,
       image_paths,
@@ -103,7 +102,12 @@ const createContract = async (req, res) => {
       remark,
       old_contract_id,
       old_sof,
+      email_acc,
+      tel_acc,
+      status,
     } = req.body;
+
+    const contractStatus = (status === 'draft' || status === 'official') ? status : 'official';
 
     if (!sla_term || !String(sla_term).trim()) {
       return res.status(400).json({
@@ -126,7 +130,7 @@ const createContract = async (req, res) => {
             : [],
         }))
         .filter((p) => p.site_id != null && !isNaN(p.site_id) && p.device_ids.length > 0);
-      if (pairs.length === 0) {
+      if (pairs.length === 0 && contractStatus !== 'draft') {
         return res.status(400).json({
           success: false,
           message: 'กรุณาเลือก Site และ Device อย่างน้อย 1 รายการในแต่ละ Site (site_id และ device_ids ต้องไม่ว่าง)',
@@ -205,24 +209,6 @@ const createContract = async (req, res) => {
       return isNaN(v) ? 2 : v;
     })();
 
-    // Validate และ format contract_value สำหรับ DECIMAL(15,2)
-    let contractValue = null;
-    if (contract_value != null && contract_value !== '') {
-      const contractValueNum = parseFloat(String(contract_value).replace(/,/g, ''));
-      if (!isNaN(contractValueNum) && contractValueNum >= 0) {
-        // DECIMAL(15,2) รองรับค่าสูงสุด 999,999,999,999,999.99
-        const maxValue = 999999999999999.99;
-        if (contractValueNum > maxValue) {
-          return res.status(400).json({
-            success: false,
-            message: `Contract Value must not exceed ${maxValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-          });
-        }
-        // ปัดเศษเป็น 2 ทศนิยม
-        contractValue = Math.round(contractValueNum * 100) / 100;
-      }
-    }
-
     // สร้าง contract_id ใหม่โดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
     const newContractId = await generateNextContractId();
     
@@ -240,8 +226,8 @@ const createContract = async (req, res) => {
       }
     }
 
-    const insertCols = 'contract_id, contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, contract_value, coverage_scope, file_paths, image_paths';
-    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+    const insertCols = 'contract_id, contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, tel_acc, email_acc, coverage_scope, file_paths, image_paths';
+    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
     const insertParams = [
       finalContractId,
       contract_name && String(contract_name).trim() ? contract_name.trim() : null,
@@ -253,7 +239,8 @@ const createContract = async (req, res) => {
       slaTermInt,
       (assignedServiceVal && String(assignedServiceVal).trim()) ? assignedServiceVal.trim() : '',
       sale_account && String(sale_account).trim() ? sale_account.trim() : null,
-      contractValue,
+      tel_acc != null && String(tel_acc).trim() !== '' ? String(tel_acc).trim() : null,
+      email_acc != null && String(email_acc).trim() !== '' ? String(email_acc).trim() : '',
       coverage_scope && String(coverage_scope).trim() ? coverage_scope.trim() : null,
       filePathsJson,
       imagePathsJson
@@ -267,6 +254,13 @@ const createContract = async (req, res) => {
       if (pmCols && pmCols.length > 0) {
         insertContractSql = `INSERT INTO contract (${insertCols}, pm_time_per_year) VALUES (${insertVals}, ?)`;
         insertParams.push(pmTimeEnum || '2');
+      }
+    } catch (_) { /* column ไม่มี ข้าม */ }
+    try {
+      const [statusCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'status'");
+      if (statusCols && statusCols.length > 0) {
+        insertContractSql = insertContractSql.replace(/\)\s*VALUES\s*\(/, ', status) VALUES (').replace(/\)\s*$/, ', ?)');
+        insertParams.push(contractStatus);
       }
     } catch (_) { /* column ไม่มี ข้าม */ }
 
@@ -332,27 +326,6 @@ const createContract = async (req, res) => {
           updateFields.push('sale_account = ?');
           updateValues.push(sale_account.trim());
         }
-        if (contract_value !== undefined) {
-          let contractValue = null;
-          if (contract_value != null && contract_value !== '') {
-            const contractValueNum = parseFloat(String(contract_value).replace(/,/g, ''));
-            if (!isNaN(contractValueNum) && contractValueNum >= 0) {
-              // DECIMAL(15,2) รองรับค่าสูงสุด 999,999,999,999,999.99
-              const maxValue = 999999999999999.99;
-              if (contractValueNum > maxValue) {
-                await conn.rollback();
-                return res.status(400).json({
-                  success: false,
-                  message: `Contract Value must not exceed ${maxValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                });
-              }
-              // ปัดเศษเป็น 2 ทศนิยม
-              contractValue = Math.round(contractValueNum * 100) / 100;
-            }
-          }
-          updateFields.push('contract_value = ?');
-          updateValues.push(contractValue);
-        }
         if (coverage_scope !== undefined) {
           updateFields.push('coverage_scope = ?');
           updateValues.push(coverage_scope ? coverage_scope.trim() : null);
@@ -384,6 +357,11 @@ const createContract = async (req, res) => {
             }
           }
         } catch (_) { /* ข้าม */ }
+
+        if (status !== undefined && (status === 'draft' || status === 'official')) {
+          updateFields.push('status = ?');
+          updateValues.push(status);
+        }
 
         if (updateFields.length === 0) {
           await conn.rollback();
@@ -570,7 +548,7 @@ const getContractsBySite = async (req, res) => {
         c.sla_term,
         c.sale_account,
         c.sof_name,
-        c.contract_value,
+        c.status,
         s.Name AS site_name,
         (SELECT COUNT(*) FROM contract_device WHERE contract_id = c.contract_id) AS device_count
       FROM contract c
@@ -579,8 +557,6 @@ const getContractsBySite = async (req, res) => {
       LEFT JOIN contract_device cd ON c.contract_id = cd.contract_id
       LEFT JOIN devices d ON cd.device_id = d.Did
     `;
-
-    let sql;
     let params = [];
 
     const notExpiredCondition = ' (c.end_date IS NULL OR c.end_date >= CURDATE()) ';
@@ -602,7 +578,7 @@ const getContractsBySite = async (req, res) => {
     console.error('Error getting contracts by site:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Contracts ตาม Site',
+      message: 'No have any Contract',
       error: error.message
     });
   }
@@ -887,7 +863,6 @@ const getContractById = async (req, res) => {
       }
     };
 
-    const hasContractValue = await checkColumn('contract_value');
     const hasCoverageScope = await checkColumn('coverage_scope');
     const hasFilePaths = await checkColumn('file_paths');
     const hasImagePaths = await checkColumn('image_paths');
@@ -895,7 +870,6 @@ const getContractById = async (req, res) => {
     const hasSignDate = await checkColumn('contract_sign_date');
     const hasRemark = await checkColumn('remark');
 
-    // สร้าง SQL query แบบ dynamic ตาม columns ที่มี
     const contractFields = [
       'c.contract_id',
       'c.contract_name',
@@ -909,7 +883,12 @@ const getContractById = async (req, res) => {
       's.Name AS site_name'
     ];
     
-    if (hasContractValue) contractFields.push('c.contract_value');
+    const hasStatus = await checkColumn('status');
+    if (hasStatus) contractFields.push('c.status');
+    const hasTelAcc = await checkColumn('tel_acc');
+    if (hasTelAcc) contractFields.push('c.tel_acc');
+    const hasEmailAcc = await checkColumn('email_acc');
+    if (hasEmailAcc) contractFields.push('c.email_acc');
     if (hasCoverageScope) contractFields.push('c.coverage_scope');
     if (hasFilePaths) contractFields.push('c.file_paths');
     if (hasImagePaths) contractFields.push('c.image_paths');
@@ -1048,13 +1027,15 @@ const updateContract = async (req, res) => {
       assigned_service,
       sla_term,
       sale_account,
-      contract_value,
       coverage_scope,
       file_paths,
       image_paths,
       pm_time_per_year,
       contract_sign_date,
       remark,
+      status,
+      email_acc,
+      tel_acc,
     } = req.body;
 
     // ตรวจสอบว่ามี contract นี้หรือไม่
@@ -1087,27 +1068,6 @@ const updateContract = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'SLA Term must be a number between 0 and 100'
-        });
-      }
-    }
-
-    // Validate Contract Value
-    if (contract_value !== undefined && contract_value !== null && contract_value !== '') {
-      const contractValueNum = parseFloat(String(contract_value).replace(/,/g, ''));
-      if (isNaN(contractValueNum) || contractValueNum < 0) {
-        await conn.rollback();
-        return res.status(400).json({
-          success: false,
-          message: 'Contract Value must be a positive number'
-        });
-      }
-      // DECIMAL(15,2) รองรับค่าสูงสุด 999,999,999,999,999.99
-      const maxValue = 999999999999999.99;
-      if (contractValueNum > maxValue) {
-        await conn.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `Contract Value must not exceed ${maxValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
         });
       }
     }
@@ -1165,26 +1125,13 @@ const updateContract = async (req, res) => {
       updateFields.push('sale_account = ?');
       updateValues.push(sale_account ? sale_account.trim() : null);
     }
-    if (contract_value !== undefined) {
-      let contractValue = null;
-      if (contract_value != null && contract_value !== '') {
-        const contractValueNum = parseFloat(String(contract_value).replace(/,/g, ''));
-        if (!isNaN(contractValueNum) && contractValueNum >= 0) {
-          // DECIMAL(15,2) รองรับค่าสูงสุด 999,999,999,999,999.99
-          const maxValue = 999999999999999.99;
-          if (contractValueNum > maxValue) {
-            await conn.rollback();
-            return res.status(400).json({
-              success: false,
-              message: `Contract Value must not exceed ${maxValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            });
-          }
-          // ปัดเศษเป็น 2 ทศนิยม
-          contractValue = Math.round(contractValueNum * 100) / 100;
-        }
-      }
-      updateFields.push('contract_value = ?');
-      updateValues.push(contractValue);
+    if (tel_acc !== undefined) {
+      updateFields.push('tel_acc = ?');
+      updateValues.push(tel_acc != null && String(tel_acc).trim() !== '' ? String(tel_acc).trim() : null);
+    }
+    if (email_acc !== undefined) {
+      updateFields.push('email_acc = ?');
+      updateValues.push(email_acc != null && String(email_acc).trim() !== '' ? String(email_acc).trim() : '');
     }
     if (coverage_scope !== undefined) {
       updateFields.push('coverage_scope = ?');
@@ -1222,6 +1169,11 @@ const updateContract = async (req, res) => {
         }
       }
     } catch (_) { /* ข้าม */ }
+
+    if (status !== undefined && (status === 'draft' || status === 'official')) {
+      updateFields.push('status = ?');
+      updateValues.push(status);
+    }
 
     // อัปเดต contract
     if (updateFields.length > 0) {
