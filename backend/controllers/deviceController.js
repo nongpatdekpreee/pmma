@@ -1204,6 +1204,29 @@ const getReferSOFList = async (req, res) => {
   }
 };
 
+// GET - ดึง unique Assigned_Service values จาก Devices table (สำหรับ dropdown Service ใน Add Contract)
+const getAssignedServicesList = async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT DISTINCT Assigned_Service AS assigned_service
+       FROM devices
+       WHERE Assigned_Service IS NOT NULL AND TRIM(Assigned_Service) != ''
+       ORDER BY Assigned_Service ASC`
+    );
+    res.status(200).json({
+      success: true,
+      data: rows.map(r => (r.assigned_service != null ? String(r.assigned_service).trim() : '')).filter(Boolean)
+    });
+  } catch (error) {
+    console.error('Error getting Assigned_Service list:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงรายการ Assigned_Service',
+      error: error.message
+    });
+  }
+};
+
 // GET - ดึง Devices ตาม Refer_SOF และ Site (SLid)
 const getDevicesBySOFAndSite = async (req, res) => {
   try {
@@ -1769,9 +1792,9 @@ const getDevicesWithPM = async (req, res) => {
       ORDER BY devices.Did DESC`;
     const [devices] = await db.execute(devicesSql, searchParams);
 
-    // Get all PM tasks (task_type = 'PM')
+    // Get all PM tasks (task_type = 'PM'); updated_at ใช้เป็น Last PM เมื่อ status = 'done'
     const [pmTasks] = await db.execute(`
-      SELECT id, assets, start_date, end_date, status, engineers, notes
+      SELECT id, assets, start_date, end_date, status, engineers, notes, updated_at
       FROM tasks
       WHERE task_type = 'PM'
       ORDER BY start_date DESC
@@ -1819,16 +1842,17 @@ const getDevicesWithPM = async (req, res) => {
             const taskDateObj = new Date(taskDate);
             taskDateObj.setHours(0, 0, 0, 0);
 
-            // Last PM: most recent completed task before today
-            if (task.status === 'done' && taskDateObj < today) {
-              if (!lastPM || new Date(taskDate) > new Date(lastPM)) {
-                lastPM = taskDate;
+            // Last PM: ใช้ updated_at จาก tasks เมื่อ status = 'done' (ถ้าไม่มีใช้ start_date/end_date)
+            if (task.status === 'done') {
+              const lastPMDate = task.updated_at || taskDate;
+              if (!lastPM || new Date(lastPMDate) > new Date(lastPM)) {
+                lastPM = lastPMDate;
                 lastPMTask = task;
               }
             }
 
-            // Next PM: future task
-            if (taskDateObj >= today) {
+            // Next PM: งานที่วางไว้ในอนาคต และ status ต้องเป็น not-started
+            if (taskDateObj >= today && (task.status || '') === 'not-started') {
               if (!nextPM || new Date(taskDate) < new Date(nextPM)) {
                 nextPM = taskDate;
               }
@@ -1948,12 +1972,15 @@ const getDevicesWithPM = async (req, res) => {
             const taskDateObj = new Date(taskDate);
             taskDateObj.setHours(0, 0, 0, 0);
 
-            if (task.status === 'done' && taskDateObj < today) {
-              if (!lastPM || new Date(taskDate) > new Date(lastPM)) {
-                lastPM = taskDate;
+            // Last PM: ใช้ updated_at จาก tasks เมื่อ status = 'done'
+            if (task.status === 'done') {
+              const lastPMDate = task.updated_at || taskDate;
+              if (!lastPM || new Date(lastPMDate) > new Date(lastPM)) {
+                lastPM = lastPMDate;
               }
             }
-            if (taskDateObj >= today) {
+            // Next PM: งานที่วางไว้ในอนาคต และ status ต้องเป็น not-started
+            if (taskDateObj >= today && (task.status || '') === 'not-started') {
               if (!nextPM || new Date(taskDate) < new Date(nextPM)) {
                 nextPM = taskDate;
               }
@@ -2031,6 +2058,7 @@ module.exports = {
   getDevicesByModel,         // GET (grouped by model)
   getVendors,                // GET (distinct Project_purchase สำหรับ dropdown)
   getReferSOFList,           // GET (unique Refer_SOF values)
+  getAssignedServicesList,   // GET (unique Assigned_Service สำหรับ dropdown Service)
   getDevicesBySOFAndSite,    // GET (devices ตาม Refer_SOF และ site_id)
   getDevicesByContractAndSite, // GET (devices จาก contract_device ตาม contract_id + slid)
   getDevicesBySerials,       // GET (devices ตาม serial หลายตัว ?serials=A,B,C)

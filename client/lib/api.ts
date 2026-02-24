@@ -7,21 +7,17 @@ export function apiUrl(path: string): string {
   return `${API_BASE}${p}`;
 }
 
-/** Parse response as JSON; if body is HTML (e.g. 404 page) return { success: false } to avoid SyntaxError */
-async function parseJsonResponse<T = object>(res: Response): Promise<T> {
+/** Parse response as JSON; if server returns HTML (e.g. 404 page), return a safe error object instead of throwing */
+async function parseJsonResponse<T>(res: Response, fallback: T): Promise<T> {
   const text = await res.text();
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
-    if (text.trimStart().startsWith('<!')) {
-      console.error('API returned HTML instead of JSON (wrong URL or server error):', res.url);
-      return { success: false, message: 'Server returned invalid response' } as T;
-    }
+  const trimmed = text.trim();
+  if (trimmed.startsWith('<') || !trimmed.startsWith('{')) {
+    return { ...fallback, success: false, message: 'Server returned invalid response. Check that the backend is running.' } as T;
   }
   try {
-    return text ? JSON.parse(text) : ({} as T);
+    return JSON.parse(text) as T;
   } catch {
-    console.error('Invalid JSON from API:', res.url, text.slice(0, 100));
-    return { success: false, message: 'Invalid JSON response' } as T;
+    return { ...fallback, success: false, message: 'Invalid JSON response' } as T;
   }
 }
 
@@ -41,6 +37,12 @@ export async function getSitesLocationWithContracts(): Promise<{ success: boolea
 export async function getDevicesBySite(siteId: number | string): Promise<{ success: boolean; data: { Did: number; CI_Name?: string; Asset_Number?: string }[] }> {
   const res = await fetch(apiUrl(`/api/devices/by-site?site_id=${encodeURIComponent(String(siteId))}`));
   return res.json();
+}
+
+/** GET /api/devices/assigned-services - รายการ Assigned_Service (DISTINCT จาก devices สำหรับ Add Contract) */
+export async function getAssignedServices(): Promise<{ success: boolean; data: string[] }> {
+  const res = await fetch(apiUrl('/api/devices/assigned-services'));
+  return parseJsonResponse(res, { success: false, data: [] });
 }
 
 /** GET /api/contracts?site_id=xxx - รายการ Contract ตาม site_id (ไม่ส่ง site_id = ดึงทั้งหมด) */
@@ -211,7 +213,7 @@ export async function checkEngineerConflict(params: {
 /** GET /api/pm-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getPmReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
   const res = await fetch(apiUrl('/api/pm-reports/reported-task-ids'));
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false, taskIds: [] });
 }
 
 /** GET /api/pm-reports - ดึงรายการ PM Reports */
@@ -234,7 +236,7 @@ export async function getPmReports(params?: { limit?: number; offset?: number })
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
   const res = await fetch(apiUrl(`/api/pm-reports?${q.toString()}`));
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false, data: [] });
 }
 
 /** POST /api/pm-reports/upload - อัปโหลดไฟล์ Report */
@@ -242,17 +244,16 @@ export async function uploadReportFile(file: File): Promise<{ success: boolean; 
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch(apiUrl('/api/pm-reports/upload'), { method: 'POST', body: fd });
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false });
 }
 
-/** POST /api/pm-reports - ส่ง PM Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
+/** POST /api/pm-reports - ส่ง PM Checklist Report */
 export async function postPmReport(body: {
   taskId: number;
   deviceId: string;
   device?: object;
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
-  sla_result: number;
   comment?: string;
   technicianName?: string;
   pmDate?: string;
@@ -268,13 +269,13 @@ export async function postPmReport(body: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false });
 }
 
 /** GET /api/ma-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getMaReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
   const res = await fetch(apiUrl('/api/ma-reports/reported-task-ids'));
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false, taskIds: [] });
 }
 
 /** GET /api/ma-reports - ดึงรายการ MA Reports */
@@ -297,7 +298,7 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
   const res = await fetch(apiUrl(`/api/ma-reports?${q.toString()}`));
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false, data: [] });
 }
 
 /** POST /api/ma-reports/upload - อัปโหลดไฟล์ Report */
@@ -305,7 +306,7 @@ export async function uploadMaReportFile(file: File): Promise<{ success: boolean
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch(apiUrl('/api/ma-reports/upload'), { method: 'POST', body: fd });
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false });
 }
 
 /** POST /api/ma-reports - ส่ง MA Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
@@ -331,7 +332,7 @@ export async function postMaReport(body: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  return parseJsonResponse(res);
+  return parseJsonResponse(res, { success: false });
 }
 
 /** GET /api/devices/with-pm - ดึง Devices พร้อม PM Information สำหรับ Asset & Site Database */
@@ -431,4 +432,36 @@ export async function getEmployees(params?: { limit?: number; page?: number; sea
       error: 'Network error'
     };
   }
+}
+
+/** POST /api/employees - สร้าง Employee ใหม่ */
+export async function createEmployee(body: {
+  name: string;
+  gmail: string;
+  tel: string;
+  positionType?: string;
+  employmentType?: string;
+}): Promise<{ success: boolean; data?: object; message?: string }> {
+  const res = await fetch(apiUrl('/api/employees'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+/** POST /api/employees/import - Import หลายคน */
+export async function importEmployees(employees: Array<{
+  name: string;
+  gmail: string;
+  tel: string;
+  positionType?: string;
+  employmentType?: string;
+}>): Promise<{ success: boolean; message?: string; data?: { created: number; failed: number; errors?: Array<{ row: number; message: string }> } }> {
+  const res = await fetch(apiUrl('/api/employees/import'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employees }),
+  });
+  return res.json();
 }

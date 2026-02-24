@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -41,6 +41,7 @@ interface Contract {
   formattedStartDate?: string;
   formattedEndDate?: string;
   deviceCount?: number;
+  contractStatus?: 'draft' | 'official';
 }
 
 interface FullContractDetails {
@@ -52,7 +53,6 @@ interface FullContractDetails {
   sla_term?: number | null;
   sale_account?: string | null;
   sof_name?: string | null;
-  contract_value?: number | null;
   Assigned_Service?: string | null;
   coverage_scope?: string | null;
   file_paths?: string | null;
@@ -94,7 +94,7 @@ function formatDateThai(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' | 'expiring' | 'expired' {
@@ -111,6 +111,7 @@ function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' 
 
 export default function ContractEditorPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractsLoading, setContractsLoading] = useState(true);
   const [contractsError, setContractsError] = useState('');
@@ -177,6 +178,19 @@ export default function ContractEditorPage() {
 
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
 
+  // Show success toast from redirect (add/edit save) then clear URL — run once to avoid update loop
+  const didHandleToastRef = useRef(false);
+  useEffect(() => {
+    if (didHandleToastRef.current) return;
+    const toast = searchParams.get('toast');
+    const msg = searchParams.get('msg');
+    if (toast === 'success' && msg) {
+      didHandleToastRef.current = true;
+      toastSuccess(decodeURIComponent(msg));
+      router.replace('/contract_editer');
+    }
+  }, [searchParams, router, toastSuccess]);
+
   useEffect(() => {
     let cancelled = false;
     setContractsLoading(true);
@@ -198,25 +212,24 @@ export default function ContractEditorPage() {
           sale_account?: string | null;
           site_name?: string | null;
           device_count?: number | null;
-          contract_value?: number | null;
+          status?: string | null;
         }) => {
           const endDate = c.end_date || '';
           const status = deriveStatus(endDate);
-          const contractValue = c.contract_value != null ? c.contract_value : 0;
-          const formattedValue = contractValue > 0 ? contractValue.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
           return {
             id: String(c.contract_id),
             name: c.contract_name || '—',
             partner: c.sale_account || c.site_name || '—',
             startDate: c.start_date || '',
             endDate,
-            value: String(contractValue),
+            value: '',
             status,
-            formattedValue,
+            formattedValue: '—',
             formattedStartDate: formatDateThai(c.start_date),
             formattedEndDate: formatDateThai(c.end_date),
             equipment: [],
             deviceCount: c.device_count || 0,
+            contractStatus: (c.status === 'draft' || c.status === 'official') ? c.status : 'official',
           };
         });
         setContracts(list);
@@ -234,6 +247,9 @@ export default function ContractEditorPage() {
   }, []);
 
   const filteredContracts = contracts.filter((contract) => {
+    if (activeFilter === 'Draft') {
+      return contract.contractStatus === 'draft';
+    }
     if (activeFilter !== 'All') {
       const statusMap: Record<string, string> = {
         'Active': 'active',
@@ -345,8 +361,8 @@ export default function ContractEditorPage() {
     e.preventDefault();
     const contractId = `MA-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
     const formattedValue = parseFloat(contractForm.value).toLocaleString('th-TH');
-    const formattedStartDate = new Date(contractForm.startDate).toLocaleDateString('th-TH');
-    const formattedEndDate = new Date(contractForm.endDate).toLocaleDateString('th-TH');
+    const formattedStartDate = new Date(contractForm.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    const formattedEndDate = new Date(contractForm.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 
     const newContract: Contract = {
       id: contractId,
@@ -368,8 +384,8 @@ export default function ContractEditorPage() {
     if (!currentContract) return;
 
     const formattedValue = parseFloat(contractForm.value).toLocaleString('th-TH');
-    const formattedStartDate = new Date(contractForm.startDate).toLocaleDateString('th-TH');
-    const formattedEndDate = new Date(contractForm.endDate).toLocaleDateString('th-TH');
+    const formattedStartDate = new Date(contractForm.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    const formattedEndDate = new Date(contractForm.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
 
     const updatedContract: Contract = {
       ...currentContract,
@@ -443,10 +459,14 @@ export default function ContractEditorPage() {
 
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
+      case 'draft':
+        return 'bg-amber-100 text-amber-800';
       case 'active':
         return 'bg-green-100 text-green-800';
       case 'pending':
         return 'bg-yellow-100 text-yellow-800';
+      case 'expiring':
+        return 'bg-orange-100 text-orange-800';
       case 'expired':
         return 'bg-red-100 text-red-800';
       default:
@@ -456,10 +476,14 @@ export default function ContractEditorPage() {
 
   const getStatusText = (status: string) => {
     switch (status) {
+      case 'draft':
+        return 'Draft';
       case 'active':
         return 'Active';
       case 'pending':
         return 'Pending';
+      case 'expiring':
+        return 'Expiring';
       case 'expired':
         return 'Expired';
       default:
@@ -606,9 +630,9 @@ export default function ContractEditorPage() {
     if (dateVal == null || dateVal === '') return '';
     const str = String(dateVal).trim();
     if (!str) return '';
-    // Excel เก็บวันที่เป็น serial (วันนับจาก 1900-01-01) — ถ้าเป็นตัวเลขให้แปลง
+    // ถ้าตัวเลขเล็ก (เช่น ปี 2026 หรือ 12) อย่าถือเป็น Excel serial — Excel serial วันที่มัก > 10000
     const num = typeof dateVal === 'number' ? dateVal : parseFloat(str);
-    if (!isNaN(num) && num >= 1 && num <= 1000000) {
+    if (!isNaN(num) && num >= 10000 && num <= 1000000) {
       const excelEpoch = new Date(1899, 11, 30);
       const d = new Date(excelEpoch.getTime() + num * 86400000);
       if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
@@ -643,130 +667,208 @@ export default function ContractEditorPage() {
     }
   };
 
+  const getDeviceIdsFromParts = async (parts: string[], rowLabel: string): Promise<{ ids: number[]; errors: string[] }> => {
+    const errors: string[] = [];
+    const numericIds = parts.filter((s: string) => /^\d+$/.test(s)).map((s: string) => parseInt(s, 10));
+    const serials = parts.filter((s: string) => !/^\d+$/.test(s));
+    let ids = [...numericIds];
+    if (serials.length > 0) {
+      try {
+        const res = await fetch(apiUrl(`/api/devices/by-serials?serials=${serials.map((s: string) => encodeURIComponent(s)).join(',')}`));
+        const json = await res.json();
+        if (json.success && Array.isArray(json.data)) {
+          const found = json.data as { Did: number; serial?: string }[];
+          ids.push(...found.map((d) => d.Did));
+          if (found.length < serials.length) {
+            const foundSerials = new Set(found.map((d) => String(d.serial || '').trim()));
+            const missing = serials.filter((s) => !foundSerials.has(s.trim()));
+            if (missing.length) errors.push(`${rowLabel}: Serial not found: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ` (+${missing.length - 5} more)` : ''}`);
+          }
+        }
+      } catch (_) { /* ignore */ }
+    }
+    return { ids, errors };
+  };
+
   const parseContractExcelFile = async (
     file: File,
     sitesList: Array<{ SLid: number; SiteName?: string; Location2?: string; label: string }>
   ): Promise<{ contracts: any[]; errors: string[] }> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          let jsonData: any[][];
-          if (file.name.endsWith('.csv')) {
-            const text = e.target?.result as string;
-            const workbook = XLSX.read(text, { type: 'string', sheetRows: 0 });
-            const ws = workbook.Sheets[workbook.SheetNames[0]];
-            jsonData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][];
-          } else {
-            const data = new Uint8Array(e.target?.result as ArrayBuffer);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const ws = workbook.Sheets[workbook.SheetNames[0]];
-            jsonData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+    let jsonData: any[][];
+    let deviceSheetData: any[][] | null = null;
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+
+    if (isExcel) {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/import-contract-excel', { method: 'POST', body: formData });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Failed to parse Excel');
+      const sheets = json.sheets || [];
+      if (!sheets[0] || !sheets[0].data || sheets[0].data.length < 2) {
+        throw new Error('File must have header and at least one data row');
+      }
+      jsonData = sheets[0].data;
+      if (sheets[1] && sheets[1].data) deviceSheetData = sheets[1].data;
+    } else {
+      jsonData = await new Promise<any[][]>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target?.result as string;
+          const workbook = XLSX.read(text, { type: 'string', sheetRows: 0 });
+          const ws = workbook.Sheets[workbook.SheetNames[0]];
+          resolve(XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][]);
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file);
+      });
+      if (jsonData.length < 2) throw new Error('File must have header and at least one data row');
+    }
+
+    let rowIndex = 0;
+    while (rowIndex < jsonData.length) {
+      const first = jsonData[rowIndex] as any[];
+      const firstCell = (first && first[0] != null) ? String(first[0]).trim() : '';
+      if (firstCell.startsWith('#')) {
+        rowIndex++;
+        continue;
+      }
+      break;
+    }
+    if (rowIndex >= jsonData.length) throw new Error('File must have header and at least one data row');
+    const headers = (jsonData[rowIndex] as any[]).map((h: any) => String(h || '').replace(/\uFEFF/g, '').trim().toLowerCase());
+    const norm = (h: string) => h.replace(/\s+/g, ' ').trim();
+    const map: Record<string, string> = {
+      'contract name': 'contract_name', 'contract_name': 'contract_name', 'contractname': 'contract_name',
+      'sof': 'sof_name', 'sof name': 'sof_name', 'sof_name': 'sof_name', 'refer_sof': 'sof_name',
+      'service': 'assigned_service', 'assigned service': 'assigned_service', 'assigned_service': 'assigned_service',
+      'site': 'siteName', 'site name': 'siteName', 'sitename': 'siteName',
+      'location': 'location', 'location2': 'location',
+      'start date': 'start_date', 'start_date': 'start_date', 'startdate': 'start_date',
+      'end date': 'end_date', 'end_date': 'end_date', 'enddate': 'end_date',
+      'sla term': 'sla_term', 'sla_term': 'sla_term', 'slaterm': 'sla_term',
+      'sale account': 'sale_account', 'sale_account': 'sale_account', 'saleaccount': 'sale_account',
+      'email': 'email_acc', 'email_acc': 'email_acc', 'email acc': 'email_acc',
+      'tel': 'tel_acc', 'tel_acc': 'tel_acc', 'tel acc': 'tel_acc', 'phone': 'tel_acc',
+      'coverage scope': 'coverage_scope', 'coverage_scope': 'coverage_scope', 'coveragescope': 'coverage_scope',
+      'devices': 'device_ids', 'device ids': 'device_ids', 'device_ids': 'device_ids', 'device': 'device_ids',
+    };
+    const contractNameColIndex = headers.findIndex((h) => map[norm(h)] === 'contract_name' || map[h] === 'contract_name');
+    const contractNamesFromSheet1 = new Set<string>();
+    for (let r = rowIndex + 1; r < jsonData.length; r++) {
+      const rrow = jsonData[r] as any[];
+      if (!rrow || rrow.every((c: any) => c == null || c === '')) continue;
+      const name = contractNameColIndex >= 0 && rrow[contractNameColIndex] != null && rrow[contractNameColIndex] !== ''
+        ? String(rrow[contractNameColIndex]).trim()
+        : '';
+      if (name) contractNamesFromSheet1.add(name);
+    }
+    const devicesByContractName: Record<string, string[]> = {};
+    if (isExcel && deviceSheetData && deviceSheetData.length > 1) {
+      const headerRow = deviceSheetData[0] as any[] || [];
+      const numCols = Math.max(1, headerRow.length);
+      const firstColHeader = (headerRow[0] != null ? String(headerRow[0]).trim().toLowerCase() : '');
+      const isContractNameHeader = /contract\s*name|contractname/.test(firstColHeader);
+
+      if (numCols > 1 && isContractNameHeader) {
+        // รูปแบบหลายคอลัมน์: แต่ละคอลัมน์ = 1 สัญญา, แถวแรกหลัง header = ชื่อสัญญา, แถวถัดไป = device serials
+        for (let col = 0; col < numCols; col++) {
+          const contractName = deviceSheetData[1] && deviceSheetData[1][col] != null
+            ? String(deviceSheetData[1][col]).trim()
+            : '';
+          if (!contractName || !contractNamesFromSheet1.has(contractName)) continue;
+          if (!devicesByContractName[contractName]) devicesByContractName[contractName] = [];
+          for (let dr = 2; dr < deviceSheetData.length; dr++) {
+            const row = deviceSheetData[dr] as any[];
+            const serial = row && row[col] != null ? String(row[col]).trim() : '';
+            if (serial) devicesByContractName[contractName].push(serial);
           }
-          if (jsonData.length < 2) {
-            reject(new Error('File must have header and at least one data row'));
-            return;
-          }
-          const headers = (jsonData[0] as any[]).map((h: any) => String(h || '').replace(/\uFEFF/g, '').trim().toLowerCase());
-          const norm = (h: string) => h.replace(/\s+/g, ' ').trim();
-          const map: Record<string, string> = {
-            'contract name': 'contract_name', 'contract_name': 'contract_name', 'contractname': 'contract_name',
-            'sof': 'sof_name', 'sof name': 'sof_name', 'sof_name': 'sof_name', 'refer_sof': 'sof_name',
-            'service': 'assigned_service', 'assigned service': 'assigned_service', 'assigned_service': 'assigned_service',
-            'site': 'siteName', 'site name': 'siteName', 'sitename': 'siteName',
-            'location': 'location', 'location2': 'location',
-            'start date': 'start_date', 'start_date': 'start_date', 'startdate': 'start_date',
-            'end date': 'end_date', 'end_date': 'end_date', 'enddate': 'end_date',
-            'sla term': 'sla_term', 'sla_term': 'sla_term', 'slaterm': 'sla_term',
-            'sale account': 'sale_account', 'sale_account': 'sale_account', 'saleaccount': 'sale_account',
-            'contract value': 'contract_value', 'contract_value': 'contract_value', 'contractvalue': 'contract_value',
-            'coverage scope': 'coverage_scope', 'coverage_scope': 'coverage_scope', 'coveragescope': 'coverage_scope',
-            'devices': 'device_ids', 'device ids': 'device_ids', 'device_ids': 'device_ids', 'device': 'device_ids',
-          };
-          const contracts: any[] = [];
-          const errors: string[] = [];
-          for (let i = 1; i < jsonData.length; i++) {
-            const row = jsonData[i] as any[];
-            if (!row || row.every((c: any) => c == null || c === '')) continue;
-            const rowData: any = {};
-            headers.forEach((header, colIndex) => {
-              const key = map[norm(header)] || map[header];
-              if (key && row[colIndex] != null && row[colIndex] !== '') rowData[key] = String(row[colIndex]).trim();
-            });
-            if (!rowData.contract_name) {
-              errors.push(`Row ${i + 2}: Missing Contract Name`);
-              continue;
-            }
-            if (!rowData.sof_name) {
-              errors.push(`Row ${i + 2}: Missing SOF`);
-              continue;
-            }
-            if (!rowData.start_date) {
-              errors.push(`Row ${i + 2}: Missing Start Date`);
-              continue;
-            }
-            if (!rowData.sla_term) {
-              errors.push(`Row ${i + 2}: Missing SLA Term`);
-              continue;
-            }
-            const siteNameLower = (rowData.siteName || '').toLowerCase();
-            const locationLower = (rowData.location || '').toLowerCase();
-            const site = sitesList.find(s => {
-              const siteMatch = (s.SiteName || '').toLowerCase().includes(siteNameLower) || siteNameLower.includes((s.SiteName || '').toLowerCase());
-              const locMatch = !locationLower || (s.Location2 || '').toLowerCase().includes(locationLower) || locationLower.includes((s.Location2 || '').toLowerCase());
-              return siteMatch && locMatch;
-            });
-            if (!site) {
-              errors.push(`Row ${i + 2}: Site "${rowData.siteName || ''}"${rowData.location ? ` + Location "${rowData.location}"` : ''} not found`);
-              continue;
-            }
-            // รองรับหลาย device: คอลัมน์ Devices ใส่ Serial (เช่น FGL2314A91L) หรือ Did คั่นด้วย comma/semicolon. ถ้าว่าง = ดึงจาก SOF+Site
-            let deviceIds: number[] = [];
-            const devicesRaw = rowData.device_ids != null ? String(rowData.device_ids).trim() : '';
-            if (devicesRaw) {
-              const parts = devicesRaw.split(/[,;]/).map((s: string) => s.trim()).filter(Boolean);
-              const numericIds = parts.filter((s: string) => /^\d+$/.test(s)).map((s: string) => parseInt(s, 10));
-              const serials = parts.filter((s: string) => !/^\d+$/.test(s));
-              deviceIds = [...numericIds];
-              if (serials.length > 0) {
-                try {
-                  const res = await fetch(apiUrl(`/api/devices/by-serials?serials=${serials.map((s: string) => encodeURIComponent(s)).join(',')}`));
-                  const json = await res.json();
-                  if (json.success && Array.isArray(json.data)) {
-                    const found = json.data as { Did: number; serial?: string }[];
-                    deviceIds.push(...found.map((d) => d.Did));
-                    if (found.length < serials.length) {
-                      const foundSerials = new Set(found.map((d) => String(d.serial || '').trim()));
-                      const missing = serials.filter((s) => !foundSerials.has(s.trim()));
-                      if (missing.length) errors.push(`Row ${i + 2}: Serial not found: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ` (+${missing.length - 5} more)` : ''}`);
-                    }
-                  }
-                } catch (_) { /* ignore */ }
-              }
-            }
-            if (deviceIds.length === 0) {
-              deviceIds = await fetchDevicesBySofAndSite(rowData.sof_name, site.SLid, rowData.location);
-            }
-            rowData.site_device_pairs = deviceIds.length > 0 ? [{ site_id: site.SLid, device_ids: deviceIds }] : [];
-            rowData.Sid = site.SLid;
-            rowData.start_date = parseDateStringForContract(rowData.start_date) || rowData.start_date;
-            rowData.end_date = rowData.end_date ? parseDateStringForContract(rowData.end_date) : rowData.start_date;
-            if (!rowData.end_date) rowData.end_date = rowData.start_date;
-            if (rowData.contract_value) rowData.contract_value = String(rowData.contract_value).replace(/,/g, '');
-            if (rowData.site_device_pairs.length === 0) {
-              errors.push(`Row ${i + 2}: No devices found for SOF "${rowData.sof_name}" at site ${site.label}`);
-            }
-            contracts.push(rowData);
-          }
-          resolve({ contracts, errors });
-        } catch (err: any) {
-          reject(err);
         }
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      if (file.name.endsWith('.csv')) reader.readAsText(file);
-      else reader.readAsArrayBuffer(file);
-    });
+      } else {
+        // รูปแบบคอลัมน์เดียว: แถวที่เป็นชื่อสัญญา ตามด้วยแถว serial
+        let currentContract: string | null = null;
+        for (let dr = 1; dr < deviceSheetData.length; dr++) {
+          const deviceRow = deviceSheetData[dr] as any[];
+          const val = deviceRow && deviceRow[0] != null ? String(deviceRow[0]).trim() : '';
+          if (!val) continue;
+          if (contractNamesFromSheet1.has(val)) {
+            currentContract = val;
+            if (!devicesByContractName[val]) devicesByContractName[val] = [];
+          } else if (currentContract) {
+            if (!devicesByContractName[currentContract]) devicesByContractName[currentContract] = [];
+            devicesByContractName[currentContract].push(val);
+          }
+        }
+      }
+    }
+    const contracts: any[] = [];
+    const errors: string[] = [];
+    for (let i = rowIndex + 1; i < jsonData.length; i++) {
+      const row = jsonData[i] as any[];
+      if (!row || row.every((c: any) => c == null || c === '')) continue;
+      const rowData: any = {};
+      headers.forEach((header, colIndex) => {
+        const key = map[norm(header)] || map[header];
+        if (key && row[colIndex] != null && row[colIndex] !== '') rowData[key] = String(row[colIndex]).trim();
+      });
+      if (!rowData.contract_name) {
+        errors.push(`Row ${i + 2}: Missing Contract Name`);
+        continue;
+      }
+      if (!rowData.sof_name) {
+        errors.push(`Row ${i + 2}: Missing SOF`);
+        continue;
+      }
+      if (!rowData.start_date) {
+        errors.push(`Row ${i + 2}: Missing Start Date`);
+        continue;
+      }
+      if (!rowData.sla_term) {
+        errors.push(`Row ${i + 2}: Missing SLA Term`);
+        continue;
+      }
+      const siteNameLower = (rowData.siteName || '').toLowerCase();
+      const locationLower = (rowData.location || '').toLowerCase();
+      const site = sitesList.find(s => {
+        const siteMatch = (s.SiteName || '').toLowerCase().includes(siteNameLower) || siteNameLower.includes((s.SiteName || '').toLowerCase());
+        const locMatch = !locationLower || (s.Location2 || '').toLowerCase().includes(locationLower) || locationLower.includes((s.Location2 || '').toLowerCase());
+        return siteMatch && locMatch;
+      });
+      if (!site) {
+        errors.push(`Row ${i + 2}: Site "${rowData.siteName || ''}"${rowData.location ? ` + Location "${rowData.location}"` : ''} not found`);
+        continue;
+      }
+      let deviceIds: number[] = [];
+      const rowLabel = `Row ${i + 2}`;
+      if (isExcel && Object.keys(devicesByContractName).length > 0) {
+        const contractNameForRow = (rowData.contract_name || '').trim();
+        const parts = devicesByContractName[contractNameForRow] || [];
+        if (parts.length > 0) {
+          const result = await getDeviceIdsFromParts(parts, rowLabel);
+          deviceIds = result.ids;
+          errors.push(...result.errors);
+        }
+      }
+      if (deviceIds.length === 0 && rowData.device_ids != null && String(rowData.device_ids).trim()) {
+        const parts = String(rowData.device_ids).trim().split(/[,;]/).map((s: string) => s.trim()).filter(Boolean);
+        const result = await getDeviceIdsFromParts(parts, rowLabel);
+        deviceIds = result.ids;
+        errors.push(...result.errors);
+      }
+      if (deviceIds.length === 0) {
+        deviceIds = await fetchDevicesBySofAndSite(rowData.sof_name, site.SLid, rowData.location);
+      }
+      rowData.site_device_pairs = deviceIds.length > 0 ? [{ site_id: site.SLid, device_ids: deviceIds }] : [];
+      rowData.Sid = site.SLid;
+      rowData.start_date = parseDateStringForContract(rowData.start_date) || rowData.start_date;
+      rowData.end_date = rowData.end_date ? parseDateStringForContract(rowData.end_date) : rowData.start_date;
+      if (!rowData.end_date) rowData.end_date = rowData.start_date;
+      if (rowData.site_device_pairs.length === 0) {
+        errors.push(`Row ${i + 2}: No devices found for SOF "${rowData.sof_name}" at site ${site.label}`);
+      }
+      contracts.push(rowData);
+    }
+    return { contracts, errors };
   };
 
   const handleImportContractFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -790,7 +892,7 @@ export default function ContractEditorPage() {
     }
   };
 
-  const handleBulkCreateContracts = async () => {
+  const handleBulkCreateContracts = async (asDraft?: boolean) => {
     if (importedContracts.length === 0) return;
     setIsImportingContract(true);
     const errors: string[] = [];
@@ -798,7 +900,7 @@ export default function ContractEditorPage() {
     for (let idx = 0; idx < importedContracts.length; idx++) {
       const row = importedContracts[idx];
       try {
-        if (!row.site_device_pairs || row.site_device_pairs.length === 0) {
+        if (!asDraft && (!row.site_device_pairs || row.site_device_pairs.length === 0)) {
           errors.push(`Row ${idx + 2}: No devices - skip`);
           continue;
         }
@@ -810,9 +912,9 @@ export default function ContractEditorPage() {
           assigned_service: row.assigned_service || null,
           sla_term: row.sla_term || '12',
           sale_account: row.sale_account || null,
-          contract_value: row.contract_value || null,
           coverage_scope: row.coverage_scope || null,
-          site_device_pairs: row.site_device_pairs,
+          site_device_pairs: row.site_device_pairs || [],
+          status: asDraft ? 'draft' : 'official',
         };
         const res = await fetch(apiUrl('/api/contracts'), {
           method: 'POST',
@@ -856,12 +958,13 @@ export default function ContractEditorPage() {
           partner: c.sale_account || c.site_name || '—',
           startDate: c.start_date || '',
           endDate: c.end_date || '',
-          value: String(c.contract_value ?? ''),
-          formattedValue: c.contract_value != null ? Number(c.contract_value).toLocaleString('th-TH') : '—',
+          value: '',
+          formattedValue: '—',
           formattedStartDate: formatDateThai(c.start_date),
           formattedEndDate: formatDateThai(c.end_date),
           status: deriveStatus(c.end_date),
           deviceCount: c.device_count ?? 0,
+          contractStatus: (c.status === 'draft' || c.status === 'official') ? c.status : 'official',
         }));
         setContracts(list);
       }
@@ -897,20 +1000,22 @@ export default function ContractEditorPage() {
         {/* Stats Bar */}
         {(() => {
           const total = contracts.length;
-          const active = contracts.filter((c) => c.status === 'active').length;
-          const expiring = contracts.filter((c) => c.status === 'expiring').length;
-          const expired = contracts.filter((c) => c.status === 'expired').length;
+          const draft = contracts.filter((c) => c.contractStatus === 'draft').length;
+          const active = contracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
+          const expiring = contracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
+          const expired = contracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
           return (
-        <div className="grid grid-cols-4 gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
           {[
             { number: String(total), label: 'All Contracts' },
             { number: String(active), label: 'Active Contracts' },
             { number: String(expiring), label: 'Expiring Contracts' },
             { number: String(expired), label: 'Expired Contracts' },
+            { number: String(draft), label: 'Draft Contracts' },
           ].map((stat, idx) => (
             <div key={idx} className="text-center relative">
-              {idx < 3 && ( 
-                <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-px h-[60%] bg-slate-200" />
+              {idx < 4 && (
+                <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-px h-[60%] bg-slate-200 hidden lg:block" />
               )}
               <span className="text-[2.5rem] font-bold text-blue-600 block mb-2">
                 {stat.number}
@@ -939,7 +1044,7 @@ export default function ContractEditorPage() {
         {/* Filters */}
         <div className="flex gap-4 flex-wrap items-center">
           <div className="flex gap-2">
-            {['All', 'Active', 'Expiring', 'Expired'].map((filter) => (
+            {['All', 'Active', 'Expiring', 'Expired', 'Draft'].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setActiveFilter(filter)}
@@ -1018,11 +1123,11 @@ export default function ContractEditorPage() {
   transition-transform duration-300 
   group-hover:scale-y-100" />
               <div className="flex justify-between items-start mb-5 gap-3">
-                <div className="text-xl font-bold text-slate-800 flex-1 min-w-0" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                <div className="text-xl font-bold text-slate-800 flex-1 min-w-0 flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                   {contract.name}
                 </div>
-                <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contract.status)}`}>
-                  {getStatusText(contract.status)}
+                <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
+                  {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
@@ -1128,8 +1233,7 @@ export default function ContractEditorPage() {
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Partner</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Start Date</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">End Date</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Value</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Equipment</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Device</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Status</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Actions</th>
                 </tr>
@@ -1141,11 +1245,10 @@ export default function ContractEditorPage() {
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.partner}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedStartDate}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedEndDate}</td>
-                    <td className="py-4 px-4 text-sm text-slate-600">฿{contract.formattedValue}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.deviceCount || 0} items</td>
                     <td className="py-4 px-4">
-                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(contract.status)}`}>
-                        {getStatusText(contract.status)}
+                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
+                        {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
                       </span>
                     </td>
                     <td className="py-4 px-4 min-w-0">
@@ -1730,14 +1833,6 @@ export default function ContractEditorPage() {
                           </span>
                         </div>
                       </div>
-                      {fullContractDetails.contract_value != null && (
-                        <div className="bg-slate-50 p-5 rounded-lg border border-slate-200">
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-2 flex items-center gap-1"><DollarSign size={14} className="text-slate-500" /> Contract Value</span>
-                          <span className="text-3xl font-bold text-slate-800">
-                            ฿{fullContractDetails.contract_value.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -1810,7 +1905,7 @@ export default function ContractEditorPage() {
                                   disabled={page <= 0}
                                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                  <ChevronLeft size={14} /> หน้าก่อน
+                                  <ChevronLeft size={14} /> Previous page
                                 </button>
                                 <button
                                   type="button"
@@ -1818,13 +1913,13 @@ export default function ContractEditorPage() {
                                   disabled={page >= maxPage}
                                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                  หน้าถัดไป <ChevronRight size={14} />
+                                  Next page <ChevronRight size={14} />
                                 </button>
                               </div>
                             </div>
                           )}
                         </div>
-                      );
+                      );  
                     };
 
                     if (sites.length <= 1) {
@@ -2567,16 +2662,14 @@ export default function ContractEditorPage() {
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                   <h4 className="text-xs font-bold text-blue-800">File Format Guide:</h4>
-                  <span className="inline-flex items-center gap-3">
-                    <a
-                      href="/contract_upload_template.csv"
-                      download="contract_upload_template.csv"
+                  <span className="inline-flex items-center gap-3">                    <a
+                      href="/contract_upload_template.xlsx"
+                      download="contract_upload_template.xlsx"
                       className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Template (CSV)
+                      Template (Excel)
                     </a>
-
                   </span>
                 </div>
                 <div className="text-xs text-blue-700 space-y-1">
@@ -2590,8 +2683,8 @@ export default function ContractEditorPage() {
                     <li><strong>End Date</strong> — end date (optional, defaults to start)</li>
                     <li><strong>SLA Term</strong> — sla term (e.g. 100)</li>
                   </ul>
-                  <p className="mt-2"><strong>Optional:</strong> Sale Account, Service, Contract Value, Coverage Scope</p>
-                  <p className="mt-2"><strong>Devices :</strong> Devices เช่น FGL2314A91L,FGL2314A92L หรือ FGL2314B01L;FGL2314B02L </p>
+                  <p className="mt-2"><strong>Optional:</strong> Sale Account, Service, Email, Tel, Coverage Scope</p>
+                  <p className="mt-2"><strong>Devices:</strong> CSV — ในคอลัมน์ Devices (comma/semicolon). Excel — 2 sheets: Sheet1 Contracts, Sheet2 Devices (columns: Contract Row, Device; one device per row).</p>
 
                 </div>
               </div>
@@ -2660,7 +2753,20 @@ export default function ContractEditorPage() {
                 Cancel
               </button>
               <button
-                onClick={handleBulkCreateContracts}
+                type="button"
+                onClick={() => handleBulkCreateContracts(true)}
+                disabled={importedContracts.length === 0 || isImportingContract}
+                className={`px-6 py-2 text-sm font-bold rounded-lg transition-all border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 ${
+                  importedContracts.length === 0 || isImportingContract
+                    ? 'cursor-not-allowed opacity-60'
+                    : ''
+                }`}
+              >
+                {isImportingContract ? 'Importing...' : `Import ${importedContracts.length} as draft`}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleBulkCreateContracts(false)}
                 disabled={importedContracts.length === 0 || isImportingContract}
                 className={`px-6 py-2 text-sm font-bold text-white rounded-lg transition-all ${
                   importedContracts.length === 0 || isImportingContract

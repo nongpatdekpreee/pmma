@@ -10,6 +10,7 @@ const {
   getDevicesByModel,
   getVendors,
   getReferSOFList,
+  getAssignedServicesList,
   getDevicesBySOFAndSite,
   getDevicesByContractAndSite,
   getDevicesBySerials,
@@ -39,6 +40,9 @@ router.get('/vendors', getVendors);
 
 // GET - รายการ Refer_SOF (unique values จาก Devices table)
 router.get('/refer-sof', getReferSOFList);
+
+// GET - รายการ Assigned_Service (DISTINCT จาก devices สำหรับ Add Contract dropdown Service)
+router.get('/assigned-services', getAssignedServicesList);
 
 // GET - Devices ตาม Refer_SOF และ site_id (สำหรับ Contract)
 router.get('/by-sof-and-site', getDevicesBySOFAndSite);

@@ -304,11 +304,7 @@ export default function AddPMReportPage() {
       alert('กรุณาเลือก Device');
       return;
     }
-    const num = slaResult.trim() === '' ? NaN : Number(slaResult);
-    if (slaResult.trim() === '' || Number.isNaN(num)) {
-      alert('กรุณากรอกคะแนน PM Result (ตัวเลข)');
-      return;
-    }
+
 
     const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
 
@@ -328,10 +324,9 @@ export default function AddPMReportPage() {
       const reportData = {
         taskId: selectedTaskId,
         deviceId: selectedDeviceId,
-        device: selectedDevice,
+        device: selectedDevice ?? undefined,
         checklistItems,
         uploadedFiles: filesWithPath,
-        sla_result: num,
         comment,
         technicianName,
         pmDate,
@@ -340,7 +335,7 @@ export default function AddPMReportPage() {
 
       const res = await postPmReport(reportData);
       if (res.success) {
-        alert('บันทึกข้อมูล PM Checklist Report สำเร็จ\n\nรายการที่ส่งไป: ' + (res.list?.length ?? checklistItems.length) + ' รายการ');
+        alert('Save PM Checklist Report Success\n\nSent: ' + (res.list?.length ?? checklistItems.length) + ' items');
         // Redirect กลับไปหน้า list
         router.push('/pmchecklist_report');
       } else {
@@ -470,8 +465,8 @@ export default function AddPMReportPage() {
                       </span>
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <Calendar size={16} className="text-slate-400" />
-                        {task.startDate ? new Date(task.startDate).toLocaleDateString('th-TH') : '-'}
-                        {task.endDate && ` - ${new Date(task.endDate).toLocaleDateString('th-TH')}`}
+                        {task.startDate ? new Date(task.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
+                        {task.endDate && ` - ${new Date(task.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                       </span>
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <User size={16} className="text-slate-400" />
@@ -548,7 +543,7 @@ export default function AddPMReportPage() {
               const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === selected.Did;
               const formatDate = (v: string | null | undefined) => {
                 if (!v) return undefined;
-                try { return new Date(v).toLocaleDateString('th-TH'); } catch { return v; }
+                try { return new Date(v).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return v; }
               };
               const deviceFields: { label: string; value?: string | number | null }[] = [
                 { label: 'CI Name', value: selected.CI_Name },
@@ -685,7 +680,7 @@ export default function AddPMReportPage() {
             )}
           </div>
 
-          {/* PM Result - อิงตาม sla_term จาก Contract (ไม่แสดง threshold) */}
+          {/* PM Result - อิงตาม sla_term จาก Contract (ไม่แสดง threshold)
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
               PM Result * <span className="font-normal text-slate-500">(SLA Term)</span>
@@ -707,7 +702,7 @@ export default function AddPMReportPage() {
                 </span>
               )}
             </div>
-          </div>
+          </div> */}
 
           {/* Comment Field */}
           <div className="mb-6">

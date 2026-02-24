@@ -176,9 +176,9 @@ export default function DashboardPage() {
           };
         };
 
-        // Nearest: งานที่เริ่มวันนี้หรือหลังนี้ ยังไม่ done (โหลดหลายรายการ สำหรับ pagination)
+        // Nearest: งานที่เริ่มวันนี้หรือหลังนี้ และ status ไม่ใช่ done (ไม่แสดงงานที่ทำเสร็จแล้ว)
         const nearest = all
-          .filter((t: any) => t.startDate || t.start_date)
+          .filter((t: any) => (t.status || '') !== 'done' && (t.startDate || t.start_date))
           .map((t: any) => ({ ...t, _start: new Date(t.startDate || t.start_date) }))
           .filter((t: any) => !Number.isNaN(t._start.getTime()) && t._start >= today)
           .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
