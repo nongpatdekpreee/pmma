@@ -611,7 +611,8 @@ export default function AddMAReportPage() {
                 multiple
                 accept="image/*,.pdf"
                 onChange={handleFileUpload}
-                className="hidden"
+                className="sr-only"
+                aria-label="อัปโหลดไฟล์รูปหรือ PDF"
               />
               <label
                 htmlFor="file-upload"

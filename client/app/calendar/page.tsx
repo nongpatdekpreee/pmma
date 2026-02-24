@@ -3,7 +3,7 @@
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useState, useMemo, useEffect, Fragment } from 'react';
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds } from '@/lib/api';
@@ -77,11 +77,16 @@ export default function CalendarPage() {
     newEndDate: string;
   } | null>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
-  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string | null>(null);
+  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string[]>([]);
+  const [engineerFilterInput, setEngineerFilterInput] = useState('');
+  const [showEngineerFilterDropdown, setShowEngineerFilterDropdown] = useState(false);
+  const engineerFilterRef = useRef<HTMLDivElement>(null);
   const [hoveredEvent, setHoveredEvent] = useState<CalendarEvent | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
+  const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -166,11 +171,11 @@ export default function CalendarPage() {
     try {
       const res = await fetch(apiUrl('/api/tasks'));
       const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'โหลดข้อมูลไม่สำเร็จ');
+      if (!json.success) throw new Error(json.message || 'Failed to load data');
       setCalendarEvents((json.data || []).map(mapTaskToEvent));
     } catch (error: any) {
       console.error('loadTasksFromApi error', error);
-      setLoadError(error.message || 'ไม่สามารถโหลดรายการงานได้');
+      setLoadError(error.message || 'Unable to load tasks');
     } finally {
       setIsLoading(false);
     }
@@ -256,33 +261,52 @@ export default function CalendarPage() {
     );
   };
   
-  // ซ่อน task ที่ done และทำ report เสร็จแล้ว (ไม่แสดงในปฏิทิน) — เหมือน schedule
+  // แสดงทุก task เหมือนเดิม (รวม task ที่ done และทำ report แล้ว) — เหมือน schedule
   const calendarEventsWithoutDoneReported = useMemo(() => {
-    return calendarEvents.filter((e) => {
-      if (e.status !== 'done') return true;
-      const id = Number(e.id);
-      if (e.taskType === 'PM') return !reportedPMTaskIds.has(id);
-      if (e.taskType === 'MA') return !reportedMATaskIds.has(id);
-      return true;
-    });
-  }, [calendarEvents, reportedPMTaskIds, reportedMATaskIds]);
+    return calendarEvents;
+  }, [calendarEvents]);
 
-  // Filter events by selected engineer
+  // Filter events by engineer(s), task type (PM/MA), and status (เสร็จแล้ว/ยังไม่เสร็จ)
   const filteredCalendarEvents = useMemo(() => {
-    if (!selectedEngineerFilter) return calendarEventsWithoutDoneReported;
-    return calendarEventsWithoutDoneReported.filter(e => {
-      // Check if event has Eng_ids array
-      if (e.Eng_ids && e.Eng_ids.length > 0) {
-        return e.Eng_ids.some((eng: Engineer) => String(eng.id) === String(selectedEngineerFilter));
+    let list = calendarEventsWithoutDoneReported;
+    if (selectedEngineerFilter.length > 0) {
+      const selectedIds = new Set(selectedEngineerFilter.map(id => String(id)));
+      list = list.filter(e => {
+        const eventEngIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
+        return selectedIds.size > 0 && [...selectedIds].every(id => eventEngIds.includes(id));
+      });
+    }
+    // Task type filter (PM / MA)
+    if (selectedTaskTypeFilter !== 'all') {
+      list = list.filter(e => (e.taskType || 'PM') === selectedTaskTypeFilter);
+    }
+    // Status filter (เสร็จแล้ว / ยังไม่เสร็จ)
+    if (selectedStatusFilter !== 'all') {
+      if (selectedStatusFilter === 'done') {
+        list = list.filter(e => e.status === 'done');
+      } else {
+        list = list.filter(e => e.status !== 'done');
       }
-      // Fallback: check engineer string (for backward compatibility)
-      if (e.engineer) {
-        const engineerIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
-        return engineerIds.includes(String(selectedEngineerFilter));
-      }
-      return false;
-    });
-  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter]);
+    }
+    return list;
+  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter, selectedTaskTypeFilter, selectedStatusFilter]);
+
+  const filteredEngineersForFilter = availableEngineers.filter(
+    eng => !selectedEngineerFilter.includes(String(eng.id)) &&
+      (eng.name?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
+        eng.lastName?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
+        String(eng.id).toLowerCase().includes(engineerFilterInput.toLowerCase()))
+  );
+  const addEngineerFilter = (eng: Engineer) => {
+    if (!selectedEngineerFilter.includes(String(eng.id))) {
+      setSelectedEngineerFilter([...selectedEngineerFilter, String(eng.id)]);
+      setEngineerFilterInput('');
+      setShowEngineerFilterDropdown(false);
+    }
+  };
+  const removeEngineerFilter = (id: string) => {
+    setSelectedEngineerFilter(selectedEngineerFilter.filter(x => x !== id));
+  };
 
   // เช็คว่าเป็นงานหลายวัน (แสดงเป็นแถบต่อเนื่อง ไม่ใช่ pill แยก)
   const isMultiDayEvent = (e: CalendarEvent): boolean => {
@@ -407,7 +431,7 @@ export default function CalendarPage() {
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'อัพเดทไม่สำเร็จ');
+      if (!json.success) throw new Error(json.message || 'Update failed');
       // Reload tasks from API to ensure UI consistency
       await loadTasksFromApi();
       return json;
@@ -491,7 +515,7 @@ export default function CalendarPage() {
 
   const confirmMoveTask = async () => {
     if (!pendingMove || !moveReason.trim()) {
-      toastError('กรุณากรอกเหตุผลในการย้ายงาน');
+      toastError('Please enter a reason for moving the task');
       return;
     }
 
@@ -533,10 +557,10 @@ export default function CalendarPage() {
         newEndDate,
         moveReason.trim()
       );
-      toastSuccess('ย้ายงานสำเร็จ');
+      toastSuccess('Task moved successfully');
     } catch (error) {
       console.error('Failed to update task dates:', error);
-      toastError('ย้ายงานไม่สำเร็จ');
+      toastError('Failed to move task');
       // Error is already handled in persistTaskDates (reloads data)
     }
   };
@@ -599,13 +623,13 @@ export default function CalendarPage() {
       });
       const json = await res.json();
       if (!json.success) {
-        throw new Error(json.message || 'อัพเดทไม่สำเร็จ');
+        throw new Error(json.message || 'Update failed');
       }
-      toastSuccess('อัปเดตสถานะสำเร็จ');
+      toastSuccess('Status updated successfully');
       // Don't reload from API to avoid date changes - local state is already updated
     } catch (error) {
       console.error('handleTaskUpdate error', error);
-      toastError('อัปเดตสถานะไม่สำเร็จ');
+      toastError('Failed to update status');
       // Only reload on error to get correct state
       await loadTasksFromApi();
     }
@@ -629,27 +653,109 @@ export default function CalendarPage() {
           <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
             Calendar
           </h1>
-          <div className="flex items-center gap-2">
-            <label htmlFor="engineer-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
-              Engineer:
-            </label>
-            <select
-              id="engineer-filter-calendar"
-              value={selectedEngineerFilter || ''}
-              onChange={(e) => setSelectedEngineerFilter(e.target.value || null)}
-              className="flex-1 sm:flex-none px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[200px] shadow-sm transition-colors"
-            >
-              <option value="">All Engineers</option>
-              {availableEngineers.length === 0 ? (
-                <option value="" disabled>Loading engineers...</option>
-              ) : (
-                availableEngineers.map((eng) => (
-                  <option key={eng.id} value={String(eng.id)}>
-                    {eng.name} {eng.lastName || ''}
-                  </option>
-                ))
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
+              <label htmlFor="engineer-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Engineer:
+              </label>
+              <div
+                id="engineer-filter-calendar"
+                className={`flex-1 sm:min-w-[160px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
+                onClick={() => document.getElementById('engineer-filter-input-calendar')?.focus()}
+              >
+                {selectedEngineerFilter.length === 0 && !engineerFilterInput && (
+                  <span className="text-slate-400">All Engineers</span>
+                )}
+                {selectedEngineerFilter.map((id) => {
+                  const eng = availableEngineers.find(e => String(e.id) === id);
+                  const label = eng ? `${eng.name || ''} ${eng.lastName || ''}`.trim() || id : id;
+                  return (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-100 text-blue-800 text-xs font-medium"
+                    >
+                      {label}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeEngineerFilter(id); }}
+                        className="hover:bg-blue-200 rounded p-0.5"
+                        aria-label="Remove"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  );
+                })}
+                <input
+                  id="engineer-filter-input-calendar"
+                  type="text"
+                  value={engineerFilterInput}
+                  onChange={(e) => { setEngineerFilterInput(e.target.value); setShowEngineerFilterDropdown(true); }}
+                  onFocus={() => setShowEngineerFilterDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowEngineerFilterDropdown(false), 200)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && filteredEngineersForFilter.length > 0) {
+                      addEngineerFilter(filteredEngineersForFilter[0]);
+                    }
+                    if (e.key === 'Backspace' && !engineerFilterInput && selectedEngineerFilter.length > 0) {
+                      removeEngineerFilter(selectedEngineerFilter[selectedEngineerFilter.length - 1]);
+                    }
+                  }}
+                  placeholder={selectedEngineerFilter.length === 0 ? 'Search engineers...' : ''}
+                  className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-slate-700 placeholder:text-slate-400"
+                />
+              </div>
+              {showEngineerFilterDropdown && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 min-w-[160px] max-h-48 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                  {availableEngineers.length === 0 ? (
+                    <div className="px-3 py-2 text-slate-500 text-sm">Loading engineers...</div>
+                  ) : filteredEngineersForFilter.length === 0 ? (
+                    <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
+                  ) : (
+                    filteredEngineersForFilter.map((eng) => (
+                      <button
+                        key={eng.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => addEngineerFilter(eng)}
+                      >
+                        {eng.name} {eng.lastName || ''}
+                      </button>
+                    ))
+                  )}
+                </div>
               )}
-            </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="task-type-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Type:
+              </label>
+              <select
+                id="task-type-filter-calendar"
+                value={selectedTaskTypeFilter}
+                onChange={(e) => setSelectedTaskTypeFilter(e.target.value as 'all' | 'PM' | 'MA')}
+                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="PM">PM</option>
+                <option value="MA">MA</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="status-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Status:
+              </label>
+              <select
+                id="status-filter-calendar"
+                value={selectedStatusFilter}
+                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'not-done')}
+                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="done">Done</option>
+                <option value="not-done">Not done</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -739,12 +845,14 @@ export default function CalendarPage() {
                                 const endDate = endDateStr ? new Date(endDateStr) : null;
                                 if (endDate) endDate.setHours(0, 0, 0, 0);
                                 const isOverdue = !isDone && endDate && endDate < today;
-                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า (เหมือน schedule)
+                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า (เหมือน schedule)
                                 const pillStyle = isDone
                                   ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
                                   : isOverdue
                                     ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
-                                    : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                                    : isMA
+                                      ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                                      : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
@@ -800,11 +908,14 @@ export default function CalendarPage() {
                     const endDate = endDateStr ? new Date(endDateStr) : null;
                     if (endDate) endDate.setHours(0, 0, 0, 0);
                     const isOverdue = !isDone && endDate && endDate < today;
+                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า (เหมือน schedule)
                     const barStyle = isDone
                       ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
                       : isOverdue
                         ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
-                        : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                        : isMA
+                          ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                          : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                     return (
                       <div
                         key={event.id}

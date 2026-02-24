@@ -110,7 +110,12 @@ export default function ScheduleManagement() {
   }>>([]);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [availableContracts, setAvailableContracts] = useState<Array<{contract_id: number; sof_name: string; contract_name?: string; site_id?: number; end_date?: string}>>([]);
-  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string | null>(null);
+  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string[]>([]);
+  const [engineerFilterInput, setEngineerFilterInput] = useState('');
+  const [showEngineerFilterDropdown, setShowEngineerFilterDropdown] = useState(false);
+  const engineerFilterRef = useRef<HTMLDivElement>(null);
+  const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
   const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -344,33 +349,50 @@ export default function ScheduleManagement() {
     }
   };
 
-  // ซ่อน task ที่ done และทำ report เสร็จแล้ว (ไม่แสดงในปฏิทิน)
+  // แสดงทุก task เหมือนเดิม (รวม task ที่ done และทำ report แล้ว)
   const calendarEventsWithoutDoneReported = useMemo(() => {
-    return calendarEvents.filter((e) => {
-      if (e.status !== 'done') return true;
-      const id = Number(e.id);
-      if (e.taskType === 'PM') return !reportedPMTaskIds.has(id);
-      if (e.taskType === 'MA') return !reportedMATaskIds.has(id);
-      return true;
-    });
-  }, [calendarEvents, reportedPMTaskIds, reportedMATaskIds]);
+    return calendarEvents;
+  }, [calendarEvents]);
 
-  // Filter events by selected engineer
+  // Filter events by engineer(s), task type (PM/MA), and status (Done / Not done)
   const filteredCalendarEvents = useMemo(() => {
-    if (!selectedEngineerFilter) return calendarEventsWithoutDoneReported;
-    return calendarEventsWithoutDoneReported.filter(e => {
-      // Check if event has Eng_ids array
-      if (e.Eng_ids && e.Eng_ids.length > 0) {
-        return e.Eng_ids.some((eng: Engineer) => String(eng.id) === String(selectedEngineerFilter));
+    let list = calendarEventsWithoutDoneReported;
+    if (selectedEngineerFilter.length > 0) {
+      const selectedIds = new Set(selectedEngineerFilter.map(id => String(id)));
+      list = list.filter(e => {
+        const eventEngIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
+        return selectedIds.size > 0 && [...selectedIds].every(id => eventEngIds.includes(id));
+      });
+    }
+    if (selectedTaskTypeFilter !== 'all') {
+      list = list.filter(e => (e.taskType || 'PM') === selectedTaskTypeFilter);
+    }
+    if (selectedStatusFilter !== 'all') {
+      if (selectedStatusFilter === 'done') {
+        list = list.filter(e => e.status === 'done');
+      } else {
+        list = list.filter(e => e.status !== 'done');
       }
-      // Fallback: check engineer string (for backward compatibility)
-      if (e.engineer) {
-        const engineerIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
-        return engineerIds.includes(String(selectedEngineerFilter));
-      }
-      return false;
-    });
-  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter]);
+    }
+    return list;
+  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter, selectedTaskTypeFilter, selectedStatusFilter]);
+
+  const filteredEngineersForFilter = availableEngineers.filter(
+    eng => !selectedEngineerFilter.includes(String(eng.id)) &&
+      (eng.name?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
+        eng.lastName?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
+        String(eng.id).toLowerCase().includes(engineerFilterInput.toLowerCase()))
+  );
+  const addEngineerFilter = (eng: Engineer) => {
+    if (!selectedEngineerFilter.includes(String(eng.id))) {
+      setSelectedEngineerFilter([...selectedEngineerFilter, String(eng.id)]);
+      setEngineerFilterInput('');
+      setShowEngineerFilterDropdown(false);
+    }
+  };
+  const removeEngineerFilter = (id: string) => {
+    setSelectedEngineerFilter(selectedEngineerFilter.filter(x => x !== id));
+  };
 
   const isMultiDayEvent = (e: CalendarEvent): boolean => {
     if (!e.startDate || !e.endDate) return false;
@@ -1083,7 +1105,7 @@ export default function ScheduleManagement() {
               task.title = task.coverageScope;
             }
 
-            // Ensure dates are in YYYY-MM-DD format
+            // Ensure dates are in YYYY-MM-DD format (convert if possible, otherwise keep as-is — ใส่วันที่วันไหนก็ได้ ไม่ดัก)
             if (task.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(task.startDate)) {
               const parsed = parseDateString(task.startDate);
               task.startDate = parsed || task.startDate;
@@ -1494,45 +1516,130 @@ export default function ScheduleManagement() {
             {loadError}
           </div>
         )}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
-            Schedule Management
-          </h1>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-col gap-4 mb-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+              Schedule Management
+            </h1>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
+              >
+                <Download size={16} /> Import Tasks
+              </button>
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-2 bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors"
+              >
+                <Plus size={16} /> Add Plan PM
+              </button>
+            </div>
+          </div>
+          {/* Filters: Engineer (multi), Type (PM/MA), Status (Done/Not done) */}
+          <div className="flex flex-wrap items-center gap-3 justify-end">
+            <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
               <label htmlFor="engineer-filter" className="text-sm font-medium text-slate-600 whitespace-nowrap">
                 Engineer:
               </label>
-              <select
+              <div
                 id="engineer-filter"
-                value={selectedEngineerFilter || ''}
-                onChange={(e) => setSelectedEngineerFilter(e.target.value || null)}
-                className="flex-1 sm:flex-none px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[200px] shadow-sm transition-colors"
+                className={`flex-1 sm:min-w-[200px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
+                onClick={() => document.getElementById('engineer-filter-input')?.focus()}
               >
-                <option value="">All Engineers</option>
-                {availableEngineers.length === 0 ? (
-                  <option value="" disabled>Loading engineers...</option>
-                ) : (
-                  availableEngineers.map((eng) => (
-                    <option key={eng.id} value={String(eng.id)}>
-                      {eng.name} {eng.lastName || ''}
-                    </option>
-                  ))
+                {selectedEngineerFilter.length === 0 && !engineerFilterInput && (
+                  <span className="text-slate-400">All Engineers</span>
                 )}
+                {selectedEngineerFilter.map((id) => {
+                  const eng = availableEngineers.find(e => String(e.id) === id);
+                  const label = eng ? `${eng.name || ''} ${eng.lastName || ''}`.trim() || id : id;
+                  return (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-100 text-blue-800 text-xs font-medium"
+                    >
+                      {label}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeEngineerFilter(id); }}
+                        className="hover:bg-blue-200 rounded p-0.5"
+                        aria-label="Remove"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  );
+                })}
+                <input
+                  id="engineer-filter-input"
+                  type="text"
+                  value={engineerFilterInput}
+                  onChange={(e) => { setEngineerFilterInput(e.target.value); setShowEngineerFilterDropdown(true); }}
+                  onFocus={() => setShowEngineerFilterDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowEngineerFilterDropdown(false), 200)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && filteredEngineersForFilter.length > 0) {
+                      addEngineerFilter(filteredEngineersForFilter[0]);
+                    }
+                    if (e.key === 'Backspace' && !engineerFilterInput && selectedEngineerFilter.length > 0) {
+                      removeEngineerFilter(selectedEngineerFilter[selectedEngineerFilter.length - 1]);
+                    }
+                  }}
+                  placeholder={selectedEngineerFilter.length === 0 ? 'Search engineers...' : ''}
+                  className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-slate-700 placeholder:text-slate-400"
+                />
+              </div>
+              {showEngineerFilterDropdown && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 min-w-[200px] max-h-48 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                  {availableEngineers.length === 0 ? (
+                    <div className="px-3 py-2 text-slate-500 text-sm">Loading engineers...</div>
+                  ) : filteredEngineersForFilter.length === 0 ? (
+                    <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
+                  ) : (
+                    filteredEngineersForFilter.map((eng) => (
+                      <button
+                        key={eng.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => addEngineerFilter(eng)}
+                      >
+                        {eng.name} {eng.lastName || ''}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="task-type-filter-schedule" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Type:
+              </label>
+              <select
+                id="task-type-filter-schedule"
+                value={selectedTaskTypeFilter}
+                onChange={(e) => setSelectedTaskTypeFilter(e.target.value as 'all' | 'PM' | 'MA')}
+                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="PM">PM</option>
+                <option value="MA">MA</option>
               </select>
             </div>
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
-            >
-              <Download size={16} /> Import Tasks
-            </button>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors"
-            >
-              <Plus size={16} /> Add Plan PM
-            </button>
+            <div className="flex items-center gap-2">
+              <label htmlFor="status-filter-schedule" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Status:
+              </label>
+              <select
+                id="status-filter-schedule"
+                value={selectedStatusFilter}
+                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'not-done')}
+                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="done">Done</option>
+                <option value="not-done">Not done</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -1627,12 +1734,14 @@ export default function ScheduleManagement() {
                                 const endDate = endDateStr ? new Date(endDateStr) : null;
                                 if (endDate) endDate.setHours(0, 0, 0, 0);
                                 const isOverdue = !isDone && endDate && endDate < today;
-                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า
+                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
                                 const pillStyle = isDone 
                                   ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
                                   : isOverdue 
                                     ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
-                                    : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                                    : isMA 
+                                      ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
+                                      : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
@@ -1688,12 +1797,14 @@ export default function ScheduleManagement() {
                     const endDate = endDateStr ? new Date(endDateStr) : null;
                     if (endDate) endDate.setHours(0, 0, 0, 0);
                     const isOverdue = !isDone && endDate && endDate < today;
-                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า
+                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
                     const barStyle = isDone 
                       ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
                       : isOverdue 
                         ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
-                        : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                        : isMA 
+                          ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
+                          : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                     return (
                       <div
                         key={event.id}
@@ -1989,7 +2100,8 @@ export default function ScheduleManagement() {
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   onChange={handleFileUpload}
-                  className="hidden"
+                  className="sr-only"
+                  aria-label="เลือกไฟล์ Excel หรือ CSV"
                   id="excel-file-input"
                 />
                 <label

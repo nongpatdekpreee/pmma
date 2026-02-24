@@ -2116,37 +2116,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   type="date"
                   lang="en-US"
                   value={startDate}
-                  min={(() => {
-                    // สามารถเลือกได้จากวันปัจจุบันไปอนาคตเท่านั้น (ไม่ให้เลือกวันย้อนหลัง)
-                    const today = new Date();
-                    const year = today.getFullYear();
-                    const month = String(today.getMonth() + 1).padStart(2, '0');
-                    const day = String(today.getDate()).padStart(2, '0');
-                    return `${year}-${month}-${day}`;
-                  })()}
                   onChange={(e) => {
                     const v = e.target.value;
-                    // ตรวจสอบว่าวันที่ที่เลือกไม่ก่อนวันปัจจุบัน (เลือกได้เฉพาะวันปัจจุบันและอนาคต)
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0); // ตั้งเวลาเป็นเริ่มวันเพื่อเปรียบเทียบ
-                    const selectedDate = v ? new Date(v) : null;
-                    
-                    if (selectedDate && selectedDate < today) {
-                      // ถ้าเลือกวันที่ก่อนวันปัจจุบัน ให้ใช้วันนี้แทน
-                      const year = today.getFullYear();
-                      const month = String(today.getMonth() + 1).padStart(2, '0');
-                      const day = String(today.getDate()).padStart(2, '0');
-                      const todayStr = `${year}-${month}-${day}`;
-                      setStartDate(todayStr);
-                      // ถ้า endDate มีค่าและน้อยกว่าวันนี้ ให้ปรับ endDate ด้วย
-                      if (endDate && new Date(endDate) < today) {
-                        setEndDate(todayStr);
-                      } else if (endDate && new Date(todayStr) > new Date(endDate)) {
-                        setEndDate(todayStr);
-                      }
-                      return;
-                    }
-                    
                     setStartDate(v);
                     // ถ้าเลือก startDate ที่หลัง endDate ให้ปรับ endDate ให้เท่ากับ startDate
                     if (v && endDate && new Date(v) > new Date(endDate)) {
@@ -2198,39 +2169,37 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       
             <h3 className="text-xs font-bold text-slate-700">Assignment</h3>
 
-            <div className="relative">
+            <div className="relative w-fit max-w-full">
               <label className={fieldLabel}>Assign Engineer <span className="text-red-500">*</span></label>
 
-              {/* Email-style input container */}
+              {/* Engineer multi-select: chips ขนาดพอดีกับที่เลือก */}
               <div
-                className={`min-h-9 w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap gap-1.5 items-center ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-500 border-blue-400' : ''
-                  }`}
-                onClick={() => {
-                  const input = document.getElementById('engineer-input');
-                  input?.focus();
-                }}
+                className={`min-h-10 w-fit max-w-full min-w-[200px] px-3 py-2 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2 items-center transition-shadow ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-400 border-blue-300 shadow-sm' : 'hover:border-slate-300'}`}
+                onClick={() => document.getElementById('engineer-input')?.focus()}
               >
-                {/* Selected Engineers as Chips */}
-                {selectedEngineers.map((eng) => (
-                  <span
-                    key={eng.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-none text-xs font-medium"
-                  >
-                    {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeEngineer(eng.id);
-                      }}
-                      className="hover:text-blue-900 focus:outline-none"
+                {selectedEngineers.map((eng) => {
+                  const fullName = `${eng.name}${eng.lastName ? ' ' + eng.lastName : ''}`.trim();
+                  return (
+                    <span
+                      key={eng.id}
+                      title={fullName}
+                      className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200/80 shrink-0"
                     >
-                      <X size={10} />
-                    </button>
-                  </span>
-                ))}
-
-                {/* Input field */}
+                      <span className="truncate max-w-[140px]">{fullName}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeEngineer(eng.id);
+                        }}
+                        className="shrink-0 rounded p-0.5 hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors"
+                        aria-label="Remove"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  );
+                })}
                 <input
                   id="engineer-input"
                   type="text"
@@ -2240,30 +2209,26 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     setShowEngineerDropdown(true);
                   }}
                   onFocus={() => setShowEngineerDropdown(true)}
-                  onBlur={() => {
-                    // Delay to allow click on dropdown items
-                    setTimeout(() => setShowEngineerDropdown(false), 200);
-                  }}
+                  onBlur={() => setTimeout(() => setShowEngineerDropdown(false), 200)}
                   onKeyDown={handleEngineerInputKeyDown}
-                  placeholder={selectedEngineers.length === 0 ? 'Type to search engineer...' : ''}
-                  className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5"
+                  placeholder={selectedEngineers.length === 0 ? 'ค้นหาหรือเลือก engineer...' : 'เพิ่ม...'}
+                  className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5 placeholder:text-slate-400"
                 />
               </div>
 
               {/* Dropdown */}
               {showEngineerDropdown && filteredEngineers.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto">
+                <div className="absolute z-10 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto py-1 min-w-[200px]">
                   {filteredEngineers.map((eng) => (
-                    <div
+                    <button
                       key={eng.id}
+                      type="button"
                       onClick={async () => await addEngineer(eng)}
-                      className="px-3 py-2 hover:bg-blue-50 cursor-pointer transition"
+                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 cursor-pointer transition text-sm text-slate-700"
                     >
-                      <p className="text-sm font-medium text-slate-700">
-                        {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
-                      </p>
-                      <p className="text-xs text-slate-400">{eng.id}</p>
-                    </div>
+                      <span className="font-medium">{eng.name}{eng.lastName ? ' ' + eng.lastName : ''}</span>
+                      <span className="text-slate-400 text-xs ml-1">({eng.id})</span>
+                    </button>
                   ))}
                 </div>
               )}
@@ -2291,11 +2256,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         </div>
 
         {/* ===== footer ===== */}
-        <div className="flex justify-between px-6 py-4 border-t">
-          <div className="flex gap-2">
-            <button className="icon-btn"><Paperclip size={16} /></button>
-            <button className="icon-btn"><LinkIcon size={16} /></button>
-          </div>
+        <div className="flex justify-end px-6 py-4 border-t">
+         
           <button
             onClick={handleSave}
             disabled={isSubmitting}
