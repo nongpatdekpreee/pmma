@@ -1381,7 +1381,7 @@ export default function ContractEditorPage() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Contract Name</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Partner</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Site</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Start Date</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">End Date</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Device</th>
@@ -1393,7 +1393,7 @@ export default function ContractEditorPage() {
                 {paginatedContracts.map((contract) => (
                   <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                     <td className="py-4 px-4 text-sm font-medium text-slate-800">{contract.name}</td>
-                    <td className="py-4 px-4 text-sm text-slate-600">{contract.partner}</td>
+                    <td className="py-4 px-4 text-sm text-slate-600">{contract.siteName ?? contract.partner ?? '—'}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedStartDate}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedEndDate}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.deviceCount || 0} items</td>
