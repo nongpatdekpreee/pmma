@@ -30,6 +30,8 @@ interface Contract {
   id: string;
   name: string;
   partner: string;
+  siteName?: string;
+  siteLocation?: string;
   maintenanceType?: string;
   startDate: string;
   endDate: string;
@@ -95,6 +97,17 @@ function formatDateThai(dateStr: string | null | undefined): string {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-US', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/** วันที่สำหรับ export (DD/MM/YYYY) ทั้งใน web และ Excel */
+function formatDateForExport(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '—';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' | 'expiring' | 'expired' {
@@ -164,6 +177,11 @@ export default function ContractEditorPage() {
   const [importContractSites, setImportContractSites] = useState<Array<{ SLid: number; SiteName?: string; Location2?: string; label: string }>>([]);
   const importContractFileRef = useRef<HTMLInputElement>(null);
 
+  // Export Contract modal: เลือกสัญญาที่จะ export
+  const [isExportContractModalOpen, setIsExportContractModalOpen] = useState(false);
+  const [exportContractSelected, setExportContractSelected] = useState<Set<string>>(new Set());
+  const [isExportingContracts, setIsExportingContracts] = useState(false);
+
   // Form state
   const [contractForm, setContractForm] = useState({
     name: '',
@@ -211,6 +229,7 @@ export default function ContractEditorPage() {
           end_date?: string | null;
           sale_account?: string | null;
           site_name?: string | null;
+          site_location?: string | null;
           device_count?: number | null;
           status?: string | null;
         }) => {
@@ -220,6 +239,8 @@ export default function ContractEditorPage() {
             id: String(c.contract_id),
             name: c.contract_name || '—',
             partner: c.sale_account || c.site_name || '—',
+            siteName: c.site_name ?? undefined,
+            siteLocation: c.site_location ?? undefined,
             startDate: c.start_date || '',
             endDate,
             value: '',
@@ -263,7 +284,9 @@ export default function ContractEditorPage() {
       return (
         contract.id.toLowerCase().includes(searchLower) ||
         contract.name.toLowerCase().includes(searchLower) ||
-        contract.partner.toLowerCase().includes(searchLower)
+        contract.partner.toLowerCase().includes(searchLower) ||
+        (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
+        (contract.siteLocation ?? '').toLowerCase().includes(searchLower)
       );
     }
     return true;
@@ -275,6 +298,125 @@ export default function ContractEditorPage() {
   const currentPage = viewMode === 'card' ? Math.min(contractPage, cardTotalPages) : Math.min(contractPage, tableTotalPages);
   const pageSize = viewMode === 'card' ? CONTRACT_CARD_PAGE_SIZE : CONTRACT_TABLE_PAGE_SIZE;
   const paginatedContracts = filteredContracts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const openExportContractModal = () => {
+    setExportContractSelected(new Set(filteredContracts.map((c) => c.id)));
+    setIsExportContractModalOpen(true);
+  };
+
+  const handleExportSelectedContracts = async () => {
+    const toExport = filteredContracts.filter((c) => exportContractSelected.has(c.id));
+    if (toExport.length === 0) {
+      toastError('Please select at least one contract');
+      return;
+    }
+    setIsExportingContracts(true);
+    try {
+      // Sheet 1: Contracts — หนึ่งแถวต่อ (contract, site): Contract Name | Site | Location | Start Date | End Date | Device Count
+      const contractSiteRows: { 'Contract Name': string; 'Site': string; 'Location': string; 'Start Date': string; 'End Date': string; 'Device Count': number }[] = [];
+      // Sheet 2: แต่ละสัญญาเป็นบล็อกแนวนอน ความกว้างต่อบล็อก = 1 หรือ 2 คอลัมน์
+      const blocks: { rows: string[][]; width: number }[] = [];
+      for (const c of toExport) {
+        const res = await fetch(apiUrl(`/api/contracts/${c.id}`));
+        const json = await res.json();
+        const detail = json?.data;
+        const devices = (detail?.devices || []) as Array<{ contract_SLid?: number | null; SLid?: number | null; SiteName?: string | null; Location2?: string | null; CI_Name?: string | null; serial?: string | null }>;
+        const slid = (d: { contract_SLid?: number | null; SLid?: number | null }) => d.contract_SLid ?? d.SLid ?? 0;
+        const deviceName = (d: { CI_Name?: string | null; serial?: string | null }) => (d.CI_Name != null && String(d.CI_Name).trim()) ? String(d.CI_Name).trim() : (d.serial != null ? String(d.serial) : '—');
+        const bySite = new Map<number, { siteName: string; location: string; devices: string[] }>();
+        for (const d of devices) {
+          const key = slid(d);
+          if (key == null || key <= 0) continue;
+          if (!bySite.has(key)) {
+            const sn = d.SiteName ?? '';
+            const loc = d.Location2 ?? '';
+            bySite.set(key, { siteName: sn || `Site ${key}`, location: loc, devices: [] });
+          }
+          bySite.get(key)!.devices.push(deviceName(d));
+        }
+        const siteOrder = [...bySite.keys()].sort((a, b) => a - b);
+        const startDate = formatDateForExport(c.startDate);
+        const endDate = formatDateForExport(c.endDate);
+        if (siteOrder.length === 0) {
+          contractSiteRows.push({ 'Contract Name': c.name, 'Site': '—', 'Location': '—', 'Start Date': startDate, 'End Date': endDate, 'Device Count': 0 });
+        } else {
+          for (const sLid of siteOrder) {
+            const s = bySite.get(sLid)!;
+            contractSiteRows.push({ 'Contract Name': c.name, 'Site': s.siteName, 'Location': s.location, 'Start Date': startDate, 'End Date': endDate, 'Device Count': s.devices.length });
+          }
+        }
+        // บล็อกต่อสัญญา: ถ้า 1 site ใช้ 1 คอลัมน์ (A); ถ้ามีหลาย site ใช้ 2 คอลัมน์ (A,B)
+        const blockRows: string[][] = [];
+        let width = 1;
+        const singleSite = siteOrder.length <= 1;
+        if (singleSite && siteOrder.length === 1) {
+          const s = bySite.get(siteOrder[0])!;
+          const siteLine = s.location ? `${s.siteName} – ${s.location}` : s.siteName;
+          blockRows.push([c.name]);
+          blockRows.push([siteLine]);
+          for (const dev of s.devices) blockRows.push([dev]);
+          width = 1;
+        } else if (singleSite && siteOrder.length === 0) {
+          blockRows.push([c.name]);
+          blockRows.push(['(No sites)']);
+          width = 1;
+        } else {
+          blockRows.push([c.name, c.name]);
+          for (const sLid of siteOrder) {
+            const s = bySite.get(sLid)!;
+            const siteDetail = s.location ? `${s.siteName} – ${s.location}` : s.siteName;
+            blockRows.push([s.siteName, siteDetail]);
+          }
+          const allDevices = siteOrder.flatMap((k) => bySite.get(k)!.devices);
+          for (let i = 0; i < allDevices.length; i += 2) {
+            blockRows.push([allDevices[i] ?? '', allDevices[i + 1] ?? '']);
+          }
+          width = 2;
+        }
+        blocks.push({ rows: blockRows, width });
+      }
+      // เรียงเป็นแถว: แถวที่ i = รวมคอลัมน์ของทุกสัญญา โดยใช้ width ของแต่ละบล็อก
+      const maxRows = Math.max(1, ...blocks.map((b) => b.rows.length));
+      const deviceRows: (string)[][] = [];
+      for (let r = 0; r < maxRows; r++) {
+        const row: string[] = [];
+        for (const block of blocks) {
+          const cells = block.rows[r] ?? [];
+          for (let i = 0; i < block.width; i++) {
+            row.push(cells[i] ?? '');
+          }
+        }
+        deviceRows.push(row);
+      }
+      const wsContracts = contractSiteRows.length > 0 ? XLSX.utils.json_to_sheet(contractSiteRows) : XLSX.utils.aoa_to_sheet([['Contract Name', 'Site', 'Location', 'Start Date', 'End Date', 'Device Count']]);
+      const wsDevices = deviceRows.length > 0 ? XLSX.utils.aoa_to_sheet(deviceRows) : XLSX.utils.aoa_to_sheet([['A', 'B'], ['(No data)', '']]);
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, wsContracts, 'Contracts');
+      XLSX.utils.book_append_sheet(wb, wsDevices, 'Devices');
+      const dateStr = new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `contracts_export_${dateStr}.xlsx`);
+      toastSuccess(`Exported ${toExport.length} contract(s)`);
+      setIsExportContractModalOpen(false);
+    } catch (e) {
+      toastError('Failed to load device list for export');
+      console.error(e);
+    } finally {
+      setIsExportingContracts(false);
+    }
+  };
+
+  const toggleExportContract = (id: string) => {
+    setExportContractSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllExportContracts = () => setExportContractSelected(new Set(filteredContracts.map((c) => c.id)));
+  const deselectAllExportContracts = () => setExportContractSelected(new Set());
 
   useEffect(() => {
     setContractPage(1);
@@ -304,6 +446,7 @@ export default function ContractEditorPage() {
     setShowAssignSiteModal(false);
     setShowRenewModal(false);
     setIsImportContractModalOpen(false);
+    setIsExportContractModalOpen(false);
     setRenewContractTarget(null);
     setCurrentContract(null);
     setFullContractDetails(null);
@@ -956,6 +1099,8 @@ export default function ContractEditorPage() {
           id: String(c.contract_id),
           name: c.contract_name || '—',
           partner: c.sale_account || c.site_name || '—',
+          siteName: c.site_name ?? undefined,
+          siteLocation: c.site_location ?? undefined,
           startDate: c.start_date || '',
           endDate: c.end_date || '',
           value: '',
@@ -1027,6 +1172,12 @@ export default function ContractEditorPage() {
           );
         })()}
         <div className="flex gap-3 items-center mb-6 justify-end">
+          <button
+            onClick={openExportContractModal}
+            className="flex items-center gap-2 border border-slate-300 bg-white text-slate-700 px-3 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors"
+          >
+            <FileSpreadsheet size={16} /> Export
+          </button>
           <button
             onClick={() => { setImportedContracts([]); setImportContractErrors([]); setIsImportContractModalOpen(true); }}
             className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
@@ -2589,6 +2740,137 @@ export default function ContractEditorPage() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Export Contract Modal — เลือกสัญญาที่จะ export (แบบเดียวกับ Import) */}
+      {isExportContractModalOpen && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsExportContractModalOpen(false);
+          }}
+        >
+          <div
+            className="bg-white w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
+              <div className="flex items-center gap-3">
+                <FileSpreadsheet size={24} className="text-blue-600" />
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Export Contracts</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Select contracts to export to Excel (based on current filter: {activeFilter}{searchTerm ? ` · "${searchTerm}"` : ''})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsExportContractModalOpen(false)}
+                className="p-1.5 bg-white rounded-full hover:bg-slate-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-sm text-slate-600">
+                  {exportContractSelected.size} of {filteredContracts.length} selected
+                </span>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={selectAllExportContracts}
+                    className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deselectAllExportContracts}
+                    className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                  >
+                    Deselect all
+                  </button>
+                </div>
+              </div>
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="max-h-[50vh] overflow-x-auto overflow-y-auto">
+                  <table className="w-full text-sm min-w-full">
+                    <thead className="bg-slate-100 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2.5 text-left w-10">
+                          <input
+                            type="checkbox"
+                            checked={filteredContracts.length > 0 && filteredContracts.every((c) => exportContractSelected.has(c.id))}
+                            onChange={(e) => (e.target.checked ? selectAllExportContracts() : deselectAllExportContracts())}
+                            className="rounded border-slate-300"
+                          />
+                        </th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Contract Name</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Site</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Location</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Start Date</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">End Date</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Device</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredContracts.map((c) => (
+                        <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={exportContractSelected.has(c.id)}
+                              onChange={() => toggleExportContract(c.id)}
+                              className="rounded border-slate-300"
+                            />
+                          </td>
+                          <td className="px-3 py-2 font-medium text-slate-800">{c.name}</td>
+                          <td className="px-3 py-2 text-slate-600">{c.siteName ?? '—'}</td>
+                          <td className="px-3 py-2 text-slate-600">{c.siteLocation ?? '—'}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateForExport(c.startDate)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateForExport(c.endDate)}</td>
+                          <td className="px-3 py-2 text-slate-600">{c.deviceCount ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {filteredContracts.length === 0 && (
+                <p className="text-sm text-slate-500 text-center py-6">No contracts match the current filter. Change filter or search and try again.</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-slate-50">
+              <button
+                onClick={() => setIsExportContractModalOpen(false)}
+                disabled={isExportingContracts}
+                className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExportSelectedContracts}
+                disabled={exportContractSelected.size === 0 || isExportingContracts}
+                className={`px-6 py-2 text-sm font-bold text-white rounded-lg transition-all flex items-center gap-2 ${
+                  exportContractSelected.size === 0 || isExportingContracts ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {isExportingContracts ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Preparing export...
+                  </>
+                ) : (
+                  `Export ${exportContractSelected.size} selected`
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
