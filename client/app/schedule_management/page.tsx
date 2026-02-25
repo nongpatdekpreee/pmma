@@ -32,6 +32,7 @@ interface Engineer {
   id: string;
   name: string;
   lastName?: string;
+  photo?: string | null;
 }
 
 interface CalendarEvent {
@@ -264,6 +265,7 @@ export default function ScheduleManagement() {
                 id: emp.id || emp.employee_id || '',
                 name: nameParts[0] || emp.name || emp.displayName || '',
                 lastName: nameParts.slice(1).join(' ') || emp.lastName || '',
+                photo: emp.photo ?? null,
               };
             });
           setAvailableEngineers(engineers);
@@ -350,9 +352,20 @@ export default function ScheduleManagement() {
   };
 
   // แสดงทุก task เหมือนเดิม (รวม task ที่ done และทำ report แล้ว)
+  // Enrich events with engineer profile photos from availableEngineers
+  const enrichedCalendarEvents = useMemo(() => {
+    return calendarEvents.map((event) => ({
+      ...event,
+      Eng_ids: event.Eng_ids?.map((eng) => ({
+        ...eng,
+        photo: availableEngineers.find((a) => a.id === String(eng.id))?.photo ?? null,
+      })) ?? [],
+    }));
+  }, [calendarEvents, availableEngineers]);
+
   const calendarEventsWithoutDoneReported = useMemo(() => {
-    return calendarEvents;
-  }, [calendarEvents]);
+    return enrichedCalendarEvents;
+  }, [enrichedCalendarEvents]);
 
   // Filter events by engineer(s), task type (PM/MA), and status (Done / Not done)
   const filteredCalendarEvents = useMemo(() => {
@@ -449,6 +462,25 @@ export default function ScheduleManagement() {
       spans.push({ event: e, colStart, colEnd });
     });
     return spans;
+  };
+
+  /** จัดแถวให้แถบงานหลายวันที่ไม่ซ้อนกัน (spans ที่ซ้อนช่วงจะอยู่คนละแถว) */
+  const assignRowsToMultiDaySpans = (spans: { event: CalendarEvent; colStart: number; colEnd: number }[]): { event: CalendarEvent; colStart: number; colEnd: number; row: number }[] => {
+    const rowIntervals: { start: number; end: number }[][] = [];
+    const result: { event: CalendarEvent; colStart: number; colEnd: number; row: number }[] = [];
+    for (const s of spans) {
+      let row = 0;
+      for (;; row++) {
+        if (row >= rowIntervals.length) rowIntervals[row] = [];
+        const intervals = rowIntervals[row];
+        const overlaps = intervals.some(iv => s.colStart <= iv.end && s.colEnd >= iv.start);
+        if (!overlaps) break;
+      }
+      if (row >= rowIntervals.length) rowIntervals[row] = [];
+      rowIntervals[row].push({ start: s.colStart, end: s.colEnd });
+      result.push({ ...s, row });
+    }
+    return result;
   };
 
   const persistTaskDates = async (taskId: string, startDate: string, endDate: string, reason?: string) => {
@@ -1690,6 +1722,14 @@ export default function ScheduleManagement() {
             {/* Calendar weeks */}
             {calendarWeeks.map((week, weekIndex) => {
               const multiDaySpans = getMultiDaySpansForWeek(week);
+              const multiDaySpansWithRow = assignRowsToMultiDaySpans(multiDaySpans);
+              const multiDayRowCount = multiDaySpansWithRow.length > 0 ? Math.max(...multiDaySpansWithRow.map(s => s.row)) + 1 : 0;
+              const BAR_HEIGHT = 28;
+              const TASK_GAP = 4; // ระยะห่างเท่ากันทุกที่: ระหว่างแถบ-แถบ, แถบ-pill, pill-pill
+              const MULTI_DAY_TOP_OFFSET = 32;
+              /** ความสูงพื้นที่แถบงานหลายวัน + ระยะห่างก่อน pills ให้เท่ากับ TASK_GAP */
+              const multiDayAreaHeight = (rows: number) =>
+                MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
               return (
                 <div key={weekIndex} className="relative grid grid-cols-7 gap-px">
                   {week.map((day, dayIndex) => {
@@ -1697,18 +1737,21 @@ export default function ScheduleManagement() {
                     // กรองงานหลายวันออกจาก pills ในวันแรก (เพราะจะแสดงเป็นแถบต่อกันแล้ว)
                     const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
                     const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
-                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ → เว้นที่ให้แถบ ไม่ให้ pill ซ้อน
-                    const hasMultiDayBarAbove = multiDaySpans.some(({ colStart, colEnd }) => dayIndex >= colStart && dayIndex <= colEnd);
+                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ — ใช้เฉพาะจำนวนแถวที่ครอบคลุมวันนี้ เพื่อไม่ให้มีช่องว่างเกิน (ไม่มีแถบว่าง)
+                    const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
+                    const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
+                    const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
                     return (
                       <div
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => e.preventDefault()}
-                        className={`min-h-[100px] p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : 'bg-white'
+                        className={`p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : 'bg-white'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'bg-blue-50 border-2 border-blue-300'
                             : ''
                           }`}
+                        style={{ minHeight: multiDayRowCount > 0 ? multiDayAreaHeight(multiDayRowCount) + 44 : 100 }}
                       >
                         {day !== null && (
                           <>
@@ -1720,10 +1763,10 @@ export default function ScheduleManagement() {
                             >
                               {day}
                             </span>
-                            {/* งานวันเดียว — แสดงเป็น pill (ไม่รวมงานหลายวัน), เว้นที่ด้านบนถ้ามีแถบงานหลายวัน */}
+                            {/* งานวันเดียว — ให้ pills เริ่มชิดใต้แถบ (หักความสูงพื้นที่วันที่ออก เพราะแถบวัดจากบน cell) */}
                             <div
-                              className="mt-1.5 space-y-0.5 relative z-10"
-                              style={hasMultiDayBarAbove ? { marginTop: '36px' } : undefined}
+                              className={`space-y-0.5 relative z-10 ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
+                              style={hasMultiDayBarAbove ? { marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px` } : undefined}
                             >
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
@@ -1767,14 +1810,32 @@ export default function ScheduleManagement() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
+                                    className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
                                   >
                                     <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
-                                    <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                                    <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
                                       {ev.title || '(No title)'}
                                     </span>
+                                    {ev.Eng_ids && ev.Eng_ids.length > 0 && (
+                                      <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                                        <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                                          {ev.Eng_ids[0].photo ? (
+                                            <img src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                                          ) : (
+                                            <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                              {(ev.Eng_ids[0].name?.[0] || ev.Eng_ids[0].id?.[0] || '?').toUpperCase()}
+                                            </span>
+                                          )}
+                                        </span>
+                                        {ev.Eng_ids.length > 1 && (
+                                          <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                                            +{ev.Eng_ids.length - 1}
+                                          </span>
+                                        )}
+                                      </span>
+                                    )}
                                     {isDone && (
                                       <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                                     )}
@@ -1787,8 +1848,8 @@ export default function ScheduleManagement() {
                       </div>
                     );
                   })}
-                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง */}
-                  {multiDaySpans.map(({ event, colStart, colEnd }) => {
+                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง (จัดหลายแถวถ้าซ้อนกัน) */}
+                  {multiDaySpansWithRow.map(({ event, colStart, colEnd, row }) => {
                     const isMA = event.taskType === 'MA';
                     const isDone = event.status === 'done';
                     const endDateStr = event.endDate || event.startDate || '';
@@ -1805,16 +1866,17 @@ export default function ScheduleManagement() {
                         : isMA 
                           ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
                           : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                    const topPx = MULTI_DAY_TOP_OFFSET + row * (BAR_HEIGHT + TASK_GAP);
                     return (
                       <div
                         key={event.id}
                         style={{
                           gridColumn: `${colStart + 1} / ${colEnd + 2}`,
                           position: 'absolute',
-                          top: '32px',
+                          top: `${topPx}px`,
                           left: '8px',
                           right: '8px',
-                          height: '28px',
+                          height: `${BAR_HEIGHT}px`,
                         }}
                         draggable={!isDone}
                         onDragStart={() => !isDone && setDraggedEvent(event)}
@@ -1838,14 +1900,32 @@ export default function ScheduleManagement() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
                         <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
-                        <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                        <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
                           {event.title || '(No title)'}
                         </span>
+                        {event.Eng_ids && event.Eng_ids.length > 0 && (
+                          <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                            <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                              {event.Eng_ids[0].photo ? (
+                                <img src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                  {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
+                                </span>
+                              )}
+                            </span>
+                            {event.Eng_ids.length > 1 && (
+                              <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                                +{event.Eng_ids.length - 1}
+                              </span>
+                            )}
+                          </span>
+                        )}
                         {isDone && (
                           <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                         )}
@@ -1942,10 +2022,21 @@ export default function ScheduleManagement() {
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-1.5">
                   {hoveredEvent.Eng_ids.map((eng, idx) => (
-                    <div key={idx} className="text-xs text-slate-800">
-                      {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                    <div key={eng.id || idx} className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100">
+                        {eng.photo ? (
+                          <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
+                            {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs text-slate-800">
+                        {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                      </span>
                     </div>
                   ))}
                 </div>

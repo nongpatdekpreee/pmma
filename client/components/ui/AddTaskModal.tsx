@@ -2169,37 +2169,39 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       
             <h3 className="text-xs font-bold text-slate-700">Assignment</h3>
 
-            <div className="relative w-fit max-w-full">
+            <div className="relative">
               <label className={fieldLabel}>Assign Engineer <span className="text-red-500">*</span></label>
-
-              {/* Engineer multi-select: chips ขนาดพอดีกับที่เลือก */}
+ 
+              {/* Email-style input container */}
               <div
-                className={`min-h-10 w-fit max-w-full min-w-[200px] px-3 py-2 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2 items-center transition-shadow ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-400 border-blue-300 shadow-sm' : 'hover:border-slate-300'}`}
-                onClick={() => document.getElementById('engineer-input')?.focus()}
+                className={`min-h-9 w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap gap-1.5 items-center ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-500 border-blue-400' : ''
+                  }`}
+                onClick={() => {
+                  const input = document.getElementById('engineer-input');
+                  input?.focus();
+                }}
               >
-                {selectedEngineers.map((eng) => {
-                  const fullName = `${eng.name}${eng.lastName ? ' ' + eng.lastName : ''}`.trim();
-                  return (
-                    <span
-                      key={eng.id}
-                      title={fullName}
-                      className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200/80 shrink-0"
+                {/* Selected Engineers as Chips */}
+                {selectedEngineers.map((eng) => (
+                  <span
+                    key={eng.id}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-none text-xs font-medium"
+                  >
+                    {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeEngineer(eng.id);
+                      }}
+                      className="hover:text-blue-900 focus:outline-none"
                     >
-                      <span className="truncate max-w-[140px]">{fullName}</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeEngineer(eng.id);
-                        }}
-                        className="shrink-0 rounded p-0.5 hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition-colors"
-                        aria-label="Remove"
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  );
-                })}
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+ 
+                {/* Input field */}
                 <input
                   id="engineer-input"
                   type="text"
@@ -2209,30 +2211,34 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     setShowEngineerDropdown(true);
                   }}
                   onFocus={() => setShowEngineerDropdown(true)}
-                  onBlur={() => setTimeout(() => setShowEngineerDropdown(false), 200)}
+                  onBlur={() => {
+                    // Delay to allow click on dropdown items
+                    setTimeout(() => setShowEngineerDropdown(false), 200);
+                  }}
                   onKeyDown={handleEngineerInputKeyDown}
-                  placeholder={selectedEngineers.length === 0 ? 'ค้นหาหรือเลือก engineer...' : 'เพิ่ม...'}
-                  className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5 placeholder:text-slate-400"
+                  placeholder={selectedEngineers.length === 0 ? 'Type to search engineer...' : ''}
+                  className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5"
                 />
               </div>
-
+ 
               {/* Dropdown */}
               {showEngineerDropdown && filteredEngineers.length > 0 && (
-                <div className="absolute z-10 left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto py-1 min-w-[200px]">
+                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto">
                   {filteredEngineers.map((eng) => (
-                    <button
+                    <div
                       key={eng.id}
-                      type="button"
                       onClick={async () => await addEngineer(eng)}
-                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 cursor-pointer transition text-sm text-slate-700"
+                      className="px-3 py-2 hover:bg-blue-50 cursor-pointer transition"
                     >
-                      <span className="font-medium">{eng.name}{eng.lastName ? ' ' + eng.lastName : ''}</span>
-                      <span className="text-slate-400 text-xs ml-1">({eng.id})</span>
-                    </button>
+                      <p className="text-sm font-medium text-slate-700">
+                        {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
+                      </p>
+                      <p className="text-xs text-slate-400">{eng.id}</p>
+                    </div>
                   ))}
                 </div>
               )}
-
+ 
               {/* Empty state */}
               {showEngineerDropdown && filteredEngineers.length === 0 && engineerInput && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3">
@@ -2241,7 +2247,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               )}
             </div>
      
-
+ 
             <div>
               <label className={fieldLabel}>Coverage Scope</label>
               <textarea
@@ -2296,7 +2302,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           }
         }}
       />
-
     </div>
   );
 }
