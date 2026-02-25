@@ -620,7 +620,7 @@ export default function AddContractPage() {
       e.target.value = '';
     }
   };
-
+//
   const handleSubmit = async (e: React.FormEvent, isDraft?: boolean) => {
     e?.preventDefault?.();
     setSaveError('');

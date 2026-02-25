@@ -4,6 +4,7 @@
  * Sheet 2 = Contract Name (คอลัมน์เดียว): แถวที่เป็นชื่อสัญญา ตามด้วยแถว serial device ที่จะ add เข้าสัญญานั้น
  * Run: node scripts/generate-contract-import-template.js
  */
+//
 const XLSX = require('xlsx');
 const path = require('path');
 const fs = require('fs');

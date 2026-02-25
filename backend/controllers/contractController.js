@@ -533,11 +533,56 @@ const createContract = async (req, res) => {
 };
 
 // GET - ดึง Contracts: ไม่ส่ง site_id = ดึงทั้งหมด; ส่ง site_id = กรองตาม site
+// ถ้า expand=sites คืนหนึ่งแถวต่อ (contract, site) สำหรับหน้า contract แบบตาราง
 const getContractsBySite = async (req, res) => {
   try {
     const siteId = req.query.site_id;
+    const expandSites = req.query.expand === 'sites';
 
-    // กรอง site จาก contract_device.SLid (ใช้แค่ contract_device ไม่ใช้ contract_site)
+    if (expandSites) {
+      // หนึ่งแถวต่อ contract-site: contract_id, contract_name, start_date, end_date, status, site_name, site_location, device_count
+      const notExpired = ' (c.end_date IS NULL OR c.end_date >= CURDATE()) ';
+      let sql = `
+        SELECT c.contract_id, c.contract_name, c.start_date, c.end_date, c.status,
+          s.Name AS site_name, l.Location2 AS site_location,
+          COUNT(cd.device_id) AS device_count
+        FROM contract c
+        INNER JOIN contract_device cd ON c.contract_id = cd.contract_id AND cd.SLid IS NOT NULL
+        INNER JOIN sites_location sl ON cd.SLid = sl.SLid
+        LEFT JOIN sites s ON sl.Sid = s.Sid
+        LEFT JOIN location l ON sl.lid = l.lid
+        WHERE ${notExpired}
+      `;
+      const params = [];
+      if (siteId) {
+        const siteIdNum = parseInt(siteId, 10);
+        if (!isNaN(siteIdNum)) {
+          sql += ' AND (c.site_id = ? OR cd.SLid = ?)';
+          params.push(siteIdNum, siteIdNum);
+        }
+      }
+      sql += ` GROUP BY c.contract_id, c.contract_name, c.start_date, c.end_date, c.status, sl.SLid, s.Name, l.Location2
+        UNION ALL
+        SELECT c.contract_id, c.contract_name, c.start_date, c.end_date, c.status,
+          NULL AS site_name, NULL AS site_location, 0 AS device_count
+        FROM contract c
+        LEFT JOIN (SELECT DISTINCT contract_id FROM contract_device WHERE SLid IS NOT NULL) cd ON c.contract_id = cd.contract_id
+        WHERE ${notExpired}
+        AND cd.contract_id IS NULL
+      `;
+      if (siteId) {
+        const siteIdNum = parseInt(siteId, 10);
+        if (!isNaN(siteIdNum)) {
+          sql += ' AND c.site_id = ?';
+          params.push(siteIdNum);
+        }
+      }
+      sql += ' ORDER BY contract_id DESC, site_name IS NULL, site_name ASC';
+      const [rows] = await db.execute(sql, params);
+      return res.status(200).json({ success: true, data: rows });
+    }
+
+    // รูปแบบเดิม: หนึ่งแถวต่อ contract (site_name, site_location รวมหลาย site) — ใช้ JOIN แทน correlated subquery
     const baseSelect = `
       SELECT DISTINCT
         c.contract_id,
@@ -549,15 +594,30 @@ const getContractsBySite = async (req, res) => {
         c.sale_account,
         c.sof_name,
         c.status,
-        s.Name AS site_name,
-        (SELECT COUNT(*) FROM contract_device WHERE contract_id = c.contract_id) AS device_count
+        agg.site_name,
+        agg.site_location,
+        COALESCE(cnt.device_count, 0) AS device_count
       FROM contract c
-      LEFT JOIN sites_location sl ON c.site_id = sl.SLid
-      LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN (
+        SELECT contract_id,
+          GROUP_CONCAT(site_name ORDER BY slid SEPARATOR '; ') AS site_name,
+          GROUP_CONCAT(site_location ORDER BY slid SEPARATOR '; ') AS site_location
+        FROM (
+          SELECT DISTINCT cd.contract_id, sl.SLid AS slid, s.Name AS site_name, IFNULL(l.Location2, '') AS site_location
+          FROM contract_device cd
+          INNER JOIN sites_location sl ON cd.SLid = sl.SLid
+          LEFT JOIN sites s ON sl.Sid = s.Sid
+          LEFT JOIN location l ON sl.lid = l.lid
+          WHERE cd.SLid IS NOT NULL
+        ) x
+        GROUP BY contract_id
+      ) agg ON c.contract_id = agg.contract_id
+      LEFT JOIN (SELECT contract_id, COUNT(*) AS device_count FROM contract_device GROUP BY contract_id) cnt ON c.contract_id = cnt.contract_id
       LEFT JOIN contract_device cd ON c.contract_id = cd.contract_id
       LEFT JOIN devices d ON cd.device_id = d.Did
     `;
     let params = [];
+    let sql;
 
     const notExpiredCondition = ' (c.end_date IS NULL OR c.end_date >= CURDATE()) ';
     if (siteId) {
@@ -1241,5 +1301,5 @@ const updateContract = async (req, res) => {
     conn.release();
   }
 };
-
+//
 module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory, getContractById, updateContract };

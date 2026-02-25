@@ -1,5 +1,5 @@
 const db = require('../config/database');
-
+//
 // devices_history is populated by DB triggers (trg_devices_insert, trg_devices_update)
 // ไม่ต้อง insert จาก application
 // POST - สร้าง Device ใหม่ (รองรับทั้ง 1 device และหลาย devices)
