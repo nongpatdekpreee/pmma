@@ -1301,5 +1301,5 @@ const updateContract = async (req, res) => {
     conn.release();
   }
 };
-
+//
 module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory, getContractById, updateContract };
