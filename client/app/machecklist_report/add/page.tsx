@@ -20,7 +20,10 @@ import {
   Calendar,
   User,
   MapPin,
-  ClipboardList
+  ClipboardList,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 interface ChecklistItem {
@@ -79,12 +82,55 @@ export default function AddMAReportPage() {
   const [checkingTasks, setCheckingTasks] = useState(true);
   const [reportedTaskIds, setReportedTaskIds] = useState<Set<number>>(new Set());
   const [contractSlaMap, setContractSlaMap] = useState<Record<number, number>>({});
+  const [searchTaskReport, setSearchTaskReport] = useState('');
+  const [sortTaskBy, setSortTaskBy] = useState<'date-desc' | 'date-asc' | 'site' | 'engineer'>('date-desc');
+  const [taskPage, setTaskPage] = useState(1);
+
+  const TASKS_PER_PAGE = 3;
 
   // แสดงเฉพาะ Task ที่ยังไม่มี report_id (task_id ไม่อยู่ใน table report)
   const availableMATasks = useMemo(
     () => doneMATasks.filter((t: any) => !reportedTaskIds.has(Number(t.id))),
     [doneMATasks, reportedTaskIds]
   );
+
+  const taskSearchLower = searchTaskReport.trim().toLowerCase();
+  const filteredAndSortedTasks = useMemo(() => {
+    let list = availableMATasks;
+    if (taskSearchLower) {
+      list = list.filter((t: any) => {
+        const site = (t.siteName || t.site_name || '').toLowerCase();
+        const start = t.startDate ? new Date(t.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
+        const end = t.endDate ? new Date(t.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
+        const engineers = (t.engineers || []).map((e: any) => (e.name || e.id || '').toString().toLowerCase()).join(' ');
+        const devices = (t.assets || []).map((a: any) => (a.name || a.CI_Name || a.id || '').toString().toLowerCase()).join(' ');
+        return [site, start, end, engineers, devices].some(s => s.includes(taskSearchLower));
+      });
+    }
+    const sorted = [...list].sort((a: any, b: any) => {
+      if (sortTaskBy === 'date-desc') return (new Date(b.startDate || 0).getTime()) - (new Date(a.startDate || 0).getTime());
+      if (sortTaskBy === 'date-asc') return (new Date(a.startDate || 0).getTime()) - (new Date(b.startDate || 0).getTime());
+      if (sortTaskBy === 'site') return (a.siteName || a.site_name || '').localeCompare(b.siteName || b.site_name || '');
+      if (sortTaskBy === 'engineer') {
+        const aStr = (a.engineers || []).map((e: any) => e.name || e.id).join(', ');
+        const bStr = (b.engineers || []).map((e: any) => e.name || e.id).join(', ');
+        return aStr.localeCompare(bStr);
+      }
+      return 0;
+    });
+    return sorted;
+  }, [availableMATasks, taskSearchLower, sortTaskBy]);
+
+  const totalTaskPages = Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE));
+  const taskPageSafe = Math.min(Math.max(1, taskPage), totalTaskPages);
+  const paginatedTasks = useMemo(
+    () => filteredAndSortedTasks.slice((taskPageSafe - 1) * TASKS_PER_PAGE, taskPageSafe * TASKS_PER_PAGE),
+    [filteredAndSortedTasks, taskPageSafe]
+  );
+
+  useEffect(() => {
+    setTaskPage(p => Math.min(p, Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE)) || 1));
+  }, [searchTaskReport, sortTaskBy, filteredAndSortedTasks.length]);
 
   // Check if there are done MA tasks
   useEffect(() => {
@@ -96,9 +142,11 @@ export default function AddMAReportPage() {
           getMaReportedTaskIds(), // ดึง task_id ที่มี report_id แล้ว เพื่อกรองออก (แสดงเฉพาะที่ยังไม่มี)
         ]);
         if (tasksRes.success && tasksRes.data) {
-          const done = tasksRes.data.filter(
-            (task: any) => task.status === 'done' && task.taskType === 'MA'
-          );
+          const done = tasksRes.data.filter((task: any) => {
+            const status = String(task.status ?? '').toLowerCase();
+            const type = String(task.taskType ?? task.task_type ?? '').toUpperCase();
+            return status === 'done' && type === 'MA';
+          });
           setHasDoneMATasks(done.length > 0);
           setDoneMATasks(done);
         }
@@ -273,16 +321,16 @@ export default function AddMAReportPage() {
   // Handle save - อัปโหลดไฟล์ก่อน แล้วส่ง report
   const handleSave = async () => {
     if (!selectedTaskId) {
-      alert('กรุณาเลือก Task ก่อนส่ง Report');
+      alert('Please select a task before submitting the report.');
       return;
     }
     if (!selectedDeviceId) {
-      alert('กรุณาเลือก Device');
+      alert('Please select a device.');
       return;
     }
     const num = slaResult.trim() === '' ? NaN : Number(slaResult);
     if (slaResult.trim() === '' || Number.isNaN(num)) {
-      alert('กรุณากรอกคะแนน MA Result (ตัวเลข)');
+      alert('Please enter MA Result score (number).');
       return;
     }
 
@@ -316,15 +364,15 @@ export default function AddMAReportPage() {
 
       const res = await postMaReport(reportData);
       if (res.success) {
-        alert('บันทึกข้อมูล MA Checklist Report สำเร็จ\n\nรายการที่ส่งไป: ' + (res.list?.length ?? checklistItems.length) + ' รายการ');
+        alert('MA Checklist Report saved successfully.\n\nItems sent: ' + (res.list?.length ?? checklistItems.length));
         // Redirect กลับไปหน้า list
         router.push('/machecklist_report');
       } else {
-        alert(res.message || 'ส่ง Report ไม่สำเร็จ');
+        alert(res.message || 'Failed to submit report.');
       }
     } catch (e) {
       console.error(e);
-      alert('เกิดข้อผิดพลาดในการส่ง Report');
+      alert('Error submitting report.');
     } finally {
       setSaving(false);
     }
@@ -353,8 +401,8 @@ export default function AddMAReportPage() {
         <DashboardHeader />
         <div className="flex items-center justify-center min-h-screen bg-slate-50">
           <div className="text-center">
-            <p className="text-slate-500 mb-2">กำลังตรวจสอบ Tasks...</p>
-            <p className="text-sm text-slate-400">กรุณารอสักครู่</p>
+            <p className="text-slate-500 mb-2">Checking tasks...</p>
+            <p className="text-sm text-slate-400">Please wait</p>
           </div>
         </div>
       </SidebarLayout>
@@ -373,18 +421,18 @@ export default function AddMAReportPage() {
               <AlertCircle size={40} className={allReported ? 'text-green-600' : 'text-amber-500'} />
             </div>
             <p className="text-slate-700 text-lg font-semibold mb-2">
-              {allReported ? 'ทำ Report ครบแล้ว' : 'ไม่สามารถสร้าง Report MA ได้'}
+              {allReported ? 'All reports completed' : 'Cannot create MA Report'}
             </p>
             <p className="text-slate-500 text-sm mb-6">
               {allReported
-                ? 'ทุก Task ที่ Done ทำ Report ครบแล้ว ไม่มี Task ที่รอทำ Report'
-                : 'กรุณารอให้ Task MA มีสถานะ "Done" ก่อน'}
+                ? 'All done tasks have reports. No tasks pending report.'
+                : 'Please wait until MA tasks have status "Done".'}
             </p>
             <button
               onClick={() => router.push('/pmchecklist_report?tab=ma')}
               className="px-6 py-2.5 bg-emerald-500 text-white rounded-xl font-medium hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-500/20"
             >
-              กลับไปหน้า Report
+              Back to Report
             </button>
           </div>
         </div>
@@ -408,27 +456,50 @@ export default function AddMAReportPage() {
             </button>
             <div>
               <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
-                สร้าง MA Checklist Report
+                Create MA Checklist Report
               </h1>
               <p className="text-sm text-slate-500 mt-1">
-                บันทึกรายงานข้อตกลงการบำรุงรักษา
+                Record maintenance agreement report
               </p>
             </div>
           </div>
         </div>
 
-        {/* ข้อมูล Task ที่จะ Report */}
+        {/* Tasks to Report */}
         {availableMATasks.length > 0 && (
           <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <ClipboardList size={22} className="text-green-600" />
-              <h2 className="text-lg font-bold text-slate-800">ข้อมูล Task ที่จะ Report</h2>
+              <h2 className="text-lg font-bold text-slate-800">Tasks to Report</h2>
             </div>
             <p className="text-sm text-slate-500 mb-4">
-              
+              Select completed tasks (Status = Done) that do not yet have a report to auto-fill the form.
             </p>
+            <div className="flex flex-col sm:flex-row gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchTaskReport}
+                  onChange={(e) => { setSearchTaskReport(e.target.value); setTaskPage(1); }}
+                  placeholder="Search location, date, person, device..."
+                  className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                />
+              </div>
+              <select
+                value={sortTaskBy}
+                onChange={(e) => { setSortTaskBy(e.target.value as any); setTaskPage(1); }}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none"
+              >
+                <option value="date-desc">Newest first</option>
+                <option value="date-asc">Oldest first</option>
+              </select>
+            </div>
+            <div className="mb-3 text-xs text-slate-500">
+              Showing {filteredAndSortedTasks.length === 0 ? 0 : (taskPageSafe - 1) * TASKS_PER_PAGE + 1}-{Math.min(taskPageSafe * TASKS_PER_PAGE, filteredAndSortedTasks.length)} of {filteredAndSortedTasks.length} tasks
+            </div>
             <div className="space-y-3">
-              {availableMATasks.map((task) => (
+              {paginatedTasks.map((task) => (
                 <div
                   key={task.id}
                   className={`p-4 rounded-xl border-2 transition-all ${
@@ -466,7 +537,7 @@ export default function AddMAReportPage() {
                                 <span>{brokenName}</span>
                                 {repName && (
                                   <>
-                                    <span className="text-[10px] font-semibold text-slate-400">เปลี่ยนเป็น</span>
+                                    <span className="text-[10px] font-semibold text-slate-400">replaced by</span>
                                     <span className="text-green-700">{repName}</span>
                                   </>
                                 )}
@@ -485,12 +556,33 @@ export default function AddMAReportPage() {
                           : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
-                      {selectedTaskId === task.id ? 'กำลังใช้ข้อมูลนี้' : 'ใช้ข้อมูล Task นี้'}
+                      {selectedTaskId === task.id ? 'Using this data' : 'Use this task'}
                     </button>
                   </div>
                 </div>
               ))}
             </div>
+            {totalTaskPages > 1 && (
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTaskPage(p => Math.max(1, p - 1))}
+                  disabled={taskPageSafe <= 1}
+                  className="p-2 rounded-lg border border-slate-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <span className="text-sm text-slate-600 px-2">Page {taskPageSafe} / {totalTaskPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setTaskPage(p => Math.min(totalTaskPages, p + 1))}
+                  disabled={taskPageSafe >= totalTaskPages}
+                  className="p-2 rounded-lg border border-slate-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -508,7 +600,7 @@ export default function AddMAReportPage() {
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">
-                {loadingDevices ? 'Loading...' : availableMATasks.length > 0 && allowedDevices.length === 0 ? 'Please select a Task above' : 'Select Device...'}
+                {loadingDevices ? 'Loading...' : availableMATasks.length > 0 && allowedDevices.length === 0 ? 'Please select a task above first' : 'Select device...'}
               </option>
               {allowedDevices.map(device => {
                 const task = selectedTaskId != null ? availableMATasks.find((t: any) => t.id === selectedTaskId) : null;
@@ -518,7 +610,7 @@ export default function AddMAReportPage() {
                     {device.CI_Name || device.Asset_Number || `Device ${device.Did}`}
                     {device.serial ? ` (${device.serial})` : ''}
                     {device.Sitename ? ` - ${device.Sitename}` : ''}
-                    {isReplacement ? ' [อุปกรณ์ที่เอามาแลกเปลี่ยน]' : ''}
+                    {isReplacement ? ' [Replacement device]' : ''}
                   </option>
                 );
               })}
@@ -526,7 +618,7 @@ export default function AddMAReportPage() {
             {doneMATasks.length > 0 && allowedDevices.length > 0 && (
               <p className="mt-1 text-xs text-slate-500">Only show devices from selected Task</p>
             )}
-            {/* ข้อมูล Device ที่เลือก - แสดงฟิลด์ให้ครบตาม device ที่ดึงมา */}
+            {/* Selected device - show fields from fetched device */}
             {selectedDeviceId && (() => {
               const selected = allowedDevices.find(d => d.Did.toString() === selectedDeviceId) ?? devices.find(d => d.Did.toString() === selectedDeviceId);
               if (!selected) return null;
@@ -549,24 +641,79 @@ export default function AddMAReportPage() {
                 { label: 'Asset State', value: selected.Asset_State },
                 { label: 'Assigned Service', value: selected.Assigned_Service },
               ];
+              // MA: find the other device in the replace pair (replaced / replacement)
+              let pairDevice: Device | null = null;
+              let pairLabel = '';
+              if (task?.assets?.length) {
+                for (let i = 0; i < task.assets.length; i++) {
+                  const a = task.assets[i];
+                  const brokenId = getDeviceIdFromAsset(a);
+                  const repId = a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null);
+                  if (String(selectedDeviceId) === String(brokenId)) {
+                    pairDevice = repId != null ? (allowedDevices.find(d => d.Did === Number(repId)) ?? devices.find(d => d.Did === Number(repId)) ?? null) : null;
+                    pairLabel = 'Replacement device';
+                    break;
+                  }
+                  if (repId != null && String(repId) === String(selectedDeviceId)) {
+                    pairDevice = allowedDevices.find(d => d.Did.toString() === String(brokenId)) ?? devices.find(d => d.Did.toString() === String(brokenId)) ?? null;
+                    if (!pairDevice && brokenId) {
+                      pairDevice = {
+                        Did: Number(brokenId) || 0,
+                        CI_Name: a.name ?? a.CI_Name ?? a.Asset_Number ?? `Device ${brokenId}`,
+                        Asset_Number: a.Asset_Number ?? a.assetNumber,
+                        serial: a.serial ?? a.serialNumber,
+                        model: a.model ?? a.type,
+                        Sitename: a.site ?? a.SiteName,
+                      } as Device;
+                    }
+                    pairLabel = 'Replaced device (original)';
+                    break;
+                  }
+                }
+              }
+              const pairFields = pairDevice ? [
+                { label: 'CI Name', value: pairDevice.CI_Name },
+                { label: 'Asset Number', value: pairDevice.Asset_Number },
+                { label: 'Serial', value: pairDevice.serial },
+                { label: 'Model', value: pairDevice.model },
+                { label: 'Site', value: pairDevice.Sitename },
+              ] : [];
               return (
-                <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="flex items-center gap-2 mb-3">
-                    <p className="text-sm font-bold text-slate-700">ข้อมูล Device ที่เลือก</p>
-                    {isReplacement && (
-                      <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">อุปกรณ์ที่เอามาแลกเปลี่ยน</span>
-                    )}
+                <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <p className="text-sm font-bold text-slate-700">Selected device</p>
+                      {isReplacement && (
+                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Replacement device</span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {deviceFields.map(({ label, value }) => (
+                        <div key={label} className="bg-white rounded-lg p-3 border border-slate-100">
+                          <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                          <p className="text-sm font-medium text-slate-800 truncate" title={value != null && value !== '' ? String(value) : undefined}>
+                            {value ?? '-'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {deviceFields.map(({ label, value }) => (
-                      <div key={label} className="bg-white rounded-lg p-3 border border-slate-100">
-                        <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-                        <p className="text-sm font-medium text-slate-800 truncate" title={value != null && value !== '' ? String(value) : undefined}>
-                          {value ?? '-'}
-                        </p>
+                  {pairDevice && pairLabel && (
+                    <div className="p-4 bg-slate-100/80 rounded-xl border border-slate-200">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Replaced equipment</p>
+                      <p className="text-sm font-bold text-slate-700 mb-2">{pairLabel}</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        {pairFields.map(({ label, value }) => (
+                          <div key={label} className="bg-white rounded-lg p-3 border border-slate-100">
+                            <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                            <p className="text-sm font-medium text-slate-800 truncate" title={value != null && value !== '' ? String(value) : undefined}>
+                              {value ?? '-'}
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -612,7 +759,7 @@ export default function AddMAReportPage() {
                 accept="image/*,.pdf"
                 onChange={handleFileUpload}
                 className="sr-only"
-                aria-label="อัปโหลดไฟล์รูปหรือ PDF"
+                aria-label="Upload image or PDF"
               />
               <label
                 htmlFor="file-upload"
@@ -674,7 +821,7 @@ export default function AddMAReportPage() {
           {/* MA Result - อิงตาม sla_term จาก Contract (คะแนนมากกว่า threshold = Pass) */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
-              MA Result * <span className="font-normal text-slate-500">(อิงตาม SLA Term จาก Contract)</span>
+              MA Result * <span className="font-normal text-slate-500">(based on SLA term from contract)</span>
             </label>
             <div className="flex flex-wrap items-center gap-4">
               <input
@@ -683,7 +830,7 @@ export default function AddMAReportPage() {
                 max={100}
                 value={slaResult}
                 onChange={(e) => setSlaResult(e.target.value)}
-                placeholder="เช่น 85"
+                placeholder="e.g. 85"
                 className="w-32 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
               {slaResult.trim() !== '' && !Number.isNaN(Number(slaResult)) && (
@@ -717,7 +864,7 @@ export default function AddMAReportPage() {
               className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-8 py-3.5 rounded-xl font-bold hover:from-emerald-600 hover:to-emerald-700 transition-all shadow-lg shadow-emerald-500/25 hover:shadow-emerald-500/40 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-emerald-500/25"
             >
               <Save size={18} />
-              {saving ? 'กำลังส่ง...' : 'Save MA Report'}
+              {saving ? 'Sending...' : 'Save MA Report'}
             </button>
           </div>
         </div>

@@ -227,12 +227,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getContractsBySite(siteId);
       if (!result.success) {
-        throw new Error('ไม่สามารถดึง Contracts ของ Site ได้');
+        throw new Error('Cannot load contracts of site.');
       }
       return result.data || [];
     } catch (error: any) {
       console.error('fetchContractsBySite error:', error);
-      throw new Error(error.message || 'โหลด Contracts ตาม Site ไม่สำเร็จ');
+      throw new Error(error.message || 'Cannot load contracts of site.');
     }
   };
 
@@ -241,7 +241,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getSitesByContract(contractId);
       if (!result.success) {
-        throw new Error('ไม่สามารถดึง Sites ของสัญญาได้');
+        throw new Error('Cannot load sites of contract.');
       }
       return (result.data || []).map((item: any) => ({
         id: String(item.SLid),
@@ -251,7 +251,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }));
     } catch (error: any) {
       console.error('fetchSitesByContract error:', error);
-      throw new Error(error.message || 'โหลด Sites ตามสัญญาไม่สำเร็จ');
+      throw new Error(error.message || 'Cannot load sites of contract.');
     }
   };
 
@@ -260,12 +260,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getDevicesByContract(contractId);
       if (!result.success) {
-        throw new Error('ไม่สามารถดึงข้อมูลอุปกรณ์ได้');
+        throw new Error('Cannot load devices of contract.');
       }
       return (result.data || []).map((d: any) => mapDeviceFromApi(d, 'site'));
     } catch (error: any) {
       console.error('fetchDevicesByContract error:', error);
-      throw new Error(error.message || 'โหลดอุปกรณ์ตามสัญญาไม่สำเร็จ');
+      throw new Error(error.message || 'Cannot load devices of contract.');
     }
   };
 
@@ -273,7 +273,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     const res = await fetch(apiUrl('/api/devices/by-asset-state?states=In%20Store,In%20Store%20On%20Site,Waiting%20to%20sell'));
     const json = await res.json();
     if (!json.success) {
-      throw new Error(json.message || 'โหลดอุปกรณ์คงคลังไม่สำเร็จ');
+      throw new Error(json.message || 'Cannot load available devices.');
     }
     return (json.data || []).map((d: any) => mapDeviceFromApi(d, 'available'));
   };
@@ -298,7 +298,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setSiteOptions(sites);
     } catch (error: any) {
       console.error('loadAllSites error:', error);
-      setDeviceError(error.message || 'ไม่สามารถโหลด Sites ได้');
+      setDeviceError(error.message || 'Cannot load sites.');
       setSiteOptions([]);
     } finally {
       setLoadingSites(false);
@@ -330,7 +330,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }
     } catch (error: any) {
       console.error('loadContractsForSite error:', error);
-      setDeviceError(error.message || 'ไม่สามารถโหลด Contracts ได้');
+      setDeviceError(error.message || 'Cannot load contracts.');
       setContractOptions([]);
     } finally {
       setLoadingContracts(false);
@@ -341,12 +341,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getContractsBySite();
       if (!result.success) {
-        throw new Error('Cannot load contracts');
+        throw new Error('Cannot load contracts.');
       }
       return result.data || [];
     } catch (error: any) {
       console.error('fetchAllContracts error:', error);
-      throw new Error(error.message || 'Cannot load contracts');
+      throw new Error(error.message || 'Cannot load contracts.');
     }
   };
 
@@ -359,7 +359,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setContractOptions(contracts);
     } catch (error: any) {
       console.error('loadAllContracts error:', error);
-      setDeviceError(error.message || 'Cannot load contracts');
+      setDeviceError(error.message || 'Cannot load contracts.');
       setContractOptions([]);
     } finally {
       setLoadingContracts(false);
@@ -965,7 +965,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             day: 'numeric'
           })
         : '';
-      showWarning(`${engineerName} มีงานในวันที่ ${taskDate} ที่ ${taskInfo} แล้ว (งานซ้อนทับ)`, 5000);
+      showWarning(`${engineerName} already has a task on ${taskDate} at ${taskInfo} (overlap)`, 5000);
       // ไม่ return - ให้เพิ่ม engineer ได้
     }
 
@@ -1294,24 +1294,24 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }
       // Contract is required for MA because broken devices must come from contract
       if (!selectedContractId) {
-        alert('กรุณาเลือก Contract ก่อน (อุปกรณ์เสียต้องเป็นอุปกรณ์ที่ผูกกับ Contract)');
+        alert('Please select a contract before (broken devices must be from contract)');
         return;
       }
       // Validate broken device pairs (new way) or legacy selectedDevices
       if (brokenDevicePairs.length === 0 && selectedDevices.length === 0) {
-        alert('กรุณาเพิ่มอุปกรณ์เสียอย่างน้อย 1 ชิ้น');
+        alert('Please add at least one broken device');
         return;
       }
       // Check if all broken devices have replacement devices
       if (brokenDevicePairs.length > 0) {
         const missingReplacement = brokenDevicePairs.find(pair => !pair.replacementDevice);
         if (missingReplacement) {
-          alert(`กรุณาเลือก Replacement Device สำหรับอุปกรณ์: ${missingReplacement.brokenDevice.name}`);
+          alert(`Please select a replacement device for the device: ${missingReplacement.brokenDevice.name}`);
           return;
         }
       } else if (selectedDevices.length > 0 && !selectedReplacementDevice) {
         // Legacy mode validation
-        alert('กรุณาเลือก Replacement Device');
+        alert('Please select a replacement device');
         return;
       }
     }
@@ -1369,7 +1369,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       onClose();
     } catch (error) {
       console.error('save task error', error);
-      alert('บันทึกข้อมูลไม่สำเร็จ');
+      alert('Failed to save data.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1382,7 +1382,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     <div
       className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={(e) => {
-        // ปิด modal เมื่อคลิกที่ overlay (นอก modal content)
+        // Close modal when clicking on overlay (outside modal content)
         if (e.target === e.currentTarget) {
           onClose();
         }
@@ -1391,7 +1391,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       <div
         className="w-full max-w-4xl h-[90vh] max-h-[800px] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => {
-          // ป้องกันไม่ให้ปิด modal เมื่อคลิกที่ modal content
+          // Prevent closing modal when clicking on modal content
           e.stopPropagation();
         }}
       >
@@ -1435,14 +1435,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
 
 
-          {/* Site & Contract (เลือก Site ก่อน แล้วค่อย Contract) */}
+            {/* Site & Contract (select site first, then contract) */}
           <div className={sectionCard}>
             <h3 className="text-xs font-bold text-slate-700">Site & Contract Information</h3>
 
             <div>
               <label className={fieldLabel}>Site Name <span className="text-red-500">*</span></label>
 
-              {/* Custom Searchable Combobox for Sites */}
+              {/* Custom searchable combobox for sites */}
               <div className="relative" ref={siteDropdownRef}>
                 <div className="relative">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -1486,7 +1486,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                 {showSiteDropdown && !loadingSites && (
                   <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
-                    {/* Options List */}
+                    {/* options list */}
                     <div className="overflow-y-auto max-h-60">
                       {filteredSiteOptions.length === 0 ? (
                         <div className="px-3 py-2 text-xs text-slate-400 text-center">
@@ -2408,7 +2408,7 @@ function SearchableDeviceSelect({
           </div>
           <div className="max-h-48 overflow-y-auto">
             {filtered.length === 0 ? (
-              <p className="py-4 text-center text-sm text-slate-500">ไม่พบอุปกรณ์</p>
+              <p className="py-4 text-center text-sm text-slate-500">No devices found</p>
             ) : (
               filtered.map((d) => (
                 <button

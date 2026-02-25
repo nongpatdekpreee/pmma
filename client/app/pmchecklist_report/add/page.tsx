@@ -20,7 +20,10 @@ import {
   Calendar,
   User,
   MapPin,
-  ClipboardList
+  ClipboardList,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 interface ChecklistItem {
@@ -79,6 +82,11 @@ export default function AddPMReportPage() {
   const [checkingTasks, setCheckingTasks] = useState(true);
   const [reportedTaskIds, setReportedTaskIds] = useState<Set<number>>(new Set());
   const [contractSlaMap, setContractSlaMap] = useState<Record<number, number>>({});
+  const [searchTaskReport, setSearchTaskReport] = useState('');
+  const [sortTaskBy, setSortTaskBy] = useState<'date-desc' | 'date-asc' | 'site' | 'engineer'>('date-desc');
+  const [taskPage, setTaskPage] = useState(1);
+
+  const TASKS_PER_PAGE = 3;
 
   // ดึง task_id ที่มี report_id แล้ว เพื่อกรองออก (แสดงเฉพาะที่ยังไม่มี)
   useEffect(() => {
@@ -90,9 +98,11 @@ export default function AddPMReportPage() {
           getPmReportedTaskIds(),
         ]);
         if (tasksRes.success && tasksRes.data) {
-          const done = tasksRes.data.filter(
-            (task: any) => task.status === 'done' && task.taskType === 'PM'
-          );
+          const done = tasksRes.data.filter((task: any) => {
+            const status = String(task.status ?? '').toLowerCase();
+            const type = String(task.taskType ?? task.task_type ?? '').toUpperCase();
+            return status === 'done' && type === 'PM';
+          });
           setHasDonePMTasks(done.length > 0);
           setDonePMTasks(done);
         }
@@ -113,6 +123,46 @@ export default function AddPMReportPage() {
     () => donePMTasks.filter((t: any) => !reportedTaskIds.has(Number(t.id))),
     [donePMTasks, reportedTaskIds]
   );
+
+  // ค้นหา + เรียง + แบ่งหน้า
+  const taskSearchLower = searchTaskReport.trim().toLowerCase();
+  const filteredAndSortedTasks = useMemo(() => {
+    let list = availablePMTasks;
+    if (taskSearchLower) {
+      list = list.filter((t: any) => {
+        const site = (t.siteName || t.site_name || '').toLowerCase();
+        const start = t.startDate ? new Date(t.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
+        const end = t.endDate ? new Date(t.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
+        const engineers = (t.engineers || []).map((e: any) => (e.name || e.id || '').toString().toLowerCase()).join(' ');
+        const devices = (t.assets || []).map((a: any) => (a.name || a.CI_Name || a.id || '').toString().toLowerCase()).join(' ');
+        return [site, start, end, engineers, devices].some(s => s.includes(taskSearchLower));
+      });
+    }
+    const sorted = [...list].sort((a: any, b: any) => {
+      if (sortTaskBy === 'date-desc') return (new Date(b.startDate || 0).getTime()) - (new Date(a.startDate || 0).getTime());
+      if (sortTaskBy === 'date-asc') return (new Date(a.startDate || 0).getTime()) - (new Date(b.startDate || 0).getTime());
+      if (sortTaskBy === 'site') return (a.siteName || a.site_name || '').localeCompare(b.siteName || b.site_name || '');
+      if (sortTaskBy === 'engineer') {
+        const aStr = (a.engineers || []).map((e: any) => e.name || e.id).join(', ');
+        const bStr = (b.engineers || []).map((e: any) => e.name || e.id).join(', ');
+        return aStr.localeCompare(bStr);
+      }
+      return 0;
+    });
+    return sorted;
+  }, [availablePMTasks, taskSearchLower, sortTaskBy]);
+
+  const totalTaskPages = Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE));
+  const taskPageSafe = Math.min(Math.max(1, taskPage), totalTaskPages);
+  const paginatedTasks = useMemo(
+    () => filteredAndSortedTasks.slice((taskPageSafe - 1) * TASKS_PER_PAGE, taskPageSafe * TASKS_PER_PAGE),
+    [filteredAndSortedTasks, taskPageSafe]
+  );
+
+  // รีเซ็ตหน้าเมื่อค้นหา/เรียงเปลี่ยน
+  useEffect(() => {
+    setTaskPage(p => Math.min(p, Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE)) || 1));
+  }, [searchTaskReport, sortTaskBy, filteredAndSortedTasks.length]);
 
   // Fallback: เมื่อ Task มี contractId แต่ไม่มี slaTerm ให้ดึง sla_term จาก Contract
   useEffect(() => {
@@ -297,11 +347,11 @@ export default function AddPMReportPage() {
   // Handle save - อัปโหลดไฟล์ก่อน แล้วส่ง report
   const handleSave = async () => {
     if (!selectedTaskId) {
-      alert('กรุณาเลือก Task ก่อนส่ง Report');
+      alert('Please select a task before submitting the report.');
       return;
     }
     if (!selectedDeviceId) {
-      alert('กรุณาเลือก Device');
+      alert('Please select a device.');
       return;
     }
 
@@ -336,14 +386,14 @@ export default function AddPMReportPage() {
       const res = await postPmReport(reportData);
       if (res.success) {
         alert('Save PM Checklist Report Success\n\nSent: ' + (res.list?.length ?? checklistItems.length) + ' items');
-        // Redirect กลับไปหน้า list
+        // Redirect back to list
         router.push('/pmchecklist_report');
       } else {
-        alert(res.message || 'ส่ง Report ไม่สำเร็จ');
+        alert(res.message || 'Failed to submit report');
       }
     } catch (e) {
       console.error(e);
-      alert('เกิดข้อผิดพลาดในการส่ง Report');
+      alert('Error submitting report.');
     } finally {
       setSaving(false);
     }
@@ -373,8 +423,8 @@ export default function AddPMReportPage() {
         <DashboardHeader />
         <div className="flex items-center justify-center min-h-screen bg-slate-50">
           <div className="text-center">
-            <p className="text-slate-500 mb-2">กำลังตรวจสอบ Tasks...</p>
-            <p className="text-sm text-slate-400">กรุณารอสักครู่</p>
+            <p className="text-slate-500 mb-2">Checking tasks...</p>
+            <p className="text-sm text-slate-400">Please wait</p>
           </div>
         </div>
       </SidebarLayout>
@@ -393,18 +443,18 @@ export default function AddPMReportPage() {
               <AlertCircle size={40} className={allReported ? 'text-green-600' : 'text-amber-500'} />
             </div>
             <p className="text-slate-700 text-lg font-semibold mb-2">
-              {allReported ? 'ทำ Report ครบแล้ว' : 'ไม่สามารถสร้าง Report PM ได้'}
+              {allReported ? 'All reports completed' : 'Cannot create PM Report'}
             </p>
             <p className="text-slate-500 text-sm mb-6">
               {allReported
-                ? 'ทุก Task ที่ Done ทำ Report ครบแล้ว ไม่มี Task ที่รอทำ Report'
-                : 'กรุณารอให้ Task PM มีสถานะ "Done" ก่อน'}
+                ? 'All done tasks have reports. No tasks pending report.'
+                : 'Please wait until PM tasks have status "Done".'}
             </p>
             <button
               onClick={() => router.push('/pmchecklist_report')}
               className="px-6 py-2.5 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/20"
             >
-              กลับไปหน้า Report
+              Back to Report
             </button>
           </div>
         </div>
@@ -428,10 +478,10 @@ export default function AddPMReportPage() {
             </button>
             <div>
               <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
-                สร้าง PM Checklist Report
+                Create PM Checklist Report
               </h1>
               <p className="text-sm text-slate-500 mt-1">
-                บันทึกรายงานการบำรุงรักษาเชิงป้องกัน
+                Record preventive maintenance report
               </p>
             </div>
           </div>
@@ -442,13 +492,36 @@ export default function AddPMReportPage() {
           <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <ClipboardList size={22} className="text-blue-600" />
-              <h2 className="text-lg font-bold text-slate-800">ข้อมูล Task ที่จะ Report</h2>
+              <h2 className="text-lg font-bold text-slate-800">Tasks to Report</h2>
             </div>
             <p className="text-sm text-slate-500 mb-4">
-              เลือก Task ที่ทำเสร็จแล้ว (Status = Done) และยังไม่มี Report เพื่อนำข้อมูลมาใส่ใน Report ให้อัตโนมัติ
+              Select completed tasks (Status = Done) that do not yet have a report to auto-fill the form.
             </p>
+            <div className="flex flex-col sm:flex-row gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={searchTaskReport}
+                  onChange={(e) => { setSearchTaskReport(e.target.value); setTaskPage(1); }}
+                  placeholder="Search location, date, person, device..."
+                  className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+              <select
+                value={sortTaskBy}
+                onChange={(e) => { setSortTaskBy(e.target.value as any); setTaskPage(1); }}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="date-desc">Newest first</option>
+                <option value="date-asc">Oldest first</option>
+              </select>
+            </div>
+            <div className="mb-3 text-xs text-slate-500">
+              Showing {filteredAndSortedTasks.length === 0 ? 0 : (taskPageSafe - 1) * TASKS_PER_PAGE + 1}-{Math.min(taskPageSafe * TASKS_PER_PAGE, filteredAndSortedTasks.length)} of {filteredAndSortedTasks.length} tasks
+            </div>
             <div className="space-y-3">
-              {availablePMTasks.map((task) => (
+              {paginatedTasks.map((task) => (
                 <div
                   key={task.id}
                   className={`p-4 rounded-xl border-2 transition-all ${
@@ -481,7 +554,7 @@ export default function AddPMReportPage() {
                       )}
                       {task.replacementDeviceId != null && (
                         <span className="text-slate-600">
-                          อุปกรณ์ที่เอามาแลกเปลี่ยน: {(() => {
+                          Replacement device: {(() => {
                             const rep = devices.find((d) => d.Did === Number(task.replacementDeviceId));
                             return rep ? (rep.CI_Name || rep.Asset_Number || rep.serial || `Device ${task.replacementDeviceId}`) : `Device ${task.replacementDeviceId}`;
                           })()}
@@ -497,12 +570,33 @@ export default function AddPMReportPage() {
                           : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
-                      {selectedTaskId === task.id ? 'กำลังใช้ข้อมูลนี้' : 'ใช้ข้อมูล Task นี้'}
+                      {selectedTaskId === task.id ? 'Using this data' : 'Use this task'}
                     </button>
                   </div>
                 </div>
               ))}
             </div>
+            {totalTaskPages > 1 && (
+              <div className="mt-4 flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTaskPage(p => Math.max(1, p - 1))}
+                  disabled={taskPageSafe <= 1}
+                  className="p-2 rounded-lg border border-slate-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <span className="text-sm text-slate-600 px-2">Page {taskPageSafe} / {totalTaskPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setTaskPage(p => Math.min(totalTaskPages, p + 1))}
+                  disabled={taskPageSafe >= totalTaskPages}
+                  className="p-2 rounded-lg border border-slate-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                >
+                  <ChevronRight size={20} />
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -520,7 +614,7 @@ export default function AddPMReportPage() {
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">
-                {loadingDevices ? 'กำลังโหลด...' : availablePMTasks.length > 0 && allowedDevices.length === 0 ? 'กรุณาเลือก Task ด้านบนก่อน' : 'เลือก Device...'}
+                {loadingDevices ? 'Loading...' : availablePMTasks.length > 0 && allowedDevices.length === 0 ? 'Please select a task above first' : 'Select device...'}
               </option>
               {allowedDevices.map(device => {
                 const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === device.Did;
@@ -529,7 +623,7 @@ export default function AddPMReportPage() {
                     {device.CI_Name || device.Asset_Number || `Device ${device.Did}`}
                     {device.serial ? ` (${device.serial})` : ''}
                     {device.Sitename ? ` - ${device.Sitename}` : ''}
-                    {isReplacement ? ' [อุปกรณ์ที่เอามาแลกเปลี่ยน]' : ''}
+                    {isReplacement ? ' [Replacement device]' : ''}
                   </option>
                 );
               })}
@@ -561,9 +655,9 @@ export default function AddPMReportPage() {
               return (
                 <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
                   <div className="flex items-center gap-2 mb-3">
-                    <p className="text-sm font-bold text-slate-700">ข้อมูล Device ที่เลือก</p>
+                    <p className="text-sm font-bold text-slate-700">Selected device</p>
                     {isReplacement && (
-                      <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">อุปกรณ์ที่เอามาแลกเปลี่ยน</span>
+                      <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Replacement device</span>
                     )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -622,7 +716,7 @@ export default function AddPMReportPage() {
                 accept="image/*,.pdf"
                 onChange={handleFileUpload}
                 className="sr-only"
-                aria-label="อัปโหลดไฟล์รูปหรือ PDF"
+                aria-label="Upload image or PDF"
               />
               <label
                 htmlFor="file-upload"
@@ -693,7 +787,7 @@ export default function AddPMReportPage() {
                 max={100}
                 value={slaResult}
                 onChange={(e) => setSlaResult(e.target.value)}
-                placeholder="เช่น 85"
+                placeholder="e.g. 85"
                 className="w-32 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
               {slaResult.trim() !== '' && !Number.isNaN(Number(slaResult)) && (
@@ -727,7 +821,7 @@ export default function AddPMReportPage() {
               className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-8 py-3.5 rounded-xl font-bold hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-blue-500/25"
             >
               <Save size={18} />
-              {saving ? 'กำลังส่ง...' : 'Save PM Report'}
+              {saving ? 'Sending...' : 'Save PM Report'}
             </button>
           </div>
         </div>
