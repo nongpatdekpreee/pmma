@@ -1,6 +1,6 @@
 const db = require('../config/database');
 
-// POST - สร้าง Device_Type ใหม่
+// POST - สร้าง device_type ใหม่
 const createDeviceType = async (req, res) => {
   try {
     const { model, slug, u_height, Mid } = req.body;
@@ -14,12 +14,12 @@ const createDeviceType = async (req, res) => {
     }
 
     // SQL Query
-    const sql = 'INSERT INTO Device_Type (model, slug, u_height, Mid) VALUES (?, ?, ?, ?)';
+    const sql = 'INSERT INTO device_type (model, slug, u_height, Mid) VALUES (?, ?, ?, ?)';
     const [result] = await db.execute(sql, [model, slug, u_height, Mid]);
 
     res.status(201).json({
       success: true,
-      message: 'สร้าง Device_Type สำเร็จ',
+      message: 'สร้าง device_type สำเร็จ',
       data: {
         id: result.insertId,
         model,
@@ -32,7 +32,7 @@ const createDeviceType = async (req, res) => {
     console.error('Error creating device type:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการสร้าง Device_Type',
+      message: 'เกิดข้อผิดพลาดในการสร้าง device_type',
       error: error.message
     });
   }
@@ -41,8 +41,8 @@ const createDeviceType = async (req, res) => {
 // GET - ดึงข้อมูล Device_Types
 const getDeviceTypes = async (req, res) => {
   try {
-    // ดึงข้อมูล Device_Types ทั้งหมด พร้อมนับจำนวน Device ของแต่ละ Device_Type
-    // JOIN กับ Manufacturer และ LEFT JOIN กับ Devices เพื่อนับจำนวน
+    // ดึงข้อมูล Device_Types ทั้งหมด พร้อมนับจำนวน Device ของแต่ละ device_type
+    // JOIN กับ manufacturer และ LEFT JOIN กับ devices เพื่อนับจำนวน
     // เรียงตาม Dtypeid จากมากไปน้อย
     const sql = `
       SELECT 
@@ -53,9 +53,9 @@ const getDeviceTypes = async (req, res) => {
         dt.Mid, 
         m.name AS manufacturer_name,
         COUNT(d.Did) AS device_count
-      FROM Device_Type dt
-      INNER JOIN Manufacturer m ON dt.Mid = m.Mid
-      LEFT JOIN Devices d ON dt.Dtypeid = d.Dtypeid
+      FROM device_type dt
+      INNER JOIN manufacturer m ON dt.Mid = m.Mid
+      LEFT JOIN devices d ON dt.Dtypeid = d.Dtypeid
       GROUP BY dt.Dtypeid, dt.model, dt.slug, dt.u_height, dt.Mid, m.name
       ORDER BY dt.Dtypeid DESC
     `;
@@ -81,13 +81,13 @@ const getDeviceTypes = async (req, res) => {
     console.error('Error getting device types:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Device_Type',
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล device_type',
       error: error.message
     });
   }
 };
 
-// PUT - แก้ไขข้อมูล Device_Type
+// PUT - แก้ไขข้อมูล device_type
 const updateDeviceType = async (req, res) => {
   try {
     const { id } = req.params;
@@ -101,14 +101,14 @@ const updateDeviceType = async (req, res) => {
       });
     }
 
-    // ตรวจสอบว่า Device_Type มีอยู่จริงหรือไม่
-    const checkSql = 'SELECT Dtypeid FROM Device_Type WHERE Dtypeid = ?';
+    // ตรวจสอบว่า device_type มีอยู่จริงหรือไม่
+    const checkSql = 'SELECT Dtypeid FROM device_type WHERE Dtypeid = ?';
     const [existing] = await db.execute(checkSql, [id]);
 
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Device_Type ที่ต้องการแก้ไข'
+        message: 'ไม่พบข้อมูล device_type ที่ต้องการแก้ไข'
       });
     }
 
@@ -135,14 +135,14 @@ const updateDeviceType = async (req, res) => {
 
     values.push(id);
 
-    const sql = `UPDATE Device_Type SET ${updates.join(', ')} WHERE Dtypeid = ?`;
+    const sql = `UPDATE device_type SET ${updates.join(', ')} WHERE Dtypeid = ?`;
     await db.execute(sql, values);
 
-    // ดึงข้อมูลที่อัพเดทแล้วมาแสดง (พร้อม JOIN Manufacturer)
+    // ดึงข้อมูลที่อัพเดทแล้วมาแสดง (พร้อม JOIN manufacturer)
     const [updated] = await db.execute(
-      `SELECT Dtypeid, model, Device_Type.slug, u_height, Device_Type.Mid, Manufacturer.name 
-       FROM Device_Type, Manufacturer 
-       WHERE Device_Type.Mid = Manufacturer.Mid AND Device_Type.Dtypeid = ?`,
+      `SELECT Dtypeid, model, device_type.slug, u_height, device_type.Mid, manufacturer.name 
+       FROM device_type, manufacturer 
+       WHERE device_type.Mid = manufacturer.Mid AND device_type.Dtypeid = ?`,
       [id]
     );
 
@@ -157,42 +157,42 @@ const updateDeviceType = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'แก้ไขข้อมูล Device_Type สำเร็จ',
+      message: 'แก้ไขข้อมูล device_type สำเร็จ',
       data: formattedData[0]
     });
   } catch (error) {
     console.error('Error updating device type:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการแก้ไข Device_Type',
+      message: 'เกิดข้อผิดพลาดในการแก้ไข device_type',
       error: error.message
     });
   }
 };
 
-// DELETE - ลบ Device_Type
+// DELETE - ลบ device_type
 const deleteDeviceType = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // ตรวจสอบว่า Device_Type มีอยู่จริงหรือไม่
-    const checkSql = 'SELECT Dtypeid, model FROM Device_Type WHERE Dtypeid = ?';
+    // ตรวจสอบว่า device_type มีอยู่จริงหรือไม่
+    const checkSql = 'SELECT Dtypeid, model FROM device_type WHERE Dtypeid = ?';
     const [existing] = await db.execute(checkSql, [id]);
 
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Device_Type ที่ต้องการลบ'
+        message: 'ไม่พบข้อมูล device_type ที่ต้องการลบ'
       });
     }
 
     // ลบข้อมูล
-    const sql = 'DELETE FROM Device_Type WHERE Dtypeid = ?';
+    const sql = 'DELETE FROM device_type WHERE Dtypeid = ?';
     await db.execute(sql, [id]);
 
     res.status(200).json({
       success: true,
-      message: 'ลบ Device_Type สำเร็จ',
+      message: 'ลบ device_type สำเร็จ',
       data: {
         id: existing[0].Dtypeid,
         model: existing[0].model
@@ -202,7 +202,7 @@ const deleteDeviceType = async (req, res) => {
     console.error('Error deleting device type:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการลบ Device_Type',
+      message: 'เกิดข้อผิดพลาดในการลบ device_type',
       error: error.message
     });
   }

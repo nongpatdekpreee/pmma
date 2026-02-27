@@ -11,21 +11,34 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
-// Routes
+// JWT Middleware
+const { authenticateToken } = require('./middleware/authMiddleware');
+
+// Routes ที่ไม่ต้องใช้ Token (Login, Register)
+const loginRoutes = require('./routes/loginRoutes');
+app.use('/api/auth', loginRoutes);
+
+// Routes ที่ต้องใช้ Token (ทุก API ยกเว้น auth)
 const siteRoutes = require('./routes/siteRoutes');
-app.use('/api/sites', siteRoutes);
+app.use('/api/sites', authenticateToken, siteRoutes);
 
 const manufacturerRoutes = require('./routes/manufacturerRoutes');
-app.use('/api/manufacturers', manufacturerRoutes);
+app.use('/api/manufacturers', authenticateToken, manufacturerRoutes);
 
 const deviceRoleRoutes = require('./routes/deviceRoleRoutes');
-app.use('/api/device-roles', deviceRoleRoutes);
+app.use('/api/device-roles', authenticateToken, deviceRoleRoutes);
 
 const deviceTypeRoutes = require('./routes/deviceTypeRoutes');
-app.use('/api/device-types', deviceTypeRoutes);
+app.use('/api/device-types', authenticateToken, deviceTypeRoutes);
 
 const deviceRoutes = require('./routes/deviceRoutes');
-app.use('/api/devices', deviceRoutes);
+app.use('/api/devices', authenticateToken, deviceRoutes);
+
+const netboxRoutes = require('./routes/netboxRoutes');
+app.use('/api/netbox', authenticateToken, netboxRoutes);
+
+const statRoutes = require('./routes/statRoutes');
+app.use('/api/stats', authenticateToken, statRoutes);
 
 app.get('/', (req, res) => {
   res.json({
