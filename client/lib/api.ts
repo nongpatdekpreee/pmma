@@ -396,6 +396,14 @@ export async function getDevicesWithPM(params?: { search?: string; deviceRole?: 
   }
 }
 
+/** POST /api/employees/upload - อัปโหลดรูปพนักงาน */
+export async function uploadEmployeePhoto(file: File): Promise<{ success: boolean; path?: string; message?: string }> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(apiUrl('/api/employees/upload'), { method: 'POST', body: fd });
+  return res.json();
+}
+
 /** GET /api/employees - ดึงข้อมูล Employees จาก user_profiles */
 export async function getEmployees(params?: { limit?: number; page?: number; search?: string }): Promise<{
   success: boolean;
@@ -406,6 +414,7 @@ export async function getEmployees(params?: { limit?: number; page?: number; sea
     tel: string;
     positionType: string;
     employmentType: string;
+    photo?: string | null;
   }>;
   pagination?: {
     page: number;
@@ -441,12 +450,39 @@ export async function createEmployee(body: {
   tel: string;
   positionType?: string;
   employmentType?: string;
+  photo?: string | null;
 }): Promise<{ success: boolean; data?: object; message?: string }> {
   const res = await fetch(apiUrl('/api/employees'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  return res.json();
+}
+
+/** PUT /api/employees/:id - แก้ไข Employee */
+export async function updateEmployee(
+  id: string,
+  body: {
+    name: string;
+    gmail: string;
+    tel: string;
+    positionType?: string;
+    employmentType?: string;
+    photo?: string | null;
+  }
+): Promise<{ success: boolean; data?: object; message?: string }> {
+  const res = await fetch(apiUrl(`/api/employees/${encodeURIComponent(id)}`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+/** DELETE /api/employees/:id - ลบ Employee */
+export async function deleteEmployee(id: string): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(apiUrl(`/api/employees/${encodeURIComponent(id)}`), { method: 'DELETE' });
   return res.json();
 }
 
@@ -463,5 +499,53 @@ export async function importEmployees(employees: Array<{
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ employees }),
   });
+  return res.json();
+}
+
+// --- Holidays (stored via Next.js API route, same origin) ---
+
+export interface HolidayItem {
+  id: string;
+  date: string;
+  name: string;
+  source?: 'custom' | 'official';
+}
+
+/** GET /api/holidays - list holidays (same-origin Next API) */
+export async function getHolidays(year?: number): Promise<{ success: boolean; data?: HolidayItem[] }> {
+  const url = typeof year === 'number' ? `/api/holidays?year=${year}` : '/api/holidays';
+  const res = await fetch(url);
+  return res.json();
+}
+
+/** POST /api/holidays - add holiday. Body: { date: "YYYY-MM-DD", name: string } */
+export async function addHoliday(body: { date: string; name: string }): Promise<{
+  success: boolean;
+  message?: string;
+  data?: HolidayItem;
+}> {
+  const res = await fetch('/api/holidays', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+/** DELETE /api/holidays/[id] */
+export async function deleteHoliday(id: string): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(`/api/holidays/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return res.json();
+}
+
+/** POST /api/holidays/restore-official - clear hidden official holiday overrides */
+export async function restoreOfficialHolidays(): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch('/api/holidays/restore-official', { method: 'POST' });
+  return res.json();
+}
+
+/** POST /api/holidays/clear-custom - delete all custom holidays */
+export async function clearCustomHolidays(): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch('/api/holidays/clear-custom', { method: 'POST' });
   return res.json();
 }

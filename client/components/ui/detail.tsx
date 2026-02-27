@@ -20,6 +20,7 @@ interface Engineer {
   id: string;
   name: string;
   lastName?: string;
+  photo?: string | null;
 }
 
 interface TaskDetail {
@@ -319,17 +320,25 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             </div>
           </div>
 
-          {/* Engineers */}
+          {/* Engineers — แสดงรูปและชื่อแนวตั้ง */}
           {(task.Eng_ids && task.Eng_ids.length > 0) || task.engineer ? (
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
               <h3 className="text-sm font-bold text-slate-700 mb-3">Assigned Engineers</h3>
               <div className="flex flex-col gap-1">
                 {task.Eng_ids?.map((eng) => (
-                  <div
-                    key={eng.id}
-                    className="text-sm font-medium text-slate-800"
-                  >
-                    {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
+                  <div key={eng.id} className="flex items-center gap-2">
+                    <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100">
+                      {eng.photo ? (
+                        <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
+                          {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-sm font-medium text-slate-800">
+                      {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
+                    </span>
                   </div>
                 ))}
                 {!task.Eng_ids && task.engineer && (
