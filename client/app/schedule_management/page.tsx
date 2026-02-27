@@ -16,7 +16,7 @@ import {
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds } from '@/lib/api';
+import { apiUrl, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
 import * as XLSX from 'xlsx';
 
 
@@ -32,6 +32,7 @@ interface Engineer {
   id: string;
   name: string;
   lastName?: string;
+  photo?: string | null;
 }
 
 interface CalendarEvent {
@@ -110,10 +111,24 @@ export default function ScheduleManagement() {
   }>>([]);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [availableContracts, setAvailableContracts] = useState<Array<{contract_id: number; sof_name: string; contract_name?: string; site_id?: number; end_date?: string}>>([]);
-  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string | null>(null);
+  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string[]>([]);
+  const [engineerFilterInput, setEngineerFilterInput] = useState('');
+  const [showEngineerFilterDropdown, setShowEngineerFilterDropdown] = useState(false);
+  const engineerFilterRef = useRef<HTMLDivElement>(null);
+  const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
   const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [holidays, setHolidays] = useState<HolidayItem[]>([]);
+  const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
+  const [newHolidayDate, setNewHolidayDate] = useState('');
+  const [newHolidayName, setNewHolidayName] = useState('');
+  const [addingHoliday, setAddingHoliday] = useState(false);
+  const [importingHolidays, setImportingHolidays] = useState(false);
+  const [restoringOfficialHolidays, setRestoringOfficialHolidays] = useState(false);
+  const [hidingOfficialHolidays, setHidingOfficialHolidays] = useState(false);
+  const holidayFileInputRef = useRef<HTMLInputElement>(null);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -227,10 +242,130 @@ export default function ScheduleManagement() {
     }
   };
 
+  const loadHolidays = async (year = currentYear) => {
+    const res = await getHolidays(year);
+    if (res.success && res.data) setHolidays(res.data);
+  };
+
+  const normalizeHolidayImportDate = (value: unknown): string | null => {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, '0');
+      const d = String(value.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const parsed = XLSX.SSF.parse_date_code(value);
+      if (parsed?.y && parsed?.m && parsed?.d) {
+        return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+      }
+    }
+    if (typeof value !== 'string') return null;
+    const raw = value.trim();
+    if (!raw) return null;
+
+    const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+    if (iso) {
+      return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+    }
+
+    const slash = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (slash) {
+      const a = Number(slash[1]);
+      const b = Number(slash[2]);
+      const year = slash[3];
+      const day = a > 12 ? a : b;
+      const month = a > 12 ? b : a;
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
+
+    const parsedDate = new Date(raw);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}-${String(parsedDate.getDate()).padStart(2, '0')}`;
+    }
+    return null;
+  };
+
+  const handleHolidayImportFile = async (file: File) => {
+    try {
+      setImportingHolidays(true);
+      const ext = file.name.toLowerCase().split('.').pop() || '';
+      const rows: any[][] = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const result = event.target?.result;
+            if (!result) throw new Error('Empty file');
+            let workbook: XLSX.WorkBook;
+            if (ext === 'csv') {
+              workbook = XLSX.read(String(result), { type: 'string' });
+            } else {
+              workbook = XLSX.read(result, { type: 'array', cellDates: true });
+            }
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+            resolve(data);
+          } catch (e) {
+            reject(e);
+          }
+        };
+        reader.onerror = () => reject(reader.error);
+        if (ext === 'csv') reader.readAsText(file);
+        else reader.readAsArrayBuffer(file);
+      });
+
+      if (!rows.length) {
+        toastError('File is empty');
+        return;
+      }
+
+      const header = (rows[0] || []).map((h: any) => String(h || '').trim().toLowerCase());
+      const dateIdx = header.findIndex((h: string) => ['date', 'holiday_date', 'day'].includes(h));
+      const nameIdx = header.findIndex((h: string) => ['name', 'holiday_name', 'title'].includes(h));
+      const startIdx = dateIdx >= 0 ? dateIdx : 0;
+      const startRow = dateIdx >= 0 || nameIdx >= 0 ? 1 : 0;
+      const resolvedNameIdx = nameIdx >= 0 ? nameIdx : 1;
+
+      const customDateSet = new Set(
+        holidays.filter((h) => h.source === 'custom').map((h) => h.date)
+      );
+      const pending = new Map<string, string>();
+      for (let i = startRow; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const date = normalizeHolidayImportDate(row[startIdx]);
+        const name = String(row[resolvedNameIdx] || '').trim();
+        if (!date || !name) continue;
+        if (customDateSet.has(date)) continue;
+        pending.set(date, name);
+      }
+
+      if (pending.size === 0) {
+        toastError('No valid holidays to import');
+        return;
+      }
+
+      let successCount = 0;
+      for (const [date, name] of pending) {
+        const res = await addHoliday({ date, name });
+        if (res.success) successCount += 1;
+      }
+
+      await loadHolidays(currentYear);
+      if (successCount === pending.size) toastSuccess(`Imported ${successCount} holidays`);
+      else toastError(`Imported ${successCount}/${pending.size} holidays`);
+    } catch (error: any) {
+      toastError(`Failed to import holidays: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setImportingHolidays(false);
+      if (holidayFileInputRef.current) holidayFileInputRef.current.value = '';
+    }
+  };
+
   useEffect(() => {
     loadTasksFromApi();
     loadReportedTaskIds();
-
     // Load sites and engineers for Excel import
     const loadSitesAndEngineers = async () => {
       try {
@@ -259,6 +394,7 @@ export default function ScheduleManagement() {
                 id: emp.id || emp.employee_id || '',
                 name: nameParts[0] || emp.name || emp.displayName || '',
                 lastName: nameParts.slice(1).join(' ') || emp.lastName || '',
+                photo: emp.photo ?? null,
               };
             });
           setAvailableEngineers(engineers);
@@ -287,6 +423,10 @@ export default function ScheduleManagement() {
   const currentMonth = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
 
+  useEffect(() => {
+    loadHolidays(currentYear);
+  }, [currentYear]);
+
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -297,6 +437,12 @@ export default function ScheduleManagement() {
     day === today.getDate() &&
     currentMonth === today.getMonth() &&
     currentYear === today.getFullYear();
+
+  const getHolidayForDay = (day: number | null): HolidayItem | null => {
+    if (day === null) return null;
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return holidays.find(h => h.date === dateStr) ?? null;
+  };
 
   const calendarWeeks = useMemo(() => {
     const first = new Date(currentYear, currentMonth, 1);
@@ -344,33 +490,61 @@ export default function ScheduleManagement() {
     }
   };
 
-  // ซ่อน task ที่ done และทำ report เสร็จแล้ว (ไม่แสดงในปฏิทิน)
-  const calendarEventsWithoutDoneReported = useMemo(() => {
-    return calendarEvents.filter((e) => {
-      if (e.status !== 'done') return true;
-      const id = Number(e.id);
-      if (e.taskType === 'PM') return !reportedPMTaskIds.has(id);
-      if (e.taskType === 'MA') return !reportedMATaskIds.has(id);
-      return true;
-    });
-  }, [calendarEvents, reportedPMTaskIds, reportedMATaskIds]);
+  // แสดงทุก task เหมือนเดิม (รวม task ที่ done และทำ report แล้ว)
+  // Enrich events with engineer profile photos from availableEngineers
+  const enrichedCalendarEvents = useMemo(() => {
+    return calendarEvents.map((event) => ({
+      ...event,
+      Eng_ids: event.Eng_ids?.map((eng) => ({
+        ...eng,
+        photo: availableEngineers.find((a) => a.id === String(eng.id))?.photo ?? null,
+      })) ?? [],
+    }));
+  }, [calendarEvents, availableEngineers]);
 
-  // Filter events by selected engineer
+  const calendarEventsWithoutDoneReported = useMemo(() => {
+    return enrichedCalendarEvents;
+  }, [enrichedCalendarEvents]);
+
+  // Filter events by engineer(s), task type (PM/MA), and status (Done / Not done)
   const filteredCalendarEvents = useMemo(() => {
-    if (!selectedEngineerFilter) return calendarEventsWithoutDoneReported;
-    return calendarEventsWithoutDoneReported.filter(e => {
-      // Check if event has Eng_ids array
-      if (e.Eng_ids && e.Eng_ids.length > 0) {
-        return e.Eng_ids.some((eng: Engineer) => String(eng.id) === String(selectedEngineerFilter));
+    let list = calendarEventsWithoutDoneReported;
+    if (selectedEngineerFilter.length > 0) {
+      const selectedIds = new Set(selectedEngineerFilter.map(id => String(id)));
+      list = list.filter(e => {
+        const eventEngIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
+        return selectedIds.size > 0 && [...selectedIds].every(id => eventEngIds.includes(id));
+      });
+    }
+    if (selectedTaskTypeFilter !== 'all') {
+      list = list.filter(e => (e.taskType || 'PM') === selectedTaskTypeFilter);
+    }
+    if (selectedStatusFilter !== 'all') {
+      if (selectedStatusFilter === 'done') {
+        list = list.filter(e => e.status === 'done');
+      } else {
+        list = list.filter(e => e.status !== 'done');
       }
-      // Fallback: check engineer string (for backward compatibility)
-      if (e.engineer) {
-        const engineerIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
-        return engineerIds.includes(String(selectedEngineerFilter));
-      }
-      return false;
-    });
-  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter]);
+    }
+    return list;
+  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter, selectedTaskTypeFilter, selectedStatusFilter]);
+
+  const filteredEngineersForFilter = availableEngineers.filter(
+    eng => !selectedEngineerFilter.includes(String(eng.id)) &&
+      (eng.name?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
+        eng.lastName?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
+        String(eng.id).toLowerCase().includes(engineerFilterInput.toLowerCase()))
+  );
+  const addEngineerFilter = (eng: Engineer) => {
+    if (!selectedEngineerFilter.includes(String(eng.id))) {
+      setSelectedEngineerFilter([...selectedEngineerFilter, String(eng.id)]);
+      setEngineerFilterInput('');
+      setShowEngineerFilterDropdown(false);
+    }
+  };
+  const removeEngineerFilter = (id: string) => {
+    setSelectedEngineerFilter(selectedEngineerFilter.filter(x => x !== id));
+  };
 
   const isMultiDayEvent = (e: CalendarEvent): boolean => {
     if (!e.startDate || !e.endDate) return false;
@@ -427,6 +601,25 @@ export default function ScheduleManagement() {
       spans.push({ event: e, colStart, colEnd });
     });
     return spans;
+  };
+
+  /** จัดแถวให้แถบงานหลายวันที่ไม่ซ้อนกัน (spans ที่ซ้อนช่วงจะอยู่คนละแถว) */
+  const assignRowsToMultiDaySpans = (spans: { event: CalendarEvent; colStart: number; colEnd: number }[]): { event: CalendarEvent; colStart: number; colEnd: number; row: number }[] => {
+    const rowIntervals: { start: number; end: number }[][] = [];
+    const result: { event: CalendarEvent; colStart: number; colEnd: number; row: number }[] = [];
+    for (const s of spans) {
+      let row = 0;
+      for (;; row++) {
+        if (row >= rowIntervals.length) rowIntervals[row] = [];
+        const intervals = rowIntervals[row];
+        const overlaps = intervals.some(iv => s.colStart <= iv.end && s.colEnd >= iv.start);
+        if (!overlaps) break;
+      }
+      if (row >= rowIntervals.length) rowIntervals[row] = [];
+      rowIntervals[row].push({ start: s.colStart, end: s.colEnd });
+      result.push({ ...s, row });
+    }
+    return result;
   };
 
   const persistTaskDates = async (taskId: string, startDate: string, endDate: string, reason?: string) => {
@@ -1083,7 +1276,7 @@ export default function ScheduleManagement() {
               task.title = task.coverageScope;
             }
 
-            // Ensure dates are in YYYY-MM-DD format
+            // Ensure dates are in YYYY-MM-DD format (convert if possible, otherwise keep as-is — ใส่วันที่วันไหนก็ได้ ไม่ดัก)
             if (task.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(task.startDate)) {
               const parsed = parseDateString(task.startDate);
               task.startDate = parsed || task.startDate;
@@ -1494,45 +1687,130 @@ export default function ScheduleManagement() {
             {loadError}
           </div>
         )}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
-            Schedule Management
-          </h1>
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-col gap-4 mb-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+              Schedule Management
+            </h1>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
+              >
+                <Download size={16} /> Import Tasks
+              </button>
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-2 bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors"
+              >
+                <Plus size={16} /> Add Plan PM
+              </button>
+            </div>
+          </div>
+          {/* Filters: Engineer (multi), Type (PM/MA), Status (Done/Not done) */}
+          <div className="flex flex-wrap items-center gap-3 justify-end">
+            <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
               <label htmlFor="engineer-filter" className="text-sm font-medium text-slate-600 whitespace-nowrap">
                 Engineer:
               </label>
-              <select
+              <div
                 id="engineer-filter"
-                value={selectedEngineerFilter || ''}
-                onChange={(e) => setSelectedEngineerFilter(e.target.value || null)}
-                className="flex-1 sm:flex-none px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[200px] shadow-sm transition-colors"
+                className={`flex-1 sm:min-w-[200px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
+                onClick={() => document.getElementById('engineer-filter-input')?.focus()}
               >
-                <option value="">All Engineers</option>
-                {availableEngineers.length === 0 ? (
-                  <option value="" disabled>Loading engineers...</option>
-                ) : (
-                  availableEngineers.map((eng) => (
-                    <option key={eng.id} value={String(eng.id)}>
-                      {eng.name} {eng.lastName || ''}
-                    </option>
-                  ))
+                {selectedEngineerFilter.length === 0 && !engineerFilterInput && (
+                  <span className="text-slate-400">All Engineers</span>
                 )}
+                {selectedEngineerFilter.map((id) => {
+                  const eng = availableEngineers.find(e => String(e.id) === id);
+                  const label = eng ? `${eng.name || ''} ${eng.lastName || ''}`.trim() || id : id;
+                  return (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-100 text-blue-800 text-xs font-medium"
+                    >
+                      {label}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeEngineerFilter(id); }}
+                        className="hover:bg-blue-200 rounded p-0.5"
+                        aria-label="Remove"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  );
+                })}
+                <input
+                  id="engineer-filter-input"
+                  type="text"
+                  value={engineerFilterInput}
+                  onChange={(e) => { setEngineerFilterInput(e.target.value); setShowEngineerFilterDropdown(true); }}
+                  onFocus={() => setShowEngineerFilterDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowEngineerFilterDropdown(false), 200)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && filteredEngineersForFilter.length > 0) {
+                      addEngineerFilter(filteredEngineersForFilter[0]);
+                    }
+                    if (e.key === 'Backspace' && !engineerFilterInput && selectedEngineerFilter.length > 0) {
+                      removeEngineerFilter(selectedEngineerFilter[selectedEngineerFilter.length - 1]);
+                    }
+                  }}
+                  placeholder={selectedEngineerFilter.length === 0 ? 'Search engineers...' : ''}
+                  className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-slate-700 placeholder:text-slate-400"
+                />
+              </div>
+              {showEngineerFilterDropdown && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 min-w-[200px] max-h-48 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                  {availableEngineers.length === 0 ? (
+                    <div className="px-3 py-2 text-slate-500 text-sm">Loading engineers...</div>
+                  ) : filteredEngineersForFilter.length === 0 ? (
+                    <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
+                  ) : (
+                    filteredEngineersForFilter.map((eng) => (
+                      <button
+                        key={eng.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => addEngineerFilter(eng)}
+                      >
+                        {eng.name} {eng.lastName || ''}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="task-type-filter-schedule" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Type:
+              </label>
+              <select
+                id="task-type-filter-schedule"
+                value={selectedTaskTypeFilter}
+                onChange={(e) => setSelectedTaskTypeFilter(e.target.value as 'all' | 'PM' | 'MA')}
+                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="PM">PM</option>
+                <option value="MA">MA</option>
               </select>
             </div>
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
-            >
-              <Download size={16} /> Import Tasks
-            </button>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="flex items-center gap-2 bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors"
-            >
-              <Plus size={16} /> Add Plan PM
-            </button>
+            <div className="flex items-center gap-2">
+              <label htmlFor="status-filter-schedule" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Status:
+              </label>
+              <select
+                id="status-filter-schedule"
+                value={selectedStatusFilter}
+                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'not-done')}
+                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="done">Done</option>
+                <option value="not-done">Not done</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -1547,21 +1825,30 @@ export default function ScheduleManagement() {
         />
 
         <div className="bg-white p-6 rounded-[2.5rem] shadow-sm">
-          <div className="flex justify-center items-center gap-8 mb-6">
+          <div className="relative flex items-center mb-6">
+            <div className="mx-auto flex items-center gap-8">
+              <button
+                onClick={goToPreviousMonth}
+                className="text-blue-500 hover:text-blue-700 transition-colors"
+              >
+                <ChevronLeft size={24} />
+              </button>
+              <span className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+                {monthNames[currentMonth]}, {currentYear}
+              </span>
+              <button
+                onClick={goToNextMonth}
+                className="text-blue-500 hover:text-blue-700 transition-colors"
+              >
+                <ChevronRight size={24} />
+              </button>
+            </div>
             <button
-              onClick={goToPreviousMonth}
-              className="text-blue-500 hover:text-blue-700 transition-colors"
+              type="button"
+              onClick={() => setIsHolidayModalOpen(true)}
+              className="absolute right-0 px-4 py-2 rounded-xl  text-amber-800 text-sm font-medium hover:bg-amber-100  "
             >
-              <ChevronLeft size={24} />
-            </button>
-            <span className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
-              {monthNames[currentMonth]}, {currentYear}
-            </span>
-            <button
-              onClick={goToNextMonth}
-              className="text-blue-500 hover:text-blue-700 transition-colors"
-            >
-              <ChevronRight size={24} />
+              Holidays
             </button>
           </div>
 
@@ -1583,6 +1870,14 @@ export default function ScheduleManagement() {
             {/* Calendar weeks */}
             {calendarWeeks.map((week, weekIndex) => {
               const multiDaySpans = getMultiDaySpansForWeek(week);
+              const multiDaySpansWithRow = assignRowsToMultiDaySpans(multiDaySpans);
+              const multiDayRowCount = multiDaySpansWithRow.length > 0 ? Math.max(...multiDaySpansWithRow.map(s => s.row)) + 1 : 0;
+              const BAR_HEIGHT = 28;
+              const TASK_GAP = 4; // ระยะห่างเท่ากันทุกที่: ระหว่างแถบ-แถบ, แถบ-pill, pill-pill
+              const MULTI_DAY_TOP_OFFSET = 32;
+              /** ความสูงพื้นที่แถบงานหลายวัน + ระยะห่างก่อน pills ให้เท่ากับ TASK_GAP */
+              const multiDayAreaHeight = (rows: number) =>
+                MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
               return (
                 <div key={weekIndex} className="relative grid grid-cols-7 gap-px">
                   {week.map((day, dayIndex) => {
@@ -1590,18 +1885,22 @@ export default function ScheduleManagement() {
                     // กรองงานหลายวันออกจาก pills ในวันแรก (เพราะจะแสดงเป็นแถบต่อกันแล้ว)
                     const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
                     const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
-                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ → เว้นที่ให้แถบ ไม่ให้ pill ซ้อน
-                    const hasMultiDayBarAbove = multiDaySpans.some(({ colStart, colEnd }) => dayIndex >= colStart && dayIndex <= colEnd);
+                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ — ใช้เฉพาะจำนวนแถวที่ครอบคลุมวันนี้ เพื่อไม่ให้มีช่องว่างเกิน (ไม่มีแถบว่าง)
+                    const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
+                    const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
+                    const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
+                    const holidayForDay = getHolidayForDay(day);
                     return (
                       <div
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => e.preventDefault()}
-                        className={`min-h-[100px] p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : 'bg-white'
+                        className={`p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'bg-blue-50 border-2 border-blue-300'
                             : ''
                           }`}
+                        style={{ minHeight: multiDayRowCount > 0 ? multiDayAreaHeight(multiDayRowCount) + 44 : 100 }}
                       >
                         {day !== null && (
                           <>
@@ -1613,10 +1912,15 @@ export default function ScheduleManagement() {
                             >
                               {day}
                             </span>
-                            {/* งานวันเดียว — แสดงเป็น pill (ไม่รวมงานหลายวัน), เว้นที่ด้านบนถ้ามีแถบงานหลายวัน */}
+                            {holidayForDay && (
+                              <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
+                                {holidayForDay.name}
+                              </span>
+                            )}
+                            {/* งานวันเดียว — ให้ pills เริ่มชิดใต้แถบ (หักความสูงพื้นที่วันที่ออก เพราะแถบวัดจากบน cell) */}
                             <div
-                              className="mt-1.5 space-y-0.5 relative z-10"
-                              style={hasMultiDayBarAbove ? { marginTop: '36px' } : undefined}
+                              className={`space-y-0.5 relative z-10 ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
+                              style={hasMultiDayBarAbove ? { marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px` } : undefined}
                             >
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
@@ -1627,12 +1931,14 @@ export default function ScheduleManagement() {
                                 const endDate = endDateStr ? new Date(endDateStr) : null;
                                 if (endDate) endDate.setHours(0, 0, 0, 0);
                                 const isOverdue = !isDone && endDate && endDate < today;
-                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า
+                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
                                 const pillStyle = isDone 
                                   ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
                                   : isOverdue 
                                     ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
-                                    : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                                    : isMA 
+                                      ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
+                                      : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
@@ -1658,14 +1964,32 @@ export default function ScheduleManagement() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
+                                    className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
                                   >
                                     <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
-                                    <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                                    <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
                                       {ev.title || '(No title)'}
                                     </span>
+                                    {ev.Eng_ids && ev.Eng_ids.length > 0 && (
+                                      <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                                        <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                                          {ev.Eng_ids[0].photo ? (
+                                            <img src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                                          ) : (
+                                            <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                              {(ev.Eng_ids[0].name?.[0] || ev.Eng_ids[0].id?.[0] || '?').toUpperCase()}
+                                            </span>
+                                          )}
+                                        </span>
+                                        {ev.Eng_ids.length > 1 && (
+                                          <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                                            +{ev.Eng_ids.length - 1}
+                                          </span>
+                                        )}
+                                      </span>
+                                    )}
                                     {isDone && (
                                       <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                                     )}
@@ -1678,8 +2002,8 @@ export default function ScheduleManagement() {
                       </div>
                     );
                   })}
-                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง */}
-                  {multiDaySpans.map(({ event, colStart, colEnd }) => {
+                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง (จัดหลายแถวถ้าซ้อนกัน) */}
+                  {multiDaySpansWithRow.map(({ event, colStart, colEnd, row }) => {
                     const isMA = event.taskType === 'MA';
                     const isDone = event.status === 'done';
                     const endDateStr = event.endDate || event.startDate || '';
@@ -1688,22 +2012,25 @@ export default function ScheduleManagement() {
                     const endDate = endDateStr ? new Date(endDateStr) : null;
                     if (endDate) endDate.setHours(0, 0, 0, 0);
                     const isOverdue = !isDone && endDate && endDate < today;
-                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า
+                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
                     const barStyle = isDone 
                       ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
                       : isOverdue 
                         ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
-                        : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                        : isMA 
+                          ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
+                          : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                    const topPx = MULTI_DAY_TOP_OFFSET + row * (BAR_HEIGHT + TASK_GAP);
                     return (
                       <div
                         key={event.id}
                         style={{
                           gridColumn: `${colStart + 1} / ${colEnd + 2}`,
                           position: 'absolute',
-                          top: '32px',
+                          top: `${topPx}px`,
                           left: '8px',
                           right: '8px',
-                          height: '28px',
+                          height: `${BAR_HEIGHT}px`,
                         }}
                         draggable={!isDone}
                         onDragStart={() => !isDone && setDraggedEvent(event)}
@@ -1727,14 +2054,32 @@ export default function ScheduleManagement() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
                         <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
-                        <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                        <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
                           {event.title || '(No title)'}
                         </span>
+                        {event.Eng_ids && event.Eng_ids.length > 0 && (
+                          <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                            <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                              {event.Eng_ids[0].photo ? (
+                                <img src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                  {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
+                                </span>
+                              )}
+                            </span>
+                            {event.Eng_ids.length > 1 && (
+                              <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                                +{event.Eng_ids.length - 1}
+                              </span>
+                            )}
+                          </span>
+                        )}
                         {isDone && (
                           <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                         )}
@@ -1831,10 +2176,21 @@ export default function ScheduleManagement() {
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-1.5">
                   {hoveredEvent.Eng_ids.map((eng, idx) => (
-                    <div key={idx} className="text-xs text-slate-800">
-                      {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                    <div key={eng.id || idx} className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100">
+                        {eng.photo ? (
+                          <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
+                            {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs text-slate-800">
+                        {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -1925,6 +2281,167 @@ export default function ScheduleManagement() {
         </div>
       )}
 
+      {/* Holidays modal - add/delete holidays */}
+      {isHolidayModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50" onClick={() => setIsHolidayModalOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-800">Manage holidays</h2>
+              <button type="button" onClick={() => setIsHolidayModalOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4 overflow-y-auto">
+              <div className="flex gap-2">
+                <input
+                  ref={holidayFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    await handleHolidayImportFile(file);
+                  }}
+                />
+                <input
+                  type="date"
+                  value={newHolidayDate}
+                  onChange={(e) => setNewHolidayDate(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Holiday name"
+                  value={newHolidayName}
+                  onChange={(e) => setNewHolidayName(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={addingHoliday || !newHolidayDate.trim()}
+                  onClick={async () => {
+                    if (!newHolidayDate.trim()) return;
+                    setAddingHoliday(true);
+                    const res = await addHoliday({ date: newHolidayDate.trim(), name: newHolidayName.trim() || 'Holiday' });
+                    setAddingHoliday(false);
+                    if (res.success) {
+                      setNewHolidayDate('');
+                      setNewHolidayName('');
+                      await loadHolidays();
+                      toastSuccess('Holiday added');
+                    } else {
+                      toastError(res.message || 'Failed to add');
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add
+                </button>
+                
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                  type="button"
+                  disabled={importingHolidays}
+                  onClick={() => holidayFileInputRef.current?.click()}
+                  className="px-4 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-medium hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Import holidays from CSV/Excel file (columns: date, name)"
+                  aria-label="Import holidays from CSV or Excel"
+                >
+                  {importingHolidays ? 'Importing...' : 'Import'}
+                </button>
+                <div className="text-xs leading-relaxed text-slate-600">
+                  Holidays are highlighted on the calendar.
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    disabled={hidingOfficialHolidays}
+                    onClick={async () => {
+                      const officialHolidays = holidays.filter((h) => h.source === 'official');
+                      if (officialHolidays.length === 0) {
+                        toastError('No official holidays to hide');
+                        return;
+                      }
+
+                      setHidingOfficialHolidays(true);
+                      const results = [] as Array<{ success: boolean; message?: string }>;
+                      for (const h of officialHolidays) {
+                        results.push(await deleteHoliday(h.id));
+                      }
+                      setHidingOfficialHolidays(false);
+
+                      if (results.every((r) => r.success)) {
+                        await loadHolidays(currentYear);
+                        toastSuccess('All official holidays hidden');
+                      } else {
+                        toastError('Some official holidays could not be hidden');
+                      }
+                    }}
+                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-red-200 bg-white text-red-700 hover:bg-red-50 hover:border-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Hide all official holidays"
+                    title="Hide all official holidays"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={restoringOfficialHolidays}
+                    onClick={async () => {
+                      setRestoringOfficialHolidays(true);
+                      const res = await restoreOfficialHolidays();
+                      setRestoringOfficialHolidays(false);
+                      if (res.success) {
+                        await loadHolidays(currentYear);
+                        toastSuccess('Official holidays restored');
+                      } else {
+                        toastError(res.message || 'Failed to restore official holidays');
+                      }
+                    }}
+                    className="h-9 px-3 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 hover:border-indigo-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Restore official holidays"
+                    aria-label="Restore official holidays"
+                  >
+                    Restore 
+                  </button>
+                </div>
+              </div>
+              <ul className="space-y-1.5">
+                {holidays.length === 0 && <li className="text-sm text-slate-400 py-2">No holidays yet. Add one above.</li>}
+                {holidays.map((h) => (
+                  <li key={h.id} className="flex items-center justify-between py-2 px-3 bg-slate-50 rounded-lg text-sm">
+                    <span className="font-medium text-slate-800">{h.date}</span>
+                    <span className="text-slate-600 flex-1 mx-2 truncate">{h.name}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full mr-1 ${h.source === 'official' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {h.source === 'official' ? 'Official' : 'Custom'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const res = await deleteHoliday(h.id);
+                        if (res.success) {
+                          await loadHolidays(currentYear);
+                          toastSuccess(h.source === 'official' ? 'Official holiday hidden' : 'Holiday removed');
+                        } else {
+                          toastError(res.message || 'Failed to remove');
+                        }
+                      }}
+                      className={`p-1.5 rounded-lg ${h.source === 'official' ? 'hover:bg-amber-100 text-amber-700' : 'hover:bg-red-100 text-red-600'}`}
+                      aria-label={h.source === 'official' ? 'Hide official holiday' : 'Delete'}
+                      title={h.source === 'official' ? 'Hide this official holiday' : 'Delete custom holiday'}
+                    >
+                      <X size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Task Detail Modal */}
       <TaskDetailModal
         isOpen={isDetailModalOpen}
@@ -1989,7 +2506,8 @@ export default function ScheduleManagement() {
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   onChange={handleFileUpload}
-                  className="hidden"
+                  className="sr-only"
+                  aria-label="เลือกไฟล์ Excel หรือ CSV"
                   id="excel-file-input"
                 />
                 <label

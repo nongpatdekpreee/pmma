@@ -29,7 +29,8 @@ export function FileUploadBlock({
             type="file"
             multiple
             accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,application/pdf"
-            className="hidden"
+            className="sr-only"
+            aria-label="Upload File"
             disabled={uploading}
             onChange={(e) => onFileSelect(e, 'file')}
           />
@@ -41,7 +42,8 @@ export function FileUploadBlock({
             type="file"
             multiple
             accept="image/*"
-            className="hidden"
+            className="sr-only"
+            aria-label="Upload Image"
             disabled={uploading}
             onChange={(e) => onFileSelect(e, 'image')}
           />

@@ -495,7 +495,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                   type="file"
                   multiple
                   accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,application/pdf"
-                  className="hidden"
+                  className="sr-only"
+                  aria-label="อัปโหลดไฟล์"
                   disabled={uploading}
                   onChange={(e) => handleFileSelect(e, 'file')}
                 />
@@ -527,7 +528,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                   type="file"
                   multiple
                   accept="image/*"
-                  className="hidden"
+                  className="sr-only"
+                  aria-label="อัปโหลดรูป"
                   disabled={uploading}
                   onChange={(e) => handleFileSelect(e, 'image')}
                 />

@@ -1,58 +1,31 @@
 const db = require('../config/database');
 
-// Helper function - สร้าง user_id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
+// Helper - ให้ไอดีล่าสุดที่ว่าง (เช่น คนที่ 1 ลาออก ไอดีสูงสุด 3 → คนใหม่ได้ 1)
 const generateNextUserId = async () => {
   try {
-    // ดึง user_id ทั้งหมดจาก database
-    const sql = `SELECT user_id FROM user_profiles ORDER BY user_id DESC`;
+    const sql = `SELECT user_id FROM user_profiles`;
     const [rows] = await db.execute(sql);
-    
-    if (rows.length === 0) {
-      // ถ้ายังไม่มีข้อมูลเลย ให้เริ่มที่ 1
-      return '1';
-    }
-    
-    // แปลง user_id ทั้งหมดเป็นตัวเลขและเก็บไว้ใน array
+
+    if (rows.length === 0) return '1';
+
     const numericIds = [];
     for (const row of rows) {
-      const userId = String(row.user_id);
-      // ดึงเฉพาะตัวเลขออกมา
-      const numericPart = userId.replace(/\D/g, '');
-      if (numericPart) {
-        const num = parseInt(numericPart, 10);
-        if (!isNaN(num)) {
-          numericIds.push(num);
-        }
-      }
+      const val = row.user_id;
+      const num = typeof val === 'number' ? val : parseInt(String(val).replace(/\D/g, '') || '0', 10);
+      if (!isNaN(num) && num > 0) numericIds.push(num);
     }
-    
-    if (numericIds.length === 0) {
-      // ถ้าไม่มี user_id ที่เป็นตัวเลขเลย ให้เริ่มที่ 1
-      return '1';
-    }
-    
-    // เรียงลำดับตัวเลขจากน้อยไปมาก
-    numericIds.sort((a, b) => a - b);
-    
-    // หาเลขที่ว่างที่น้อยที่สุด (gap filling)
-    // เริ่มจาก 1 ไปจนถึง max + 1
+
+    if (numericIds.length === 0) return '1';
+
     const maxId = Math.max(...numericIds);
-    
-    // สร้าง Set เพื่อหาง่ายขึ้น
     const idSet = new Set(numericIds);
-    
-    // หาเลขที่ว่างที่น้อยที่สุด
+
     for (let i = 1; i <= maxId; i++) {
       if (!idSet.has(i)) {
-        console.log(`Found gap: using user_id ${i} (max was: ${maxId})`);
-        return i.toString();
+        return String(i);
       }
     }
-    
-    // ถ้าไม่มีเลขว่างแล้ว ให้ใช้เลขถัดไปจาก max
-    const nextId = (maxId + 1).toString();
-    console.log(`No gaps found: using next user_id ${nextId} (max was: ${maxId})`);
-    return nextId;
+    return String(maxId + 1);
   } catch (error) {
     console.error('Error generating next user_id:', error);
     throw error;
@@ -88,18 +61,18 @@ const getEmployees = async (req, res) => {
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
 
-    // ดึงข้อมูลตาม pagination
+    // ดึงข้อมูลตาม pagination (ไม่ส่ง profile_id ออก เรียงตาม user_id เป็นตัวเลข)
     const sql = `SELECT 
-      profile_id,
       user_id,
       name,
       phone,
       gmail,
       type,
-      employment
+      employment,
+      em_picture
     FROM user_profiles 
     ${searchCondition}
-    ORDER BY profile_id DESC 
+    ORDER BY CAST(user_id AS UNSIGNED) ASC 
     LIMIT ? OFFSET ?`;
 
     const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
@@ -113,6 +86,7 @@ const getEmployees = async (req, res) => {
       tel: row.phone || row.Phone || '',
       positionType: row.type || 'Technical',
       employmentType: row.employment || 'Full-Time',
+      photo: row.em_picture || null,
     }));
 
     console.log(`Mapped ${employees.length} employees for response`);
@@ -143,13 +117,13 @@ const getEmployeeById = async (req, res) => {
     const { id } = req.params;
 
     const sql = `SELECT 
-      profile_id,
       user_id,
       name,
       phone,
       gmail,
       type,
-      employment
+      employment,
+      em_picture
     FROM user_profiles 
     WHERE user_id = ?`;
 
@@ -170,6 +144,7 @@ const getEmployeeById = async (req, res) => {
       tel: (row.phone ?? row.Phone) || '',
       positionType: row.type || 'Technical',
       employmentType: row.employment || 'Full-Time',
+      photo: row.em_picture || null,
     };
 
     res.status(200).json({
@@ -186,10 +161,28 @@ const getEmployeeById = async (req, res) => {
   }
 };
 
+// POST - อัปโหลดรูปพนักงาน (multer จะเก็บไฟล์แล้วส่ง path กลับ)
+const uploadEmployeePhoto = (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'ไม่พบไฟล์' });
+    }
+    const photoPath = `/uploads/employees/${req.file.filename}`;
+    res.status(200).json({ success: true, path: photoPath });
+  } catch (error) {
+    console.error('Error uploading employee photo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Upload failed',
+      error: error.message,
+    });
+  }
+};
+
 // POST - สร้าง Employee ใหม่
 const createEmployee = async (req, res) => {
   try {
-    const { name, gmail, tel, positionType, employmentType } = req.body;
+    const { name, gmail, tel, positionType, employmentType, photo } = req.body;
 
     // ตรวจสอบข้อมูลที่จำเป็น
     if (!name || !gmail || !tel) {
@@ -231,10 +224,11 @@ const createEmployee = async (req, res) => {
       type = 'Technical';
     }
 
-    // สร้าง employee ใหม่
+    // สร้าง employee ใหม่ (รวม em_picture ถ้ามี column ใน DB)
+    const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/png?seed=${newUserId}`;
     const insertSql = `INSERT INTO user_profiles 
-      (user_id, name, gmail, phone, type, employment) 
-      VALUES (?, ?, ?, ?, ?, ?)`;
+      (user_id, name, gmail, phone, type, employment, em_picture) 
+      VALUES (?, ?, ?, ?, ?, ?, ?)`;
     
     await db.execute(insertSql, [
       newUserId,
@@ -243,17 +237,18 @@ const createEmployee = async (req, res) => {
       tel,
       type,
       employment,
+      photo || defaultAvatar,
     ]);
 
     // ดึงข้อมูล employee ที่สร้างใหม่
     const getSql = `SELECT 
-      profile_id,
       user_id,
       name,
       phone,
       gmail,
       type,
-      employment
+      employment,
+      em_picture
     FROM user_profiles 
     WHERE user_id = ?`;
 
@@ -267,6 +262,7 @@ const createEmployee = async (req, res) => {
       tel: (row.phone ?? row.Phone) || '',
       positionType: row.type || 'Technical',
       employmentType: row.employment || 'Full-Time',
+      photo: row.em_picture || null,
     };
 
     res.status(201).json({
@@ -319,12 +315,17 @@ const importEmployees = async (req, res) => {
 
       try {
         const newUserId = await generateNextUserId();
-        const insertSql = `INSERT INTO user_profiles (user_id, name, gmail, phone, type, employment) VALUES (?, ?, ?, ?, ?, ?)`;
-        await db.execute(insertSql, [newUserId, name, gmail, tel, type, employment]);
+        const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/png?seed=${newUserId}`;
+        const insertSql = `INSERT INTO user_profiles (user_id, name, gmail, phone, type, employment, em_picture) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+        await db.execute(insertSql, [newUserId, name, gmail, tel, type, employment, defaultAvatar]);
         results.created++;
       } catch (err) {
         results.failed++;
-        results.errors.push({ row: i + 1, message: err.message || 'Insert failed' });
+        let msg = err.message || 'Insert failed';
+        if (err.code === 'ER_DUP_ENTRY' || (err.message && err.message.includes('Duplicate'))) {
+          msg = `Gmail "${gmail}" already exists in the system`;
+        }
+        results.errors.push({ row: i + 1, message: msg });
       }
     }
 
@@ -343,9 +344,110 @@ const importEmployees = async (req, res) => {
   }
 };
 
+// PUT - แก้ไข Employee ตาม ID
+const updateEmployee = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, gmail, tel, positionType, employmentType, photo } = req.body;
+
+    if (!name || !gmail || !tel) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (name, gmail, tel)',
+      });
+    }
+
+    let employment = employmentType || 'Full-Time';
+    if (employment.toLowerCase && employment.toLowerCase().includes('full')) employment = 'Full-Time';
+    else if (employment.toLowerCase && employment.toLowerCase().includes('contract')) employment = 'Contract';
+    else if (employment.toLowerCase && employment.toLowerCase().includes('part')) employment = 'Part-Time';
+
+    let type = positionType || 'Technical';
+    if (type !== 'Technical' && type !== 'Management') type = 'Technical';
+
+    const updateSql = `UPDATE user_profiles SET 
+      name = ?, gmail = ?, phone = ?, type = ?, employment = ?, em_picture = ?
+      WHERE user_id = ?`;
+    const [result] = await db.execute(updateSql, [
+      name,
+      gmail,
+      tel,
+      type,
+      employment,
+      photo || null,
+      id,
+    ]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบข้อมูล Employee',
+      });
+    }
+
+    const getSql = `SELECT user_id, name, phone, gmail, type, employment, em_picture FROM user_profiles WHERE user_id = ?`;
+    const [rows] = await db.execute(getSql, [id]);
+    const row = rows[0];
+    const employee = {
+      id: String(row.user_id),
+      name: row.name ?? row.Name ?? '',
+      gmail: row.gmail || '',
+      tel: (row.phone ?? row.Phone) || '',
+      positionType: row.type || 'Technical',
+      employmentType: row.employment || 'Full-Time',
+      photo: row.em_picture || null,
+    };
+
+    res.status(200).json({
+      success: true,
+      message: 'แก้ไข Employee สำเร็จ',
+      data: employee,
+    });
+  } catch (error) {
+    console.error('Error updating employee:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการแก้ไข Employee',
+      error: error.message,
+    });
+  }
+};
+
+// DELETE - ลบ Employee ตาม ID
+const deleteEmployee = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const sql = `DELETE FROM user_profiles WHERE user_id = ?`;
+    const [result] = await db.execute(sql, [id]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบข้อมูล Employee',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'ลบ Employee สำเร็จ',
+    });
+  } catch (error) {
+    console.error('Error deleting employee:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการลบ Employee',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getEmployees,
   getEmployeeById,
   createEmployee,
   importEmployees,
+  uploadEmployeePhoto,
+  updateEmployee,
+  deleteEmployee,
 };

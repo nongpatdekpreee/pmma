@@ -3,10 +3,10 @@
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useState, useMemo, useEffect, Fragment } from 'react';
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds } from '@/lib/api';
+import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
 
 interface Device {
   id: string;
@@ -20,6 +20,7 @@ interface Engineer {
   id: string;
   name: string;
   lastName?: string;
+  photo?: string | null;
 }
 
 interface CalendarEvent {
@@ -77,11 +78,17 @@ export default function CalendarPage() {
     newEndDate: string;
   } | null>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
-  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string | null>(null);
+  const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string[]>([]);
+  const [engineerFilterInput, setEngineerFilterInput] = useState('');
+  const [showEngineerFilterDropdown, setShowEngineerFilterDropdown] = useState(false);
+  const engineerFilterRef = useRef<HTMLDivElement>(null);
   const [hoveredEvent, setHoveredEvent] = useState<CalendarEvent | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
+  const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
+  const [holidays, setHolidays] = useState<HolidayItem[]>([]);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -166,11 +173,11 @@ export default function CalendarPage() {
     try {
       const res = await fetch(apiUrl('/api/tasks'));
       const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'โหลดข้อมูลไม่สำเร็จ');
+      if (!json.success) throw new Error(json.message || 'Failed to load data');
       setCalendarEvents((json.data || []).map(mapTaskToEvent));
     } catch (error: any) {
       console.error('loadTasksFromApi error', error);
-      setLoadError(error.message || 'ไม่สามารถโหลดรายการงานได้');
+      setLoadError(error.message || 'Unable to load tasks');
     } finally {
       setIsLoading(false);
     }
@@ -225,6 +232,7 @@ export default function CalendarPage() {
                 id: emp.id || emp.employee_id || '',
                 name: nameParts[0] || emp.name || emp.displayName || '',
                 lastName: nameParts.slice(1).join(' ') || emp.lastName || '',
+                photo: emp.photo ?? null,
               };
             });
           setAvailableEngineers(engineers);
@@ -235,10 +243,25 @@ export default function CalendarPage() {
     };
     loadEngineers();
   }, []);
-  
+
   // Get current month and year
   const currentMonth = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
+
+  const loadHolidays = async (year = currentYear) => {
+    const res = await getHolidays(year);
+    if (res.success && res.data) setHolidays(res.data);
+  };
+
+  useEffect(() => {
+    loadHolidays(currentYear);
+  }, [currentYear]);
+
+  const getHolidayForDay = (day: number | null): HolidayItem | null => {
+    if (day === null) return null;
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return holidays.find((h) => h.date === dateStr) ?? null;
+  };
   
   // Get month name
   const monthNames = [
@@ -256,33 +279,63 @@ export default function CalendarPage() {
     );
   };
   
-  // ซ่อน task ที่ done และทำ report เสร็จแล้ว (ไม่แสดงในปฏิทิน) — เหมือน schedule
-  const calendarEventsWithoutDoneReported = useMemo(() => {
-    return calendarEvents.filter((e) => {
-      if (e.status !== 'done') return true;
-      const id = Number(e.id);
-      if (e.taskType === 'PM') return !reportedPMTaskIds.has(id);
-      if (e.taskType === 'MA') return !reportedMATaskIds.has(id);
-      return true;
-    });
-  }, [calendarEvents, reportedPMTaskIds, reportedMATaskIds]);
+  // Enrich events with engineer profile photos from availableEngineers
+  const enrichedCalendarEvents = useMemo(() => {
+    return calendarEvents.map((event) => ({
+      ...event,
+      Eng_ids: event.Eng_ids?.map((eng) => ({
+        ...eng,
+        photo: availableEngineers.find((a) => a.id === String(eng.id))?.photo ?? null,
+      })) ?? [],
+    }));
+  }, [calendarEvents, availableEngineers]);
 
-  // Filter events by selected engineer
+  // แสดงทุก task เหมือนเดิม (รวม task ที่ done และทำ report แล้ว) — เหมือน schedule
+  const calendarEventsWithoutDoneReported = useMemo(() => {
+    return enrichedCalendarEvents;
+  }, [enrichedCalendarEvents]);
+
+  // Filter events by engineer(s), task type (PM/MA), and status (เสร็จแล้ว/ยังไม่เสร็จ)
   const filteredCalendarEvents = useMemo(() => {
-    if (!selectedEngineerFilter) return calendarEventsWithoutDoneReported;
-    return calendarEventsWithoutDoneReported.filter(e => {
-      // Check if event has Eng_ids array
-      if (e.Eng_ids && e.Eng_ids.length > 0) {
-        return e.Eng_ids.some((eng: Engineer) => String(eng.id) === String(selectedEngineerFilter));
+    let list = calendarEventsWithoutDoneReported;
+    if (selectedEngineerFilter.length > 0) {
+      const selectedIds = new Set(selectedEngineerFilter.map(id => String(id)));
+      list = list.filter(e => {
+        const eventEngIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
+        return selectedIds.size > 0 && [...selectedIds].every(id => eventEngIds.includes(id));
+      });
+    }
+    // Task type filter (PM / MA)
+    if (selectedTaskTypeFilter !== 'all') {
+      list = list.filter(e => (e.taskType || 'PM') === selectedTaskTypeFilter);
+    }
+    // Status filter (เสร็จแล้ว / ยังไม่เสร็จ)
+    if (selectedStatusFilter !== 'all') {
+      if (selectedStatusFilter === 'done') {
+        list = list.filter(e => e.status === 'done');
+      } else {
+        list = list.filter(e => e.status !== 'done');
       }
-      // Fallback: check engineer string (for backward compatibility)
-      if (e.engineer) {
-        const engineerIds = e.Eng_ids?.map((eng: Engineer) => String(eng.id)) || [];
-        return engineerIds.includes(String(selectedEngineerFilter));
-      }
-      return false;
-    });
-  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter]);
+    }
+    return list;
+  }, [calendarEventsWithoutDoneReported, selectedEngineerFilter, selectedTaskTypeFilter, selectedStatusFilter]);
+
+  const filteredEngineersForFilter = availableEngineers.filter(
+    eng => !selectedEngineerFilter.includes(String(eng.id)) &&
+      (eng.name?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
+        eng.lastName?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
+        String(eng.id).toLowerCase().includes(engineerFilterInput.toLowerCase()))
+  );
+  const addEngineerFilter = (eng: Engineer) => {
+    if (!selectedEngineerFilter.includes(String(eng.id))) {
+      setSelectedEngineerFilter([...selectedEngineerFilter, String(eng.id)]);
+      setEngineerFilterInput('');
+      setShowEngineerFilterDropdown(false);
+    }
+  };
+  const removeEngineerFilter = (id: string) => {
+    setSelectedEngineerFilter(selectedEngineerFilter.filter(x => x !== id));
+  };
 
   // เช็คว่าเป็นงานหลายวัน (แสดงเป็นแถบต่อเนื่อง ไม่ใช่ pill แยก)
   const isMultiDayEvent = (e: CalendarEvent): boolean => {
@@ -342,6 +395,25 @@ export default function CalendarPage() {
       spans.push({ event: e, colStart, colEnd });
     });
     return spans;
+  };
+
+  /** จัดแถวให้แถบงานหลายวันที่ไม่ซ้อนกัน (spans ที่ซ้อนช่วงจะอยู่คนละแถว) */
+  const assignRowsToMultiDaySpans = (spans: { event: CalendarEvent; colStart: number; colEnd: number }[]): { event: CalendarEvent; colStart: number; colEnd: number; row: number }[] => {
+    const rowIntervals: { start: number; end: number }[][] = [];
+    const result: { event: CalendarEvent; colStart: number; colEnd: number; row: number }[] = [];
+    for (const s of spans) {
+      let row = 0;
+      for (;; row++) {
+        if (row >= rowIntervals.length) rowIntervals[row] = [];
+        const intervals = rowIntervals[row];
+        const overlaps = intervals.some(iv => s.colStart <= iv.end && s.colEnd >= iv.start);
+        if (!overlaps) break;
+      }
+      if (row >= rowIntervals.length) rowIntervals[row] = [];
+      rowIntervals[row].push({ start: s.colStart, end: s.colEnd });
+      result.push({ ...s, row });
+    }
+    return result;
   };
 
   // Generate calendar days grouped by weeks (Sunday first)
@@ -407,7 +479,7 @@ export default function CalendarPage() {
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'อัพเดทไม่สำเร็จ');
+      if (!json.success) throw new Error(json.message || 'Update failed');
       // Reload tasks from API to ensure UI consistency
       await loadTasksFromApi();
       return json;
@@ -473,7 +545,17 @@ export default function CalendarPage() {
     const newStartDateStr = formatDateString(newStartDate);
     const newEndDateStr = formatDateString(newEndDate);
 
-    // แสดง modal ถามเหตุผลก่อนย้าย
+    // เช็คว่าย้ายวันจริงหรือไม่ ถ้าวันเดิมไม่ต้องขึ้น modal notes
+    const originalStartStr = formatDateString(originalStart);
+    if (newStartDateStr === originalStartStr) {
+      // วันเดิม ไม่ย้าย ไม่ต้องถามเหตุผล
+      setDraggedEvent(null);
+      setDragOverDay(null);
+      setDragStartDay(null);
+      return;
+    }
+
+    // ย้ายวันจริง แสดง modal ถามเหตุผลก่อนย้าย
     setPendingMove({
       event: draggedEvent,
       newDay: day,
@@ -491,7 +573,7 @@ export default function CalendarPage() {
 
   const confirmMoveTask = async () => {
     if (!pendingMove || !moveReason.trim()) {
-      toastError('กรุณากรอกเหตุผลในการย้ายงาน');
+      toastError('Please enter a reason for moving the task');
       return;
     }
 
@@ -533,10 +615,10 @@ export default function CalendarPage() {
         newEndDate,
         moveReason.trim()
       );
-      toastSuccess('ย้ายงานสำเร็จ');
+      toastSuccess('Task moved successfully');
     } catch (error) {
       console.error('Failed to update task dates:', error);
-      toastError('ย้ายงานไม่สำเร็จ');
+      toastError('Failed to move task');
       // Error is already handled in persistTaskDates (reloads data)
     }
   };
@@ -599,13 +681,13 @@ export default function CalendarPage() {
       });
       const json = await res.json();
       if (!json.success) {
-        throw new Error(json.message || 'อัพเดทไม่สำเร็จ');
+        throw new Error(json.message || 'Update failed');
       }
-      toastSuccess('อัปเดตสถานะสำเร็จ');
+      toastSuccess('Status updated successfully');
       // Don't reload from API to avoid date changes - local state is already updated
     } catch (error) {
       console.error('handleTaskUpdate error', error);
-      toastError('อัปเดตสถานะไม่สำเร็จ');
+      toastError('Failed to update status');
       // Only reload on error to get correct state
       await loadTasksFromApi();
     }
@@ -629,27 +711,109 @@ export default function CalendarPage() {
           <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
             Calendar
           </h1>
-          <div className="flex items-center gap-2">
-            <label htmlFor="engineer-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
-              Engineer:
-            </label>
-            <select
-              id="engineer-filter-calendar"
-              value={selectedEngineerFilter || ''}
-              onChange={(e) => setSelectedEngineerFilter(e.target.value || null)}
-              className="flex-1 sm:flex-none px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[200px] shadow-sm transition-colors"
-            >
-              <option value="">All Engineers</option>
-              {availableEngineers.length === 0 ? (
-                <option value="" disabled>Loading engineers...</option>
-              ) : (
-                availableEngineers.map((eng) => (
-                  <option key={eng.id} value={String(eng.id)}>
-                    {eng.name} {eng.lastName || ''}
-                  </option>
-                ))
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
+              <label htmlFor="engineer-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Engineer:
+              </label>
+              <div
+                id="engineer-filter-calendar"
+                className={`flex-1 sm:min-w-[160px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
+                onClick={() => document.getElementById('engineer-filter-input-calendar')?.focus()}
+              >
+                {selectedEngineerFilter.length === 0 && !engineerFilterInput && (
+                  <span className="text-slate-400">All Engineers</span>
+                )}
+                {selectedEngineerFilter.map((id) => {
+                  const eng = availableEngineers.find(e => String(e.id) === id);
+                  const label = eng ? `${eng.name || ''} ${eng.lastName || ''}`.trim() || id : id;
+                  return (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-100 text-blue-800 text-xs font-medium"
+                    >
+                      {label}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeEngineerFilter(id); }}
+                        className="hover:bg-blue-200 rounded p-0.5"
+                        aria-label="Remove"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  );
+                })}
+                <input
+                  id="engineer-filter-input-calendar"
+                  type="text"
+                  value={engineerFilterInput}
+                  onChange={(e) => { setEngineerFilterInput(e.target.value); setShowEngineerFilterDropdown(true); }}
+                  onFocus={() => setShowEngineerFilterDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowEngineerFilterDropdown(false), 200)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && filteredEngineersForFilter.length > 0) {
+                      addEngineerFilter(filteredEngineersForFilter[0]);
+                    }
+                    if (e.key === 'Backspace' && !engineerFilterInput && selectedEngineerFilter.length > 0) {
+                      removeEngineerFilter(selectedEngineerFilter[selectedEngineerFilter.length - 1]);
+                    }
+                  }}
+                  placeholder={selectedEngineerFilter.length === 0 ? 'Search engineers...' : ''}
+                  className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-slate-700 placeholder:text-slate-400"
+                />
+              </div>
+              {showEngineerFilterDropdown && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 min-w-[160px] max-h-48 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                  {availableEngineers.length === 0 ? (
+                    <div className="px-3 py-2 text-slate-500 text-sm">Loading engineers...</div>
+                  ) : filteredEngineersForFilter.length === 0 ? (
+                    <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
+                  ) : (
+                    filteredEngineersForFilter.map((eng) => (
+                      <button
+                        key={eng.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                        onClick={() => addEngineerFilter(eng)}
+                      >
+                        {eng.name} {eng.lastName || ''}
+                      </button>
+                    ))
+                  )}
+                </div>
               )}
-            </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="task-type-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Type:
+              </label>
+              <select
+                id="task-type-filter-calendar"
+                value={selectedTaskTypeFilter}
+                onChange={(e) => setSelectedTaskTypeFilter(e.target.value as 'all' | 'PM' | 'MA')}
+                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="PM">PM</option>
+                <option value="MA">MA</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="status-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+                Status:
+              </label>
+              <select
+                id="status-filter-calendar"
+                value={selectedStatusFilter}
+                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'not-done')}
+                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
+              >
+                <option value="all">All</option>
+                <option value="done">Done</option>
+                <option value="not-done">Not done</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -694,6 +858,13 @@ export default function CalendarPage() {
             {/* Calendar weeks */}
             {calendarWeeks.map((week, weekIndex) => {
               const multiDaySpans = getMultiDaySpansForWeek(week);
+              const multiDaySpansWithRow = assignRowsToMultiDaySpans(multiDaySpans);
+              const multiDayRowCount = multiDaySpansWithRow.length > 0 ? Math.max(...multiDaySpansWithRow.map(s => s.row)) + 1 : 0;
+              const BAR_HEIGHT = 28;
+              const TASK_GAP = 4; // ระยะห่างเท่ากันทุกที่: ระหว่างแถบ-แถบ, แถบ-pill, pill-pill
+              const MULTI_DAY_TOP_OFFSET = 32;
+              const multiDayAreaHeight = (rows: number) =>
+                MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
               return (
                 <div key={weekIndex} className="relative grid grid-cols-7 gap-px">
                   {week.map((day, dayIndex) => {
@@ -701,18 +872,22 @@ export default function CalendarPage() {
                     // กรองงานหลายวันออกจาก pills ในวันแรก (เพราะจะแสดงเป็นแถบต่อกันแล้ว)
                     const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
                     const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
-                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ (colStart <= dayIndex <= colEnd) → เว้นที่ให้แถบ ไม่ให้ pill ซ้อน
-                    const hasMultiDayBarAbove = multiDaySpans.some(({ colStart, colEnd }) => dayIndex >= colStart && dayIndex <= colEnd);
+                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ — ใช้เฉพาะจำนวนแถวที่ครอบคลุมวันนี้ เพื่อไม่ให้มีช่องว่างเกิน
+                    const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
+                    const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
+                    const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
+                    const holidayForDay = getHolidayForDay(day);
                     return (
                       <div
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => handleDragOver(e, day)}
-                        className={`min-h-[100px] p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : 'bg-white'
+                        className={`p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'bg-blue-50 border-2 border-blue-300'
                             : ''
                           }`}
+                        style={{ minHeight: multiDayRowCount > 0 ? multiDayAreaHeight(multiDayRowCount) + 44 : 100 }}
                       >
                         {day !== null && (
                           <>
@@ -725,10 +900,15 @@ export default function CalendarPage() {
                             >
                               {day}
                             </span>
-                            {/* งานวันเดียว — แสดงเป็น pill (ไม่รวมงานหลายวัน), เว้นที่ด้านบนถ้ามีแถบงานหลายวัน */}
+                            {holidayForDay && (
+                              <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
+                                {holidayForDay.name}
+                              </span>
+                            )}
+                            {/* งานวันเดียว — ให้ pills เริ่มชิดใต้แถบ (หักความสูงพื้นที่วันที่ออก เพราะแถบวัดจากบน cell) */}
                             <div
-                              className="mt-1.5 space-y-0.5 relative z-10"
-                              style={hasMultiDayBarAbove ? { marginTop: '36px' } : undefined}
+                              className={`space-y-0.5 relative z-10 ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
+                              style={hasMultiDayBarAbove ? { marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px` } : undefined}
                             >
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
@@ -739,12 +919,14 @@ export default function CalendarPage() {
                                 const endDate = endDateStr ? new Date(endDateStr) : null;
                                 if (endDate) endDate.setHours(0, 0, 0, 0);
                                 const isOverdue = !isDone && endDate && endDate < today;
-                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, ยังไม่เสร็จ=ฟ้า (เหมือน schedule)
+                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า (เหมือน schedule)
                                 const pillStyle = isDone
                                   ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
                                   : isOverdue
                                     ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
-                                    : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                                    : isMA
+                                      ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                                      : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
@@ -770,14 +952,32 @@ export default function CalendarPage() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`mt-1 min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''}`}
+                                    className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
                                   >
                                     <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
-                                    <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                                    <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
                                       {ev.title || '(No title)'}
                                     </span>
+                                    {ev.Eng_ids && ev.Eng_ids.length > 0 && (
+                                      <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                                        <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                                          {ev.Eng_ids[0].photo ? (
+                                            <img src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                                          ) : (
+                                            <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                              {(ev.Eng_ids[0].name?.[0] || ev.Eng_ids[0].id?.[0] || '?').toUpperCase()}
+                                            </span>
+                                          )}
+                                        </span>
+                                        {ev.Eng_ids.length > 1 && (
+                                          <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                                            +{ev.Eng_ids.length - 1}
+                                          </span>
+                                        )}
+                                      </span>
+                                    )}
                                     {isDone && (
                                       <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                                     )}
@@ -790,8 +990,8 @@ export default function CalendarPage() {
                       </div>
                     );
                   })}
-                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง (สไตล์เหมือน schedule) */}
-                  {multiDaySpans.map(({ event, colStart, colEnd }) => {
+                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง (จัดหลายแถวถ้าซ้อนกัน) */}
+                  {multiDaySpansWithRow.map(({ event, colStart, colEnd, row }) => {
                     const isMA = event.taskType === 'MA';
                     const isDone = event.status === 'done';
                     const endDateStr = event.endDate || event.startDate || '';
@@ -800,21 +1000,25 @@ export default function CalendarPage() {
                     const endDate = endDateStr ? new Date(endDateStr) : null;
                     if (endDate) endDate.setHours(0, 0, 0, 0);
                     const isOverdue = !isDone && endDate && endDate < today;
+                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า (เหมือน schedule)
                     const barStyle = isDone
                       ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
                       : isOverdue
                         ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
-                        : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                        : isMA
+                          ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                          : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                    const topPx = MULTI_DAY_TOP_OFFSET + row * (BAR_HEIGHT + TASK_GAP);
                     return (
                       <div
                         key={event.id}
                         style={{
                           gridColumn: `${colStart + 1} / ${colEnd + 2}`,
                           position: 'absolute',
-                          top: '32px',
+                          top: `${topPx}px`,
                           left: '8px',
                           right: '8px',
-                          height: '28px',
+                          height: `${BAR_HEIGHT}px`,
                         }}
                         draggable={!isDone}
                         onDragStart={(e) => !isDone && handleDragStart(e, event)}
@@ -838,14 +1042,32 @@ export default function CalendarPage() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm truncate ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
                         <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
-                        <span className={`min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                        <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
                           {event.title || '(No title)'}
                         </span>
+                        {event.Eng_ids && event.Eng_ids.length > 0 && (
+                          <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                            <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                              {event.Eng_ids[0].photo ? (
+                                <img src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                  {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
+                                </span>
+                              )}
+                            </span>
+                            {event.Eng_ids.length > 1 && (
+                              <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                                +{event.Eng_ids.length - 1}
+                              </span>
+                            )}
+                          </span>
+                        )}
                         {isDone && (
                           <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                         )}
@@ -936,10 +1158,21 @@ export default function CalendarPage() {
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-1.5">
                   {hoveredEvent.Eng_ids.map((eng, idx) => (
-                    <div key={idx} className="text-xs text-slate-800">
-                      {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                    <div key={eng.id || idx} className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100">
+                        {eng.photo ? (
+                          <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
+                            {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs text-slate-800">
+                        {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
+                      </span>
                     </div>
                   ))}
                 </div>
