@@ -1,0 +1,434 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { X, Search } from 'lucide-react';
+import { apiUrl } from '@/lib/api';
+
+export interface DeviceSelectModalDevice {
+  id: string;
+  name: string;
+  type?: string;
+  serialNumber?: string;
+  site?: string;
+  assetNumber?: string;
+  role?: string;
+  manufacturer?: string;
+}
+
+export interface DeviceSelectModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm?: (selectedIds: string[]) => void;
+  title?: string;
+  devices: DeviceSelectModalDevice[];
+  selectedIds: string[];
+  filter: string;
+  onFilterChange: (value: string) => void;
+  onSelectAll: () => void;
+  onClearAll: () => void;
+  onToggleDevice: (deviceId: string) => void;
+}
+
+export function DeviceSelectModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  title = 'Select Device',
+  devices,
+  selectedIds,
+  filter,
+  onFilterChange,
+  onSelectAll,
+  onClearAll,
+  onToggleDevice,
+}: DeviceSelectModalProps) {
+  const [mounted, setMounted] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<string>('');
+  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [selectedManufacturer, setSelectedManufacturer] = useState<string>('');
+  const [manufacturers, setManufacturers] = useState<Array<{ Mid: number; name: string; slug: string }>>([]);
+  const [loadingManufacturers, setLoadingManufacturers] = useState(false);
+  
+  useEffect(() => setMounted(true), []);
+  
+  // Load manufacturers from API when modal opens
+  useEffect(() => {
+    if (isOpen && manufacturers.length === 0) {
+      const loadManufacturers = async () => {
+        setLoadingManufacturers(true);
+        try {
+          const res = await fetch(apiUrl('/api/manufacturers'));
+          const json = await res.json();
+          if (res.ok && json.success && json.data) {
+            setManufacturers(json.data);
+          }
+        } catch (error) {
+          console.error('Error loading manufacturers:', error);
+        } finally {
+          setLoadingManufacturers(false);
+        }
+      };
+      loadManufacturers();
+    }
+  }, [isOpen, manufacturers.length]);
+  
+  // Reset filters when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedRole('');
+      setSelectedModel('');
+      setSelectedManufacturer('');
+    }
+  }, [isOpen]);
+
+  // First filter by text search only (for dropdown options)
+  const textFilteredDevices = devices.filter((d) => {
+    if (!filter.trim()) return true;
+    const filterLower = filter.toLowerCase();
+    return (
+      d.name.toLowerCase().includes(filterLower) ||
+      d.assetNumber?.toLowerCase().includes(filterLower) ||
+      d.id.includes(filter) ||
+      d.type?.toLowerCase().includes(filterLower) ||
+      d.serialNumber?.toLowerCase().includes(filterLower) ||
+      d.manufacturer?.toLowerCase().includes(filterLower)
+    );
+  });
+
+  // Extract unique roles and models from ALL devices (not filtered)
+  // For manufacturers, use data from API (database) instead of devices
+  const uniqueRoles = Array.from(new Set(devices.map(d => d.role).filter(Boolean))).sort();
+  const uniqueModels = Array.from(new Set(devices.map(d => d.type).filter(Boolean))).sort();
+  // Use manufacturers from API (database) - sorted by name
+  const uniqueManufacturers = manufacturers.map(m => m.name).sort();
+
+  // Reset selected filters if they're no longer available in the full devices list
+  useEffect(() => {
+    if (selectedRole && !uniqueRoles.includes(selectedRole)) {
+      setSelectedRole('');
+    }
+    if (selectedModel && !uniqueModels.includes(selectedModel)) {
+      setSelectedModel('');
+    }
+    if (selectedManufacturer && !uniqueManufacturers.includes(selectedManufacturer)) {
+      setSelectedManufacturer('');
+    }
+  }, [uniqueRoles, uniqueModels, uniqueManufacturers, selectedRole, selectedModel, selectedManufacturer]);
+
+  if (!isOpen) return null;
+
+  // Final filter: text search + role + model + manufacturer
+  const filteredDevices = textFilteredDevices.filter((d) => {
+    // Role filter
+    if (selectedRole && d.role !== selectedRole) return false;
+
+    // Model filter
+    if (selectedModel && d.type !== selectedModel) return false;
+
+    // Manufacturer filter
+    if (selectedManufacturer && d.manufacturer !== selectedManufacturer) return false;
+
+    return true;
+  });
+
+  const modalContent = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between border-b bg-white px-6 py-4">
+          <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
+            <span className="text-xl">📱</span>
+            <span>{title}</span>
+          </h3>
+          <button onClick={onClose} className="rounded-full bg-slate-100 p-2 text-slate-600 transition-all hover:bg-slate-200">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex items-center justify-between border-b px-6 py-3 bg-gradient-to-r from-blue-50/50 to-indigo-50/50">
+          <div className="flex items-center gap-2">
+            {(() => {
+              const allSelected = filteredDevices.length > 0 && filteredDevices.every((d) => selectedIds.includes(d.id));
+              // Get selected filter name for display
+              const selectedFilterName = selectedRole || selectedModel || selectedManufacturer || '';
+              const selectAllText = selectedFilterName 
+                ? `Select All of ${selectedFilterName}` 
+                : 'Select All';
+              
+              return (
+                <button
+                  onClick={onSelectAll}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold shadow-sm transition-all ${
+                    allSelected
+                      ? 'bg-slate-200 text-slate-600 hover:bg-slate-300 hover:shadow-sm'
+                      : 'bg-blue-500 text-white hover:bg-blue-600 hover:shadow-md'
+                  }`}
+                >
+                  <span>{allSelected ? '✓' : '✅'}</span>
+                  <span>{selectAllText}</span>
+                </button>
+              );
+            })()}
+            <button
+              onClick={onClearAll}
+              className="flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-700 transition-all hover:bg-slate-200 hover:shadow-sm"
+            >
+              <span>🗑️</span>
+              <span>Clear All</span>
+            </button>
+          </div>
+          {(() => {
+            // Count only selected items that are in filteredDevices
+            const selectedFilteredCount = filteredDevices.filter((d) => selectedIds.includes(d.id)).length;
+            return (
+              <span className="flex items-center justify-center gap-1.5 rounded-full bg-white px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200">
+                <span className="text-blue-500">📋</span>
+                <span>{selectedFilteredCount} / {filteredDevices.length} items</span>
+              </span>
+            );
+          })()}
+        </div>
+        <div className="border-b px-6 py-3 space-y-3">
+          <div className="relative">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              value={filter}
+              onChange={(e) => onFilterChange(e.target.value)}
+              placeholder="Search Device..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-400"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">⚙️</span>
+              <select
+                value={selectedRole}
+                onChange={(e) => setSelectedRole(e.target.value)}
+                className={`w-full rounded-xl border pl-9 pr-3 py-2 text-sm outline-none transition-all ${
+                  selectedRole
+                    ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                    : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-400'
+                }`}
+              >
+                <option value="">All Role</option>
+                {uniqueRoles.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">📱</span>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className={`w-full rounded-xl border pl-9 pr-3 py-2 text-sm outline-none transition-all ${
+                  selectedModel
+                    ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                    : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-400'
+                }`}
+              >
+                <option value="">All Model</option>
+                {uniqueModels.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm">🏭</span>
+              <select
+                value={selectedManufacturer}
+                onChange={(e) => setSelectedManufacturer(e.target.value)}
+                disabled={loadingManufacturers}
+                className={`w-full rounded-xl border pl-9 pr-3 py-2 text-sm outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                  selectedManufacturer
+                    ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                    : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-400'
+                }`}
+              >
+                <option value="">All Manufacturer</option>
+                {loadingManufacturers ? (
+                  <option disabled>Loading...</option>
+                ) : (
+                  uniqueManufacturers.map((manufacturer) => (
+                    <option key={manufacturer} value={manufacturer}>
+                      {manufacturer}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 space-y-2 overflow-y-auto px-6 py-4">
+          {filteredDevices.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-400">
+              {filter ? 'No devices found matching the search' : 'No devices'}
+            </p>
+          ) : (
+            filteredDevices.map((d) => {
+              const isSelected = selectedIds.includes(d.id);
+              return (
+                <label
+                  key={d.id}
+                  className={`flex cursor-pointer items-center justify-between rounded-lg border p-4 shadow-sm transition-all ${
+                    isSelected 
+                      ? 'border-blue-400 bg-blue-50/50 shadow-md ring-2 ring-blue-200' 
+                      : 'border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-md'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-slate-800">{d.name}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {/* Model/Serial badge */}
+                      {d.serialNumber && 
+                       d.name && 
+                       !d.name.includes(d.serialNumber) && (
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                          <span className="text-sm">📱</span>
+                          <span className="font-semibold">Model/Serial:</span>
+                          <span className="font-mono">{[d.type, d.serialNumber].filter(Boolean).join(' / ')}</span>
+                        </span>
+                      )}
+                      {/* Model only badge */}
+                      {!d.serialNumber && d.type && d.name && !d.name.includes(d.type) && (
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-600/20">
+                          <span className="text-sm">🔧</span>
+                          <span className="font-semibold">Model:</span>
+                          <span>{d.type}</span>
+                        </span>
+                      )}
+                      {/* Role badge with color coding and different emojis */}
+                      {d.role && (() => {
+                        const roleLower = d.role.toLowerCase();
+                        let emoji = '⚙️'; // default
+                        let className = 'bg-slate-50 text-slate-700 ring-slate-600/20';
+                        
+                        if (roleLower.includes('router')) {
+                          emoji = '🌐';
+                          className = 'bg-orange-50 text-orange-700 ring-orange-600/20';
+                        } else if (roleLower.includes('switch')) {
+                          emoji = '🔀';
+                          className = 'bg-indigo-50 text-indigo-700 ring-indigo-600/20';
+                        } else if (roleLower.includes('server')) {
+                          emoji = '🖥️';
+                          className = 'bg-green-50 text-green-700 ring-green-600/20';
+                        } else if (roleLower.includes('access point') || roleLower.includes('ap')) {
+                          emoji = '📡';
+                          className = 'bg-cyan-50 text-cyan-700 ring-cyan-600/20';
+                        } else if (roleLower.includes('firewall')) {
+                          emoji = '🛡️';
+                          className = 'bg-red-50 text-red-700 ring-red-600/20';
+                        } else if (roleLower.includes('storage') || roleLower.includes('nas')) {
+                          emoji = '💾';
+                          className = 'bg-purple-50 text-purple-700 ring-purple-600/20';
+                        } else if (roleLower.includes('ups') || roleLower.includes('power')) {
+                          emoji = '🔌';
+                          className = 'bg-yellow-50 text-yellow-700 ring-yellow-600/20';
+                        } else if (roleLower.includes('printer')) {
+                          emoji = '🖨️';
+                          className = 'bg-pink-50 text-pink-700 ring-pink-600/20';
+                        }
+                        
+                        return (
+                          <span className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${className}`}>
+                            <span className="text-sm">{emoji}</span>
+                           
+                            <span className="font-bold">{d.role}</span>
+                          </span>
+                        );
+                      })()}
+                      {/* Manufacturer badge */}
+                      {d.manufacturer && (
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                          <span className="text-sm">🏭</span>
+            
+                          <span className="font-bold">{d.manufacturer}</span>
+                        </span>
+                      )}
+                      {/* Asset badge */}
+                      {d.assetNumber && (
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                          <span className="text-sm">🏷️</span>
+                          <span className="font-semibold">Asset:</span>
+                          <span className="font-mono font-bold">{d.assetNumber}</span>
+                        </span>
+                      )}
+                      {/* Site badge */}
+                      {d.site && (
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 ring-1 ring-inset ring-teal-600/20">
+                          <span className="text-sm">📍</span>
+                          <span className="font-semibold">Site:</span>
+                          <span>{d.site}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onToggleDevice(d.id)}
+                    className="h-5 w-5 accent-blue-500 cursor-pointer"
+                  />
+                </label>
+              );
+            })
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-3 border-t bg-gradient-to-r from-slate-50/50 to-blue-50/30 px-6 py-4">
+          <button 
+            onClick={onClose} 
+            className="flex items-center justify-center gap-2 rounded-lg bg-slate-100 px-6 py-2.5 text-sm font-medium text-slate-700 transition-all hover:bg-slate-200 hover:shadow-sm"
+          >
+            <span>❌</span>
+            <span>Close</span>
+          </button>
+          {(() => {
+            // Count only selected items that are in filteredDevices (matching the display above)
+            const selectedFilteredCount = filteredDevices.filter((d) => selectedIds.includes(d.id)).length;
+            // Check if there are any active filters (role, model, manufacturer, or search)
+            const hasActiveFilter = selectedRole || selectedModel || selectedManufacturer || filter.trim();
+            
+            // Get filtered device IDs
+            const filteredDeviceIds = new Set(filteredDevices.map((d) => d.id));
+            // Get selected IDs that are in the filtered devices list
+            const selectedFilteredIds = selectedIds.filter((id) => filteredDeviceIds.has(id));
+            
+            // If there's an active filter, only keep devices in the filtered list that are selected
+            // Otherwise, keep all selected devices
+            const finalSelectedIds = hasActiveFilter 
+              ? selectedFilteredIds 
+              : selectedIds;
+            
+            const handleConfirm = () => {
+              if (onConfirm) {
+                // If filter is active, only pass devices in filtered list that are selected
+                // Otherwise, pass all selected devices
+                onConfirm(finalSelectedIds);
+              }
+              onClose();
+            };
+            
+            return (
+              <button 
+                onClick={handleConfirm} 
+                className="flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-blue-500 to-indigo-600 px-6 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-200/50 transition-all hover:from-blue-600 hover:to-indigo-700 hover:shadow-xl hover:shadow-blue-300/50"
+              >
+                <span>✓</span>
+                <span>Confirm ({selectedFilteredCount})</span>
+              </button>
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+
+  if (mounted && typeof document !== 'undefined') {
+    return createPortal(modalContent, document.body);
+  }
+  return null;
+}
