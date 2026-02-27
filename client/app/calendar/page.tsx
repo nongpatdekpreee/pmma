@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds } from '@/lib/api';
+import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
 
 interface Device {
   id: string;
@@ -88,6 +88,7 @@ export default function CalendarPage() {
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
   const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
+  const [holidays, setHolidays] = useState<HolidayItem[]>([]);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -242,10 +243,25 @@ export default function CalendarPage() {
     };
     loadEngineers();
   }, []);
-  
+
   // Get current month and year
   const currentMonth = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
+
+  const loadHolidays = async (year = currentYear) => {
+    const res = await getHolidays(year);
+    if (res.success && res.data) setHolidays(res.data);
+  };
+
+  useEffect(() => {
+    loadHolidays(currentYear);
+  }, [currentYear]);
+
+  const getHolidayForDay = (day: number | null): HolidayItem | null => {
+    if (day === null) return null;
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return holidays.find((h) => h.date === dateStr) ?? null;
+  };
   
   // Get month name
   const monthNames = [
@@ -860,12 +876,13 @@ export default function CalendarPage() {
                     const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
                     const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
                     const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
+                    const holidayForDay = getHolidayForDay(day);
                     return (
                       <div
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => handleDragOver(e, day)}
-                        className={`p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : 'bg-white'
+                        className={`p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'bg-blue-50 border-2 border-blue-300'
                             : ''
@@ -883,6 +900,11 @@ export default function CalendarPage() {
                             >
                               {day}
                             </span>
+                            {holidayForDay && (
+                              <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
+                                {holidayForDay.name}
+                              </span>
+                            )}
                             {/* งานวันเดียว — ให้ pills เริ่มชิดใต้แถบ (หักความสูงพื้นที่วันที่ออก เพราะแถบวัดจากบน cell) */}
                             <div
                               className={`space-y-0.5 relative z-10 ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}

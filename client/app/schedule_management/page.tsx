@@ -16,7 +16,7 @@ import {
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds } from '@/lib/api';
+import { apiUrl, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
 import * as XLSX from 'xlsx';
 
 
@@ -120,6 +120,15 @@ export default function ScheduleManagement() {
   const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [holidays, setHolidays] = useState<HolidayItem[]>([]);
+  const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
+  const [newHolidayDate, setNewHolidayDate] = useState('');
+  const [newHolidayName, setNewHolidayName] = useState('');
+  const [addingHoliday, setAddingHoliday] = useState(false);
+  const [importingHolidays, setImportingHolidays] = useState(false);
+  const [restoringOfficialHolidays, setRestoringOfficialHolidays] = useState(false);
+  const [hidingOfficialHolidays, setHidingOfficialHolidays] = useState(false);
+  const holidayFileInputRef = useRef<HTMLInputElement>(null);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -233,10 +242,130 @@ export default function ScheduleManagement() {
     }
   };
 
+  const loadHolidays = async (year = currentYear) => {
+    const res = await getHolidays(year);
+    if (res.success && res.data) setHolidays(res.data);
+  };
+
+  const normalizeHolidayImportDate = (value: unknown): string | null => {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, '0');
+      const d = String(value.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const parsed = XLSX.SSF.parse_date_code(value);
+      if (parsed?.y && parsed?.m && parsed?.d) {
+        return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+      }
+    }
+    if (typeof value !== 'string') return null;
+    const raw = value.trim();
+    if (!raw) return null;
+
+    const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+    if (iso) {
+      return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+    }
+
+    const slash = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (slash) {
+      const a = Number(slash[1]);
+      const b = Number(slash[2]);
+      const year = slash[3];
+      const day = a > 12 ? a : b;
+      const month = a > 12 ? b : a;
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
+
+    const parsedDate = new Date(raw);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, '0')}-${String(parsedDate.getDate()).padStart(2, '0')}`;
+    }
+    return null;
+  };
+
+  const handleHolidayImportFile = async (file: File) => {
+    try {
+      setImportingHolidays(true);
+      const ext = file.name.toLowerCase().split('.').pop() || '';
+      const rows: any[][] = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const result = event.target?.result;
+            if (!result) throw new Error('Empty file');
+            let workbook: XLSX.WorkBook;
+            if (ext === 'csv') {
+              workbook = XLSX.read(String(result), { type: 'string' });
+            } else {
+              workbook = XLSX.read(result, { type: 'array', cellDates: true });
+            }
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+            resolve(data);
+          } catch (e) {
+            reject(e);
+          }
+        };
+        reader.onerror = () => reject(reader.error);
+        if (ext === 'csv') reader.readAsText(file);
+        else reader.readAsArrayBuffer(file);
+      });
+
+      if (!rows.length) {
+        toastError('File is empty');
+        return;
+      }
+
+      const header = (rows[0] || []).map((h: any) => String(h || '').trim().toLowerCase());
+      const dateIdx = header.findIndex((h: string) => ['date', 'holiday_date', 'day'].includes(h));
+      const nameIdx = header.findIndex((h: string) => ['name', 'holiday_name', 'title'].includes(h));
+      const startIdx = dateIdx >= 0 ? dateIdx : 0;
+      const startRow = dateIdx >= 0 || nameIdx >= 0 ? 1 : 0;
+      const resolvedNameIdx = nameIdx >= 0 ? nameIdx : 1;
+
+      const customDateSet = new Set(
+        holidays.filter((h) => h.source === 'custom').map((h) => h.date)
+      );
+      const pending = new Map<string, string>();
+      for (let i = startRow; i < rows.length; i++) {
+        const row = rows[i] || [];
+        const date = normalizeHolidayImportDate(row[startIdx]);
+        const name = String(row[resolvedNameIdx] || '').trim();
+        if (!date || !name) continue;
+        if (customDateSet.has(date)) continue;
+        pending.set(date, name);
+      }
+
+      if (pending.size === 0) {
+        toastError('No valid holidays to import');
+        return;
+      }
+
+      let successCount = 0;
+      for (const [date, name] of pending) {
+        const res = await addHoliday({ date, name });
+        if (res.success) successCount += 1;
+      }
+
+      await loadHolidays(currentYear);
+      if (successCount === pending.size) toastSuccess(`Imported ${successCount} holidays`);
+      else toastError(`Imported ${successCount}/${pending.size} holidays`);
+    } catch (error: any) {
+      toastError(`Failed to import holidays: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setImportingHolidays(false);
+      if (holidayFileInputRef.current) holidayFileInputRef.current.value = '';
+    }
+  };
+
   useEffect(() => {
     loadTasksFromApi();
     loadReportedTaskIds();
-
     // Load sites and engineers for Excel import
     const loadSitesAndEngineers = async () => {
       try {
@@ -294,6 +423,10 @@ export default function ScheduleManagement() {
   const currentMonth = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
 
+  useEffect(() => {
+    loadHolidays(currentYear);
+  }, [currentYear]);
+
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December'
@@ -304,6 +437,12 @@ export default function ScheduleManagement() {
     day === today.getDate() &&
     currentMonth === today.getMonth() &&
     currentYear === today.getFullYear();
+
+  const getHolidayForDay = (day: number | null): HolidayItem | null => {
+    if (day === null) return null;
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return holidays.find(h => h.date === dateStr) ?? null;
+  };
 
   const calendarWeeks = useMemo(() => {
     const first = new Date(currentYear, currentMonth, 1);
@@ -1686,21 +1825,30 @@ export default function ScheduleManagement() {
         />
 
         <div className="bg-white p-6 rounded-[2.5rem] shadow-sm">
-          <div className="flex justify-center items-center gap-8 mb-6">
+          <div className="relative flex items-center mb-6">
+            <div className="mx-auto flex items-center gap-8">
+              <button
+                onClick={goToPreviousMonth}
+                className="text-blue-500 hover:text-blue-700 transition-colors"
+              >
+                <ChevronLeft size={24} />
+              </button>
+              <span className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+                {monthNames[currentMonth]}, {currentYear}
+              </span>
+              <button
+                onClick={goToNextMonth}
+                className="text-blue-500 hover:text-blue-700 transition-colors"
+              >
+                <ChevronRight size={24} />
+              </button>
+            </div>
             <button
-              onClick={goToPreviousMonth}
-              className="text-blue-500 hover:text-blue-700 transition-colors"
+              type="button"
+              onClick={() => setIsHolidayModalOpen(true)}
+              className="absolute right-0 px-4 py-2 rounded-xl  text-amber-800 text-sm font-medium hover:bg-amber-100  "
             >
-              <ChevronLeft size={24} />
-            </button>
-            <span className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
-              {monthNames[currentMonth]}, {currentYear}
-            </span>
-            <button
-              onClick={goToNextMonth}
-              className="text-blue-500 hover:text-blue-700 transition-colors"
-            >
-              <ChevronRight size={24} />
+              Holidays
             </button>
           </div>
 
@@ -1741,12 +1889,13 @@ export default function ScheduleManagement() {
                     const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
                     const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
                     const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
+                    const holidayForDay = getHolidayForDay(day);
                     return (
                       <div
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => e.preventDefault()}
-                        className={`p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : 'bg-white'
+                        className={`p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'bg-blue-50 border-2 border-blue-300'
                             : ''
@@ -1763,6 +1912,11 @@ export default function ScheduleManagement() {
                             >
                               {day}
                             </span>
+                            {holidayForDay && (
+                              <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
+                                {holidayForDay.name}
+                              </span>
+                            )}
                             {/* งานวันเดียว — ให้ pills เริ่มชิดใต้แถบ (หักความสูงพื้นที่วันที่ออก เพราะแถบวัดจากบน cell) */}
                             <div
                               className={`space-y-0.5 relative z-10 ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
@@ -2122,6 +2276,167 @@ export default function ScheduleManagement() {
               >
                 Confirm
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Holidays modal - add/delete holidays */}
+      {isHolidayModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50" onClick={() => setIsHolidayModalOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-800">Manage holidays</h2>
+              <button type="button" onClick={() => setIsHolidayModalOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4 overflow-y-auto">
+              <div className="flex gap-2">
+                <input
+                  ref={holidayFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    await handleHolidayImportFile(file);
+                  }}
+                />
+                <input
+                  type="date"
+                  value={newHolidayDate}
+                  onChange={(e) => setNewHolidayDate(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="Holiday name"
+                  value={newHolidayName}
+                  onChange={(e) => setNewHolidayName(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={addingHoliday || !newHolidayDate.trim()}
+                  onClick={async () => {
+                    if (!newHolidayDate.trim()) return;
+                    setAddingHoliday(true);
+                    const res = await addHoliday({ date: newHolidayDate.trim(), name: newHolidayName.trim() || 'Holiday' });
+                    setAddingHoliday(false);
+                    if (res.success) {
+                      setNewHolidayDate('');
+                      setNewHolidayName('');
+                      await loadHolidays();
+                      toastSuccess('Holiday added');
+                    } else {
+                      toastError(res.message || 'Failed to add');
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add
+                </button>
+                
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                  type="button"
+                  disabled={importingHolidays}
+                  onClick={() => holidayFileInputRef.current?.click()}
+                  className="px-4 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-medium hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Import holidays from CSV/Excel file (columns: date, name)"
+                  aria-label="Import holidays from CSV or Excel"
+                >
+                  {importingHolidays ? 'Importing...' : 'Import'}
+                </button>
+                <div className="text-xs leading-relaxed text-slate-600">
+                  Holidays are highlighted on the calendar.
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    type="button"
+                    disabled={hidingOfficialHolidays}
+                    onClick={async () => {
+                      const officialHolidays = holidays.filter((h) => h.source === 'official');
+                      if (officialHolidays.length === 0) {
+                        toastError('No official holidays to hide');
+                        return;
+                      }
+
+                      setHidingOfficialHolidays(true);
+                      const results = [] as Array<{ success: boolean; message?: string }>;
+                      for (const h of officialHolidays) {
+                        results.push(await deleteHoliday(h.id));
+                      }
+                      setHidingOfficialHolidays(false);
+
+                      if (results.every((r) => r.success)) {
+                        await loadHolidays(currentYear);
+                        toastSuccess('All official holidays hidden');
+                      } else {
+                        toastError('Some official holidays could not be hidden');
+                      }
+                    }}
+                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-red-200 bg-white text-red-700 hover:bg-red-50 hover:border-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Hide all official holidays"
+                    title="Hide all official holidays"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={restoringOfficialHolidays}
+                    onClick={async () => {
+                      setRestoringOfficialHolidays(true);
+                      const res = await restoreOfficialHolidays();
+                      setRestoringOfficialHolidays(false);
+                      if (res.success) {
+                        await loadHolidays(currentYear);
+                        toastSuccess('Official holidays restored');
+                      } else {
+                        toastError(res.message || 'Failed to restore official holidays');
+                      }
+                    }}
+                    className="h-9 px-3 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-xs font-semibold hover:bg-indigo-100 hover:border-indigo-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Restore official holidays"
+                    aria-label="Restore official holidays"
+                  >
+                    Restore 
+                  </button>
+                </div>
+              </div>
+              <ul className="space-y-1.5">
+                {holidays.length === 0 && <li className="text-sm text-slate-400 py-2">No holidays yet. Add one above.</li>}
+                {holidays.map((h) => (
+                  <li key={h.id} className="flex items-center justify-between py-2 px-3 bg-slate-50 rounded-lg text-sm">
+                    <span className="font-medium text-slate-800">{h.date}</span>
+                    <span className="text-slate-600 flex-1 mx-2 truncate">{h.name}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full mr-1 ${h.source === 'official' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {h.source === 'official' ? 'Official' : 'Custom'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const res = await deleteHoliday(h.id);
+                        if (res.success) {
+                          await loadHolidays(currentYear);
+                          toastSuccess(h.source === 'official' ? 'Official holiday hidden' : 'Holiday removed');
+                        } else {
+                          toastError(res.message || 'Failed to remove');
+                        }
+                      }}
+                      className={`p-1.5 rounded-lg ${h.source === 'official' ? 'hover:bg-amber-100 text-amber-700' : 'hover:bg-red-100 text-red-600'}`}
+                      aria-label={h.source === 'official' ? 'Hide official holiday' : 'Delete'}
+                      title={h.source === 'official' ? 'Hide this official holiday' : 'Delete custom holiday'}
+                    >
+                      <X size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>

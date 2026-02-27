@@ -501,3 +501,51 @@ export async function importEmployees(employees: Array<{
   });
   return res.json();
 }
+
+// --- Holidays (stored via Next.js API route, same origin) ---
+
+export interface HolidayItem {
+  id: string;
+  date: string;
+  name: string;
+  source?: 'custom' | 'official';
+}
+
+/** GET /api/holidays - list holidays (same-origin Next API) */
+export async function getHolidays(year?: number): Promise<{ success: boolean; data?: HolidayItem[] }> {
+  const url = typeof year === 'number' ? `/api/holidays?year=${year}` : '/api/holidays';
+  const res = await fetch(url);
+  return res.json();
+}
+
+/** POST /api/holidays - add holiday. Body: { date: "YYYY-MM-DD", name: string } */
+export async function addHoliday(body: { date: string; name: string }): Promise<{
+  success: boolean;
+  message?: string;
+  data?: HolidayItem;
+}> {
+  const res = await fetch('/api/holidays', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+/** DELETE /api/holidays/[id] */
+export async function deleteHoliday(id: string): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(`/api/holidays/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return res.json();
+}
+
+/** POST /api/holidays/restore-official - clear hidden official holiday overrides */
+export async function restoreOfficialHolidays(): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch('/api/holidays/restore-official', { method: 'POST' });
+  return res.json();
+}
+
+/** POST /api/holidays/clear-custom - delete all custom holidays */
+export async function clearCustomHolidays(): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch('/api/holidays/clear-custom', { method: 'POST' });
+  return res.json();
+}
