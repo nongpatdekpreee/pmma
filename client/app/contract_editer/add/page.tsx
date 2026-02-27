@@ -1217,8 +1217,12 @@ export default function AddContractPage() {
                 <div className="relative">
                   <input
                     type="text"
+                    inputMode="numeric"
                     value={telAcc}
-                    onChange={(e) => setTelAcc(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, '');
+                      setTelAcc(v);
+                    }}
                     placeholder="Sale account telephone"
                     className={`${inputBase} pr-9`}
                   />
