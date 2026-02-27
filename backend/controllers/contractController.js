@@ -109,12 +109,35 @@ const createContract = async (req, res) => {
 
     const contractStatus = (status === 'draft' || status === 'official') ? status : 'official';
 
-    if (!sla_term || !String(sla_term).trim()) {
+    // ถ้าไม่ใช่ draft ต้องกรอก sla_term เสมอ
+    if (contractStatus !== 'draft') {
+      if (!sla_term || !String(sla_term).trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter sla_term (required)'
+        });
+      }
+    }
+
+    // ดักรูปแบบ Email และ Telephone
+    const emailVal = email_acc != null ? String(email_acc).trim() : '';
+    if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
       return res.status(400).json({
         success: false,
-        message: 'Please enter sla_term (required)'
+        message: 'กรุณากรอกรูปแบบ Email ให้ถูกต้อง (เช่น example@domain.com)'
       });
     }
+    const telVal = tel_acc != null ? String(tel_acc).trim() : '';
+    if (telVal) {
+      const digitsOnly = telVal.replace(/\D/g, '');
+      if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+        return res.status(400).json({
+          success: false,
+          message: 'กรุณากรอกหมายเลขโทรศัพท์ให้ถูกต้อง (อย่างน้อย 9 หลัก)'
+        });
+      }
+    }
+
     // site_device_pairs: [{ site_id, device_ids }] - แต่ละ site มี devices แยกกัน
     // หรือ device_ids + site_ids สำหรับ backward compatibility
     let deviceIdList = [];
@@ -129,7 +152,7 @@ const createContract = async (req, res) => {
             ? p.device_ids.map((d) => parseInt(d, 10)).filter((n) => !isNaN(n))
             : [],
         }))
-        .filter((p) => p.site_id != null && !isNaN(p.site_id) && p.device_ids.length > 0);
+        .filter((p) => p.site_id != null && !isNaN(p.site_id) && (p.device_ids.length > 0 || contractStatus === 'draft'));
       if (pairs.length === 0 && contractStatus !== 'draft') {
         return res.status(400).json({
           success: false,
@@ -385,13 +408,21 @@ const createContract = async (req, res) => {
         );
 
         // เพิ่ม devices ใหม่ (SLid อยู่ใน contract_device เท่านั้น)
+        // draft: อนุญาต site โดยไม่มี device → insert (contract_id, NULL, SLid)
         if (pairs.length > 0) {
           for (const p of pairs) {
             const slid = p.site_id != null ? p.site_id : null;
-            for (const did of p.device_ids) {
+            if (p.device_ids && p.device_ids.length > 0) {
+              for (const did of p.device_ids) {
+                await conn.execute(
+                  'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                  [contractId, did, slid]
+                );
+              }
+            } else if (status === 'draft' && slid != null) {
               await conn.execute(
-                'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-                [contractId, did, slid]
+                'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, NULL, ?)',
+                [contractId, slid]
               );
             }
           }
@@ -424,13 +455,21 @@ const createContract = async (req, res) => {
         contractId = finalContractId;
 
       // 2. บันทึก contract_device เท่านั้น (SLid อยู่ใน contract_device)
+      // draft: อนุญาต site โดยไม่มี device → insert (contract_id, NULL, SLid)
       if (pairs.length > 0) {
         for (const p of pairs) {
           const slid = p.site_id != null ? p.site_id : null;
-          for (const did of p.device_ids) {
+          if (p.device_ids && p.device_ids.length > 0) {
+            for (const did of p.device_ids) {
+              await conn.execute(
+                'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                [contractId, did, slid]
+              );
+            }
+          } else if (contractStatus === 'draft' && slid != null) {
             await conn.execute(
-              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-              [contractId, did, slid]
+              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, NULL, ?)',
+              [contractId, slid]
             );
           }
         }
@@ -447,42 +486,24 @@ const createContract = async (req, res) => {
         }
       }
 
-      // 4. อัปเดต Assigned_Service
-      const assignedServiceValue = assigned_service && String(assigned_service).trim() ? assigned_service.trim() : null;
-      if (assignedServiceValue && deviceIdList.length > 0) {
-        const placeholders = deviceIdList.map(() => '?').join(',');
-        await conn.execute(
-          `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
-          [assignedServiceValue, ...deviceIdList]
-        );
-      }
+      // 4. & 5. อัปเดต devices (Assigned_Service, Refer_SOF) เฉพาะเมื่อไม่ใช่ draft — draft ยังไม่บันทึกลง devices
+      if (contractStatus !== 'draft') {
+        const assignedServiceValue = assigned_service && String(assigned_service).trim() ? assigned_service.trim() : null;
+        if (assignedServiceValue && deviceIdList.length > 0) {
+          const placeholders = deviceIdList.map(() => '?').join(',');
+          await conn.execute(
+            `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
+            [assignedServiceValue, ...deviceIdList]
+          );
+        }
 
-      // 5. SOF ยังไม่มีในระบบ: อัปเดต Refer_SOF, SLid, Asset_State
-      if (sofValue && deviceIdList.length > 0) {
-        const [referSOFRows] = await conn.execute(
-          `SELECT DISTINCT Refer_SOF FROM devices WHERE Refer_SOF = ? AND Refer_SOF IS NOT NULL AND Refer_SOF != '' AND Refer_SOF != 'Not Assigned' LIMIT 1`,
-          [sofValue]
-        );
-        const sofExistsInDb = referSOFRows && referSOFRows.length > 0;
-
-        if (!sofExistsInDb) {
-          if (pairs.length > 0) {
-            for (const p of pairs) {
-              if (p.device_ids.length > 0 && p.site_id) {
-                const placeholders = p.device_ids.map(() => '?').join(',');
-                await conn.execute(
-                  `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
-                  [sofValue, ...p.device_ids]
-                );
-              }
-            }
-          } else if (siteId) {
-            const placeholders = deviceIdList.map(() => '?').join(',');
-            await conn.execute(
-              `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
-              [sofValue, ...deviceIdList]
-            );
-          }
+        // SOF: บันทึก Refer_SOF ลง devices ของสัญญานี้เสมอเมื่อไม่ใช่ draft
+        if (sofValue && deviceIdList.length > 0) {
+          const placeholders = deviceIdList.map(() => '?').join(',');
+          await conn.execute(
+            `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
+            [sofValue, ...deviceIdList]
+          );
         }
       }
 
@@ -522,6 +543,10 @@ const createContract = async (req, res) => {
       } else {
         message = `คอลัมน์ในตารางไม่ตรงกับที่ระบบใช้: ${errMsg}`;
       }
+    }
+    const errMsg = String(error.message || '');
+    if ((errMsg.includes('device_id') && errMsg.toLowerCase().includes('null')) || error.code === 'ER_BAD_NULL_ERROR') {
+      message = 'ไม่สามารถบันทึก Site แบบ draft (ไม่มี Device) ได้ กรุณารัน migration: backend/migrations/allow_contract_device_null_device_id.sql';
     }
 
     res.status(500).json({
@@ -1113,22 +1138,51 @@ const updateContract = async (req, res) => {
     }
 
     // Validate SLA Term
+    const contractStatus = (status === 'draft' || status === 'official') ? status : undefined;
     if (sla_term !== undefined && sla_term !== null) {
       const slaTermStr = String(sla_term).trim();
-      if (!slaTermStr) {
+      // ถ้าไม่ใช่ draft และส่งค่า sla_term มา ต้องไม่ว่าง
+      if (!slaTermStr && contractStatus !== 'draft') {
         await conn.rollback();
         return res.status(400).json({
           success: false,
           message: 'Please enter sla_term (required)'
         });
       }
-      const slaTermNum = parseFloat(slaTermStr);
-      if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
+      if (slaTermStr) {
+        const slaTermNum = parseFloat(slaTermStr);
+        if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
+          await conn.rollback();
+          return res.status(400).json({
+            success: false,
+            message: 'SLA Term must be a number between 0 and 100'
+          });
+        }
+      }
+    }
+
+    // ดักรูปแบบ Email และ Telephone
+    if (email_acc !== undefined && email_acc !== null) {
+      const emailVal = String(email_acc).trim();
+      if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
         await conn.rollback();
         return res.status(400).json({
           success: false,
-          message: 'SLA Term must be a number between 0 and 100'
+          message: 'กรุณากรอกรูปแบบ Email ให้ถูกต้อง (เช่น example@domain.com)'
         });
+      }
+    }
+    if (tel_acc !== undefined && tel_acc !== null) {
+      const telVal = String(tel_acc).trim();
+      if (telVal) {
+        const digitsOnly = telVal.replace(/\D/g, '');
+        if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+          await conn.rollback();
+          return res.status(400).json({
+            success: false,
+            message: 'กรุณากรอกหมายเลขโทรศัพท์ให้ถูกต้อง (อย่างน้อย 9 หลัก)'
+          });
+        }
       }
     }
 
@@ -1251,10 +1305,17 @@ const updateContract = async (req, res) => {
         );
         for (const p of pairs) {
           const slid = p.site_id != null ? p.site_id : null;
-          for (const did of p.device_ids) {
+          if (p.device_ids && p.device_ids.length > 0) {
+            for (const did of p.device_ids) {
+              await conn.execute(
+                'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+                [cid, did, slid]
+              );
+            }
+          } else if (status === 'draft' && slid != null) {
             await conn.execute(
-              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-              [cid, did, slid]
+              'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, NULL, ?)',
+              [cid, slid]
             );
           }
         }
@@ -1266,13 +1327,21 @@ const updateContract = async (req, res) => {
       }
     }
 
-    // อัปเดต Assigned_Service ใน devices ถ้ามี
-    if (assigned_service && deviceIdList.length > 0) {
+    // อัปเดต Assigned_Service และ Refer_SOF ใน devices เฉพาะเมื่อไม่ใช่ draft
+    if (status !== 'draft' && deviceIdList.length > 0) {
       const placeholders = deviceIdList.map(() => '?').join(',');
-      await conn.execute(
-        `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
-        [assigned_service.trim(), ...deviceIdList]
-      );
+      if (assigned_service != null && String(assigned_service).trim() !== '') {
+        await conn.execute(
+          `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
+          [assigned_service.trim(), ...deviceIdList]
+        );
+      }
+      if (sof_name != null && String(sof_name).trim() !== '') {
+        await conn.execute(
+          `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
+          [sof_name.trim(), ...deviceIdList]
+        );
+      }
     }
 
     await conn.commit();
@@ -1286,11 +1355,13 @@ const updateContract = async (req, res) => {
     await conn.rollback();
     console.error('Error updating contract:', error);
     let message = 'เกิดข้อผิดพลาดในการอัปเดตสัญญา';
-    const errMsg = error.message || '';
+    const errMsg = String(error.message || '');
     if (errMsg.includes('file_paths') || errMsg.includes('image_paths')) {
       message = 'file_paths or image_paths column does not exist';
     } else if (errMsg.includes('coverage_scope')) {
       message = 'coverage_scope column does not exist';
+    } else if ((errMsg.includes('device_id') && errMsg.toLowerCase().includes('null')) || error.code === 'ER_BAD_NULL_ERROR') {
+      message = 'ไม่สามารถบันทึก Site แบบ draft (ไม่มี Device) ได้ กรุณารัน migration: backend/migrations/allow_contract_device_null_device_id.sql';
     }
     res.status(500).json({
       success: false,
