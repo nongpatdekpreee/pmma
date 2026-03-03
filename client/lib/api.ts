@@ -110,6 +110,100 @@ export async function getMaPmAnalytics(params?: { months?: number }): Promise<{
   return res.json();
 }
 
+/** GET /api/analytics/ma-dashboard - ข้อมูล MA Dashboard แบบละเอียด */
+export async function getMaDashboard(params?: { months?: number }): Promise<{
+  success: boolean;
+  data?: {
+    months: number;
+    range: { start: string; endExclusive: string };
+    summary: {
+      totalMA: number;
+      totalDone: number;
+      totalFailed: number;
+      totalPassed: number;
+      totalOverdue: number;
+      totalPending: number;
+      completionRate: number;
+      failRate: number;
+      topVendor: string;
+      topVendorCount: number;
+      topEquipment: string;
+      topEquipmentCount: number;
+    };
+    monthlyMA: Array<{ month: string; monthKey: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; pending: number }>;
+    vendorRanking: Array<{ vendor: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; completionRate: number }>;
+    siteRanking: Array<{ site: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; completionRate: number }>;
+    equipmentRanking: Array<{
+      deviceId: string;
+      deviceName: string;
+      model: string | null;
+      serial: string | null;
+      vendor: string | null;
+      site: string | null;
+      total: number;
+      done: number;
+      reportFail: number;
+      reportPass: number;
+    }>;
+    vendorMonthly: Array<{ vendor: string; month: string; monthKey: string; total: number }>;
+    vendorReportStats: Array<{ vendor: string; totalReports: number; passReports: number; failReports: number; passRate: number }>;
+  };
+  message?: string;
+  error?: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.months != null) q.set('months', String(params.months));
+  const res = await fetch(apiUrl(`/api/analytics/ma-dashboard?${q.toString()}`));
+  return res.json();
+}
+
+/** GET /api/analytics/pm-dashboard - ข้อมูล PM Dashboard (โครงเดียวกับ MA) */
+export async function getPmDashboard(params?: { months?: number }): Promise<{
+  success: boolean;
+  data?: {
+    months: number;
+    range: { start: string; endExclusive: string };
+    summary: {
+      totalMA: number;
+      totalDone: number;
+      totalFailed: number;
+      totalPassed: number;
+      totalOverdue: number;
+      totalPending: number;
+      completionRate: number;
+      failRate: number;
+      topVendor: string;
+      topVendorCount: number;
+      topEquipment: string;
+      topEquipmentCount: number;
+    };
+    monthlyMA: Array<{ month: string; monthKey: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; pending: number }>;
+    vendorRanking: Array<{ vendor: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; completionRate: number }>;
+    siteRanking: Array<{ site: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; completionRate: number }>;
+    equipmentRanking: Array<{
+      deviceId: string;
+      deviceName: string;
+      model: string | null;
+      serial: string | null;
+      vendor: string | null;
+      site: string | null;
+      total: number;
+      done: number;
+      reportFail: number;
+      reportPass: number;
+    }>;
+    vendorMonthly: Array<{ vendor: string; month: string; monthKey: string; total: number }>;
+    vendorReportStats: Array<{ vendor: string; totalReports: number; passReports: number; failReports: number; passRate: number }>;
+  };
+  message?: string;
+  error?: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.months != null) q.set('months', String(params.months));
+  const res = await fetch(apiUrl(`/api/analytics/pm-dashboard?${q.toString()}`));
+  return res.json();
+}
+
 /** GET /api/analytics/sla - ข้อมูล SLA Compliance */
 export async function getSlaAnalytics(params?: { months?: number }): Promise<{
   success: boolean;
@@ -309,14 +403,15 @@ export async function uploadMaReportFile(file: File): Promise<{ success: boolean
   return parseJsonResponse(res, { success: false });
 }
 
-/** POST /api/ma-reports - ส่ง MA Checklist Report (กรอกตัวเลข sla_result มากกว่า 70 = Pass) */
+/** POST /api/ma-reports - ส่ง MA Checklist Report (ใช้ maResult: 'pass' | 'fail') */
 export async function postMaReport(body: {
   taskId: number;
   deviceId: string;
   device?: object;
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
-  sla_result: number;
+  sla_result?: number;
+  maResult?: 'pass' | 'fail';
   comment?: string;
   technicianName?: string;
   maDate?: string;

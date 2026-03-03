@@ -2,7 +2,7 @@
 
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, FileCheck } from 'lucide-react';
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -47,6 +47,10 @@ interface CalendarEvent {
   coverageScope?: string;
   assets?: Device[];
   vendorName?: string;
+  vendorTel?: string;
+  reporterName?: string;
+  reporterTel?: string;
+  ticket?: string;
   slaTerm?: string;
   duration?: string;
   assetBinding?: string;
@@ -155,6 +159,10 @@ export default function CalendarPage() {
       coverageScope: task.coverageScope,
       assets: task.assets || [],
       vendorName: task.vendorName || task.vendor_name,
+      vendorTel: task.vendorTel || task.vendor_tel,
+      reporterName: task.reporterName || task.reporter_name,
+      reporterTel: task.reporterTel || task.reporter_tel,
+      ticket: task.ticket,
       ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
       assetBinding: task.assetBinding || task.asset_binding,
@@ -913,6 +921,7 @@ export default function CalendarPage() {
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
                                 const isDone = ev.status === 'done';
+                                const hasReport = isMA ? reportedMATaskIds.has(Number(ev.id)) : reportedPMTaskIds.has(Number(ev.id));
                                 const endDateStr = ev.endDate || ev.startDate || '';
                                 const today = new Date();
                                 today.setHours(0, 0, 0, 0);
@@ -981,6 +990,11 @@ export default function CalendarPage() {
                                     {isDone && (
                                       <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                                     )}
+                                    {hasReport && (
+                                      <span className="ml-1 flex-shrink-0 text-emerald-600" title="ทำรายงานแล้ว">
+                                        <FileCheck size={12} strokeWidth={2.5} />
+                                      </span>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -994,6 +1008,7 @@ export default function CalendarPage() {
                   {multiDaySpansWithRow.map(({ event, colStart, colEnd, row }) => {
                     const isMA = event.taskType === 'MA';
                     const isDone = event.status === 'done';
+                    const hasReport = isMA ? reportedMATaskIds.has(Number(event.id)) : reportedPMTaskIds.has(Number(event.id));
                     const endDateStr = event.endDate || event.startDate || '';
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
@@ -1071,6 +1086,11 @@ export default function CalendarPage() {
                         {isDone && (
                           <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                         )}
+                        {hasReport && (
+                          <span className="ml-1 flex-shrink-0 text-emerald-600" title="ทำรายงานแล้ว">
+                            <FileCheck size={12} strokeWidth={2.5} />
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -1093,7 +1113,7 @@ export default function CalendarPage() {
           }}
         >
           <div className="space-y-2">
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className={`px-2 py-0.5 rounded text-xs font-bold ${
                 hoveredEvent.taskType === 'MA'
                   ? 'bg-purple-100 text-purple-700'
@@ -1112,6 +1132,12 @@ export default function CalendarPage() {
                    hoveredEvent.status === 'working' ? 'Working' :
                    hoveredEvent.status === 'stuck' ? 'Stuck' :
                    'Not Started'}
+                </span>
+              )}
+              {(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="ทำรายงานแล้ว">
+                  <FileCheck size={12} strokeWidth={2.5} />
+                  ทำรายงานแล้ว
                 </span>
               )}
             </div>
@@ -1272,6 +1298,9 @@ export default function CalendarPage() {
         }}
         task={selectedTask}
         onUpdate={handleTaskUpdate}
+        reportLink={selectedTask && (selectedTask.taskType === 'MA' ? reportedMATaskIds.has(Number(selectedTask.id)) : reportedPMTaskIds.has(Number(selectedTask.id)))
+          ? `/pmchecklist_report?tab=${selectedTask.taskType === 'MA' ? 'ma' : 'pm'}&taskId=${selectedTask.id}`
+          : null}
       />
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>

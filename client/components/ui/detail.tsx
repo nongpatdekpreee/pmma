@@ -2,6 +2,7 @@
 
 import { X, CheckCircle2, XCircle, Trash2, FileText, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
 import ExcelJS from 'exceljs';
 
@@ -45,6 +46,10 @@ interface TaskDetail {
   coverageScope?: string;
   assets?: Device[];
   vendorName?: string;
+  vendorTel?: string;
+  reporterName?: string;
+  reporterTel?: string;
+  ticket?: string;
   slaTerm?: string;
   duration?: string;
   assetBinding?: string;
@@ -66,9 +71,11 @@ interface Props {
   onUpdate?: (updatedTask: TaskDetail) => void;
   onEdit?: (task: TaskDetail) => void;
   onDelete?: (taskId: string) => void;
+  /** เมื่อมี report แล้ว ใส่ link ไปหน้ารายงาน (เช่น /pmchecklist_report?tab=pm&taskId=123) */
+  reportLink?: string | null;
 }
 
-export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete }: Props) {
+export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete, reportLink }: Props) {
   const [status, setStatus] = useState<'done' | 'working' | 'stuck' | 'not-started'>(task?.status || 'not-started');
   const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, Device>>({});
 
@@ -273,48 +280,28 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               </div>
               <div>
                 <label className="text-[10px] font-semibold uppercase text-slate-500">Title</label>
-                <p className="text-sm font-medium text-slate-800 mt-1">{task.title}</p>
+                <p className="text-sm font-medium text-slate-800 mt-1">{task.title || '—'}</p>
               </div>
-            
-              {task.startDate && (
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Start Date</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">{formatDate(task.startDate)}</p>
-                </div>
-              )}
-              {task.endDate && (
-                
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">End Date</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">{formatDate(task.endDate)}</p>
-                </div>
-              )}
-              {/* Location ก่อน Site, Location เด่น (bold) */}
-              {task.location && (
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Location</label>
-                  <p className="text-sm font-bold text-slate-800 mt-1">{task.location}</p>
-                </div>
-              )}
-              {task.Sname && (
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Site</label>
-                  <p className="text-sm font-bold text-slate-800 mt-1">{task.Sname}</p>
-                </div>
-              )}
-              
-              {task.priority && (
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Priority</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                      task.priority === 'High' ? 'bg-red-100 text-red-700' :
-                      task.priority === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-green-100 text-green-700'
-                    }`}>
-                      {task.priority}
-                    </span>
-                  </p>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-slate-500">Site</label>
+                <p className="text-sm font-bold text-slate-800 mt-1">{task.Sname || '—'}</p>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-slate-500">Location</label>
+                <p className="text-sm font-bold text-slate-800 mt-1">{task.location || '—'}</p>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-slate-500">Start Date</label>
+                <p className="text-sm font-medium text-slate-800 mt-1">{task.startDate ? formatDate(task.startDate) : '—'}</p>
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-slate-500">End Date</label>
+                <p className="text-sm font-medium text-slate-800 mt-1">{task.endDate ? formatDate(task.endDate) : '—'}</p>
+              </div>
+              {task.coverageScope != null && String(task.coverageScope).trim() !== '' && (
+                <div className="col-span-2">
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Coverage Scope</label>
+                  <p className="text-sm font-medium text-slate-800 mt-1">{task.coverageScope}</p>
                 </div>
               )}
             </div>
@@ -350,24 +337,11 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             </div>
           ) : null}
 
-          {/* MA Contract Information */}
-          {task.taskType === 'MA' && (task.vendorName || task.slaTerm || task.duration || task.assetBinding) && (
+          {/* MA: Asset Binding (Contract & Client removed) */}
+          {task.taskType === 'MA' && task.assetBinding && (
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700 mb-3">Contract Information</h3>
-              <div className="grid grid-cols-2 gap-3">
-                {task.vendorName && (
-                  <div>
-                    <label className="text-[10px] font-semibold uppercase text-slate-500">Vendor Name</label>
-                    <p className="text-sm font-medium text-slate-800 mt-1">{task.vendorName}</p>
-                  </div>
-                )}
-                {task.assetBinding && (
-                  <div className="col-span-2">
-                    <label className="text-[10px] font-semibold uppercase text-slate-500">Asset Binding</label>
-                    <p className="text-sm font-medium text-slate-800 mt-1">{task.assetBinding}</p>
-                  </div>
-                )}
-              </div>
+              <h3 className="text-sm font-bold text-slate-700 mb-3">Asset Binding</h3>
+              <p className="text-sm font-medium text-slate-800 mt-1">{task.assetBinding}</p>
             </div>
           )}
 
@@ -588,6 +562,16 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             )}
           </div>
           <div className="flex gap-3 ml-auto">
+            {reportLink && (
+              <Link
+                href={reportLink}
+                onClick={onClose}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-xl font-semibold text-sm hover:bg-emerald-600 transition-colors shadow-md"
+              >
+                <FileText size={16} />
+                Report
+              </Link>
+            )}
             <button
               onClick={onClose}
               className="px-6 py-2.5 bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm hover:bg-slate-300 transition-colors"

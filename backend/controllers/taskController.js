@@ -73,6 +73,9 @@ const mapTaskRow = (row) => {
   siteName: row.site_name,
   vendorName: row.vendor_name,
   vendorTel: row.vendor_tel,
+  reporterName: row.reporter_name,
+  reporterTel: row.reporter_tel,
+  ticket: row.ticket,
   ...(slaVal != null && slaVal !== '' ? { slaTerm: slaVal } : {}),
   coverageScope: row.coverage_scope,
   startDate: row.start_date,
@@ -108,6 +111,9 @@ const createTask = async (req, res) => {
       siteName,
       vendorName,
       vendorTel,
+      reporterName,
+      reporterTel,
+      ticket,
       coverageScope,
       startDate,
       endDate,
@@ -147,8 +153,9 @@ const createTask = async (req, res) => {
     const insertSql = `
       INSERT INTO tasks (
         id, task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name, vendor_tel
+        , reporter_name, reporter_tel, ticket
         , coverage_scope, start_date, end_date, engineers, assets, asset_binding, status, actually_went, notes, photos
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const safeParseInt = (value) => {
@@ -166,6 +173,9 @@ const createTask = async (req, res) => {
       siteName || null,
       vendorName || null,
       vendorTel || null,
+      reporterName || null,
+      reporterTel || null,
+      ticket || null,
       coverageScope || null,
       startDate,
       endDate,
@@ -265,6 +275,9 @@ const updateTask = async (req, res) => {
       siteName,
       vendorName,
       vendorTel,
+      reporterName,
+      reporterTel,
+      ticket,
       coverageScope,
       startDate,
       endDate,
@@ -309,6 +322,9 @@ const updateTask = async (req, res) => {
     if (siteName !== undefined) addUpdate('site_name', siteName || null);
     if (vendorName !== undefined) addUpdate('vendor_name', vendorName || null);
     if (vendorTel !== undefined) addUpdate('vendor_tel', vendorTel || null);
+    if (reporterName !== undefined) addUpdate('reporter_name', reporterName || null);
+    if (reporterTel !== undefined) addUpdate('reporter_tel', reporterTel || null);
+    if (ticket !== undefined) addUpdate('ticket', ticket || null);
     if (coverageScope !== undefined) addUpdate('coverage_scope', coverageScope || null);
     // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
     if (existing[0].status !== 'done') {
@@ -338,7 +354,7 @@ const updateTask = async (req, res) => {
     const newAssets = assets !== undefined ? assets : oldAssets;
     const newContractId = contractId !== undefined ? contractId : existing[0].contract_id;
     const currentTaskType = taskType !== undefined ? taskType : existing[0].task_type;
-    
+
     if (newStatus === 'done' && newReplacementDeviceId && newAssets && newAssets.length > 0 && currentTaskType === 'MA') {
       try {
         const isBecomingDone = existing[0].status !== 'done' && newStatus === 'done';
@@ -348,17 +364,16 @@ const updateTask = async (req, res) => {
           await updateDeviceAssetState(oldReplacementDeviceId, 'In Store');
           await db.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
         }
-        
+
         // Update new replacement device: In Store -> In Use, อัปเดต SLid เป็น site ของ task
         const taskSiteId = siteId !== undefined ? safeParseInt(siteId) : existing[0].site_id;
-        // IMPORTANT: ถ้าเพิ่งเปลี่ยนสถานะเป็น done ให้บังคับอัปเดต Asset_State ของ replacement เป็น In Use แม้ Did จะเดิม
         if (isBecomingDone || newReplacementDeviceId !== oldReplacementDeviceId) {
           await updateDeviceAssetState(newReplacementDeviceId, 'In Use');
         }
         if (taskSiteId && newReplacementDeviceId) {
           await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [taskSiteId, newReplacementDeviceId]);
         }
-        
+
         // Get new original device ID
         const newFirstAsset = newAssets[0];
         const newOriginalDeviceId = typeof newFirstAsset === 'object' ? (newFirstAsset.id || newFirstAsset.Did || newFirstAsset) : newFirstAsset;

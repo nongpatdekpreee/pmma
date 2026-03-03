@@ -46,6 +46,9 @@ const reportRoutes = require('./routes/reportRoutes');
 app.use('/api/pm-reports', reportRoutes);
 app.use('/api/ma-reports', reportRoutes);
 
+const analyticsRoutes = require('./routes/analyticsRoutes');
+app.use('/api/analytics', analyticsRoutes);
+
 app.get('/', (req, res) => {
   res.json({
     message: 'TCC Stock Management API',

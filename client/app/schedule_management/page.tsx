@@ -60,6 +60,9 @@ interface CalendarEvent {
   assets?: Device[];
   vendorName?: string;
   vendorTel?: string;
+  reporterName?: string;
+  reporterTel?: string;
+  ticket?: string;
   slaTerm?: string;
   duration?: string;
   assetBinding?: string;
@@ -197,6 +200,9 @@ export default function ScheduleManagement() {
       assets: task.assets || [],
       vendorName: task.vendorName || task.vendor_name,
       vendorTel: task.vendorTel || task.vendor_tel,
+      reporterName: task.reporterName || task.reporter_name,
+      reporterTel: task.reporterTel || task.reporter_tel,
+      ticket: task.ticket,
       ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
       assetBinding: task.assetBinding || task.asset_binding,
@@ -789,6 +795,11 @@ export default function ScheduleManagement() {
       siteId: data.siteId || (data.Sid ? Number(data.Sid) : null),
       siteName: data.Sname || data.siteName,
       vendorName: data.vendorName,
+      vendorTel: data.vendorTel,
+      reporterName: data.reporterName,
+      reporterTel: data.reporterTel,
+      ticket: data.ticket,
+      assetBinding: data.assetBinding,
       ...(data.slaTerm ? { slaTerm: data.slaTerm } : {}),
       coverageScope: data.coverageScope,
       startDate: data.startDate,
@@ -2141,8 +2152,6 @@ export default function ScheduleManagement() {
               <p className="text-xs font-semibold text-slate-500 mb-0.5">Site</p>
               <p className="text-sm font-bold text-slate-800">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
             </div>
-
-            
 
             {/* Dates */}
             <div className="grid grid-cols-2 gap-2">
