@@ -255,6 +255,13 @@ export default function AddPMReportPage() {
     }
   }, [allowedDevices, selectedDeviceId]);
 
+  // เลือก device แรกอัตโนมัติเมื่อมี devices (หลังเลือก Task)
+  useEffect(() => {
+    if (allowedDevices.length > 0 && !selectedDeviceId) {
+      setSelectedDeviceId(allowedDevices[0].Did.toString());
+    }
+  }, [allowedDevices, selectedDeviceId]);
+
   // sla_term จาก Contract (ผ่าน Task ที่เลือก) ใช้เป็นเกณฑ์ Pass/Fail
   // Fallback: ถ้า Task ไม่มี slaTerm แต่มี contractId ให้ใช้จาก contractSlaMap
   const slaThreshold = useMemo(() => {
@@ -613,77 +620,68 @@ export default function AddPMReportPage() {
 
         {/* Main Form */}
         <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-          {/* Device Selection */}
+          {/* Device — โชว์ข้อมูล devices ของ Task ในตาราง (ไม่ต้องเลือก) */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
-              Device * <span className="text-slate-400 font-normal"></span>
+              Devices 
             </label>
-            <select
-              value={selectedDeviceId}
-              onChange={(e) => handleDeviceChange(e.target.value)}
-              disabled={loadingDevices}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <option value="">
-                {loadingDevices ? 'Loading...' : availablePMTasks.length > 0 && allowedDevices.length === 0 ? 'Please select a task above first' : 'Select device...'}
-              </option>
-              {allowedDevices.map(device => {
-                const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === device.Did;
+            {loadingDevices ? (
+              <p className="text-sm text-slate-500 py-4">Loading devices...</p>
+            ) : availablePMTasks.length > 0 && allowedDevices.length === 0 ? (
+              <p className="text-sm text-slate-500 py-4">Please select a task above first.</p>
+            ) : allowedDevices.length > 0 ? (
+              (() => {
+                const columns: { key: string; label: string }[] = [
+                  { key: 'CI_Name', label: 'CI Name' },
+                  { key: 'Asset_Number', label: 'Asset Number' },
+                  { key: 'serial', label: 'Serial' },
+                  { key: 'model', label: 'Model' },
+                  { key: 'Refer_SOF', label: 'SOF' },
+                  { key: 'Manufacturer', label: 'Manufacturer' },
+                  { key: 'Sitename', label: 'Site' },
+                  { key: 'Location2', label: 'Location' },
+                  { key: 'Vendor', label: 'Vendor' },
+                ];
+                const getVal = (d: Device, key: string) => {
+                  if (key === 'Location2') return (d as any).Location2 ?? (d as any).location2 ?? '-';
+                  if (key === 'Manufacturer') return (d as any).manufacturername ?? (d as any).Manufacturername ?? '-';
+                  const v = (d as any)[key];
+                  return v != null && v !== '' ? String(v) : '-';
+                };
                 return (
-                  <option key={device.Did} value={device.Did.toString()}>
-                    {device.CI_Name || device.Asset_Number || `Device ${device.Did}`}
-                    {device.serial ? ` (${device.serial})` : ''}
-                    {device.Sitename ? ` - ${device.Sitename}` : ''}
-                    {isReplacement ? ' [Replacement device]' : ''}
-                  </option>
+                  <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto overflow-y-auto max-h-[260px]">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          {columns.map(({ label }) => (
+                            <th key={label} className="text-left py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap">{label}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allowedDevices.map((device) => {
+                          const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === device.Did;
+                          return (
+                            <tr key={device.Did} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                              {columns.map(({ key }) => (
+                                <td key={key} className="py-2.5 px-3 text-slate-800 break-words">
+                                  {getVal(device, key)}
+                                  {key === 'CI_Name' && isReplacement ? (
+                                    <span className="ml-1 text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Replacement</span>
+                                  ) : null}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 );
-              })}
-            </select>
-            {availablePMTasks.length > 0 && allowedDevices.length > 0 && (
-              <p className="mt-1 text-xs text-slate-500"></p>
+              })()
+            ) : (
+              <p className="text-sm text-slate-500 py-4">No devices to show. Select a task above.</p>
             )}
-            {selectedDeviceId && (() => {
-              const selected = allowedDevices.find(d => d.Did.toString() === selectedDeviceId) ?? devices.find(d => d.Did.toString() === selectedDeviceId);
-              if (!selected) return null;
-              const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === selected.Did;
-              const formatDate = (v: string | null | undefined) => {
-                if (!v) return undefined;
-                try { return new Date(v).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return v; }
-              };
-              const deviceFields: { label: string; value?: string | number | null }[] = [
-                { label: 'CI Name', value: selected.CI_Name },
-                { label: 'Asset Number', value: selected.Asset_Number },
-                { label: 'Serial', value: selected.serial },
-                { label: 'Model', value: selected.model },
-                { label: 'SOF', value: selected.Refer_SOF },
-                { label: 'Manufacturer', value: (selected as any).manufacturername ?? selected.Manufacturername },
-                { label: 'Site', value: selected.Sitename },
-                { label: 'Location', value: (selected as any).Location2 ?? selected.Location2 },
-                { label: 'Vendor', value: selected.Vendor },
-                { label: 'Asset State', value: selected.Asset_State },
-                { label: 'Assigned Service', value: selected.Assigned_Service },
-              ];
-              return (
-                <div className="mt-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                  <div className="flex items-center gap-2 mb-3">
-                    <p className="text-sm font-bold text-slate-700">Selected device</p>
-                    {isReplacement && (
-                      <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Replacement device</span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {deviceFields.map(({ label, value }) => (
-                      <div key={label} className="bg-white rounded-lg p-3 border border-slate-100">
-                        <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-                        <p className="text-sm font-medium text-slate-800 truncate" title={value != null && value !== '' ? String(value) : undefined}>
-                          {value ?? '-'}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
           </div>
 
           {/* PM Information */}

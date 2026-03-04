@@ -86,7 +86,7 @@ interface MAReport {
   ticket?: string;
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 5;
 
 export default function ReportPage() {
   const router = useRouter();
@@ -344,6 +344,34 @@ export default function ReportPage() {
     } catch {
       return dateStr;
     }
+  };
+
+  // รายการ devices ทั้งหมดที่ไปทำ PM/MA ครั้งนั้น (จาก assets หรือ device เดียว)
+  const getReportDevices = (report: PMReport | MAReport): Array<{ CI_Name?: string; name?: string; Asset_Number?: string; serial?: string; Sitename?: string; Location2?: string; Refer_SOF?: string; model?: string; [k: string]: any }> => {
+    const assets = report.assets;
+    if (Array.isArray(assets) && assets.length > 0) {
+      return assets.map((a: any) => ({
+        CI_Name: a.CI_Name ?? a.name,
+        name: a.name ?? a.CI_Name,
+        Asset_Number: a.Asset_Number ?? a.assetNumber,
+        serial: a.serial ?? a.serialNumber,
+        Sitename: a.Sitename ?? a.site,
+        Location2: a.Location2 ?? a.location,
+        Refer_SOF: a.Refer_SOF ?? a.refer_sof ?? (report.device as any)?.Refer_SOF,
+        model: a.model ?? a.Model ?? a.Manufacturername ?? a.manufacturername ?? (report.device as any)?.model,
+        Vendor: a.Vendor ?? a.vendor ?? (report.device as any)?.Vendor,
+      }));
+    }
+    if (report.device) {
+      const d = report.device as any;
+      return [{
+        ...d,
+        Refer_SOF: d.Refer_SOF ?? d.refer_sof,
+        model: d.model ?? d.Model ?? d.Manufacturername ?? d.manufacturername,
+        Vendor: d.Vendor ?? d.vendor,
+      }];
+    }
+    return [{ CI_Name: `Device ${report.deviceId}`, name: `Device ${report.deviceId}` }];
   };
 
   const hasDonePMTasks = doneTasks.some((task) => task.taskType === 'PM');
@@ -841,24 +869,24 @@ export default function ReportPage() {
         <div className="flex flex-wrap items-center justify-between gap-4 w-full">
           <div className="flex gap-2 p-1.5 bg-white/80 rounded-2xl border border-slate-200/80 shadow-sm w-fit">
             <button
-              onClick={() => setTabAndUrl('pm')}
+              onClick={() => setTabAndUrl('ma')}
               className={`px-6 py-2.5 rounded-xl font-bold transition-all duration-200 ${
-                tab === 'pm'
+                tab === 'ma'
                   ? 'bg-gradient-to-r from-blue-400 to-blue-500 text-white shadow-md shadow-blue-400/20'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              Report PM
+              Report MA
             </button>
             <button
-              onClick={() => setTabAndUrl('ma')}
+              onClick={() => setTabAndUrl('pm')}
               className={`px-6 py-2.5 rounded-xl font-bold transition-all duration-200 ${
-                tab === 'ma'
+                tab === 'pm'
                   ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md shadow-blue-500/20'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              Report MA
+              Report PM
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -875,15 +903,13 @@ export default function ReportPage() {
               <button
                 onClick={() => setShowSiteImageMenu(!showSiteImageMenu)}
                 disabled={loading || sofsWithImages.length === 0 || downloadingImages}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
                 title="Download files (images + PDFs) by SOF"
               >
-                {downloadingImages ? (
+                {downloadingImages && (
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Image size={18} />
                 )}
-                Download files by SOF
+                Download files 
                 <ChevronDown size={16} className={`transition-transform ${showSiteImageMenu ? 'rotate-180' : ''}`} />
               </button>
               {showSiteImageMenu && sofsWithImages.length > 0 && (
@@ -986,22 +1012,26 @@ export default function ReportPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors break-words inline-flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                              <span>{report.device?.CI_Name || report.device?.Asset_Number || `Device ${report.deviceId}`}</span>
+                            <h3 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                              {(() => {
+                                const site = report.device?.Sitename || getReportDevices(report)[0]?.Sitename;
+                                const loc = (report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2;
+                                const fallback = getReportDevices(report).map((d) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ') || '-';
+                                if (site) return loc ? `${site}, ${loc}` : site;
+                                return fallback;
+                              })()}
                             </h3>
-                            {report.device?.Asset_Number && report.device?.CI_Name && report.device.CI_Name !== report.device.Asset_Number && (
-                              <p className="text-[10px] text-slate-500 mt-0.5 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                                {report.device.Asset_Number}
-                              </p>
+                            {getReportDevices(report).length > 1 && !(report.device?.Sitename || getReportDevices(report)[0]?.Sitename) && (
+                              <p className="text-[10px] text-slate-500 mt-0.5">{getReportDevices(report).length} devices</p>
                             )}
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-4 text-xs text-slate-600 mb-2">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center shrink-0">
                               <User size={12} className="text-slate-500" />
                             </div>
-                            <span className="font-medium">{report.technicianName || '-'}</span>
+                            <span className="font-medium break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{report.technicianName || '-'}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center">
@@ -1026,18 +1056,21 @@ export default function ReportPage() {
                           </div>
                         )}
                         </div>
-                        {/* Additional Device Info */}
+                        {/* Device name(s) และ Serial/File ใน card */}
                         <div className="flex flex-wrap gap-3 text-xs text-slate-500 mb-2">
-                          {report.device?.Sitename && (
-                            <div className="flex items-center gap-1.5">
-                              <MapPin size={12} className="text-slate-400" />
-                              <span>{report.device.Sitename}</span>
-                            </div>
-                          )}
-                          {report.device?.serial && (
+                          <div className="flex items-center gap-1.5">
+                            <MapPin size={12} className="text-slate-400" />
+                            <span className="break-words">
+                              {getReportDevices(report).map((d, i) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ')}
+                              {((report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2) && (
+                                <>, {(report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2}</>
+                              )}
+                            </span>
+                          </div>
+                          {(report.device?.serial || getReportDevices(report).some(d => d.serial)) && (
                             <div className="flex items-center gap-1.5">
                               <Hash size={12} className="text-slate-400" />
-                              <span className="font-mono">{report.device.serial}</span>
+                              <span className="font-mono">{report.device?.serial || getReportDevices(report).map(d => d.serial).filter(Boolean).join(', ')}</span>
                             </div>
                           )}
                           {report.uploadedFiles && report.uploadedFiles.length > 0 && (
@@ -1096,7 +1129,7 @@ export default function ReportPage() {
               })}
             </div>
             {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-2 pt-4">
+              <div className="flex items-center justify-end gap-2 pt-4">
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
@@ -1146,7 +1179,7 @@ export default function ReportPage() {
                       {tab === 'pm' ? 'PM' : 'MA'} Report Details
                     </h2>
                     <p className="text-sm text-slate-500 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                      {selectedReport.device?.CI_Name || selectedReport.device?.Asset_Number || `Device ${selectedReport.deviceId}`}
+                      {getReportDevices(selectedReport).map((d, i) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ')}
                     </p>
                   </div>
                 </div>
@@ -1160,16 +1193,10 @@ export default function ReportPage() {
 
               <div className="flex-1 overflow-y-auto p-8 space-y-8">
                 {/* Main info */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-xs font-medium text-slate-500 mb-1">Device</p>
-                    <p className="font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                      {selectedReport.device?.CI_Name || selectedReport.device?.Asset_Number || `Device ${selectedReport.deviceId}`}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 min-w-0">
                     <p className="text-xs font-medium text-slate-500 mb-1">Technician</p>
-                    <p className="font-semibold text-slate-800">{selectedReport.technicianName || '-'}</p>
+                    <p className="font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{selectedReport.technicianName || '-'}</p>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <p className="text-xs font-medium text-slate-500 mb-1">{tab === 'pm' ? 'PM Date' : 'MA Date'}</p>
@@ -1196,6 +1223,44 @@ export default function ReportPage() {
                     </div>
                     </div>
                 </div>
+
+                {/* Devices — โชว์เป็นตาราง */}
+                {getReportDevices(selectedReport).length > 0 && (
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+                        <Cpu size={20} className="text-slate-600" />
+                      </div>
+                      <h3 className="font-bold text-slate-800">Devices ({getReportDevices(selectedReport).length})</h3>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 border-b border-slate-200">
+                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Model</th>
+                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Asset</th>
+                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Serial</th>
+                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Site</th>
+                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Refer SOF</th>
+                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Vendor</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getReportDevices(selectedReport).map((d, idx) => (
+                            <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
+                              <td className="py-3 px-4 text-slate-600 break-words">{d.model ?? (d as any).Model ?? (d as any).Manufacturername ?? '-'}</td>
+                              <td className="py-3 px-4 text-slate-600">{d.Asset_Number || '-'}</td>
+                              <td className="py-3 px-4 text-slate-600 font-mono">{d.serial || '-'}</td>
+                              <td className="py-3 px-4 text-slate-600 break-words">{d.Sitename || '-'}</td>
+                              <td className="py-3 px-4 text-slate-600 break-words">{d.Refer_SOF ?? (d as any).refer_sof ?? '-'}</td>
+                              <td className="py-3 px-4 text-slate-600 break-words">{(d as any).Vendor ?? (d as any).vendor ?? '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
 
                 {/* MA: Contract Information */}
                 {tab === 'ma' && (() => {
@@ -1361,13 +1426,8 @@ export default function ReportPage() {
                     const fields: { label: string; key: string; icon: React.ReactNode }[] = [
                       { label: 'Site', key: 'Sitename', icon: <MapPin size={12} /> },
                       { label: 'Location', key: 'Location2', icon: <MapPin size={12} /> },
-                      { label: 'CI Name', key: 'CI_Name', icon: <FileText size={12} /> },
-                      { label: 'Asset Number', key: 'Asset_Number', icon: <Hash size={12} /> },
-                      { label: 'Serial Number', key: 'serial', icon: <Hash size={12} /> },
                       { label: 'Refer SOF', key: 'Refer_SOF', icon: <FileText size={12} /> },
-                      { label: 'Model', key: 'model', icon: <Cpu size={12} /> },
                       { label: 'Vendor', key: 'Vendor', icon: <Building2 size={12} /> },
-                      { label: 'Asset State', key: 'Asset_State', icon: <CheckCircle2 size={12} /> },
                     ];
                     return (
                       <div className="bg-white rounded-2xl border border-slate-200 p-6">
