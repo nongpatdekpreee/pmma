@@ -1494,7 +1494,8 @@ const getReplacementDevices = async (req, res) => {
       FROM devices d
       LEFT JOIN sites_location sl ON d.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
-      WHERE d.Asset_State = 'In Store'
+      WHERE (LOWER(TRIM(COALESCE(d.Asset_State, ''))) = 'in store')
+        AND (d.SLid = 2)
         AND d.Dtypeid = ?
         AND d.DeRoleid = ?
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC

@@ -360,14 +360,25 @@ export default function AddPMReportPage() {
 
     setSaving(true);
     try {
-      // อัปโหลดไฟล์ก่อน
+      const siteName = (selectedDevice?.Sitename ?? '').toString().trim() || 'Unknown';
+      const locationName = (selectedDevice?.Location2 ?? '').toString().trim() || 'Unknown';
+      const safeForName = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
+      const getExt = (name: string, type: string) => {
+        const m = name?.match(/\.\w+$/);
+        if (m) return m[0];
+        return type === 'pdf' ? '.pdf' : '.jpg';
+      };
+      // อัปโหลดไฟล์ก่อน — ตั้งชื่อเป็น Site_Location_วันที่_ลำดับ เพื่อแยกตาม site และมี location
       const filesWithPath: Array<{ name: string; type: string; path?: string }> = [];
-      for (const f of uploadedFiles) {
+      for (let i = 0; i < uploadedFiles.length; i++) {
+        const f = uploadedFiles[i];
         const uploadRes = await uploadReportFile(f.file);
+        const ext = getExt(f.name, f.type);
+        const displayName = `${safeForName(siteName)}_${safeForName(locationName)}_${pmDate}_${i + 1}${ext}`;
         if (uploadRes.success && uploadRes.path) {
-          filesWithPath.push({ name: f.name, type: f.type, path: uploadRes.path });
+          filesWithPath.push({ name: displayName, type: f.type, path: uploadRes.path });
         } else {
-          filesWithPath.push({ name: f.name, type: f.type });
+          filesWithPath.push({ name: displayName, type: f.type });
         }
       }
 

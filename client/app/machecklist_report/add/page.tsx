@@ -70,7 +70,7 @@ export default function AddMAReportPage() {
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [slaResult, setSlaResult] = useState<string>('');
+  const [maResult, setMaResult] = useState<'pass' | 'fail' | ''>('');
   const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
   const [maDate, setMaDate] = useState(new Date().toISOString().split('T')[0]);
@@ -328,9 +328,12 @@ export default function AddMAReportPage() {
       alert('Please select a device.');
       return;
     }
-    const num = slaResult.trim() === '' ? NaN : Number(slaResult);
-    if (slaResult.trim() === '' || Number.isNaN(num)) {
-      alert('Please enter MA Result score (number).');
+    if (!maResult) {
+      alert('Please select MA Result (Pass or Fail).');
+      return;
+    }
+    if (maResult === 'fail' && comment.trim() === '') {
+      alert('Please enter reason in Notes when result is Fail.');
       return;
     }
 
@@ -338,14 +341,25 @@ export default function AddMAReportPage() {
 
     setSaving(true);
     try {
-      // อัปโหลดไฟล์ก่อน
+      const siteName = (selectedDevice?.Sitename ?? '').toString().trim() || 'Unknown';
+      const locationName = (selectedDevice?.Location2 ?? '').toString().trim() || 'Unknown';
+      const safeForName = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
+      const getExt = (name: string, type: string) => {
+        const m = name?.match(/\.\w+$/);
+        if (m) return m[0];
+        return type === 'pdf' ? '.pdf' : '.jpg';
+      };
+      // อัปโหลดไฟล์ก่อน — ตั้งชื่อเป็น Site_Location_วันที่_ลำดับ เพื่อแยกตาม site และมี location
       const filesWithPath: Array<{ name: string; type: string; path?: string }> = [];
-      for (const f of uploadedFiles) {
+      for (let i = 0; i < uploadedFiles.length; i++) {
+        const f = uploadedFiles[i];
         const uploadRes = await uploadMaReportFile(f.file);
+        const ext = getExt(f.name, f.type);
+        const displayName = `${safeForName(siteName)}_${safeForName(locationName)}_${maDate}_${i + 1}${ext}`;
         if (uploadRes.success && uploadRes.path) {
-          filesWithPath.push({ name: f.name, type: f.type, path: uploadRes.path });
+          filesWithPath.push({ name: displayName, type: f.type, path: uploadRes.path });
         } else {
-          filesWithPath.push({ name: f.name, type: f.type });
+          filesWithPath.push({ name: displayName, type: f.type });
         }
       }
 
@@ -355,7 +369,7 @@ export default function AddMAReportPage() {
         device: selectedDevice,
         checklistItems,
         uploadedFiles: filesWithPath,
-        sla_result: num,
+        maResult,
         comment,
         technicianName,
         maDate,
@@ -547,10 +561,27 @@ export default function AddMAReportPage() {
                         </div>
                       )}
                     </div>
+                    {/* Contract Information (MA) - compact one line */}
+                    {(task.vendorName || task.vendor_name || task.vendorTel || task.vendor_tel || task.reporterName || (task as any).reporter_name || task.ticket) && (
+                      <div className="mt-1.5 pt-1.5 border-t border-slate-200 text-xs text-slate-600">
+                        <span className="font-bold text-slate-700">Contract Info: </span>
+                        <span>
+                          {(task.vendorName || task.vendor_name) && (
+                            <>Vendor: <span className="text-slate-800 font-medium">{task.vendorName || task.vendor_name}</span>{' · '}</>
+                          )}
+                          {(task.reporterName || (task as any).reporter_name) && (
+                            <>Reporter: <span className="text-slate-800 font-medium">{task.reporterName || (task as any).reporter_name}</span>{' · '}</>
+                          )}
+                          {task.ticket && (
+                            <>Ticket: <span className="text-slate-800 font-medium">{task.ticket}</span></>
+                          )}
+                        </span>
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => applyTaskToForm(task)}
-                      className={`px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap ${
+                      className={`mt-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap ${
                         selectedTaskId === task.id
                           ? 'bg-green-500 text-white'
                           : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -719,6 +750,51 @@ export default function AddMAReportPage() {
             })()}
           </div>
 
+          {/* Contract Information (full) - โชว์เมื่อเลือก task แล้ว */}
+          {selectedTaskId != null && (() => {
+            const task = availableMATasks.find((t: any) => t.id === selectedTaskId);
+            if (!task) return null;
+            const hasContract = task.vendorName || task.vendor_name || task.vendorTel || task.vendor_tel || task.reporterName || (task as any).reporter_name || task.reporterTel || (task as any).reporter_tel || task.ticket;
+            if (!hasContract) return null;
+            return (
+              <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <h3 className="text-sm font-bold text-slate-700 mb-3">Contract Information</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                  {(task.vendorName || task.vendor_name) && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 mb-0.5">Third Party Vendor name</p>
+                      <p className="font-medium text-slate-800">{task.vendorName || task.vendor_name}</p>
+                    </div>
+                  )}
+                  {(task.vendorTel || task.vendor_tel) && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 mb-0.5">Third Party Vendor phone</p>
+                      <p className="font-medium text-slate-800">{task.vendorTel || task.vendor_tel}</p>
+                    </div>
+                  )}
+                  {(task.reporterName || (task as any).reporter_name) && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 mb-0.5">Reporter name</p>
+                      <p className="font-medium text-slate-800">{task.reporterName || (task as any).reporter_name}</p>
+                    </div>
+                  )}
+                  {(task.reporterTel || (task as any).reporter_tel) && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 mb-0.5">Reporter phone</p>
+                      <p className="font-medium text-slate-800">{task.reporterTel || (task as any).reporter_tel}</p>
+                    </div>
+                  )}
+                  {task.ticket && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 mb-0.5">Ticket</p>
+                      <p className="font-medium text-slate-800">{task.ticket}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* MA Information */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
@@ -818,28 +894,42 @@ export default function AddMAReportPage() {
             )}
           </div>
 
-          {/* MA Result - อิงตาม sla_term จาก Contract (คะแนนมากกว่า threshold = Pass) */}
+          {/* MA Result - Pass / Fail */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
-              MA Result * <span className="font-normal text-slate-500">(based on SLA term from contract)</span>
+              MA Result *
             </label>
-            <div className="flex flex-wrap items-center gap-4">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={slaResult}
-                onChange={(e) => setSlaResult(e.target.value)}
-                placeholder="e.g. 85"
-                className="w-32 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-              />
-              {slaResult.trim() !== '' && !Number.isNaN(Number(slaResult)) && (
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${Number(slaResult) > slaThreshold ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {Number(slaResult) > slaThreshold ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
-                  {Number(slaResult) > slaThreshold ? 'Pass' : 'Fail'}
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setMaResult('pass')}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                  maResult === 'pass'
+                    ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
+                    : 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50'
+                }`}
+              >
+                <CheckCircle2 size={16} />
+                Pass
+              </button>
+              <button
+                type="button"
+                onClick={() => setMaResult('fail')}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                  maResult === 'fail'
+                    ? 'bg-red-500 text-white border-red-500 shadow-sm'
+                    : 'bg-white text-red-600 border-red-200 hover:bg-red-50'
+                }`}
+              >
+                <XCircle size={16} />
+                Fail
+              </button>
+              {maResult === 'fail' && (
+                <span className="text-xs text-red-500">
+                  Please fill in the reason in Notes below.
                 </span>
               )}
-            </div>  
+            </div>
           </div>
 
           {/* Comment Field */}

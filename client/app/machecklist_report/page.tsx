@@ -10,7 +10,7 @@ export default function MAChecklistReportRedirect() {
   }, [router]);
   return (
     <div className="flex items-center justify-center min-h-screen bg-slate-50">
-      <p className="text-slate-500">กำลังเปลี่ยนไปหน้า Report...</p>
+      <p className="text-slate-500">Redirecting to Report...</p>
     </div>
   );
 }

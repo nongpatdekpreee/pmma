@@ -87,6 +87,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [vendorName, setVendorName] = useState('');
   const [vendorTel, setVendorTel] = useState('');
   const [vendorTelError, setVendorTelError] = useState('');
+  const [reporterTelError, setReporterTelError] = useState('');
+  const [reporterName, setReporterName] = useState('');
+  const [reporterTel, setReporterTel] = useState('');
+  const [ticket, setTicket] = useState('');
   const [duration, setDuration] = useState('');
   const [assetBinding, setAssetBinding] = useState('');
   const [replacementDevices, setReplacementDevices] = useState<Device[]>([]);
@@ -156,6 +160,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setVendorName('');
     setVendorTel('');
     setVendorTelError('');
+    setReporterTelError('');
+    setReporterName('');
+    setReporterTel('');
+    setTicket('');
     setDuration('');
     setAssetBinding('');
     setContractOptions([]);
@@ -459,6 +467,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setCoverageScope(editingEvent.coverageScope || '');
       setVendorName(editingEvent.vendorName || '');
       setVendorTel(editingEvent.vendorTel || editingEvent.vendor_tel || '');
+      setReporterName(editingEvent.reporterName || (editingEvent as any).reporter_name || '');
+      setReporterTel(editingEvent.reporterTel || (editingEvent as any).reporter_tel || '');
+      setTicket(editingEvent.ticket || '');
       setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
       setAssetBinding(editingEvent.assetBinding || '');
       const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
@@ -763,6 +774,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   useEffect(() => {
     if (taskType === 'PM') {
       setVendorName('');
+      setReporterName('');
+      setReporterTel('');
+      setReporterTelError('');
+      setTicket('');
       setDuration('');
       setAssetBinding('');
       setReplacementDevices([]);
@@ -1282,15 +1297,29 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       // ไม่ return - ให้บันทึกได้
     }
 
-    // MA-specific validation (เหมือน PM)
-    if (taskType === 'MA') {
+  // MA-specific validation (เหมือน PM)
+  if (taskType === 'MA') {
       if (!vendorName || !startDate) {
-        alert('Please fill required MA fields: Vendor Name and Start Date');
+        alert('Please fill required MA fields: Third Party Vendor name and Start Date');
         return;
       }
-      // Validate Tel number: if provided, must be 4-10 digits
+      // Guard against bots: minimum 5 characters for key text fields
+      if (vendorName && vendorName.trim().length < 5) {
+        alert('Third Party Vendor name must be at least 5 characters');
+        return;
+      }
+      if (reporterName && reporterName.trim().length < 5) {
+        alert('Reporter name must be at least 5 characters');
+        return;
+      }
+      // Validate Contract Phone number: if provided, must be 4-10 digits
       if (vendorTel && (vendorTel.length < 4 || vendorTel.length > 10)) {
-        alert('Tel number must be between 4 and 10 digits');
+        alert('Phone number must be between 4 and 10 digits');
+        return;
+      }
+      // Validate Client Phone number: if provided, must be 4-10 digits
+      if (reporterTel && (reporterTel.length < 4 || reporterTel.length > 10)) {
+        alert('Phone number must be between 4 and 10 digits');
         return;
       }
       // Contract is required for MA because broken devices must come from contract
@@ -1359,6 +1388,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       // MA Contract fields (เหมือน PM)
       vendorName: taskType === 'MA' ? vendorName : null,
       vendorTel: taskType === 'MA' ? vendorTel : null,
+      reporterName: taskType === 'MA' ? reporterName : null,
+      reporterTel: taskType === 'MA' ? reporterTel : null,
+      ticket: taskType === 'MA' ? ticket : null,
       assetBinding: taskType === 'MA' ? assetBinding : null,
       replacementDeviceId: maReplacementDeviceId,
       status: editingEvent?.status || 'not-started',
@@ -2014,38 +2046,35 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             <div className={sectionCard}>
               <h3 className="text-xs font-bold text-slate-700">Contract Information</h3>
 
-              <div className="grid grid-cols-[70%_1fr] gap-4 items-end">
+              <div className="grid grid-cols-2 gap-4 items-start">
                 <div>
-                  <label className={fieldLabel}>Vendor Name <span className="text-red-500">*</span></label>
+                  <label className={fieldLabel}>Third Party Vendor name <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     value={vendorName}
                     onChange={(e) => setVendorName(e.target.value)}
-                    placeholder="Enter vendor name"
-                    className={`${inputBase} border-2 focus:border-2`}
+                    placeholder="Enter third party vendor"
+                    className={inputBase}
                   />
                 </div>
                 <div>
-                  <label className={fieldLabel}>Tel number</label>
+                  <label className={fieldLabel}>Phone number</label>
                   <div className="relative">
                     <input
                       type="text"
                       value={vendorTel}
                       onKeyDown={(e) => {
-                        // อนุญาตเฉพาะตัวเลขและคีย์พิเศษ (Backspace, Delete, Arrow keys, Tab, etc.)
                         const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Home', 'End'];
                         const isDigit = /^[0-9]$/.test(e.key);
                         const isAllowedKey = allowedKeys.includes(e.key) || (e.ctrlKey && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase()));
                         
                         if (!isDigit && !isAllowedKey) {
-                          // ป้องกันตัวอักษรและอักขระอื่นๆ
                           e.preventDefault();
                           setVendorTelError('Please enter only numbers');
                           setTimeout(() => setVendorTelError(''), 2000);
                           return;
                         }
                         
-                        // ถ้ามี 10 ตัวแล้วและกดตัวเลข ให้แสดงข้อความเตือน
                         if (vendorTel.length >= 10 && isDigit) {
                           e.preventDefault();
                           setVendorTelError('Only 10 digits');
@@ -2054,7 +2083,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       }}
                       onPaste={(e) => {
                         e.preventDefault();
-                        const pastedText = e.clipboardData.getData('text').replace(/[^\d]/g, ''); // กรองเฉพาะตัวเลข
+                        const pastedText = e.clipboardData.getData('text').replace(/[^\d]/g, '');
                         const newValue = vendorTel + pastedText;
                         if (newValue.length <= 10) {
                           setVendorTel(newValue);
@@ -2065,19 +2094,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         }
                       }}
                       onChange={(e) => {
-                        const value = e.target.value.replace(/[^\d]/g, ''); // รับเฉพาะตัวเลข
+                        const value = e.target.value.replace(/[^\d]/g, '');
                         if (value.length <= 10) {
                           setVendorTel(value);
                           setVendorTelError('');
                         } else {
-                          setVendorTel(value.slice(0, 10)); // ตัดให้เหลือ 10 ตัว
+                          setVendorTel(value.slice(0, 10));
                           setVendorTelError('Only 10 digits');
                           setTimeout(() => setVendorTelError(''), 2000);
                         }
                       }}
-                      placeholder="Enter tel number (4-10 digits)"
+                      placeholder="Enter phone number (4-10 digits)"
                       maxLength={10}
-                      className={`${inputBase} pr-10 border-2 focus:border-2 ${vendorTel && vendorTel.length < 4 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''} ${vendorTelError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
+                      className={`${inputBase} pr-10 ${vendorTel && vendorTel.length < 4 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''} ${vendorTelError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
                     />
                     {vendorTel && (
                       <button
@@ -2097,8 +2126,104 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <p className="text-[10px] text-red-500 mt-1">{vendorTelError}</p>
                   )}
                   {!vendorTelError && vendorTel && vendorTel.length < 4 && (
-                    <p className="text-[10px] text-red-500 mt-1">Tel number must be at least 4 digits</p>
+                    <p className="text-[10px] text-red-500 mt-1">Phone number must be at least 4 digits</p>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Client (MA only) */}
+          {taskType === 'MA' && (
+            <div className={sectionCard}>
+              <h3 className="text-xs font-bold text-slate-700">Client</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start mt-3">
+                <div>
+                  <label className={fieldLabel}>Reporter name</label>
+                  <input
+                    type="text"
+                    value={reporterName}
+                    onChange={(e) => setReporterName(e.target.value)}
+                    placeholder="Reporter name"
+                    className={inputBase}
+                  />
+                </div>
+                <div>
+                  <label className={fieldLabel}>Phone number</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={reporterTel}
+                      onKeyDown={(e) => {
+                        const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Home', 'End'];
+                        const isDigit = /^[0-9]$/.test(e.key);
+                        const isAllowedKey = allowedKeys.includes(e.key) || (e.ctrlKey && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase()));
+                        if (!isDigit && !isAllowedKey) {
+                          e.preventDefault();
+                          setReporterTelError('Please enter only numbers');
+                          setTimeout(() => setReporterTelError(''), 2000);
+                          return;
+                        }
+                        if (reporterTel.length >= 10 && isDigit) {
+                          e.preventDefault();
+                          setReporterTelError('Only 10 digits');
+                          setTimeout(() => setReporterTelError(''), 2000);
+                        }
+                      }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pastedText = e.clipboardData.getData('text').replace(/[^\d]/g, '');
+                        const newValue = reporterTel + pastedText;
+                        if (newValue.length <= 10) {
+                          setReporterTel(newValue);
+                          setReporterTelError('');
+                        } else {
+                          setReporterTelError('Only 10 digits');
+                          setTimeout(() => setReporterTelError(''), 2000);
+                        }
+                      }}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/[^\d]/g, '');
+                        if (value.length <= 10) {
+                          setReporterTel(value);
+                          setReporterTelError('');
+                        } else {
+                          setReporterTel(value.slice(0, 10));
+                          setReporterTelError('Only 10 digits');
+                          setTimeout(() => setReporterTelError(''), 2000);
+                        }
+                      }}
+                      placeholder="Enter phone number (4-10 digits)"
+                      maxLength={10}
+                      className={`${inputBase} pr-10 ${reporterTel && reporterTel.length < 4 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''} ${reporterTelError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
+                    />
+                    {reporterTel && (
+                      <button
+                        type="button"
+                        onClick={() => { setReporterTel(''); setReporterTelError(''); }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                        title="Clear"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {reporterTelError && (
+                    <p className="text-[10px] text-red-500 mt-1">{reporterTelError}</p>
+                  )}
+                  {!reporterTelError && reporterTel && reporterTel.length < 4 && (
+                    <p className="text-[10px] text-red-500 mt-1">Phone number must be at least 4 digits</p>
+                  )}
+                </div>
+                <div>
+                  <label className={fieldLabel}>Ticket</label>
+                  <input
+                    type="text"
+                    value={ticket}
+                    onChange={(e) => setTicket(e.target.value)}
+                    placeholder="Ticket number"
+                    className={inputBase}
+                  />
                 </div>
               </div>
             </div>
@@ -2320,7 +2445,7 @@ const fieldLabel =
   'block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1';
 
 const inputBase =
-  'w-full h-9 px-3 bg-slate-50 border-2 border-slate-200 rounded-xl text-sm outline-none transition focus:ring-2 focus:ring-blue-500 focus:border-blue-400';
+  'w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none transition focus:ring-2 focus:ring-blue-500 focus:border-blue-400';
 
 const selectBase = inputBase;
 

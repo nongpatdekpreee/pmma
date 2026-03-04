@@ -173,7 +173,8 @@ const getReports = async (req, res) => {
                 r.sla_result, r.status,
                 r.checklist_items, r.comment, r.technician_name, r.pm_date, r.device_id, r.device_json,
                 r.created_at,
-                t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date
+                t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
+                t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket
          FROM report r
          INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
          ORDER BY r.report_id DESC
@@ -185,7 +186,8 @@ const getReports = async (req, res) => {
         [rows] = await db.execute(
           `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
                   r.sla_result, r.status,
-                  t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date
+                  t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
+                  t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket
            FROM report r
            INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
            ORDER BY r.report_id DESC
@@ -250,8 +252,16 @@ const getReports = async (req, res) => {
         createdAt: r.created_at
           ? (typeof r.created_at === 'string' ? r.created_at : r.created_at.toISOString?.())
           : undefined,
-        assets: r.assets,
+        assets,
         site_name: r.site_name,
+        ...(taskType === 'MA' && r.replacement_device_id != null ? { replacementDeviceId: r.replacement_device_id } : {}),
+        ...(taskType === 'MA' && (r.vendor_name != null || r.vendor_tel != null || r.reporter_name != null || r.reporter_tel != null || r.ticket != null) ? {
+          vendorName: r.vendor_name,
+          vendorTel: r.vendor_tel,
+          reporterName: r.reporter_name,
+          reporterTel: r.reporter_tel,
+          ticket: r.ticket,
+        } : {}),
       };
       return item;
     });
