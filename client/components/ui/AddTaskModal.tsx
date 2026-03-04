@@ -14,6 +14,7 @@ import {
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getSitesLocationWithContracts, getTasks, checkEngineerConflict } from '@/lib/api';
+import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 
@@ -179,7 +180,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => ({
-    id: item.Did ?? item.id ?? item.Asset_Number ?? item.serial ?? crypto.randomUUID(),
+    id: item.Did ?? item.id ?? item.Asset_Number ?? item.serial ?? randomUUID(),
     name: item.CI_Name || item.name || item.Asset_Number || 'Device',
     Dtypeid: item.Dtypeid,
     DeRoleid: item.DeRoleid,
@@ -227,12 +228,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getContractsBySite(siteId);
       if (!result.success) {
-        throw new Error('ไม่สามารถดึง Contracts ของ Site ได้');
+        throw new Error('Cannot load contracts of site.');
       }
       return result.data || [];
     } catch (error: any) {
       console.error('fetchContractsBySite error:', error);
-      throw new Error(error.message || 'โหลด Contracts ตาม Site ไม่สำเร็จ');
+      throw new Error(error.message || 'Cannot load contracts of site.');
     }
   };
 
@@ -241,7 +242,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getSitesByContract(contractId);
       if (!result.success) {
-        throw new Error('ไม่สามารถดึง Sites ของสัญญาได้');
+        throw new Error('Cannot load sites of contract.');
       }
       return (result.data || []).map((item: any) => ({
         id: String(item.SLid),
@@ -251,7 +252,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }));
     } catch (error: any) {
       console.error('fetchSitesByContract error:', error);
-      throw new Error(error.message || 'โหลด Sites ตามสัญญาไม่สำเร็จ');
+      throw new Error(error.message || 'Cannot load sites of contract.');
     }
   };
 
@@ -260,12 +261,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getDevicesByContract(contractId);
       if (!result.success) {
-        throw new Error('ไม่สามารถดึงข้อมูลอุปกรณ์ได้');
+        throw new Error('Cannot load devices of contract.');
       }
       return (result.data || []).map((d: any) => mapDeviceFromApi(d, 'site'));
     } catch (error: any) {
       console.error('fetchDevicesByContract error:', error);
-      throw new Error(error.message || 'โหลดอุปกรณ์ตามสัญญาไม่สำเร็จ');
+      throw new Error(error.message || 'Cannot load devices of contract.');
     }
   };
 
@@ -273,7 +274,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     const res = await fetch(apiUrl('/api/devices/by-asset-state?states=In%20Store,In%20Store%20On%20Site,Waiting%20to%20sell'));
     const json = await res.json();
     if (!json.success) {
-      throw new Error(json.message || 'โหลดอุปกรณ์คงคลังไม่สำเร็จ');
+      throw new Error(json.message || 'Cannot load available devices.');
     }
     return (json.data || []).map((d: any) => mapDeviceFromApi(d, 'available'));
   };
@@ -298,7 +299,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setSiteOptions(sites);
     } catch (error: any) {
       console.error('loadAllSites error:', error);
-      setDeviceError(error.message || 'ไม่สามารถโหลด Sites ได้');
+      setDeviceError(error.message || 'Cannot load sites.');
       setSiteOptions([]);
     } finally {
       setLoadingSites(false);
@@ -330,7 +331,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }
     } catch (error: any) {
       console.error('loadContractsForSite error:', error);
-      setDeviceError(error.message || 'ไม่สามารถโหลด Contracts ได้');
+      setDeviceError(error.message || 'Cannot load contracts.');
       setContractOptions([]);
     } finally {
       setLoadingContracts(false);
@@ -341,12 +342,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const result = await getContractsBySite();
       if (!result.success) {
-        throw new Error('Cannot load contracts');
+        throw new Error('Cannot load contracts.');
       }
       return result.data || [];
     } catch (error: any) {
       console.error('fetchAllContracts error:', error);
-      throw new Error(error.message || 'Cannot load contracts');
+      throw new Error(error.message || 'Cannot load contracts.');
     }
   };
 
@@ -359,7 +360,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setContractOptions(contracts);
     } catch (error: any) {
       console.error('loadAllContracts error:', error);
-      setDeviceError(error.message || 'Cannot load contracts');
+      setDeviceError(error.message || 'Cannot load contracts.');
       setContractOptions([]);
     } finally {
       setLoadingContracts(false);
@@ -515,7 +516,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           );
 
           const pairs: BrokenDevicePair[] = brokenDevicesWithDetails.map((device: Device, index: number) => ({
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             brokenDevice: device,
             replacementDevice: replacementDetails[index] || null,
             replacementDevices: [],
@@ -863,7 +864,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   const addBrokenDevicePair = (device: Device) => {
-    const pairId = crypto.randomUUID();
+    const pairId = randomUUID();
     const newPair: BrokenDevicePair = {
       id: pairId,
       brokenDevice: device,
@@ -965,7 +966,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             day: 'numeric'
           })
         : '';
-      showWarning(`${engineerName} มีงานในวันที่ ${taskDate} ที่ ${taskInfo} แล้ว (งานซ้อนทับ)`, 5000);
+      showWarning(`${engineerName} already has a task on ${taskDate} at ${taskInfo} (overlap)`, 5000);
       // ไม่ return - ให้เพิ่ม engineer ได้
     }
 
@@ -1294,24 +1295,24 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }
       // Contract is required for MA because broken devices must come from contract
       if (!selectedContractId) {
-        alert('กรุณาเลือก Contract ก่อน (อุปกรณ์เสียต้องเป็นอุปกรณ์ที่ผูกกับ Contract)');
+        alert('Please select a contract before (broken devices must be from contract)');
         return;
       }
       // Validate broken device pairs (new way) or legacy selectedDevices
       if (brokenDevicePairs.length === 0 && selectedDevices.length === 0) {
-        alert('กรุณาเพิ่มอุปกรณ์เสียอย่างน้อย 1 ชิ้น');
+        alert('Please add at least one broken device');
         return;
       }
       // Check if all broken devices have replacement devices
       if (brokenDevicePairs.length > 0) {
         const missingReplacement = brokenDevicePairs.find(pair => !pair.replacementDevice);
         if (missingReplacement) {
-          alert(`กรุณาเลือก Replacement Device สำหรับอุปกรณ์: ${missingReplacement.brokenDevice.name}`);
+          alert(`Please select a replacement device for the device: ${missingReplacement.brokenDevice.name}`);
           return;
         }
       } else if (selectedDevices.length > 0 && !selectedReplacementDevice) {
         // Legacy mode validation
-        alert('กรุณาเลือก Replacement Device');
+        alert('Please select a replacement device');
         return;
       }
     }
@@ -1369,7 +1370,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       onClose();
     } catch (error) {
       console.error('save task error', error);
-      alert('บันทึกข้อมูลไม่สำเร็จ');
+      alert('Failed to save data.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1382,7 +1383,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     <div
       className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
       onClick={(e) => {
-        // ปิด modal เมื่อคลิกที่ overlay (นอก modal content)
+        // Close modal when clicking on overlay (outside modal content)
         if (e.target === e.currentTarget) {
           onClose();
         }
@@ -1391,7 +1392,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       <div
         className="w-full max-w-4xl h-[90vh] max-h-[800px] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => {
-          // ป้องกันไม่ให้ปิด modal เมื่อคลิกที่ modal content
+          // Prevent closing modal when clicking on modal content
           e.stopPropagation();
         }}
       >
@@ -1435,14 +1436,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
 
 
-          {/* Site & Contract (เลือก Site ก่อน แล้วค่อย Contract) */}
+            {/* Site & Contract (select site first, then contract) */}
           <div className={sectionCard}>
             <h3 className="text-xs font-bold text-slate-700">Site & Contract Information</h3>
 
             <div>
               <label className={fieldLabel}>Site Name <span className="text-red-500">*</span></label>
 
-              {/* Custom Searchable Combobox for Sites */}
+              {/* Custom searchable combobox for sites */}
               <div className="relative" ref={siteDropdownRef}>
                 <div className="relative">
                   <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -1486,7 +1487,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                 {showSiteDropdown && !loadingSites && (
                   <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
-                    {/* Options List */}
+                    {/* options list */}
                     <div className="overflow-y-auto max-h-60">
                       {filteredSiteOptions.length === 0 ? (
                         <div className="px-3 py-2 text-xs text-slate-400 text-center">
@@ -2116,37 +2117,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   type="date"
                   lang="en-US"
                   value={startDate}
-                  min={(() => {
-                    // สามารถเลือกได้จากวันปัจจุบันไปอนาคตเท่านั้น (ไม่ให้เลือกวันย้อนหลัง)
-                    const today = new Date();
-                    const year = today.getFullYear();
-                    const month = String(today.getMonth() + 1).padStart(2, '0');
-                    const day = String(today.getDate()).padStart(2, '0');
-                    return `${year}-${month}-${day}`;
-                  })()}
                   onChange={(e) => {
                     const v = e.target.value;
-                    // ตรวจสอบว่าวันที่ที่เลือกไม่ก่อนวันปัจจุบัน (เลือกได้เฉพาะวันปัจจุบันและอนาคต)
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0); // ตั้งเวลาเป็นเริ่มวันเพื่อเปรียบเทียบ
-                    const selectedDate = v ? new Date(v) : null;
-                    
-                    if (selectedDate && selectedDate < today) {
-                      // ถ้าเลือกวันที่ก่อนวันปัจจุบัน ให้ใช้วันนี้แทน
-                      const year = today.getFullYear();
-                      const month = String(today.getMonth() + 1).padStart(2, '0');
-                      const day = String(today.getDate()).padStart(2, '0');
-                      const todayStr = `${year}-${month}-${day}`;
-                      setStartDate(todayStr);
-                      // ถ้า endDate มีค่าและน้อยกว่าวันนี้ ให้ปรับ endDate ด้วย
-                      if (endDate && new Date(endDate) < today) {
-                        setEndDate(todayStr);
-                      } else if (endDate && new Date(todayStr) > new Date(endDate)) {
-                        setEndDate(todayStr);
-                      }
-                      return;
-                    }
-                    
                     setStartDate(v);
                     // ถ้าเลือก startDate ที่หลัง endDate ให้ปรับ endDate ให้เท่ากับ startDate
                     if (v && endDate && new Date(v) > new Date(endDate)) {
@@ -2200,7 +2172,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
             <div className="relative">
               <label className={fieldLabel}>Assign Engineer <span className="text-red-500">*</span></label>
-
+ 
               {/* Email-style input container */}
               <div
                 className={`min-h-9 w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap gap-1.5 items-center ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-500 border-blue-400' : ''
@@ -2229,7 +2201,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     </button>
                   </span>
                 ))}
-
+ 
                 {/* Input field */}
                 <input
                   id="engineer-input"
@@ -2249,7 +2221,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5"
                 />
               </div>
-
+ 
               {/* Dropdown */}
               {showEngineerDropdown && filteredEngineers.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto">
@@ -2267,7 +2239,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   ))}
                 </div>
               )}
-
+ 
               {/* Empty state */}
               {showEngineerDropdown && filteredEngineers.length === 0 && engineerInput && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3">
@@ -2276,7 +2248,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               )}
             </div>
      
-
+ 
             <div>
               <label className={fieldLabel}>Coverage Scope</label>
               <textarea
@@ -2291,11 +2263,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         </div>
 
         {/* ===== footer ===== */}
-        <div className="flex justify-between px-6 py-4 border-t">
-          <div className="flex gap-2">
-            <button className="icon-btn"><Paperclip size={16} /></button>
-            <button className="icon-btn"><LinkIcon size={16} /></button>
-          </div>
+        <div className="flex justify-end px-6 py-4 border-t">
+         
           <button
             onClick={handleSave}
             disabled={isSubmitting}
@@ -2334,7 +2303,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           }
         }}
       />
-
     </div>
   );
 }
@@ -2441,7 +2409,7 @@ function SearchableDeviceSelect({
           </div>
           <div className="max-h-48 overflow-y-auto">
             {filtered.length === 0 ? (
-              <p className="py-4 text-center text-sm text-slate-500">ไม่พบอุปกรณ์</p>
+              <p className="py-4 text-center text-sm text-slate-500">No devices found</p>
             ) : (
               filtered.map((d) => (
                 <button

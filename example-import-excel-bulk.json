@@ -1,0 +1,62 @@
+[
+  {
+    "Model": "Dell PowerEdge R740",
+    "Brand": "Dell",
+    "Asset_State": "In Store",
+    "serial": "DELL001",
+    "CI_Name": "Server-001",
+    "Asset_Number": "AST-2024-001",
+    "Project_code_purchase": "PRJ-2024-001",
+    "Project_purchase": "Data Center",
+    "Site": "Bangkok Office",
+    "Waranty_start": "2024-01-01",
+    "Waranty_end": "2027-01-01",
+    "Received_date": "2024-01-05"
+  },
+  {
+    "Model": "Dell PowerEdge R740",
+    "Brand": "Dell",
+    "Asset_State": "In Store",
+    "serial": "DELL002",
+    "CI_Name": "Server-002",
+    "Asset_Number": "AST-2024-002",
+    "Project_code_purchase": "PRJ-2024-001",
+    "Project_purchase": "Data Center",
+    "Site": "Bangkok Office",
+    "Waranty_start": "2024-01-01",
+    "Waranty_end": "2027-01-01",
+    "Received_date": "2024-01-05"
+  },
+  {
+    "Model": "HP ProLiant DL380",
+    "Brand": "HP",
+    "Asset_State": "Out Store",
+    "serial": "HP001",
+    "CI_Name": "Server-003",
+    "Asset_Number": "AST-2024-003",
+    "Project_code_purchase": "PRJ-2024-002",
+    "Project_purchase": "Staging",
+    "Site": "Chiang Mai Office",
+    "Waranty_start": "2024-02-01",
+    "Waranty_end": "2027-02-01",
+    "Received_date": "2024-01-25"
+  }
+]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

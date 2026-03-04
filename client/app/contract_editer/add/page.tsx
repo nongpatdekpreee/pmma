@@ -1,10 +1,11 @@
 'use client';
 
 import { ArrowLeft, FileText, Calendar, Cpu, Paperclip, Loader2, Plus, Trash2, X } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiUrl, getAssignedServices } from '@/lib/api';
+import { randomUUID } from '@/lib/utils';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { FormSection } from '../../../components/ui/FormSection';
@@ -24,7 +25,7 @@ type SiteEntry = {
   devices: Array<{ id: string; label: string; role?: string }>;
 };
 
-export default function AddContractPage() {
+function AddContractPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const renewContractId = searchParams?.get('renew');
@@ -59,7 +60,7 @@ export default function AddContractPage() {
   const [referSOFList, setReferSOFList] = useState<string[]>([]);
   const [sitesLocation, setSitesLocation] = useState<SiteLocation[]>([]);
   const [siteEntries, setSiteEntries] = useState<SiteEntry[]>([
-    { id: crypto.randomUUID(), siteId: '', siteLabel: '', devices: [] },
+    { id: randomUUID(), siteId: '', siteLabel: '', devices: [] },
   ]);
   const [activeSiteEntryId, setActiveSiteEntryId] = useState('');
   const [devicesBySite, setDevicesBySite] = useState<DeviceItem[]>([]);
@@ -223,11 +224,11 @@ export default function AddContractPage() {
           }
         }
 
-        // สร้าง site entries จาก devices และ sites
+        // สร้าง site entries จาก sites และใส่ devices ตาม SLid (รองรับ draft ที่มีแค่ site ไม่มี device)
+        const devicesBySLid = new Map<number, DeviceItem[]>();
         if (contract.devices && contract.devices.length > 0) {
-          const devicesBySLid = new Map<number, DeviceItem[]>();
           contract.devices.forEach((device: DeviceItem) => {
-            const slid = (device as any).SLid as number | null | undefined;
+            const slid = ((device as any).contract_SLid ?? (device as any).SLid) as number | null | undefined;
             if (slid) {
               if (!devicesBySLid.has(slid)) {
                 devicesBySLid.set(slid, []);
@@ -235,16 +236,33 @@ export default function AddContractPage() {
               devicesBySLid.get(slid)!.push(device);
             }
           });
+        }
 
+        if (contract.sites && contract.sites.length > 0) {
+          const newSiteEntries: SiteEntry[] = contract.sites.map((site: any) => {
+            const slid = site.SLid;
+            const devices = devicesBySLid.get(slid) || [];
+            return {
+              id: randomUUID(),
+              siteId: String(slid),
+              siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
+              devices: devices.map((d) => ({
+                id: String(d.Did),
+                label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
+                role: (d as any).roleName || undefined,
+              })),
+            };
+          });
+          setSiteEntries(newSiteEntries);
+        } else if (devicesBySLid.size > 0) {
           const newSiteEntries: SiteEntry[] = [];
           devicesBySLid.forEach((devices, slid) => {
-            const site = currentSites.find((s) => s.SLid === slid) || 
-                        contract.sites?.find((s: any) => s.SLid === slid);
-            const siteLabel = site 
+            const site = currentSites.find((s) => s.SLid === slid) || contract.sites?.find((s: any) => s.SLid === slid);
+            const siteLabel = site
               ? `${(site as any).SiteName || ''} – ${(site as any).Location2 || ''}`.trim() || `Site ${slid}`
               : `Site ${slid}`;
             newSiteEntries.push({
-              id: crypto.randomUUID(),
+              id: randomUUID(),
               siteId: String(slid),
               siteLabel,
               devices: devices.map((d) => ({
@@ -254,18 +272,6 @@ export default function AddContractPage() {
               })),
             });
           });
-          
-          if (newSiteEntries.length > 0) {
-            setSiteEntries(newSiteEntries);
-          }
-        } else if (contract.sites && contract.sites.length > 0) {
-          // ถ้าไม่มี devices แต่มี sites ให้สร้าง site entries ว่าง
-          const newSiteEntries: SiteEntry[] = contract.sites.map((site: any) => ({
-            id: crypto.randomUUID(),
-            siteId: String(site.SLid),
-            siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${site.SLid}`,
-            devices: [],
-          }));
           setSiteEntries(newSiteEntries);
         }
       } catch (e) {
@@ -393,7 +399,7 @@ export default function AddContractPage() {
         const site = currentSites.find((s) => s.SLid === slid);
         const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : `Site ${slid}`;
         newSiteEntries.push({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           siteId: String(slid),
           siteLabel,
           devices: devices.map((d) => ({
@@ -515,7 +521,7 @@ export default function AddContractPage() {
   };
 
   const addSiteEntry = () => {
-    setSiteEntries((prev) => [...prev, { id: crypto.randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
+    setSiteEntries((prev) => [...prev, { id: randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
   };
 
   const removeSiteEntry = (entryId: string) => {
@@ -624,45 +630,74 @@ export default function AddContractPage() {
   const handleSubmit = async (e: React.FormEvent, isDraft?: boolean) => {
     e?.preventDefault?.();
     setSaveError('');
-    if (!contractName.trim()) {
-      const msg = 'Please enter Contract Name';
-      setSaveError(msg);
-      toastError(msg);
-      return;
+
+    // ถ้าไม่ใช่ draft ยังต้องกรอกข้อมูลบังคับให้ครบ
+    if (!isDraft) {
+      if (!contractName.trim()) {
+        const msg = 'Please enter Contract Name';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
+      if (contractName.trim().length < 5) {
+        const msg = 'Contract Name must be at least 5 characters';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
+      if (!slaTerm.trim()) {
+        const msg = 'Please enter SLA Term';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
+      
+      // Validate SLA Term เป็นตัวเลข 0-100
+      const slaTermNum = parseFloat(slaTerm.trim());
+      if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
+        const msg = 'SLA Term must be a number between 0 and 100';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
+      
+      if (!selectedSOF?.trim()) {
+          const msg = 'Please select or enter SOF (Refer SOF from Device List)';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
     }
-    if (contractName.trim().length < 5) {
-      const msg = 'Contract Name must be at least 5 characters';
-      setSaveError(msg);
-      toastError(msg);
-      return;
+
+    // ดักรูปแบบ Email และ Telephone (ถ้ามีการกรอก)
+    const emailTrim = emailAcc.trim();
+    if (emailTrim) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(emailTrim)) {
+        const msg = 'Please enter the correct email address.';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
     }
-    if (!slaTerm.trim()) {
-      const msg = 'Please enter SLA Term';
-      setSaveError(msg);
-      toastError(msg);
-      return;
+    const telTrim = telAcc.trim();
+    if (telTrim) {
+      const digitsOnly = telTrim.replace(/\D/g, '');
+      if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+        const msg = 'Please enter the correct phone number.';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
     }
-    
-    // Validate SLA Term เป็นตัวเลข 0-100
-    const slaTermNum = parseFloat(slaTerm.trim());
-    if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
-      const msg = 'SLA Term must be a number between 0 and 100';
-      setSaveError(msg);
-      toastError(msg);
-      return;
-    }
-    
-    if (!selectedSOF?.trim()) {
-        const msg = 'Please select or enter SOF (Refer SOF from Device List)';
-      setSaveError(msg);
-      toastError(msg);
-      return;
-    }
+
     // รวม devices จากสัญญาเก่าที่เลือกไว้
     const oldDeviceIds = Array.from(selectedOldDevices);
     
-    // รวม devices จาก site entries
-    const validPairs = siteEntries.filter((e) => e.siteId && e.devices.length > 0);
+    // รวม devices จาก site entries — ถ้าเป็น draft อนุญาตให้มีแค่ site (ไม่บังคับ device)
+    const validPairs = isDraft
+      ? siteEntries.filter((e) => e.siteId)
+      : siteEntries.filter((e) => e.siteId && e.devices.length > 0);
     
     // ถ้าเป็นต่อสัญญาและมี devices จากสัญญาเก่า แต่ไม่มี site entries ให้สร้าง site_device_pairs จาก devices เก่า
     if (renewContractId && oldDeviceIds.length > 0 && validPairs.length === 0) {
@@ -730,13 +765,13 @@ export default function AddContractPage() {
       }
     }
 
-    // ถ้าเป็นการแก้ไข ไม่ต้อง validate devices (อาจจะยังไม่เปลี่ยน)
-    // แต่ถ้าเป็นการสร้างใหม่หรือต่อสัญญา ต้องมี devices
-    if (!editContractId) {
+    // ถ้าเป็น draft ปล่อยช่อง site และ device ว่างได้
+    // ถ้ากด Save Changes (ไม่ใช่ draft) ต้องมี site และ device อย่างน้อย 1 รายการ (ทั้งสร้างใหม่ แก้ไข และต่อสัญญา)
+    if (!isDraft) {
       if (validPairs.length === 0 && oldDeviceIds.length === 0) {
-        const msg = renewContractId 
+        const msg = renewContractId
           ? 'Please select at least 1 device (from old contract or add new)'
-          : 'Please select at least 1 site and device (select site then select device)';
+          : 'Please select at least 1 site and device';
         setSaveError(msg);
         toastError(msg);
         return;
@@ -1183,8 +1218,12 @@ export default function AddContractPage() {
                 <div className="relative">
                   <input
                     type="text"
+                    inputMode="numeric"
                     value={telAcc}
-                    onChange={(e) => setTelAcc(e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/\D/g, '');
+                      setTelAcc(v);
+                    }}
                     placeholder="Sale account telephone"
                     className={`${inputBase} pr-9`}
                   />
@@ -1608,5 +1647,20 @@ export default function AddContractPage() {
       </div>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
+  );
+}
+
+export default function AddContractPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="text-sm text-gray-600">กำลังโหลด...</span>
+        </div>
+      </div>
+    }>
+      <AddContractPageContent />
+    </Suspense>
   );
 }

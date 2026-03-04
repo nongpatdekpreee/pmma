@@ -123,7 +123,7 @@ const createTask = async (req, res) => {
     if (!taskType || !startDate || !endDate) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ taskType, startDate, endDate',
+        message: 'Please specify taskType, startDate, endDate',
       });
     }
 
@@ -240,7 +240,7 @@ const getTaskById = async (req, res) => {
       [id]
     );
     if (!rows[0]) {
-      return res.status(404).json({ success: false, message: 'ไม่พบ Task' });
+      return res.status(404).json({ success: false, message: 'Task not found' });
     }
     res.status(200).json({ success: true, data: mapTaskRow(rows[0]) });
   } catch (error) {
@@ -456,14 +456,14 @@ const updateTask = async (req, res) => {
     const [rows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     res.status(200).json({
       success: true,
-      message: 'อัพเดท Task สำเร็จ',
+      message: 'Task updated successfully',
       data: mapTaskRow(rows[0]),
     });
   } catch (error) {
     console.error('Error updating task:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการอัพเดท Task',
+      message: 'Error updating task',
       error: error.message,
     });
   }
@@ -473,25 +473,28 @@ const updateTask = async (req, res) => {
 const deleteTask = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Check if task exists
     const [existing] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     if (!existing[0]) {
-      return res.status(404).json({ success: false, message: 'ไม่พบ Task สำหรับลบ' });
+      return res.status(404).json({ success: false, message: ' Task not found' });
     }
+
+    // ลบ report ที่ผูกกับ task นี้ก่อน (FK report.id -> tasks.id) เพื่อไม่ให้ constraint กันการลบ
+    await db.execute('DELETE FROM report WHERE id = ?', [id]);
 
     // Delete the task
     await db.execute('DELETE FROM tasks WHERE id = ?', [id]);
-    
+
     res.status(200).json({
       success: true,
-      message: 'ลบ Task สำเร็จ',
+      message: 'Task deleted successfully',
     });
   } catch (error) {
     console.error('Error deleting task:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการลบ Task',
+      message: 'Error deleting task',
       error: error.message,
     });
   }
@@ -505,7 +508,7 @@ const checkEngineerConflict = async (req, res) => {
     if (!engineerId || !startDate) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ engineerId และ startDate',
+        message: 'Please specify engineerId and startDate',
       });
     }
 
@@ -577,7 +580,7 @@ const checkEngineerConflict = async (req, res) => {
     console.error('Error checking engineer conflict:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการเช็ค conflict',
+      message: 'Error checking engineer conflict',
       error: error.message,
     });
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
@@ -17,6 +17,7 @@ import {
 const EQUIPMENT_PAGE_SIZE = 6;
 const CONTRACT_CARD_PAGE_SIZE = 6;
 const CONTRACT_TABLE_PAGE_SIZE = 8;
+const EXPORT_MODAL_PAGE_SIZE = 25;
 
 interface Equipment {
   name: string;
@@ -36,7 +37,7 @@ interface Contract {
   startDate: string;
   endDate: string;
   value: string;
-  status: 'active' | 'pending' | 'expiring' | 'expired';
+  status: 'active' | 'expiring' | 'expired';
   description?: string;
   equipment?: Equipment[];
   formattedValue?: string;
@@ -110,8 +111,8 @@ function formatDateForExport(dateStr: string | null | undefined): string {
   return `${day}/${month}/${year}`;
 }
 
-function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' | 'expiring' | 'expired' {
-  if (!endDate) return 'pending';
+function deriveStatus(endDate: string | null | undefined): 'active' | 'expiring' | 'expired' {
+  if (!endDate) return 'active';
   const end = new Date(endDate);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -122,7 +123,7 @@ function deriveStatus(endDate: string | null | undefined): 'active' | 'pending' 
   return end <= in30Days ? 'expiring' : 'active';
 }
 
-export default function ContractEditorPage() {
+function ContractEditorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -181,6 +182,10 @@ export default function ContractEditorPage() {
   const [isExportContractModalOpen, setIsExportContractModalOpen] = useState(false);
   const [exportContractSelected, setExportContractSelected] = useState<Set<string>>(new Set());
   const [isExportingContracts, setIsExportingContracts] = useState(false);
+  const [exportModalSearch, setExportModalSearch] = useState('');
+  const [exportModalSiteFilter, setExportModalSiteFilter] = useState('');
+  const [exportModalLocationFilter, setExportModalLocationFilter] = useState('');
+  const [exportModalPage, setExportModalPage] = useState(1);
 
   // Form state
   const [contractForm, setContractForm] = useState({
@@ -190,7 +195,7 @@ export default function ContractEditorPage() {
     startDate: '',
     endDate: '',
     value: '',
-    status: 'active' as 'active' | 'pending' | 'expired',
+    status: 'active' as 'active' | 'expired',
     description: '',
   });
 
@@ -299,15 +304,73 @@ export default function ContractEditorPage() {
   const pageSize = viewMode === 'card' ? CONTRACT_CARD_PAGE_SIZE : CONTRACT_TABLE_PAGE_SIZE;
   const paginatedContracts = filteredContracts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
+  const exportModalSiteOptions = (() => {
+    const set = new Set<string>();
+    filteredContracts.forEach((c) => {
+      const v = (c.siteName ?? '').trim();
+      if (v) set.add(v);
+    });
+    return ['', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+  })();
+  const exportModalLocationOptions = (() => {
+    const set = new Set<string>();
+    filteredContracts.forEach((c) => {
+      const v = (c.siteLocation ?? '').trim();
+      if (v) set.add(v);
+    });
+    return ['', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+  })();
+
+  const exportModalContracts = (() => {
+    let list = filteredContracts;
+    const searchQ = exportModalSearch.trim().toLowerCase();
+    if (searchQ) {
+      list = list.filter((c) => {
+        const searchLower = searchQ;
+        return (
+          c.id.toLowerCase().includes(searchLower) ||
+          c.name.toLowerCase().includes(searchLower) ||
+          (c.partner ?? '').toLowerCase().includes(searchLower) ||
+          (c.siteName ?? '').toLowerCase().includes(searchLower) ||
+          (c.siteLocation ?? '').toLowerCase().includes(searchLower)
+        );
+      });
+    }
+    if (!exportModalSiteFilter && !exportModalLocationFilter) return list;
+    return list.filter((c) => {
+      const siteOk = !exportModalSiteFilter || (c.siteName ?? '').trim() === exportModalSiteFilter;
+      const locOk = !exportModalLocationFilter || (c.siteLocation ?? '').trim() === exportModalLocationFilter;
+      return siteOk && locOk;
+    });
+  })();
+  const exportModalTotal = exportModalContracts.length;
+  const exportModalTotalPages = Math.max(1, Math.ceil(exportModalTotal / EXPORT_MODAL_PAGE_SIZE));
+  const exportModalCurrentPage = Math.min(exportModalPage, exportModalTotalPages);
+  const exportModalPageItems = exportModalContracts.slice(
+    (exportModalCurrentPage - 1) * EXPORT_MODAL_PAGE_SIZE,
+    exportModalCurrentPage * EXPORT_MODAL_PAGE_SIZE
+  );
+  const exportModalSelectedCount = exportModalContracts.reduce(
+    (n, c) => n + (exportContractSelected.has(c.id) ? 1 : 0),
+    0
+  );
+  const exportModalAllPageSelected =
+    exportModalPageItems.length > 0 && exportModalPageItems.every((c) => exportContractSelected.has(c.id));
+
   const openExportContractModal = () => {
+    setExportModalSearch('');
+    setExportModalSiteFilter('');
+    setExportModalLocationFilter('');
+    setExportModalPage(1);
     setExportContractSelected(new Set(filteredContracts.map((c) => c.id)));
     setIsExportContractModalOpen(true);
   };
 
   const handleExportSelectedContracts = async () => {
-    const toExport = filteredContracts.filter((c) => exportContractSelected.has(c.id));
+    const selectedInFilter = exportModalContracts.filter((c) => exportContractSelected.has(c.id));
+    const toExport = selectedInFilter.length > 0 ? selectedInFilter : exportModalContracts;
     if (toExport.length === 0) {
-      toastError('Please select at least one contract');
+      toastError('No contracts to export for current filter');
       return;
     }
     setIsExportingContracts(true);
@@ -415,8 +478,25 @@ export default function ContractEditorPage() {
     });
   };
 
-  const selectAllExportContracts = () => setExportContractSelected(new Set(filteredContracts.map((c) => c.id)));
+  const selectAllExportContracts = (list: Contract[] = exportModalContracts) =>
+    setExportContractSelected((prev) => new Set([...prev, ...list.map((c) => c.id)]));
   const deselectAllExportContracts = () => setExportContractSelected(new Set());
+
+  const toggleExportContractPage = (checked: boolean) => {
+    setExportContractSelected((prev) => {
+      const next = new Set(prev);
+      for (const c of exportModalPageItems) {
+        if (checked) next.add(c.id);
+        else next.delete(c.id);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!isExportContractModalOpen) return;
+    setExportModalPage(1);
+  }, [exportModalSearch, exportModalSiteFilter, exportModalLocationFilter, isExportContractModalOpen]);
 
   useEffect(() => {
     setContractPage(1);
@@ -606,8 +686,6 @@ export default function ContractEditorPage() {
         return 'bg-amber-100 text-amber-800';
       case 'active':
         return 'bg-green-100 text-green-800';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
       case 'expiring':
         return 'bg-orange-100 text-orange-800';
       case 'expired':
@@ -623,8 +701,6 @@ export default function ContractEditorPage() {
         return 'Draft';
       case 'active':
         return 'Active';
-      case 'pending':
-        return 'Pending';
       case 'expiring':
         return 'Expiring';
       case 'expired':
@@ -1582,11 +1658,10 @@ export default function ContractEditorPage() {
                     id="contractStatus"
                     required
                     value={contractForm.status}
-                    onChange={(e) => setContractForm({ ...contractForm, status: e.target.value as 'active' | 'pending' | 'expired' })}
+                    onChange={(e) => setContractForm({ ...contractForm, status: e.target.value as 'active' | 'expired' })}
                     className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   >
                     <option value="active">Active</option>
-                    <option value="pending">Pending</option>
                     <option value="expired">Expired</option>
                   </select>
                 </div>
@@ -1772,12 +1847,11 @@ export default function ContractEditorPage() {
                     id="editContractStatus"
                     required
                     value={contractForm.status}
-                    onChange={(e) => setContractForm({ ...contractForm, status: e.target.value as 'active' | 'pending' | 'expired' })}
+                    onChange={(e) => setContractForm({ ...contractForm, status: e.target.value as 'active' | 'expired' })}
                     className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   >
                     <option value="active">Active</option>
-      <option value="pending">Pending</option>
-      <option value="expired">Expired</option>
+                    <option value="expired">Expired</option>
                   </select>
                 </div>
               </div>
@@ -1908,12 +1982,6 @@ export default function ContractEditorPage() {
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 text-sm font-medium border border-amber-200">
                                 <AlertCircle className="w-3.5 h-3.5" />
                                 ⚠️ Expiring Soon
-                              </span>
-                            )}
-                            {currentContract.status === 'pending' && (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-yellow-50 text-yellow-700 text-sm font-medium border border-yellow-200">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                ⏳ Pending
                               </span>
                             )}
                             {currentContract.status === 'expired' && (
@@ -2775,37 +2843,94 @@ export default function ContractEditorPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <span className="text-sm text-slate-600">
-                  {exportContractSelected.size} of {filteredContracts.length} selected
-                </span>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={selectAllExportContracts}
-                    className="text-xs font-medium text-blue-600 hover:text-blue-800"
-                  >
-                    Select all
-                  </button>
-                  <button
-                    type="button"
-                    onClick={deselectAllExportContracts}
-                    className="text-xs font-medium text-slate-500 hover:text-slate-700"
-                  >
-                    Deselect all
-                  </button>
+              
+
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[180px]">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Search</label>
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={exportModalSearch}
+                      onChange={(e) => setExportModalSearch(e.target.value)}
+                      placeholder="Search contract..."
+                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    />
+                    {exportModalSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setExportModalSearch('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        title="Clear"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="w-full sm:w-[250px]">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Site</label>
+                  <div className="relative">
+                    <select
+                      value={exportModalSiteFilter}
+                      onChange={(e) => setExportModalSiteFilter(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    >
+                      <option value="">All sites</option>
+                      {exportModalSiteOptions.filter(Boolean).map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                    {exportModalSiteFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setExportModalSiteFilter('')}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        title="Clear"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="w-full sm:w-[250px]">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Location</label>
+                  <div className="relative">
+                    <select
+                      value={exportModalLocationFilter}
+                      onChange={(e) => setExportModalLocationFilter(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    >
+                      <option value="">All locations</option>
+                      {exportModalLocationOptions.filter(Boolean).map((loc) => (
+                        <option key={loc} value={loc}>{loc}</option>
+                      ))}
+                    </select>
+                    {exportModalLocationFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setExportModalLocationFilter('')}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        title="Clear"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
+
               <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <div className="max-h-[50vh] overflow-x-auto overflow-y-auto">
+                <div className="overflow-x-auto">
                   <table className="w-full text-sm min-w-full">
                     <thead className="bg-slate-100 sticky top-0">
                       <tr>
                         <th className="px-3 py-2.5 text-left w-10">
                           <input
                             type="checkbox"
-                            checked={filteredContracts.length > 0 && filteredContracts.every((c) => exportContractSelected.has(c.id))}
-                            onChange={(e) => (e.target.checked ? selectAllExportContracts() : deselectAllExportContracts())}
+                            checked={exportModalAllPageSelected}
+                            onChange={(e) => toggleExportContractPage(e.target.checked)}
                             className="rounded border-slate-300"
                           />
                         </th>
@@ -2818,7 +2943,7 @@ export default function ContractEditorPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredContracts.map((c) => (
+                      {exportModalPageItems.map((c) => (
                         <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
                           <td className="px-3 py-2">
                             <input
@@ -2840,7 +2965,31 @@ export default function ContractEditorPage() {
                   </table>
                 </div>
               </div>
-              {filteredContracts.length === 0 && (
+              <div className="flex items-center justify-between gap-3 flex-wrap text-sm text-slate-600">
+                <span className="text-sm text-slate-600">
+                  {exportModalSelectedCount} of {exportModalTotal} selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setExportModalPage((p) => Math.max(1, p - 1))}
+                    disabled={exportModalCurrentPage <= 1}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft size={16} /> Previous page
+                  </button>
+                  <span className="text-sm text-slate-600">Page {exportModalCurrentPage} / {exportModalTotalPages}</span>
+                  <button
+                    type="button"
+                    onClick={() => setExportModalPage((p) => Math.min(exportModalTotalPages, p + 1))}
+                    disabled={exportModalCurrentPage >= exportModalTotalPages}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next page <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+              {exportModalTotal === 0 && (
                 <p className="text-sm text-slate-500 text-center py-6">No contracts match the current filter. Change filter or search and try again.</p>
               )}
             </div>
@@ -2856,9 +3005,9 @@ export default function ContractEditorPage() {
               <button
                 type="button"
                 onClick={handleExportSelectedContracts}
-                disabled={exportContractSelected.size === 0 || isExportingContracts}
+                disabled={exportModalSelectedCount === 0 || isExportingContracts}
                 className={`px-6 py-2 text-sm font-bold text-white rounded-lg transition-all flex items-center gap-2 ${
-                  exportContractSelected.size === 0 || isExportingContracts ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                  exportModalSelectedCount === 0 || isExportingContracts ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
                 }`}
               >
                 {isExportingContracts ? (
@@ -2867,7 +3016,7 @@ export default function ContractEditorPage() {
                     Preparing export...
                   </>
                 ) : (
-                  `Export ${exportContractSelected.size} selected`
+                  `Export ${exportModalSelectedCount} selected`
                 )}
               </button>
             </div>
@@ -3137,4 +3286,19 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
     </div>
   );
   //asd
+}
+
+export default function ContractEditorPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="text-sm text-gray-600">กำลังโหลด...</span>
+        </div>
+      </div>
+    }>
+      <ContractEditorPageContent />
+    </Suspense>
+  );
 } 
