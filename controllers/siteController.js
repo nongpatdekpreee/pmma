@@ -1,0 +1,187 @@
+const db = require('../config/database');
+
+// POST - สร้าง Site ใหม่
+const createSite = async (req, res) => {
+  try {
+    const { name, slug, status } = req.body;
+
+    // ตรวจสอบข้อมูลที่จำเป็น
+    if (!name || !slug || !status) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (Name, Slug, Status)'
+      });
+    }
+
+    // SQL Query
+    const sql = 'INSERT INTO sites (Name, Slug, Status) VALUES (?, ?, ?)';
+    const [result] = await db.execute(sql, [name, slug, status]);
+
+    res.status(201).json({
+      success: true,
+      message: 'สร้าง Site สำเร็จ',
+      data: {
+        id: result.insertId,
+        name,
+        slug,
+        status
+      }
+    });
+  } catch (error) {
+    console.error('Error creating site:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการสร้าง Site',
+      error: error.message
+    });
+  }
+};
+
+// GET - ดึงข้อมูล sites (พร้อม location ผ่าน sites_location)
+const getSites = async (req, res) => {
+  try {
+    // ดึงข้อมูล sites_location พร้อม sites และ location
+    const sql = `
+      SELECT 
+        sites_location.SLid,
+        sites_location.Sid,
+        sites.Name,
+        location.Location2,
+        sites_location.lid,
+        sites.Slug,
+        sites.Status,
+        COUNT(devices.Did) AS device_count
+      FROM sites_location
+      JOIN sites ON sites_location.Sid = sites.Sid
+      JOIN location ON sites_location.lid = location.lid
+      LEFT JOIN devices ON devices.SLid = sites_location.SLid
+      GROUP BY sites_location.SLid, sites_location.Sid, sites.Name, location.Location2, sites_location.lid, sites.Slug, sites.Status
+      ORDER BY sites_location.SLid DESC
+    `;
+    const [rows] = await db.execute(sql);
+
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      data: rows
+    });
+  } catch (error) {
+    console.error('Error getting sites:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Site',
+      error: error.message
+    });
+  }
+};
+
+// PUT - แก้ไขข้อมูล Site
+const updateSite = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { Name, Slug, Status } = req.body;
+
+    // ตรวจสอบว่ามีข้อมูลที่จะอัพเดทหรือไม่
+    if (!Name && !Slug && !Status) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุข้อมูลที่ต้องการแก้ไข'
+      });
+    }
+
+    // ตรวจสอบว่า Site มีอยู่จริงหรือไม่
+    const checkSql = 'SELECT Sid FROM sites WHERE Sid = ?';
+    const [existing] = await db.execute(checkSql, [id]);
+
+    if (existing.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบข้อมูล Site ที่ต้องการแก้ไข'
+      });
+    }
+
+    // สร้าง SQL query แบบ dynamic
+    const updates = [];
+    const values = [];
+
+    if (Name) {
+      updates.push('Name = ?');
+      values.push(Name);
+    }
+    if (Slug) {
+      updates.push('Slug = ?');
+      values.push(Slug);
+    }
+    if (Status) {
+      updates.push('Status = ?');
+      values.push(Status);
+    }
+
+    values.push(id);
+
+    const sql = `UPDATE sites SET ${updates.join(', ')} WHERE Sid = ?`;
+    await db.execute(sql, values);
+
+    // ดึงข้อมูลที่อัพเดทแล้วมาแสดง
+    const [updated] = await db.execute('SELECT Sid, Name, Slug, Status FROM sites WHERE Sid = ?', [id]);
+
+    res.status(200).json({
+      success: true,
+      message: 'แก้ไขข้อมูล Site สำเร็จ',
+      data: updated[0]
+    });
+  } catch (error) {
+    console.error('Error updating site:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการแก้ไข Site',
+      error: error.message
+    });
+  }
+};
+
+// DELETE - ลบ Site
+const deleteSite = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // ตรวจสอบว่า Site มีอยู่จริงหรือไม่
+    const checkSql = 'SELECT Sid, Name FROM sites WHERE Sid = ?';
+    const [existing] = await db.execute(checkSql, [id]);
+
+    if (existing.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบข้อมูล Site ที่ต้องการลบ'
+      });
+    }
+
+    // ลบข้อมูล
+    const sql = 'DELETE FROM sites WHERE Sid = ?';
+    await db.execute(sql, [id]);
+
+    res.status(200).json({
+      success: true,
+      message: 'ลบ Site สำเร็จ',
+      data: {
+        id: existing[0].Sid,
+        Name: existing[0].Name
+      }
+    });
+  } catch (error) {
+    console.error('Error deleting site:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการลบ Site',
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  createSite,    // POST
+  getSites,      // GET
+  updateSite,    // PUT
+  deleteSite     // DELETE
+};
+

@@ -1,0 +1,14 @@
+[
+  {
+    "Model": "Dell PowerEdge R740",
+    "Brand": "Dell",
+    "Asset_State": "In Store",
+    "CI_Name": "Server-01",
+    "Asset_Number": "AST-001",
+    "Project_code_purchase": "PRJ001",
+    "Site": "Bangkok Office",
+    "Waranty_start": "2024-01-01",
+    "Waranty_end": "2025-01-01",
+    "Received_date": "2024-01-15"
+  }
+]
