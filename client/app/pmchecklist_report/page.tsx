@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
@@ -29,6 +29,7 @@ import {
   Download,
   Upload,
   Image,
+  Loader2,
 } from 'lucide-react';
 
 type ReportTab = 'pm' | 'ma';
