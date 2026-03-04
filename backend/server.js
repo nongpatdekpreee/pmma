@@ -48,7 +48,7 @@ app.use('/api/ma-reports', reportRoutes);
 
 app.get('/', (req, res) => {
   res.json({
-    message: 'TCC Stock Management API',
+    message: 'MA/PM Plan API',
     version: '1.0.0'
   });
 });

@@ -14,6 +14,7 @@ import {
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getSitesLocationWithContracts, getTasks, checkEngineerConflict } from '@/lib/api';
+import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 
@@ -179,7 +180,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => ({
-    id: item.Did ?? item.id ?? item.Asset_Number ?? item.serial ?? crypto.randomUUID(),
+    id: item.Did ?? item.id ?? item.Asset_Number ?? item.serial ?? randomUUID(),
     name: item.CI_Name || item.name || item.Asset_Number || 'Device',
     Dtypeid: item.Dtypeid,
     DeRoleid: item.DeRoleid,
@@ -515,7 +516,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           );
 
           const pairs: BrokenDevicePair[] = brokenDevicesWithDetails.map((device: Device, index: number) => ({
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             brokenDevice: device,
             replacementDevice: replacementDetails[index] || null,
             replacementDevices: [],
@@ -863,7 +864,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   const addBrokenDevicePair = (device: Device) => {
-    const pairId = crypto.randomUUID();
+    const pairId = randomUUID();
     const newPair: BrokenDevicePair = {
       id: pairId,
       brokenDevice: device,

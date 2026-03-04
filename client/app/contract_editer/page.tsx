@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
@@ -123,7 +123,7 @@ function deriveStatus(endDate: string | null | undefined): 'active' | 'expiring'
   return end <= in30Days ? 'expiring' : 'active';
 }
 
-export default function ContractEditorPage() {
+function ContractEditorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -3286,4 +3286,19 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
     </div>
   );
   //asd
+}
+
+export default function ContractEditorPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="text-sm text-gray-600">กำลังโหลด...</span>
+        </div>
+      </div>
+    }>
+      <ContractEditorPageContent />
+    </Suspense>
+  );
 } 

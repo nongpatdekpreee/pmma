@@ -2,6 +2,7 @@
 import { X, Loader2, Paperclip, ImageIcon, Plus, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { apiUrl } from '@/lib/api';
+import { randomUUID } from '@/lib/utils';
 import { DeviceSelectModal } from '@/components/ui/DeviceSelectModal';
 
 interface Props {
@@ -45,7 +46,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   /** รายการ Site + Device แยกต่อ site (เลือก site แล้วเลือก device ของ site นั้น) */
   const [siteEntries, setSiteEntries] = useState<
     Array<{ id: string; siteId: string; siteLabel: string; devices: Array<{ id: string; label: string }> }>
-  >([{ id: crypto.randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
+  >([{ id: randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
   /** Entry ที่กำลังเปิด modal เลือก device อยู่ */
   const [activeSiteEntryId, setActiveSiteEntryId] = useState<string>('');
   const [devicesBySite, setDevicesBySite] = useState<DeviceItem[]>([]);
@@ -76,7 +77,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setReferSOFList([]);
       setSelectedReferSOF('');
       setSitesLocation([]);
-      setSiteEntries([{ id: crypto.randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
+      setSiteEntries([{ id: randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
       setActiveSiteEntryId('');
       setDevicesBySite([]);
       setDeviceFilter('');
@@ -161,7 +162,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   };
 
   const addSiteEntry = () => {
-    setSiteEntries((prev) => [...prev, { id: crypto.randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
+    setSiteEntries((prev) => [...prev, { id: randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
   };
 
   const removeSiteEntry = (entryId: string) => {

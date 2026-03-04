@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
@@ -24,6 +24,7 @@ import {
   Building2,
   Hash,
   Clock,
+  Loader2,
 } from 'lucide-react';
 
 type ReportTab = 'pm' | 'ma';
@@ -72,7 +73,7 @@ interface MAReport {
 
 const ITEMS_PER_PAGE = 10;
 
-export default function ReportPage() {
+function ReportPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get('tab') as ReportTab | null;
@@ -879,5 +880,20 @@ export default function ReportPage() {
         )}
       </div>
     </SidebarLayout>
+  );
+}
+
+export default function ReportPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="text-sm text-gray-600">กำลังโหลด...</span>
+        </div>
+      </div>
+    }>
+      <ReportPageContent />
+    </Suspense>
   );
 }

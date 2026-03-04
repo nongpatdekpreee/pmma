@@ -1,10 +1,11 @@
 'use client';
 
 import { ArrowLeft, FileText, Calendar, Cpu, Paperclip, Loader2, Plus, Trash2, X } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiUrl, getAssignedServices } from '@/lib/api';
+import { randomUUID } from '@/lib/utils';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { FormSection } from '../../../components/ui/FormSection';
@@ -24,7 +25,7 @@ type SiteEntry = {
   devices: Array<{ id: string; label: string; role?: string }>;
 };
 
-export default function AddContractPage() {
+function AddContractPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const renewContractId = searchParams?.get('renew');
@@ -59,7 +60,7 @@ export default function AddContractPage() {
   const [referSOFList, setReferSOFList] = useState<string[]>([]);
   const [sitesLocation, setSitesLocation] = useState<SiteLocation[]>([]);
   const [siteEntries, setSiteEntries] = useState<SiteEntry[]>([
-    { id: crypto.randomUUID(), siteId: '', siteLabel: '', devices: [] },
+    { id: randomUUID(), siteId: '', siteLabel: '', devices: [] },
   ]);
   const [activeSiteEntryId, setActiveSiteEntryId] = useState('');
   const [devicesBySite, setDevicesBySite] = useState<DeviceItem[]>([]);
@@ -242,7 +243,7 @@ export default function AddContractPage() {
             const slid = site.SLid;
             const devices = devicesBySLid.get(slid) || [];
             return {
-              id: crypto.randomUUID(),
+              id: randomUUID(),
               siteId: String(slid),
               siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
               devices: devices.map((d) => ({
@@ -261,7 +262,7 @@ export default function AddContractPage() {
               ? `${(site as any).SiteName || ''} – ${(site as any).Location2 || ''}`.trim() || `Site ${slid}`
               : `Site ${slid}`;
             newSiteEntries.push({
-              id: crypto.randomUUID(),
+              id: randomUUID(),
               siteId: String(slid),
               siteLabel,
               devices: devices.map((d) => ({
@@ -398,7 +399,7 @@ export default function AddContractPage() {
         const site = currentSites.find((s) => s.SLid === slid);
         const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : `Site ${slid}`;
         newSiteEntries.push({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           siteId: String(slid),
           siteLabel,
           devices: devices.map((d) => ({
@@ -520,7 +521,7 @@ export default function AddContractPage() {
   };
 
   const addSiteEntry = () => {
-    setSiteEntries((prev) => [...prev, { id: crypto.randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
+    setSiteEntries((prev) => [...prev, { id: randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
   };
 
   const removeSiteEntry = (entryId: string) => {
@@ -1646,5 +1647,20 @@ export default function AddContractPage() {
       </div>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
+  );
+}
+
+export default function AddContractPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="text-sm text-gray-600">กำลังโหลด...</span>
+        </div>
+      </div>
+    }>
+      <AddContractPageContent />
+    </Suspense>
   );
 }
