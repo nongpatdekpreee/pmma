@@ -1,6 +1,8 @@
 const API_BASE = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL
   ? process.env.NEXT_PUBLIC_API_URL
-  : 'http://10.4.102.212:5000';
+  : 'http://localhost:5000';
+  // : 'http://10.4.102.212:5000';
+
 
 export function apiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`;
