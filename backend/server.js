@@ -52,7 +52,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.get('/', (req, res) => {
   res.json({
     message: 'MA/PM Plan API',
-    version: '1.0.0'
+    version: '0.0.3'
   });
 });
 
