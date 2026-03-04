@@ -1,33 +1,26 @@
+# =============================================
+# Build (default = frontend):  docker build -t pmma-plan .
+# Backend only:               docker build --target backend -t pmma-plan .
+# Frontend only:              docker build --target frontend -t pmma-plan .
+# =============================================
 
-FROM node:20-alpine AS backend-deps
+# -----------------------------------------------------------------------------
+# Backend (Node 18 slim = smaller image)
+# -----------------------------------------------------------------------------
+FROM node:18-slim AS backend
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --only=production
-
-FROM node:20-alpine AS backend
-WORKDIR /app
-
-ENV NODE_ENV=production
-
-# Create non-root user for security
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nodeuser
-
-# Copy dependencies
-COPY --from=backend-deps /app/node_modules ./node_modules
-
-# Copy application code
-COPY server.js ./
-COPY config ./config
-COPY controllers ./controllers
-COPY routes ./routes
-
-# Change ownership to non-root user
-RUN chown -R nodeuser:nodejs /app
-
-USER nodeuser
-
+COPY backend/package*.json ./
+RUN npm install --omit=dev
+COPY backend/ .
 EXPOSE 5000
-
-CMD ["node", "server.js"]
-
+ENV PORT=5000
+CMD ["npm", "start"]
+--------------------------
+FROM node:20-slim AS frontend
+WORKDIR /app
+COPY client/package*.json ./
+RUN npm install
+COPY client/ .
+EXPOSE 3000
+ENV PORT=3000
+CMD ["npm", "run", "dev"]
