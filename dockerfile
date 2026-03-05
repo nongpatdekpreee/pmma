@@ -15,12 +15,12 @@ COPY backend/ .
 EXPOSE 5000
 ENV PORT=5000
 CMD ["npm", "start"]
---------------------------
+
 FROM node:20-slim AS frontend
 WORKDIR /app
 COPY client/package*.json ./
 RUN npm install
 COPY client/ .
-EXPOSE 3000
-ENV PORT=3000
+EXPOSE 9000
+ENV PORT=9000
 CMD ["npm", "run", "dev"]
