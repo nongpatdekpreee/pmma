@@ -21,6 +21,6 @@ WORKDIR /app
 COPY client/package*.json ./
 RUN npm install
 COPY client/ .
-EXPOSE 3000
-ENV PORT=3000
+EXPOSE 9000
+ENV PORT=9000
 CMD ["npm", "run", "dev"]
