@@ -103,10 +103,11 @@ const getEmployees = async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching employees:', error);
+    const message = error && typeof error.message === 'string' ? error.message : 'Unknown error';
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Employees',
-      error: error.message,
+      error: message,
     });
   }
 };

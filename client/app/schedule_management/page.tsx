@@ -556,6 +556,8 @@ export default function ScheduleManagement() {
     if (!e.startDate || !e.endDate) return false;
     const eventStart = new Date(e.startDate);
     const eventEnd = new Date(e.endDate);
+    eventStart.setHours(0, 0, 0, 0);
+    eventEnd.setHours(0, 0, 0, 0);
     const startDay = eventStart.getDate();
     const endDay = eventEnd.getDate();
     if (eventStart.getMonth() !== eventEnd.getMonth() || eventStart.getFullYear() !== eventEnd.getFullYear()) return true;
@@ -565,11 +567,14 @@ export default function ScheduleManagement() {
   const getEventsForDay = (day: number | null) => {
     if (!day) return [];
     const checkDate = new Date(currentYear, currentMonth, day);
+    checkDate.setHours(0, 0, 0, 0);
     return filteredCalendarEvents.filter(e => {
       if (isMultiDayEvent(e)) return false;
       if (e.startDate && e.endDate) {
         const eventStart = new Date(e.startDate);
         const eventEnd = new Date(e.endDate);
+        eventStart.setHours(0, 0, 0, 0);
+        eventEnd.setHours(0, 0, 0, 0);
         return checkDate >= eventStart && checkDate <= eventEnd;
       }
       return (
@@ -588,11 +593,15 @@ export default function ScheduleManagement() {
     const weekMax = Math.max(...weekDays);
     const firstOfMonth = new Date(currentYear, currentMonth, 1);
     const lastOfMonth = new Date(currentYear, currentMonth + 1, 0);
+    firstOfMonth.setHours(0, 0, 0, 0);
+    lastOfMonth.setHours(0, 0, 0, 0);
     const spans: { event: CalendarEvent; colStart: number; colEnd: number }[] = [];
     filteredCalendarEvents.forEach(e => {
       if (!isMultiDayEvent(e) || !e.startDate || !e.endDate) return;
       const eventStart = new Date(e.startDate);
       const eventEnd = new Date(e.endDate);
+      eventStart.setHours(0, 0, 0, 0);
+      eventEnd.setHours(0, 0, 0, 0);
       if (eventEnd < firstOfMonth || eventStart > lastOfMonth) return;
       const eventStartInMonth = eventStart < firstOfMonth ? firstOfMonth : eventStart;
       const eventEndInMonth = eventEnd > lastOfMonth ? lastOfMonth : eventEnd;

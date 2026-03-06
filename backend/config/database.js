@@ -15,6 +15,10 @@ const pool = mysql.createPool({
 
 // ใช้ promise wrapper เพื่อใช้ async/await
 const promisePool = pool.promise();
+const originalExecute = promisePool.execute.bind(promisePool);
+promisePool.execute = function (sql, params) {
+  return promisePool.query(sql, params);
+};
 
 // ทดสอบการเชื่อมต่อ
 pool.getConnection((err, connection) => {

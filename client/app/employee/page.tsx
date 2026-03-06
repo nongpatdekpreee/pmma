@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { LucideIcon, UserCheck, UserRoundCog, Wrench, Search, UserPlus, X, FileUp, Edit, Trash2, Download } from "lucide-react";
-import { apiUrl, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
+import { apiUrl, getEmployees, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";   
 
@@ -68,22 +68,24 @@ const EmployeeManagement = () => {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [addFormErrors, setAddFormErrors] = useState<{ name: string; gmail: string; tel: string }>({ name: "", gmail: "", tel: "" });
   const [editFormErrors, setEditFormErrors] = useState<{ name: string; gmail: string; tel: string }>({ name: "", gmail: "", tel: "" });
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchEmployees = async () => {
     try {
       setLoading(true);
-      const url = apiUrl('/api/employees?limit=1000');
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const data = await response.json();
+      setFetchError(null);
+      const data = await getEmployees({ limit: 1000 });
       if (data.success && data.data && Array.isArray(data.data)) {
         setEmployees(data.data);
+        setFetchError(null);
       } else {
         setEmployees([]);
+        setFetchError((data.message || data.error) ?? null);
       }
     } catch (error) {
       console.error('Error fetching employees:', error);
       setEmployees([]);
+      setFetchError(error instanceof Error ? error.message : 'Failed to load employees');
     } finally {
       setLoading(false);
     }
@@ -645,6 +647,11 @@ const EmployeeManagement = () => {
 
             {/* Table */}
             <div className="overflow-x-auto">
+              {fetchError && (
+                <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                  {fetchError}
+                </div>
+              )}
               {loading ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="text-gray-400">Loading...</div>

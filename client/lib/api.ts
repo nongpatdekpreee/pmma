@@ -529,7 +529,15 @@ export async function getEmployees(params?: { limit?: number; page?: number; sea
   
   try {
     const res = await fetch(apiUrl(`/api/employees?${q.toString()}`));
-    return res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        success: false,
+        message: (data && (data.message || data.error)) || res.statusText || `HTTP ${res.status}`,
+        error: data?.error || res.statusText,
+      };
+    }
+    return data as { success: boolean; data?: typeof data.data; pagination?: typeof data.pagination; message?: string; error?: string };
   } catch (error) {
     console.error('Error fetching employees:', error);
     return {

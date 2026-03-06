@@ -20,7 +20,8 @@ export async function fetchEmployeesFromAPI(): Promise<Employee[]> {
     const result = await getEmployeesFromAPI({ limit: 1000 });
     
     if (!result.success || !result.data || !Array.isArray(result.data)) {
-      console.error('API returned invalid data format:', result);
+      const msg = (result as { message?: string; error?: string }).message || (result as { message?: string; error?: string }).error;
+      console.error('API returned invalid data format:', msg || result);
       return [];
     }
     
