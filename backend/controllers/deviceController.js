@@ -1386,8 +1386,8 @@ const getDevicesBySiteNoSOF = async (req, res) => {
   }
 };
 
-// GET - ดึง Devices ที่ยังไม่มี SOF และสถานะ In Store (ไม่กรองตาม site) สำหรับ Edit Contract เมื่อ SOF ใหม่
-// รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญาอื่น
+// GET - ดึง Devices ที่ยังไม่มี SOF และสถานะ In Store และอยู่ที่ SLid = 2 (คลัง)
+// รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญาอื่น (ทั้ง contract.device_id และ contract_device)
 const getDevicesNoSofInStore = async (req, res) => {
   try {
     const contractId = req.query.contract_id;
@@ -1397,14 +1397,23 @@ const getDevicesNoSofInStore = async (req, res) => {
                              OR LOWER(TRIM(d.Refer_SOF)) = 'n/a'
                              OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
     const inStoreCondition = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
-    let excludeContract = '';
+    const slid2Condition = `d.SLid = 2`;
+    let contractExclusionCondition = '';
     const params = [];
     if (contractId) {
       const cid = parseInt(contractId, 10);
       if (!isNaN(cid)) {
-        excludeContract = ` AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE contract_id != ? AND device_id IS NOT NULL)`;
-        params.push(cid);
+        contractExclusionCondition = `
+          AND d.Did NOT IN (SELECT device_id FROM contract WHERE contract_id != ? AND device_id IS NOT NULL)
+          AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE contract_id != ? AND device_id IS NOT NULL)
+        `;
+        params.push(cid, cid);
       }
+    } else {
+      contractExclusionCondition = `
+        AND d.Did NOT IN (SELECT device_id FROM contract WHERE device_id IS NOT NULL)
+        AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE device_id IS NOT NULL)
+      `;
     }
     const sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
                  FROM devices d
@@ -1413,7 +1422,8 @@ const getDevicesNoSofInStore = async (req, res) => {
                  LEFT JOIN manufacturer m ON dt.Mid = m.Mid
                  WHERE ${noSofCondition}
                    AND ${inStoreCondition}
-                   ${excludeContract}
+                   AND ${slid2Condition}
+                   ${contractExclusionCondition}
                  ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
     const [rows] = await db.execute(sql, params);
     res.status(200).json({ success: true, data: rows });

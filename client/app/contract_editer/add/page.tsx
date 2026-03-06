@@ -448,7 +448,7 @@ function AddContractPageContent() {
     load();
   }, [selectedSOF, referSOFList]);
 
-  // SOF ตรงใน DB (มีใน referSOFList) = ดึง devices ตาม SOF+site; ไม่ตรง = ดึงทุก devices ที่ยังไม่มี SOF (ทุก site)
+  // SOF ตรงใน DB (มีใน referSOFList) = ดึง devices ตาม SOF+site
   const sofExistsInDb = selectedSOF?.trim() ? referSOFList.includes(selectedSOF.trim()) : false;
 
   const loadDevicesForSite = async (siteId: string, includeDeviceIds: string[] = []): Promise<DeviceItem[]> => {
@@ -456,8 +456,35 @@ function AddContractPageContent() {
     
     const allDevices: DeviceItem[] = [];
     
-    if (sofExistsInDb) {
-      // SOF มีใน DB: ดึง devices ตาม SOF+site
+    if (editContractId) {
+      // Edit contract: ต้องเห็น device ที่ยังไม่มี SOF + In Store + SLid=2 เสมอ (ไม่ผูกกับ site ที่เลือก)
+      const res = await fetch(
+        apiUrl(`/api/devices/no-sof-in-store?contract_id=${encodeURIComponent(editContractId)}`)
+      );
+      const json = await res.json();
+      if (res.ok && json.data) {
+        allDevices.push(...json.data);
+      } else {
+        throw new Error(json.message || 'Load Devices failed');
+      }
+
+      // เฉพาะกรณี SOF มีในระบบ: ค่อยดึง devices ตาม SOF+site เพิ่ม
+      if (sofExistsInDb) {
+        if (!siteId) return allDevices;
+        const res2 = await fetch(
+          apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedSOF.trim())}&site_id=${siteId}`)
+        );
+        const json2 = await res2.json();
+        if (res2.ok && json2.data) {
+          const existingIds = new Set(allDevices.map((d) => d.Did));
+          const extra = (json2.data as DeviceItem[]).filter((d) => !existingIds.has(d.Did));
+          allDevices.push(...extra);
+        } else {
+          throw new Error(json2.message || 'Load Devices failed');
+        }
+      }
+    } else if (sofExistsInDb) {
+      // Add contract + SOF มีใน DB: ดึง devices ตาม SOF+site
       if (!siteId) return [];
       const res = await fetch(
         apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedSOF.trim())}&site_id=${siteId}`)
@@ -469,51 +496,16 @@ function AddContractPageContent() {
         throw new Error(json.message || 'Load Devices failed');
       }
     } else {
-      // SOF ไม่มีใน DB
-      // Edit contract: ดึงเฉพาะ device ที่ไม่มี SOF และสถานะ In Store (ไม่กรองตาม site)
-      // Add contract: ดึง devices ที่ยังไม่มี SOF ตาม by-site-no-sof
-      if (editContractId) {
-        const res = await fetch(
-          apiUrl(`/api/devices/no-sof-in-store?contract_id=${encodeURIComponent(editContractId)}`)
-        );
-        const json = await res.json();
-        if (res.ok && json.data) {
-          allDevices.push(...json.data);
-        } else {
-          throw new Error(json.message || 'Load Devices failed');
-        }
+      // Add contract + SOF ใหม่: ดึง devices ที่ยังไม่มี SOF (default ที่ SLid=2 ตาม backend)
+      const res = await fetch(apiUrl(`/api/devices/by-site-no-sof`));
+      const json = await res.json();
+      if (res.ok && json.data) {
+        allDevices.push(...json.data);
       } else {
-        const res = await fetch(apiUrl(`/api/devices/by-site-no-sof`));
-        const json = await res.json();
-        if (res.ok && json.data) {
-          allDevices.push(...json.data);
-        } else {
-          throw new Error(json.message || 'Load Devices failed');
-        }
+        throw new Error(json.message || 'Load Devices failed');
       }
     }
     
-    // ในกรณี edit contract + SOF มีใน DB: เพิ่ม devices ที่ยังไม่มี contract อื่น (available devices)
-    // (เมื่อ SOF ใหม่ ใช้ no-sof-in-store แล้ว ไม่ต้อง merge available ซ้ำ)
-    if (editContractId && sofExistsInDb) {
-      try {
-        const queryParams = new URLSearchParams();
-        if (siteId) queryParams.append('site_id', siteId);
-        queryParams.append('contract_id', editContractId);
-        const availableRes = await fetch(
-          apiUrl(`/api/contracts/devices/available?${queryParams.toString()}`)
-        );
-        const availableJson = await availableRes.json();
-        if (availableRes.ok && availableJson.data) {
-          const existingDeviceIds = new Set(allDevices.map(d => d.Did));
-          const newDevices = availableJson.data.filter((d: DeviceItem) => !existingDeviceIds.has(d.Did));
-          allDevices.push(...newDevices);
-        }
-      } catch (e) {
-        console.warn('Failed to load available devices:', e);
-      }
-    }
-
     // Ensure devices that were already selected are still visible in the picker,
     // even if their current devices.SLid / SOF filter would exclude them.
     const existingDeviceIds = new Set(allDevices.map((d) => String(d.Did)));
@@ -643,7 +635,7 @@ function AddContractPageContent() {
       .flatMap((e) => e.devices.map((d) => d.id))
   );
   const devicesAvailableForCurrentSite =
-    !sofExistsInDb && alreadySelectedInOtherSites.size > 0
+    alreadySelectedInOtherSites.size > 0
       ? devicesBySite.filter((d) => !alreadySelectedInOtherSites.has(String(d.Did)))
       : devicesBySite;
 
