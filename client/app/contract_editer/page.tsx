@@ -377,15 +377,36 @@ function ContractEditorPageContent() {
     try {
       // Sheet 1: Contracts — หนึ่งแถวต่อ (contract, site): Contract Name | Site | Location | Start Date | End Date | Device Count
       const contractSiteRows: { 'Contract Name': string; 'Site': string; 'Location': string; 'Start Date': string; 'End Date': string; 'Device Count': number }[] = [];
-      // Sheet 2: แต่ละสัญญาเป็นบล็อกแนวนอน ความกว้างต่อบล็อก = 1 หรือ 2 คอลัมน์
-      const blocks: { rows: string[][]; width: number }[] = [];
+      // Sheets 2..N: 1 sheet ต่อ 1 contract (device name ใช้ serial)
+      const sheetsPerContract: Array<{ sheetName: string; rows: any[][] }> = [];
+
+      const makeSheetName = (() => {
+        const used = new Set<string>();
+        return (raw: string, fallback: string) => {
+          const cleaned = String(raw || '').trim() || fallback;
+          // Excel sheet name rules: <=31 chars, cannot contain : \ / ? * [ ]
+          const safe = cleaned.replace(/[:\\\/\?\*\[\]]/g, ' ').replace(/\s+/g, ' ').trim() || fallback;
+          const base = safe.length > 31 ? safe.slice(0, 31).trim() : safe;
+          let name = base || fallback;
+          let i = 2;
+          while (used.has(name)) {
+            const suffix = ` (${i})`;
+            const cut = Math.max(1, 31 - suffix.length);
+            name = `${base.slice(0, cut).trim()}${suffix}`;
+            i++;
+          }
+          used.add(name);
+          return name;
+        };
+      })();
+
       for (const c of toExport) {
         const res = await fetch(apiUrl(`/api/contracts/${c.id}`));
         const json = await res.json();
         const detail = json?.data;
         const devices = (detail?.devices || []) as Array<{ contract_SLid?: number | null; SLid?: number | null; SiteName?: string | null; Location2?: string | null; CI_Name?: string | null; serial?: string | null }>;
         const slid = (d: { contract_SLid?: number | null; SLid?: number | null }) => d.contract_SLid ?? d.SLid ?? 0;
-        const deviceName = (d: { CI_Name?: string | null; serial?: string | null }) => (d.CI_Name != null && String(d.CI_Name).trim()) ? String(d.CI_Name).trim() : (d.serial != null ? String(d.serial) : '—');
+        const deviceName = (d: { serial?: string | null; CI_Name?: string | null }) => (d.serial != null && String(d.serial).trim()) ? String(d.serial).trim() : ((d.CI_Name != null && String(d.CI_Name).trim()) ? String(d.CI_Name).trim() : '—');
         const bySite = new Map<number, { siteName: string; location: string; devices: string[] }>();
         for (const d of devices) {
           const key = slid(d);
@@ -408,55 +429,38 @@ function ContractEditorPageContent() {
             contractSiteRows.push({ 'Contract Name': c.name, 'Site': s.siteName, 'Location': s.location, 'Start Date': startDate, 'End Date': endDate, 'Device Count': s.devices.length });
           }
         }
-        // บล็อกต่อสัญญา: ถ้า 1 site ใช้ 1 คอลัมน์ (A); ถ้ามีหลาย site ใช้ 2 คอลัมน์ (A,B)
-        const blockRows: string[][] = [];
-        let width = 1;
-        const singleSite = siteOrder.length <= 1;
-        if (singleSite && siteOrder.length === 1) {
-          const s = bySite.get(siteOrder[0])!;
-          const siteLine = s.location ? `${s.siteName} – ${s.location}` : s.siteName;
-          blockRows.push([c.name]);
-          blockRows.push([siteLine]);
-          for (const dev of s.devices) blockRows.push([dev]);
-          width = 1;
-        } else if (singleSite && siteOrder.length === 0) {
-          blockRows.push([c.name]);
-          blockRows.push(['(No sites)']);
-          width = 1;
+
+        const sheetRows: any[][] = [];
+        sheetRows.push(['Contract Name', c.name]);
+        sheetRows.push(['Start Date', startDate, 'End Date', endDate]);
+        sheetRows.push([]);
+        sheetRows.push(['Site', 'Location', 'Device (Serial)']);
+        if (siteOrder.length === 0) {
+          sheetRows.push(['—', '—', '']);
         } else {
-          blockRows.push([c.name, c.name]);
           for (const sLid of siteOrder) {
             const s = bySite.get(sLid)!;
-            const siteDetail = s.location ? `${s.siteName} – ${s.location}` : s.siteName;
-            blockRows.push([s.siteName, siteDetail]);
-          }
-          const allDevices = siteOrder.flatMap((k) => bySite.get(k)!.devices);
-          for (let i = 0; i < allDevices.length; i += 2) {
-            blockRows.push([allDevices[i] ?? '', allDevices[i + 1] ?? '']);
-          }
-          width = 2;
-        }
-        blocks.push({ rows: blockRows, width });
-      }
-      // เรียงเป็นแถว: แถวที่ i = รวมคอลัมน์ของทุกสัญญา โดยใช้ width ของแต่ละบล็อก
-      const maxRows = Math.max(1, ...blocks.map((b) => b.rows.length));
-      const deviceRows: (string)[][] = [];
-      for (let r = 0; r < maxRows; r++) {
-        const row: string[] = [];
-        for (const block of blocks) {
-          const cells = block.rows[r] ?? [];
-          for (let i = 0; i < block.width; i++) {
-            row.push(cells[i] ?? '');
+            if (!s.devices || s.devices.length === 0) {
+              sheetRows.push([s.siteName, s.location, '']);
+              continue;
+            }
+            for (const dev of s.devices) {
+              sheetRows.push([s.siteName, s.location, dev]);
+            }
           }
         }
-        deviceRows.push(row);
+
+        const sheetName = makeSheetName(c.name, `Contract-${c.id}`);
+        sheetsPerContract.push({ sheetName, rows: sheetRows });
       }
       const wsContracts = contractSiteRows.length > 0 ? XLSX.utils.json_to_sheet(contractSiteRows) : XLSX.utils.aoa_to_sheet([['Contract Name', 'Site', 'Location', 'Start Date', 'End Date', 'Device Count']]);
-      const wsDevices = deviceRows.length > 0 ? XLSX.utils.aoa_to_sheet(deviceRows) : XLSX.utils.aoa_to_sheet([['A', 'B'], ['(No data)', '']]);
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, wsContracts, 'Contracts');
-      XLSX.utils.book_append_sheet(wb, wsDevices, 'Devices');
+      for (const s of sheetsPerContract) {
+        const ws = XLSX.utils.aoa_to_sheet(s.rows);
+        XLSX.utils.book_append_sheet(wb, ws, s.sheetName);
+      }
       const dateStr = new Date().toISOString().split('T')[0];
       XLSX.writeFile(wb, `contracts_export_${dateStr}.xlsx`);
       toastSuccess(`Exported ${toExport.length} contract(s)`);

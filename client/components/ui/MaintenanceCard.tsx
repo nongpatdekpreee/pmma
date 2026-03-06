@@ -36,7 +36,19 @@ export function MaintenanceCard({ id, location, date, serial, count, assignees }
         <p className="text-[10px] font-bold text-slate-400 mb-1 uppercase">Assignees</p>
         <div className="flex -space-x-3">
           {assignees.map((url, i) => (
-            <img key={i} src={url} alt="" className="w-8 h-8 rounded-full border-4 border-white object-cover shadow-sm" />
+            <img
+              key={i}
+              src={url}
+              alt=""
+              className="w-8 h-8 rounded-full border-4 border-white object-cover shadow-sm bg-slate-200"
+              onError={(e) => {
+                const t = e.currentTarget;
+                if (!t.dataset.fallback) {
+                  t.dataset.fallback = '1';
+                  t.src = `https://i.pravatar.cc/150?u=${encodeURIComponent(url || String(i))}`;
+                }
+              }}
+            />
           ))}
         </div>
       </div>

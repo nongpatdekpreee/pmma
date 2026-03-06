@@ -7,7 +7,7 @@ import Link from 'next/link';
 import DateTime from '@/components/ui/DateTime';
 import DashboardHeader from '@/components/ui/Header';
 import { useEffect, useMemo, useState } from 'react';
-import { getTasks, getVendorStatistics } from '@/lib/api';
+import { getTasks, getVendorStatistics, getEmployees, apiUrl } from '@/lib/api';
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from 'recharts';
 
 type EventItem = {
@@ -65,8 +65,17 @@ export default function DashboardPage() {
     const loadPm = async () => {
       setLoadingPm(true);
       try {
-        const res = await getTasks();
-        const all = Array.isArray(res?.data) ? res.data : [];
+        const [tasksRes, employeesRes] = await Promise.all([getTasks(), getEmployees({ limit: 1000 })]);
+        const all = Array.isArray(tasksRes?.data) ? tasksRes.data : [];
+        const employeeList = employeesRes?.success && Array.isArray(employeesRes.data) ? employeesRes.data : [];
+        const employeePhotoById: Record<string, string> = {};
+        employeeList.forEach((emp: { id: string; photo?: string | null }) => {
+          const id = String(emp.id ?? '');
+          if (id && emp.photo) {
+            employeePhotoById[id] = emp.photo.startsWith('http') ? emp.photo : apiUrl(emp.photo);
+          }
+        });
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -76,7 +85,7 @@ export default function DashboardPage() {
           .map((t: any) => ({ ...t, _start: new Date(t.startDate) }))
           .filter((t: any) => !Number.isNaN(t._start.getTime()) && t._start >= today)
           .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
-          .slice(0, 4); 
+          .slice(0, 4);
 
         const mapped = upcomingPm.map((t: any) => {
           const assets = Array.isArray(t.assets) ? t.assets : [];
@@ -84,6 +93,9 @@ export default function DashboardPage() {
           const serial = first?.serial || first?.Serial || '—';
           const engineers = Array.isArray(t.engineers) ? t.engineers : [];
           const assignees = engineers.slice(0, 4).map((e: any, i: number) => {
+            const eid = String(e?.id ?? e?.user_id ?? '');
+            const realPhoto = eid ? employeePhotoById[eid] : null;
+            if (realPhoto) return realPhoto;
             const seed = (e?.name || e?.id || String(i + 1)).toString();
             return `https://i.pravatar.cc/150?u=${encodeURIComponent(seed)}`;
           });
