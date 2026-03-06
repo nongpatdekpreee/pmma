@@ -671,6 +671,7 @@ const getContractsBySite = async (req, res) => {
 
 // GET - ดึง Devices ที่ไม่มี Contract (แสดงเฉพาะ device ที่ไม่มี contract ใน contract_device)
 // รองรับ site_id (optional) เพื่อกรองตาม site
+// เมื่อส่ง contract_id (edit contract): เฉพาะ device ที่ยังไม่มี SOF (Refer_SOF ว่าง) และอยู่ที่ SLid = 2
 const getAvailableDevices = async (req, res) => {
   try {
     const siteId = req.query.site_id;
@@ -690,7 +691,10 @@ const getAvailableDevices = async (req, res) => {
     
     let whereCondition = `WHERE d.Did NOT IN (${excludeContractCondition})`;
 
-    if (siteId) {
+    // ตอน edit contract: เฉพาะ device ที่ยังไม่มี SOF และอยู่ที่ SLid = 2 (ไม่กรอง site_id)
+    if (contractId) {
+      whereCondition += ' AND (d.Refer_SOF IS NULL OR d.Refer_SOF = \'\') AND d.SLid = 2';
+    } else if (siteId) {
       const sid = parseInt(siteId, 10);
       if (!isNaN(sid)) {
         whereCondition += ' AND d.SLid = ?';

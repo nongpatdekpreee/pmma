@@ -16,6 +16,7 @@ const {
   getDevicesByContractAndSite,
   getDevicesBySerials,
   getDevicesBySiteNoSOF,
+  getDevicesNoSofInStore,
   getDevicesBySite,
   getDevicesByAssetState,
   getReplacementDevices,
@@ -56,6 +57,9 @@ router.get('/by-serials', getDevicesBySerials);
 
 // GET - Devices ตาม site_id ที่ยังไม่มี SOF (สำหรับ Contract เมื่อพิมพ์ SOF ใหม่)
 router.get('/by-site-no-sof', getDevicesBySiteNoSOF);
+
+// GET - Devices ที่ไม่มี SOF และสถานะ In Store (ไม่กรองตาม site สำหรับ Edit Contract SOF ใหม่)
+router.get('/no-sof-in-store', getDevicesNoSofInStore);
 
 // GET - Devices ตาม site_id (สำหรับ Asset Binding)
 router.get('/by-site', getDevicesBySite);

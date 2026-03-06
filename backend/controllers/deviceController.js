@@ -1386,6 +1386,47 @@ const getDevicesBySiteNoSOF = async (req, res) => {
   }
 };
 
+// GET - ดึง Devices ที่ยังไม่มี SOF และสถานะ In Store (ไม่กรองตาม site) สำหรับ Edit Contract เมื่อ SOF ใหม่
+// รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญาอื่น
+const getDevicesNoSofInStore = async (req, res) => {
+  try {
+    const contractId = req.query.contract_id;
+    const noSofCondition = `(d.Refer_SOF IS NULL 
+                             OR TRIM(COALESCE(d.Refer_SOF,'')) = '' 
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned'
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'n/a'
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
+    const inStoreCondition = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
+    let excludeContract = '';
+    const params = [];
+    if (contractId) {
+      const cid = parseInt(contractId, 10);
+      if (!isNaN(cid)) {
+        excludeContract = ` AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE contract_id != ? AND device_id IS NOT NULL)`;
+        params.push(cid);
+      }
+    }
+    const sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
+                 FROM devices d
+                 LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+                 LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+                 LEFT JOIN manufacturer m ON dt.Mid = m.Mid
+                 WHERE ${noSofCondition}
+                   AND ${inStoreCondition}
+                   ${excludeContract}
+                 ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
+    const [rows] = await db.execute(sql, params);
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices (no SOF, In Store):', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Devices ที่ไม่มี SOF และสถานะ In Store',
+      error: error.message
+    });
+  }
+};
+
 const getDevicesBySite = async (req, res) => {
   try {
     const siteId = req.query.site_id;
@@ -2064,6 +2105,7 @@ module.exports = {
   getDevicesByContractAndSite, // GET (devices จาก contract_device ตาม contract_id + slid)
   getDevicesBySerials,       // GET (devices ตาม serial หลายตัว ?serials=A,B,C)
   getDevicesBySiteNoSOF,     // GET (devices ตาม site_id ที่ยังไม่มี SOF)
+  getDevicesNoSofInStore,    // GET (devices ที่ไม่มี SOF + สถานะ In Store สำหรับ Edit Contract SOF ใหม่)
   getDevicesBySite,          // GET (devices ตาม site_id สำหรับ Asset Binding)
   getDevicesByAssetState,    // GET (devices ตาม Asset_State สำหรับ MA)
   getReplacementDevices,    // GET (devices In Store สำหรับ replacement ตาม Dtypeid และ DeRoleid)
