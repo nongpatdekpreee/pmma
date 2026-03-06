@@ -451,7 +451,7 @@ function AddContractPageContent() {
   // SOF ตรงใน DB (มีใน referSOFList) = ดึง devices ตาม SOF+site; ไม่ตรง = ดึงทุก devices ที่ยังไม่มี SOF (ทุก site)
   const sofExistsInDb = selectedSOF?.trim() ? referSOFList.includes(selectedSOF.trim()) : false;
 
-  const loadDevicesForSite = async (siteId: string): Promise<DeviceItem[]> => {
+  const loadDevicesForSite = async (siteId: string, includeDeviceIds: string[] = []): Promise<DeviceItem[]> => {
     if (!selectedSOF?.trim()) return [];
     
     const allDevices: DeviceItem[] = [];
@@ -469,19 +469,33 @@ function AddContractPageContent() {
         throw new Error(json.message || 'Load Devices failed');
       }
     } else {
-      // SOF ไม่มีใน DB: แสดงทุก devices ที่ยังไม่มีเลข SOF (ทุก site, ไม่กรองตาม site)
-      const res = await fetch(apiUrl(`/api/devices/by-site-no-sof`));
-      const json = await res.json();
-      if (res.ok && json.data) {
-        allDevices.push(...json.data);
+      // SOF ไม่มีใน DB
+      // Edit contract: ดึงเฉพาะ device ที่ไม่มี SOF และสถานะ In Store (ไม่กรองตาม site)
+      // Add contract: ดึง devices ที่ยังไม่มี SOF ตาม by-site-no-sof
+      if (editContractId) {
+        const res = await fetch(
+          apiUrl(`/api/devices/no-sof-in-store?contract_id=${encodeURIComponent(editContractId)}`)
+        );
+        const json = await res.json();
+        if (res.ok && json.data) {
+          allDevices.push(...json.data);
+        } else {
+          throw new Error(json.message || 'Load Devices failed');
+        }
       } else {
-        throw new Error(json.message || 'Load Devices failed');
+        const res = await fetch(apiUrl(`/api/devices/by-site-no-sof`));
+        const json = await res.json();
+        if (res.ok && json.data) {
+          allDevices.push(...json.data);
+        } else {
+          throw new Error(json.message || 'Load Devices failed');
+        }
       }
     }
     
-    // ในกรณี edit contract: เพิ่ม devices ที่ยังไม่มี contract อื่น (available devices)
-    // แต่ไม่รวม devices ที่อยู่ใน contract ปัจจุบัน (ส่ง contract_id เพื่อกรองออก)
-    if (editContractId) {
+    // ในกรณี edit contract + SOF มีใน DB: เพิ่ม devices ที่ยังไม่มี contract อื่น (available devices)
+    // (เมื่อ SOF ใหม่ ใช้ no-sof-in-store แล้ว ไม่ต้อง merge available ซ้ำ)
+    if (editContractId && sofExistsInDb) {
       try {
         const queryParams = new URLSearchParams();
         if (siteId) queryParams.append('site_id', siteId);
@@ -491,15 +505,46 @@ function AddContractPageContent() {
         );
         const availableJson = await availableRes.json();
         if (availableRes.ok && availableJson.data) {
-          // รวม available devices โดยไม่ให้ซ้ำ (ใช้ Did เป็น key)
           const existingDeviceIds = new Set(allDevices.map(d => d.Did));
           const newDevices = availableJson.data.filter((d: DeviceItem) => !existingDeviceIds.has(d.Did));
           allDevices.push(...newDevices);
         }
       } catch (e) {
-        // ถ้าโหลด available devices ไม่ได้ ไม่ต้อง throw error แค่ข้ามไป
         console.warn('Failed to load available devices:', e);
       }
+    }
+
+    // Ensure devices that were already selected are still visible in the picker,
+    // even if their current devices.SLid / SOF filter would exclude them.
+    const existingDeviceIds = new Set(allDevices.map((d) => String(d.Did)));
+    const missingSelected = (includeDeviceIds || []).map(String).filter((id) => id && !existingDeviceIds.has(id));
+    if (missingSelected.length > 0) {
+      const results = await Promise.allSettled(
+        missingSelected.map(async (id) => {
+          const res = await fetch(apiUrl(`/api/devices/${encodeURIComponent(id)}`));
+          const json = await res.json();
+          if (res.ok && json?.data) return json.data;
+          return null;
+        })
+      );
+      results.forEach((r) => {
+        const data = r.status === 'fulfilled' ? r.value : null;
+        if (!data) return;
+        const did = data.Did ?? data.did;
+        if (did == null) return;
+        const didStr = String(did);
+        if (existingDeviceIds.has(didStr)) return;
+        allDevices.push({
+          Did: Number(did),
+          CI_Name: data.CI_Name ?? data.ci_name ?? null,
+          Asset_Number: data.Asset_Number ?? data.asset_number ?? null,
+          serial: data.serial ?? null,
+          model: data.model ?? null,
+          roleName: data.roleName ?? null,
+          manufacturername: data.manufacturername ?? null,
+        });
+        existingDeviceIds.add(didStr);
+      });
     }
     
     return allDevices;
@@ -510,7 +555,9 @@ function AddContractPageContent() {
     setDevicesLoading(true);
     setFetchError('');
     try {
-      const devices = await loadDevicesForSite(siteId);
+      const entry = siteEntries.find((e) => e.id === entryId);
+      const includeIds = entry?.devices?.map((d) => String(d.id)) ?? [];
+      const devices = await loadDevicesForSite(siteId, includeIds);
       setDevicesBySite(devices);
       setIsDeviceModalOpen(true);
     } catch (e) {
@@ -1513,7 +1560,15 @@ function AddContractPageContent() {
                 setDeviceFilter('');
               }}
               title={activeEntry ? `Select Device - ${activeEntry.siteLabel || 'Site'}` : 'Select Device'}
-              devices={devicesAvailableForCurrentSite.map((d) => ({
+            devices={(() => {
+              const selectedIds = new Set(activeEntryDevices.map((d) => String(d.id)));
+              const sorted = [...devicesAvailableForCurrentSite].sort((a, b) => {
+                const aSel = selectedIds.has(String(a.Did));
+                const bSel = selectedIds.has(String(b.Did));
+                if (aSel === bSel) return 0;
+                return aSel ? -1 : 1;
+              });
+              return sorted.map((d) => ({
                 id: String(d.Did),
                 name: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
                 type: d.model || '',
@@ -1522,7 +1577,8 @@ function AddContractPageContent() {
                 assetNumber: d.Asset_Number || '',
                 role: d.roleName || '',
                 manufacturer: d.manufacturername || '',
-              }))}
+              }));
+            })()}
               selectedIds={activeEntryDevices.map((d) => d.id)}
               filter={deviceFilter}
               onFilterChange={setDeviceFilter}

@@ -434,20 +434,25 @@ function ContractEditorPageContent() {
         sheetRows.push(['Contract Name', c.name]);
         sheetRows.push(['Start Date', startDate, 'End Date', endDate]);
         sheetRows.push([]);
-        sheetRows.push(['Site', 'Location', 'Device (Serial)']);
+        sheetRows.push(['Site', 'Location', 'Serial']);
         if (siteOrder.length === 0) {
           sheetRows.push(['—', '—', '']);
         } else {
-          for (const sLid of siteOrder) {
+          siteOrder.forEach((sLid, idx) => {
             const s = bySite.get(sLid)!;
+            if (idx > 0) sheetRows.push([]); // เว้นบรรทัดคั่นระหว่างแต่ละ site
             if (!s.devices || s.devices.length === 0) {
               sheetRows.push([s.siteName, s.location, '']);
-              continue;
+            } else {
+              s.devices.forEach((dev, devIdx) => {
+                if (devIdx === 0) {
+                  sheetRows.push([s.siteName, s.location, dev]);
+                } else {
+                  sheetRows.push(['', '', dev]);
+                }
+              });
             }
-            for (const dev of s.devices) {
-              sheetRows.push([s.siteName, s.location, dev]);
-            }
-          }
+          });
         }
 
         const sheetName = makeSheetName(c.name, `Contract-${c.id}`);
@@ -972,7 +977,7 @@ function ContractEditorPageContent() {
       'sla term': 'sla_term', 'sla_term': 'sla_term', 'slaterm': 'sla_term',
       'sale account': 'sale_account', 'sale_account': 'sale_account', 'saleaccount': 'sale_account',
       'email': 'email_acc', 'email_acc': 'email_acc', 'email acc': 'email_acc',
-      'tel': 'tel_acc', 'tel_acc': 'tel_acc', 'tel acc': 'tel_acc', 'phone': 'tel_acc',
+      'tel': 'tel_acc', 'tel_acc': 'tel_acc', 'tel acc': 'tel_acc', 'phone': 'tel_acc', 'telephone': 'tel_acc',
       'coverage scope': 'coverage_scope', 'coverage_scope': 'coverage_scope', 'coveragescope': 'coverage_scope',
       'devices': 'device_ids', 'device ids': 'device_ids', 'device_ids': 'device_ids', 'device': 'device_ids',
     };
@@ -1135,6 +1140,8 @@ function ContractEditorPageContent() {
           assigned_service: row.assigned_service || null,
           sla_term: row.sla_term || '12',
           sale_account: row.sale_account || null,
+          email_acc: row.email_acc || null,
+          tel_acc: row.tel_acc || null,
           coverage_scope: row.coverage_scope || null,
           site_device_pairs: row.site_device_pairs || [],
           status: asDraft ? 'draft' : 'official',
