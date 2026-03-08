@@ -16,6 +16,8 @@ import {
   Search,
   Calendar,
   User,
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
   X,
   ClipboardList,
@@ -38,6 +40,7 @@ interface PMReport {
   id: string;
   taskId?: number;
   deviceId: string;
+  engineers?: Array<{ id?: string; name?: string; lastName?: string; last_name?: string }>;
   device?: {
     Did?: number;
     CI_Name?: string;
@@ -56,12 +59,14 @@ interface PMReport {
   comment?: string;
   uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
   createdAt?: string;
+  site_name?: string;
 }
 
 interface MAReport {
   id: string;
   taskId?: number;
   deviceId: string;
+  engineers?: Array<{ id?: string; name?: string; lastName?: string; last_name?: string }>;
   device?: {
     Did?: number;
     CI_Name?: string;
@@ -85,9 +90,11 @@ interface MAReport {
   reporterName?: string;
   reporterTel?: string;
   ticket?: string;
+  site_name?: string;
 }
 
 const ITEMS_PER_PAGE = 5;
+const DOWNLOAD_MODAL_PAGE_SIZE = 8;
 
 function ReportPageContent() {
   const router = useRouter();
@@ -102,6 +109,13 @@ function ReportPageContent() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set());
+  const [isDownloadFilesModalOpen, setIsDownloadFilesModalOpen] = useState(false);
+  const [downloadSiteSelected, setDownloadSiteSelected] = useState<Set<string>>(new Set());
+  const [downloadSiteSearch, setDownloadSiteSearch] = useState('');
+  const [downloadSofFilter, setDownloadSofFilter] = useState('');
+  const [downloadLocationFilter, setDownloadLocationFilter] = useState('');
+  const [downloadModalPage, setDownloadModalPage] = useState(1);
   const [doneTasks, setDoneTasks] = useState<Array<{ id: number; taskType: string; status: string }>>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [selectedReport, setSelectedReport] = useState<PMReport | MAReport | null>(null);
@@ -113,6 +127,19 @@ function ReportPageContent() {
     site?: string;
     assetNumber?: string;
   }>>({});
+
+  const getEngineerDisplay = (r: PMReport | MAReport): string => {
+    const engineers = Array.isArray(r.engineers) ? r.engineers : [];
+    const nbsp = '\u00A0'; // non-breaking space ให้ชื่อ-นามสกุลอยู่บรรทัดเดียวกัน
+    const names = engineers
+      .map((e) => {
+        const first = (e?.name ?? e?.id ?? '').toString().trim();
+        const last = (e?.lastName ?? e?.last_name ?? '').toString().trim();
+        return `${first}${last ? `${nbsp}${last}` : ''}`.trim();
+      })
+      .filter(Boolean);
+    return names.length > 0 ? names.join(', ') : (r.technicianName || '-');
+  };
 
   // Sync tab with URL
   useEffect(() => {
@@ -235,6 +262,14 @@ function ReportPageContent() {
   const totalPages = Math.ceil(filteredReports.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const paginatedReports = filteredReports.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const selectedReportsArray = useMemo(
+    () => filteredReports.filter((r) => selectedReportIds.has(String(r.id))),
+    [filteredReports, selectedReportIds]
+  );
+  const downloadSourceReports = useMemo(
+    () => (selectedReportsArray.length > 0 ? selectedReportsArray : filteredReports),
+    [selectedReportsArray, filteredReports]
+  );
 
   // Load replacement devices for MA reports (from task.assets replacementDeviceId)
   useEffect(() => {
@@ -418,8 +453,8 @@ function ReportPageContent() {
   // Export CSV — ใช้กับทั้ง PM และ MA ตาม tab ปัจจุบัน
   const handleExport = async () => {
     const taskLabel = tab === 'pm' ? 'PM' : 'MA';
-    // สำหรับ MA: ดึง replacement device (name, location, site) สำหรับ Replace Device, New Site, New Location
-    type ReplacementInfo = { name: string; location: string; site: string };
+    // สำหรับ MA: ดึง replacement device (serial, location, site) สำหรับ Replace Device, New Site, New Location
+    type ReplacementInfo = { serial: string; location: string; site: string };
     let replacementPlaceMap: Record<string, ReplacementInfo> = {};
     if (tab === 'ma') {
       const repIds = new Set<string>();
@@ -439,43 +474,38 @@ function ReportPageContent() {
             const json = await res.json();
             if (res.ok && json.data) {
               const d = json.data as Record<string, unknown>;
-              const name = (d.CI_Name ?? d.Asset_Number ?? '') as string;
+              const serial = (d.serial ?? (d as any).serialNumber ?? '') as string;
               const location = (d.Location2 ?? d.location2 ?? '') as string;
               const site = (d.Sitename ?? d.site ?? '') as string;
               replacementPlaceMap[rid] = {
-                name: String(name || '').trim() || '-',
+                serial: String(serial || '').trim() || '-',
                 location: String(location || '').trim() || '-',
                 site: String(site || '').trim() || '-',
               };
             } else {
-              replacementPlaceMap[rid] = { name: '-', location: '-', site: '-' };
+              replacementPlaceMap[rid] = { serial: '-', location: '-', site: '-' };
             }
           } catch {
-            replacementPlaceMap[rid] = { name: '-', location: '-', site: '-' };
+            replacementPlaceMap[rid] = { serial: '-', location: '-', site: '-' };
           }
         })
       );
     }
+    const sourceReports =
+      selectedReportsArray.length > 0 ? selectedReportsArray : filteredReports;
+    if (sourceReports.length === 0) return;
+
     const lines: string[] = [];
     const nl = () => lines.push('');
     const row = (arr: string[]) => lines.push(arr.map(escape).join(','));
     const gen = new Date().toISOString().slice(0, 19).replace('T', ' ');
     lines.push(escape(`${taskLabel} Checklist Report - Export (Generated: ${gen})`));
     nl();
-    const fileLinksString = (files: PMReport['uploadedFiles']) => {
-      if (!files?.length) return '-';
-      const urls: string[] = [];
-      files.forEach((f: any) => {
-        const path = typeof f === 'string' ? f : f?.path;
-        if (path) urls.push(apiUrl(path));
-      });
-      return urls.length > 0 ? urls.join('; ') : '-';
-    };
-    const pmHeaders = ['Report ID', 'Device', 'Asset Number', 'Site', 'Location', 'Serial', 'Technician', 'PM Date', 'Status', 'Comment', 'Files'];
-    const maHeaders = ['Report ID', 'Device', 'Asset Number', 'Site', 'Location', 'Technician', 'MA Date', 'Result', 'Replace Device', 'New Site', 'New Location', 'Third Party Vendor name', 'Third Party Vendor phone', 'Reporter name', 'Reporter phone', 'Ticket', 'Comment', 'Files'];
+    const pmHeaders = ['Report ID', 'Serial', 'Asset Number', 'Site', 'Location', 'Technician', 'PM Date', 'Status', 'Comment'];
+    const maHeaders = ['Report ID', 'Serial', 'Asset Number', 'Site', 'Location', 'Technician', 'MA Date', 'Result', 'Replace Device', 'New Site', 'New Location', 'Third Party Vendor name', 'Third Party Vendor phone', 'Reporter name', 'Reporter phone', 'Ticket', 'Comment'];
     const headers = tab === 'ma' ? maHeaders : pmHeaders;
     row(headers);
-    filteredReports.forEach((r: PMReport | MAReport) => {
+    sourceReports.forEach((r: PMReport | MAReport) => {
       const dateVal = r[dateKey as keyof typeof r];
       const resultVal = tab === 'pm' ? 'Done' : r[resultKey as keyof typeof r];
       const dev = r.device as Record<string, unknown> | undefined;
@@ -484,16 +514,14 @@ function ReportPageContent() {
       if (tab === 'pm') {
         row([
           r.id,
-          r.device?.CI_Name || r.device?.Asset_Number || '-',
+          r.device?.serial || '-',
           r.device?.Asset_Number || '-',
           site,
           location,
-          r.device?.serial || '-',
           r.technicianName || '-',
           String(dateVal ?? '-'),
           String(resultVal ?? '-'),
           (r.comment || '').replace(/\n/g, ' '),
-          fileLinksString(r.uploadedFiles),
         ]);
         return;
       }
@@ -501,17 +529,20 @@ function ReportPageContent() {
       const taskRepId = (r as any).replacementDeviceId ?? (r as any).replacement_device_id;
       const origNames: string[] = [];
       const origAssets: string[] = [];
+      const origSerials: string[] = [];
       const repNames: string[] = [];
       const newSites: string[] = [];
       const newLocations: string[] = [];
       assets.forEach((a: any, i: number) => {
         const origName = a?.name ?? a?.CI_Name ?? a?.Asset_Number ?? a?.serial ?? '';
         const origAsset = a?.Asset_Number ?? a?.assetNumber ?? '';
+        const origSerial = a?.serial ?? a?.serialNumber ?? '';
         if (origName) origNames.push(origName);
         if (origAsset) origAssets.push(origAsset);
+        if (origSerial) origSerials.push(origSerial);
         const rid = a?.replacementDeviceId ?? a?.replacement_device_id ?? (i === 0 ? taskRepId : null);
         const repInfo = rid != null ? replacementPlaceMap[String(rid)] : null;
-        const repName = repInfo?.name ?? (rid != null ? `Device ${rid}` : '—');
+        const repName = repInfo?.serial ?? '-';
         if (rid != null) {
           repNames.push(repName);
           newSites.push(repInfo?.site ?? '-');
@@ -520,19 +551,20 @@ function ReportPageContent() {
       });
       if (repNames.length === 0 && taskRepId != null && replacementPlaceMap[String(taskRepId)]) {
         const p = replacementPlaceMap[String(taskRepId)];
-        repNames.push(p.name);
+        repNames.push(p.serial);
         newSites.push(p.site);
         newLocations.push(p.location);
       }
       const deviceStr = origNames.length > 0 ? origNames.join('; ') : (r.device?.CI_Name || r.device?.Asset_Number || '-');
       const assetStr = origAssets.length > 0 ? origAssets.join('; ') : (r.device?.Asset_Number || '-');
+      const serialStr = origSerials.length > 0 ? origSerials.join('; ') : (r.device?.serial || '-');
       const replaceDeviceStr = repNames.length > 0 ? repNames.join('; ') : '-';
       const newSiteStr = newSites.length > 0 ? newSites.join('; ') : '-';
       const newLocationStr = newLocations.length > 0 ? newLocations.join('; ') : '-';
       const ma = r as MAReport;
       row([
         r.id,
-        deviceStr,
+        serialStr,
         assetStr,
         site,
         location,
@@ -548,7 +580,6 @@ function ReportPageContent() {
         ma.reporterTel ?? '',
         ma.ticket ?? '',
         (r.comment || '').replace(/\n/g, ' '),
-        fileLinksString(r.uploadedFiles),
       ]);
     });
     const csv = lines.join('\r\n');
@@ -568,93 +599,304 @@ function ReportPageContent() {
     return d && typeof d === 'string' ? d.slice(0, 10) : '';
   };
 
+  const buildFilesBySiteMap = (sourceReports: (PMReport | MAReport)[]) => {
+    const bySite = new Map<string, Array<{ path: string; name: string; siteLocation: string; location: string; visitRound: string; type?: string }>>();
+    sourceReports.forEach((r: PMReport | MAReport) => {
+      const siteLocation = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
+      const d = r.device as { Location2?: string; location2?: string } | undefined;
+      const location = (d?.Location2 ?? d?.location2 ?? '').toString().trim() || 'Unknown';
+      const visitRound = getVisitDate(r) || 'Unknown';
+      (r.uploadedFiles || []).forEach((f) => {
+        const path = typeof f === 'string' ? f : f?.path;
+        const name = typeof f === 'object' && f?.name ? f.name : path?.split('/').pop() || 'file';
+        const fileType = typeof f === 'object' ? f?.type : undefined;
+        if (path) {
+          const list = bySite.get(siteLocation) ?? [];
+          list.push({ path, name, siteLocation, location, visitRound, type: fileType });
+          bySite.set(siteLocation, list);
+        }
+      });
+    });
+    return bySite;
+  };
+
+  const getDownloadLocationKey = (siteName: string, location: string) => `${siteName}|||${location}`;
+
+  const safeZipEntryPart = (s: string) =>
+    (s || '')
+      .normalize('NFC')
+      .replace(/[\u0000-\u001f]/g, '_')
+      .replace(/[/\\?*|"<>:]/g, '_')
+      .replace(/\s+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'Unknown';
+
+  const triggerBlobDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const getNormalizedVisitDate = (visitRound: string, fallbackYear?: string) =>
+    (visitRound && /^\d{4}-\d{2}-\d{2}$/.test(visitRound))
+      ? visitRound
+      : `${fallbackYear || String(new Date().getFullYear())}-01-01`;
+
+  const getRoundMapBySiteLocationDate = <T extends { siteLocation: string; location: string; visitRound: string; name?: string; path?: string }>(
+    files: T[],
+    fallbackYear?: string
+  ) => {
+    const filesByPair = new Map<string, T[]>();
+    files.forEach((file) => {
+      const pairKey = getDownloadLocationKey(file.siteLocation, file.location);
+      const existing = filesByPair.get(pairKey) ?? [];
+      existing.push(file);
+      filesByPair.set(pairKey, existing);
+    });
+
+    const roundMap = new Map<T, number>();
+    filesByPair.forEach((pairFiles) => {
+      [...pairFiles]
+        .sort((a, b) =>
+          getNormalizedVisitDate(a.visitRound, fallbackYear).localeCompare(getNormalizedVisitDate(b.visitRound, fallbackYear))
+          || String(a.name || '').localeCompare(String(b.name || ''))
+          || String(a.path || '').localeCompare(String(b.path || ''))
+        )
+        .forEach((file, index) => {
+          roundMap.set(file, index + 1);
+        });
+    });
+    return roundMap;
+  };
+
+  const getFilesFromReports = (sourceReports: (PMReport | MAReport)[]) => {
+    const files: Array<{ path: string; name: string; siteLocation: string; location: string; visitRound: string; type?: string }> = [];
+    sourceReports.forEach((r: PMReport | MAReport) => {
+      const siteLocation = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
+      const d = r.device as { Location2?: string; location2?: string } | undefined;
+      const location = (d?.Location2 ?? d?.location2 ?? '').toString().trim() || 'Unknown';
+      const visitRound = getVisitDate(r) || 'Unknown';
+      (r.uploadedFiles || []).forEach((f) => {
+        const path = typeof f === 'string' ? f : f?.path;
+        const name = typeof f === 'object' && f?.name ? f.name : path?.split('/').pop() || 'file';
+        const fileType = typeof f === 'object' ? f?.type : undefined;
+        if (path) {
+          files.push({ path, name, siteLocation, location, visitRound, type: fileType });
+        }
+      });
+    });
+    return files;
+  };
+
+  const downloadZipForSOF = async (sofName: string, sourceReports: (PMReport | MAReport)[]) => {
+    const sofReports = sourceReports.filter(
+      (r: PMReport | MAReport) =>
+        (r.device?.Refer_SOF ?? '').toString().trim() === sofName ||
+        (sofName === 'Unknown SOF' && !(r.device?.Refer_SOF ?? '').toString().trim())
+    );
+    const bySite = buildFilesBySiteMap(sofReports);
+    if (bySite.size === 0) {
+      alert(`No files (images/PDFs) for SOF: ${sofName}`);
+      return;
+    }
+    const taskLabel = tab === 'pm' ? 'PM' : 'MA';
+    const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
+    const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
+    const yearDefault = String(new Date().getFullYear());
+
+    for (const [siteName, allFiles] of bySite.entries()) {
+      const siteReports = sofReports.filter(
+        (r) => ((r.device?.Sitename ?? '').toString().trim() || 'Unknown') === siteName
+      );
+      const year = (() => {
+        const dates = siteReports.map((r) => getVisitDate(r)).filter(Boolean);
+        if (dates.length > 0) return dates[0].slice(0, 4);
+        return yearDefault;
+      })();
+      const roundCount = (() => {
+        const yearDates = new Set(
+          siteReports.map((r) => getVisitDate(r)).filter((d) => d && d.startsWith(year))
+        );
+        return yearDates.size || 1;
+      })();
+      const locationName = (() => {
+        const d = siteReports[0]?.device as { Location2?: string; location2?: string } | undefined;
+        const loc = d?.Location2 ?? d?.location2 ?? '';
+        return (loc && typeof loc === 'string' ? loc : String(loc || '')).trim() || 'Unknown';
+      })();
+
+      const roundMap = getRoundMapBySiteLocationDate(allFiles, year);
+      const zip = new JSZip();
+      const sofFolder = zip.folder(sofName.replace(/[/\\?*|"<>]/g, '_') || 'Unknown_SOF');
+      if (!sofFolder) continue;
+      for (let i = 0; i < allFiles.length; i++) {
+        const f = allFiles[i];
+        const visitDate = getNormalizedVisitDate(f.visitRound, year);
+        const n = roundMap.get(f) ?? 1;
+        try {
+          const res = await fetch(apiUrl(f.path));
+          if (res.ok) {
+            const blob = await res.blob();
+            const ext = getExt(f.name, f.type);
+            const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${safe(f.visitRound)}_รอบที่${n}${ext}`;
+            sofFolder.file(safeFileName, blob);
+          }
+        } catch {
+          // skip failed fetch
+        }
+      }
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      triggerBlobDownload(zipBlob, `${taskLabel}_${year}_SOF_${safe(sofName)}_Site_${safe(siteName)}_Location_${safe(locationName)}_รอบที่${roundCount}.zip`);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  };
+
+  const downloadZipForSite = async (siteName: string, sourceReports: (PMReport | MAReport)[], locationFilter?: string) => {
+    const siteReports = sourceReports.filter(
+      (r: PMReport | MAReport) => {
+        const reportSite = ((r.device?.Sitename ?? '').toString().trim() || 'Unknown');
+        const reportLocation = (((r.device as { Location2?: string; location2?: string } | undefined)?.Location2
+          ?? (r.device as { Location2?: string; location2?: string } | undefined)?.location2
+          ?? '').toString().trim() || 'Unknown');
+        return reportSite === siteName && (!locationFilter || reportLocation === locationFilter);
+      }
+    );
+    const allFiles = getFilesFromReports(siteReports);
+    if (allFiles.length === 0) {
+      alert(locationFilter
+        ? `No files (images/PDFs) for Site: ${siteName} / Location: ${locationFilter}`
+        : `No files (images/PDFs) for Site: ${siteName}`);
+      return;
+    }
+    const taskLabel = tab === 'pm' ? 'PM' : 'MA';
+    const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
+    const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
+    const year = (() => {
+      const dates = siteReports.map((r) => getVisitDate(r)).filter(Boolean);
+      return dates.length > 0 ? dates[0].slice(0, 4) : String(new Date().getFullYear());
+    })();
+    const roundCount = (() => {
+      const yearDates = new Set(siteReports.map((r) => getVisitDate(r)).filter((d) => d && d.startsWith(year)));
+      return yearDates.size || 1;
+    })();
+    const locationName = locationFilter || (() => {
+      const d = siteReports[0]?.device as { Location2?: string; location2?: string } | undefined;
+      const loc = d?.Location2 ?? d?.location2 ?? '';
+      return (loc && typeof loc === 'string' ? loc : String(loc || '')).trim() || 'Unknown';
+    })();
+
+    const roundMap = getRoundMapBySiteLocationDate(allFiles, year);
+    const zip = new JSZip();
+    for (let i = 0; i < allFiles.length; i++) {
+      const f = allFiles[i];
+      const visitDate = getNormalizedVisitDate(f.visitRound, year);
+      const n = roundMap.get(f) ?? 1;
+      try {
+        const res = await fetch(apiUrl(f.path));
+        if (res.ok) {
+          const blob = await res.blob();
+          const ext = getExt(f.name, f.type);
+          const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${safe(f.visitRound)}_รอบที่${n}${ext}`;
+          zip.file(safeFileName, blob);
+        }
+      } catch {
+        // skip failed fetch
+      }
+    }
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    triggerBlobDownload(zipBlob, `${taskLabel}_${year}_Site_${safe(siteName)}_Location_${safe(locationName)}_รอบที่${roundCount}.zip`);
+  };
+
+  const downloadZipForSelectedLocations = async (
+    selections: Array<{ siteName: string; location: string }>,
+    sourceReports: (PMReport | MAReport)[]
+  ) => {
+    if (selections.length === 0) {
+      alert('No locations selected for download');
+      return;
+    }
+
+    const taskLabel = tab === 'pm' ? 'PM' : 'MA';
+    const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
+    const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
+    const zip = new JSZip();
+    let addedFiles = 0;
+
+    for (const selection of selections) {
+      const locationReports = sourceReports.filter((r: PMReport | MAReport) => {
+        const reportSite = ((r.device?.Sitename ?? '').toString().trim() || 'Unknown');
+        const reportLocation = (((r.device as { Location2?: string; location2?: string } | undefined)?.Location2
+          ?? (r.device as { Location2?: string; location2?: string } | undefined)?.location2
+          ?? '').toString().trim() || 'Unknown');
+        return reportSite === selection.siteName && reportLocation === selection.location;
+      });
+
+      const allFiles = getFilesFromReports(locationReports);
+      if (allFiles.length === 0) continue;
+
+      const year = (() => {
+        const dates = locationReports.map((r) => getVisitDate(r)).filter(Boolean).sort((a, b) => a.localeCompare(b));
+        return dates.length > 0 ? dates[0].slice(0, 4) : String(new Date().getFullYear());
+      })();
+      const roundMap = getRoundMapBySiteLocationDate(allFiles, year);
+
+      for (const f of allFiles) {
+        const visitDate = getNormalizedVisitDate(f.visitRound, year);
+        const n = roundMap.get(f) ?? 1;
+        try {
+          const res = await fetch(apiUrl(f.path));
+          if (res.ok) {
+            const blob = await res.blob();
+            const ext = getExt(f.name, f.type);
+            const baseEntryName = `${safeZipEntryPart(selection.siteName)}_${safeZipEntryPart(selection.location)}_${visitDate}_round${n}${ext}`;
+            zip.file(baseEntryName, blob, { binary: true });
+            addedFiles += 1;
+          }
+        } catch {
+          // skip failed fetch
+        }
+      }
+    }
+
+    if (addedFiles === 0) {
+      alert('No files found for selected locations');
+      return;
+    }
+
+    const zipBytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+    const zipBuffer = Uint8Array.from(zipBytes);
+    triggerBlobDownload(
+      new Blob([zipBuffer], { type: 'application/zip' }),
+      `${taskLabel}_Selected_Locations_${new Date().toISOString().slice(0, 10)}.zip`
+    );
+  };
+
   // ดาวน์โหลดไฟล์ (รูป/PDF) แยกตาม SOF → แยก zip ต่อ Site; รอบที่ X ต่อ SOF+Site; ใช้กับทั้ง PM และ MA ตาม tab ปัจจุบัน
   const handleDownloadImagesBySOF = async (sofName: string) => {
     setDownloadingImages(true);
     setShowSiteImageMenu(false);
+    setIsDownloadFilesModalOpen(false);
     try {
-      const sofReports = filteredReports.filter(
-        (r: PMReport | MAReport) => (r.device?.Refer_SOF ?? '').toString().trim() === sofName || (sofName === 'Unknown SOF' && !(r.device?.Refer_SOF ?? '').toString().trim())
-      );
-      const bySite = new Map<string, Array<{ path: string; name: string; siteLocation: string; location: string; visitRound: string; type?: string }>>();
-      sofReports.forEach((r: PMReport | MAReport) => {
-        const siteLocation = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
-        const d = r.device as { Location2?: string; location2?: string } | undefined;
-        const location = (d?.Location2 ?? d?.location2 ?? '').toString().trim() || 'Unknown';
-        const visitRound = getVisitDate(r) || 'Unknown';
-        (r.uploadedFiles || []).forEach((f) => {
-          const path = typeof f === 'string' ? f : f?.path;
-          const name = typeof f === 'object' && f?.name ? f.name : path?.split('/').pop() || 'file';
-          const fileType = typeof f === 'object' ? f?.type : undefined;
-          if (path) {
-            const list = bySite.get(siteLocation) ?? [];
-            list.push({ path, name, siteLocation, location, visitRound, type: fileType });
-            bySite.set(siteLocation, list);
-          }
-        });
-      });
-      if (bySite.size === 0) {
-        alert(`No files (images/PDFs) for SOF: ${sofName}`);
-        return;
-      }
-      const taskLabel = tab === 'pm' ? 'PM' : 'MA';
-      const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
-      const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
-      const yearDefault = String(new Date().getFullYear());
+      await downloadZipForSOF(sofName, downloadSourceReports);
+    } catch (e) {
+      console.error(e);
+      alert('Error downloading images');
+    } finally {
+      setDownloadingImages(false);
+    }
+  };
 
-      for (const [siteName, allFiles] of bySite.entries()) {
-        const siteReports = sofReports.filter(
-          (r) => ((r.device?.Sitename ?? '').toString().trim() || 'Unknown') === siteName
-        );
-        const year = (() => {
-          const dates = siteReports.map((r) => getVisitDate(r)).filter(Boolean);
-          if (dates.length > 0) return dates[0].slice(0, 4);
-          return yearDefault;
-        })();
-        const roundCount = (() => {
-          const yearDates = new Set(
-            siteReports.map((r) => getVisitDate(r)).filter((d) => d && d.startsWith(year))
-          );
-          return yearDates.size || 1;
-        })();
-        const locationName = (() => {
-          const d = siteReports[0]?.device as { Location2?: string; location2?: string } | undefined;
-          const loc = d?.Location2 ?? d?.location2 ?? '';
-          return (loc && typeof loc === 'string' ? loc : String(loc || '')).trim() || 'Unknown';
-        })();
-
-        // เลขรอบต่อเนื่องต่อวันที่ไป: ไฟล์แรกของวัน = รอบที่1, ไฟล์ที่สอง = รอบที่2, ...
-        const roundPerDate = new Map<string, number>();
-
-        const zip = new JSZip();
-        const sofFolder = zip.folder(sofName.replace(/[/\\?*|"<>]/g, '_') || 'Unknown_SOF');
-        if (!sofFolder) continue;
-        for (let i = 0; i < allFiles.length; i++) {
-          const f = allFiles[i];
-          const visitDate = f.visitRound || year + '-01-01';
-          const n = (roundPerDate.get(visitDate) ?? 0) + 1;
-          roundPerDate.set(visitDate, n);
-          try {
-            const res = await fetch(apiUrl(f.path));
-            if (res.ok) {
-              const blob = await res.blob();
-              const ext = getExt(f.name, f.type);
-              const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${safe(f.visitRound)}_รอบที่${n}${ext}`;
-              sofFolder.file(safeFileName, blob);
-            }
-          } catch {
-            // skip failed fetch
-          }
-        }
-        const zipBlob = await zip.generateAsync({ type: 'blob' });
-        const url = URL.createObjectURL(zipBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${taskLabel}_${year}_SOF_${safe(sofName)}_Site_${safe(siteName)}_Location_${safe(locationName)}_รอบที่${roundCount}.zip`;
-        a.click();
-        URL.revokeObjectURL(url);
-        await new Promise((r) => setTimeout(r, 300));
-      }
+  const handleDownloadImagesBySite = async (siteName: string) => {
+    setDownloadingImages(true);
+    setShowSiteImageMenu(false);
+    setIsDownloadFilesModalOpen(false);
+    try {
+      await downloadZipForSite(siteName, downloadSourceReports);
     } catch (e) {
       console.error(e);
       alert('Error downloading images');
@@ -665,7 +907,7 @@ function ReportPageContent() {
 
   const sofsWithImages = useMemo(() => {
     const map = new Map<string, { count: number; items: Array<{ siteName: string; visitDate: string }> }>();
-    filteredReports.forEach((r: PMReport | MAReport) => {
+    downloadSourceReports.forEach((r: PMReport | MAReport) => {
       const sof = (r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF';
       const fileCount = (r.uploadedFiles || []).filter((f) => {
         const path = typeof f === 'string' ? f : f?.path;
@@ -688,7 +930,208 @@ function ReportPageContent() {
     return Array.from(map.entries())
       .map(([sofName, { count, items }]) => ({ sofName, count, items }))
       .sort((a, b) => b.count - a.count);
-  }, [filteredReports, tab]);
+  }, [downloadSourceReports, tab]);
+
+  const sitesWithImages = useMemo(() => {
+    const map = new Map<string, { count: number; items: Array<{ sofName: string; visitDate: string }> }>();
+    downloadSourceReports.forEach((r: PMReport | MAReport) => {
+      const siteName = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
+      const sofName = (r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF';
+      const fileCount = (r.uploadedFiles || []).filter((f) => {
+        const path = typeof f === 'string' ? f : f?.path;
+        return !!path;
+      }).length;
+      if (fileCount > 0) {
+        const visitDate = getVisitDate(r);
+        const existing = map.get(siteName);
+        if (!existing) {
+          map.set(siteName, { count: fileCount, items: [{ sofName, visitDate }] });
+        } else {
+          existing.count += fileCount;
+          if (!existing.items.some((i) => i.sofName === sofName && i.visitDate === visitDate)) {
+            existing.items.push({ sofName, visitDate });
+          }
+        }
+      }
+    });
+    return Array.from(map.entries())
+      .map(([siteName, { count, items }]) => ({ siteName, count, items }))
+      .sort((a, b) => b.count - a.count);
+  }, [downloadSourceReports, tab]);
+
+  const downloadModalSites = useMemo(() => {
+    const locationMap = new Map<string, {
+      key: string;
+      siteName: string;
+      location: string;
+      fileCount: number;
+      sofNames: Set<string>;
+      visitDates: Set<string>;
+    }>();
+    downloadSourceReports.forEach((r: PMReport | MAReport) => {
+      const siteName = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
+      const location = ((r.device as { Location2?: string; location2?: string } | undefined)?.Location2
+        ?? (r.device as { Location2?: string; location2?: string } | undefined)?.location2
+        ?? '').toString().trim() || 'Unknown';
+      const sofName = (r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF';
+      const fileCount = (r.uploadedFiles || []).filter((f) => {
+        const path = typeof f === 'string' ? f : f?.path;
+        return !!path;
+      }).length;
+      if (fileCount <= 0) return;
+      const visitDate = getVisitDate(r) || '-';
+      const key = getDownloadLocationKey(siteName, location);
+      const existing = locationMap.get(key) ?? {
+        key,
+        siteName,
+        location,
+        fileCount: 0,
+        sofNames: new Set<string>(),
+        visitDates: new Set<string>(),
+      };
+      existing.fileCount += fileCount;
+      existing.sofNames.add(sofName);
+      existing.visitDates.add(visitDate);
+      locationMap.set(key, existing);
+    });
+
+    const q = downloadSiteSearch.trim().toLowerCase();
+    let list = Array.from(locationMap.values());
+    if (q) {
+      list = list.filter((row) =>
+        row.siteName.toLowerCase().includes(q) || row.location.toLowerCase().includes(q)
+      );
+    }
+    if (downloadLocationFilter) {
+      list = list.filter((row) => row.location === downloadLocationFilter);
+    }
+    if (downloadSofFilter) {
+      const selectedSof = downloadSofFilter.trim();
+      list = list.filter((row) => row.sofNames.has(selectedSof));
+    }
+    return list
+      .map((row) => ({
+        key: row.key,
+        siteName: row.siteName,
+        location: row.location,
+        fileCount: row.fileCount,
+        sofCount: row.sofNames.size,
+        visitCount: Array.from(row.visitDates).filter((v) => v && v !== '-').length,
+      }))
+      .sort((a, b) => a.siteName.localeCompare(b.siteName) || a.location.localeCompare(b.location));
+  }, [downloadSourceReports, downloadSiteSearch, downloadLocationFilter, downloadSofFilter, dateKey]);
+
+  const downloadLocationOptions = useMemo(
+    () => Array.from(new Set(downloadSourceReports.map((r) => (((r.device as { Location2?: string; location2?: string } | undefined)?.Location2
+      ?? (r.device as { Location2?: string; location2?: string } | undefined)?.location2
+      ?? '').toString().trim() || 'Unknown')))).sort((a, b) => a.localeCompare(b)),
+    [downloadSourceReports]
+  );
+  const downloadSofOptions = useMemo(
+    () => Array.from(new Set(downloadSourceReports.map((r) => ((r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF'))))
+      .sort((a, b) => a.localeCompare(b)),
+    [downloadSourceReports]
+  );
+
+  const downloadModalTotal = downloadModalSites.length;
+  const downloadModalTotalPages = Math.max(1, Math.ceil(downloadModalTotal / DOWNLOAD_MODAL_PAGE_SIZE));
+  const downloadModalCurrentPage = Math.min(downloadModalPage, downloadModalTotalPages);
+  const downloadModalSitePageItems = downloadModalSites.slice(
+    (downloadModalCurrentPage - 1) * DOWNLOAD_MODAL_PAGE_SIZE,
+    downloadModalCurrentPage * DOWNLOAD_MODAL_PAGE_SIZE
+  );
+  const downloadModalSitePageGroups = downloadModalSitePageItems.reduce<Array<{
+    siteName: string;
+    rows: typeof downloadModalSitePageItems;
+  }>>((groups, row) => {
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup && lastGroup.siteName === row.siteName) {
+      lastGroup.rows.push(row);
+    } else {
+      groups.push({ siteName: row.siteName, rows: [row] });
+    }
+    return groups;
+  }, []);
+  const downloadModalLocationRows = downloadModalSites;
+  const downloadModalSelectedCount = downloadModalLocationRows.reduce((n, row) => n + (downloadSiteSelected.has(row.key) ? 1 : 0), 0);
+  const downloadModalAllPageSelected =
+    downloadModalSitePageItems.length > 0 && downloadModalSitePageItems.every((row) => downloadSiteSelected.has(row.key));
+
+  const openDownloadFilesModal = () => {
+    setDownloadSiteSearch('');
+    setDownloadSofFilter('');
+    setDownloadLocationFilter('');
+    setDownloadModalPage(1);
+    setDownloadSiteSelected(new Set(downloadModalSites.map((row) => row.key)));
+    setIsDownloadFilesModalOpen(true);
+  };
+
+  const getDownloadLocationKeysBySite = (siteName: string) =>
+    downloadModalSites
+      .filter((row) => row.siteName === siteName)
+      .map((row) => row.key);
+
+  const toggleDownloadSiteGroup = (siteName: string) => {
+    const siteKeys = getDownloadLocationKeysBySite(siteName);
+    setDownloadSiteSelected((prev) => {
+      const next = new Set(prev);
+      const allSelected = siteKeys.length > 0 && siteKeys.every((key) => next.has(key));
+      for (const key of siteKeys) {
+        if (allSelected) next.delete(key);
+        else next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const toggleDownloadLocation = (locationKey: string) => {
+    setDownloadSiteSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(locationKey)) next.delete(locationKey);
+      else next.add(locationKey);
+      return next;
+    });
+  };
+
+  const toggleDownloadSitePage = (checked: boolean) => {
+    setDownloadSiteSelected((prev) => {
+      const next = new Set(prev);
+      for (const row of downloadModalSitePageItems) {
+        if (checked) next.add(row.key);
+        else next.delete(row.key);
+      }
+      return next;
+    });
+  };
+
+  const handleDownloadSelectedSites = async () => {
+    const selectedInFilter = downloadModalSites.filter((row) => downloadSiteSelected.has(row.key));
+    const toDownload = selectedInFilter.length > 0
+      ? selectedInFilter
+      : downloadModalSites;
+    if (toDownload.length === 0) {
+      alert('No sites or locations to download for current filter');
+      return;
+    }
+    setDownloadingImages(true);
+    setIsDownloadFilesModalOpen(false);
+    try {
+      await downloadZipForSelectedLocations(
+        toDownload.map((row) => ({ siteName: row.siteName, location: row.location })),
+        downloadSourceReports
+      );
+    } catch (e) {
+      console.error(e);
+      alert('Error downloading images');
+    } finally {
+      setDownloadingImages(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isDownloadFilesModalOpen) return;
+    setDownloadModalPage(1);
+  }, [downloadSiteSearch, downloadLocationFilter, downloadSofFilter, isDownloadFilesModalOpen]);
 
   // ดาวน์โหลดทั้งหมด — zip เดียว ข้างในโครงสร้าง SOF / Site / file_วันที่ไป_รอบที่X (รอบที่ของ site นั้นๆ)
   const handleDownloadAllSites1Site1SOF = async () => {
@@ -703,26 +1146,10 @@ function ReportPageContent() {
       const zip = new JSZip();
 
       for (const { sofName } of sofsWithImages) {
-        const sofReports = filteredReports.filter(
+        const sofReports = downloadSourceReports.filter(
           (r: PMReport | MAReport) => (r.device?.Refer_SOF ?? '').toString().trim() === sofName || (sofName === 'Unknown SOF' && !(r.device?.Refer_SOF ?? '').toString().trim())
         );
-        const bySite = new Map<string, Array<{ path: string; name: string; siteLocation: string; location: string; visitRound: string; type?: string }>>();
-        sofReports.forEach((r: PMReport | MAReport) => {
-          const siteLocation = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
-          const d = r.device as { Location2?: string; location2?: string } | undefined;
-          const location = (d?.Location2 ?? d?.location2 ?? '').toString().trim() || 'Unknown';
-          const visitRound = getVisitDate(r) || 'Unknown';
-          (r.uploadedFiles || []).forEach((f) => {
-            const path = typeof f === 'string' ? f : f?.path;
-            const name = typeof f === 'object' && f?.name ? f.name : path?.split('/').pop() || 'file';
-            const fileType = typeof f === 'object' ? f?.type : undefined;
-            if (path) {
-              const list = bySite.get(siteLocation) ?? [];
-              list.push({ path, name, siteLocation, location, visitRound, type: fileType });
-              bySite.set(siteLocation, list);
-            }
-          });
-        });
+        const bySite = buildFilesBySiteMap(sofReports);
 
         const sofFolder = zip.folder(safe(sofName) || 'Unknown_SOF');
         if (!sofFolder) continue;
@@ -731,17 +1158,15 @@ function ReportPageContent() {
           const siteReports = sofReports.filter(
             (r) => ((r.device?.Sitename ?? '').toString().trim() || 'Unknown') === siteName
           );
-          // เลขรอบต่อเนื่องต่อวันที่ไป: ไฟล์แรกของวัน = รอบที่1, ไฟล์ที่สอง = รอบที่2, ...
-          const roundPerDate = new Map<string, number>();
+          const roundMap = getRoundMapBySiteLocationDate(allFiles, year);
 
           const siteFolder = sofFolder.folder(safe(siteName) || 'Unknown_Site');
           if (!siteFolder) continue;
 
           for (let i = 0; i < allFiles.length; i++) {
             const f = allFiles[i];
-            const visitDate = f.visitRound && f.visitRound.startsWith(year) ? f.visitRound : year + '-01-01';
-            const n = (roundPerDate.get(visitDate) ?? 0) + 1;
-            roundPerDate.set(visitDate, n);
+            const visitDate = getNormalizedVisitDate(f.visitRound, year);
+            const n = roundMap.get(f) ?? 1;
             try {
               const res = await fetch(apiUrl(f.path));
               if (res.ok) {
@@ -758,12 +1183,7 @@ function ReportPageContent() {
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${taskLabel}_${year}_SOF_All_Site_All_รายการทั้งหมด.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
+      triggerBlobDownload(zipBlob, `${taskLabel}_${year}_SOF_All_Site_All_รายการทั้งหมด.zip`);
     } catch (e) {
       console.error(e);
       alert('Error downloading images');
@@ -898,56 +1318,22 @@ function ReportPageContent() {
               title="Export data to CSV"
             >
               <Upload size={18} />
-              Export CSV
+              {selectedReportsArray.length > 0
+                ? `Export ${selectedReportsArray.length} selected`
+                : 'Export CSV'}
             </button>
-            <div className="relative">
-              <button
-                onClick={() => setShowSiteImageMenu(!showSiteImageMenu)}
-                disabled={loading || sofsWithImages.length === 0 || downloadingImages}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
-                title="Download files (images + PDFs) by SOF"
-              >
-                {downloadingImages && (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                )}
-                Download files 
-                <ChevronDown size={16} className={`transition-transform ${showSiteImageMenu ? 'rotate-180' : ''}`} />
-              </button>
-              {showSiteImageMenu && sofsWithImages.length > 0 && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowSiteImageMenu(false)} />
-                  <div className="absolute right-0 top-full mt-2 w-96 max-h-96 overflow-y-auto bg-white rounded-xl border border-slate-200 shadow-xl z-20 py-2">
-                    <button
-                      onClick={handleDownloadAllSites1Site1SOF}
-                      className="w-full px-4 py-3 text-left text-sm font-semibold text-blue-600 hover:bg-blue-50 flex items-center gap-2 border-b border-slate-100"
-                    >
-                      <Image size={16} />
-                      Download all (1 site 1 SOF)
-                    </button>
-                    <p className="px-4 py-2 text-xs font-semibold text-slate-500">Or select SOF (each row: Site location + Visit round)</p>
-                    {sofsWithImages.map(({ sofName, count, items }) => (
-                      <button
-                        key={sofName}
-                        onClick={() => handleDownloadImagesBySOF(sofName)}
-                        className="w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 flex flex-col gap-1"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-slate-800 truncate" title={sofName}>SOF: {sofName}</span>
-                          <span className="text-xs font-medium text-slate-500 shrink-0">{count} images</span>
-                        </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
-                          {items.map(({ siteName, visitDate }, idx) => (
-                            <span key={idx} className="truncate" title={`${siteName} | Visit: ${visitDate || '-'}`}>
-                              Site: {siteName}{visitDate ? ` | Visit: ${visitDate}` : ''}
-                            </span>
-                          ))}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </>
+            <button
+              onClick={openDownloadFilesModal}
+              disabled={loading || downloadSourceReports.length === 0 || downloadingImages}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+              title="Choose locations to download files"
+            >
+              {downloadingImages && (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               )}
-            </div>
+              <Download size={16} />
+              Download files
+            </button>
           </div>
         </div>
 
@@ -999,22 +1385,93 @@ function ReportPageContent() {
         ) : (
           <>
             <div className="space-y-4">
+              {/* Select / Clear for current page */}
+              <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={
+                        paginatedReports.length > 0 &&
+                        paginatedReports.every((r) => selectedReportIds.has(String(r.id)))
+                      }
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setSelectedReportIds((prev) => {
+                          const next = new Set(prev);
+                          paginatedReports.forEach((r) => {
+                            const id = String(r.id);
+                            if (checked) next.add(id);
+                            else next.delete(id);
+                          });
+                          return next;
+                        });
+                      }}
+                      className="rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                    />
+                    <span className="font-medium text-slate-600">Select all on page</span>
+                  </label>
+                  {selectedReportsArray.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedReportIds(new Set())}
+                      className="text-xs font-medium text-slate-500 hover:text-slate-700 hover:underline"
+                    >
+                      Clear selection ({selectedReportsArray.length})
+                    </button>
+                  )}
+                </div>
+                {selectedReportsArray.length > 0 && (
+                  <span className="text-xs text-slate-500">
+                    {selectedReportsArray.length} selected
+                  </span>
+                )}
+              </div>
+
               {paginatedReports.map((report: PMReport | MAReport) => {
                 const result = report[resultKey as keyof typeof report] as string;
                 const dateVal = report[dateKey as keyof typeof report] as string | undefined;
                 const isPM = tab === 'pm';
+                const isSelected = selectedReportIds.has(String(report.id));
                 return (
                   <div
                     key={report.id}
-                    onClick={() => setSelectedReport(report)}
-                    className="group bg-white/95 backdrop-blur-sm p-4 rounded-xl border border-slate-200/80 shadow-sm hover:shadow-lg hover:shadow-slate-200/50 hover:border-slate-300/80 transition-all duration-300 cursor-pointer"
+                    onClick={(e) => {
+                      // อย่าทริกเมื่อคลิก checkbox เอง
+                      if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return;
+                      setSelectedReport(report);
+                    }}
+                    className={`group bg-white/95 backdrop-blur-sm p-4 rounded-xl border shadow-sm hover:shadow-lg hover:shadow-slate-200/50 transition-all duration-300 cursor-pointer ${
+                      isSelected
+                        ? 'border-blue-400 ring-1 ring-blue-200'
+                        : 'border-slate-200/80 hover:border-slate-300/80'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <div className="pt-1">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              const id = String(report.id);
+                              setSelectedReportIds((prev) => {
+                                const next = new Set(prev);
+                                if (checked) next.add(id);
+                                else next.delete(id);
+                                return next;
+                              });
+                            }}
+                            className="rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <div className="flex-1 min-w-0">
                             <h3 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                               {(() => {
+                                if (tab === 'ma' && (report as MAReport).site_name?.trim()) return (report as MAReport).site_name!.trim();
                                 const site = report.device?.Sitename || getReportDevices(report)[0]?.Sitename;
                                 const loc = (report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2;
                                 const fallback = getReportDevices(report).map((d) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ') || '-';
@@ -1032,7 +1489,7 @@ function ReportPageContent() {
                             <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center shrink-0">
                               <User size={12} className="text-slate-500" />
                             </div>
-                            <span className="font-medium break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{report.technicianName || '-'}</span>
+                            <span className="font-medium break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{getEngineerDisplay(report)}</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center">
@@ -1052,28 +1509,17 @@ function ReportPageContent() {
                                   ? 'bg-amber-50 text-amber-700'
                                   : 'bg-red-50 text-red-700'
                             }`}>
-                              {result === 'pass' ? 'Pass' : result === 'warning' ? 'Warning' : 'Fail'}
+                              {result === 'pass' ? 'Completed' : result === 'warning' ? 'In Progress' : 'Pending'}
                             </span>
                           </div>
                         )}
                         </div>
-                        {/* Device name(s) และ Serial/File ใน card */}
+                        {/* จำนวนอุปกรณ์ที่ไปทำ และ File ใน card (ไม่โชว์ serial) */}
                         <div className="flex flex-wrap gap-3 text-xs text-slate-500 mb-2">
                           <div className="flex items-center gap-1.5">
-                            <MapPin size={12} className="text-slate-400" />
-                            <span className="break-words">
-                              {getReportDevices(report).map((d, i) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ')}
-                              {((report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2) && (
-                                <>, {(report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2}</>
-                              )}
-                            </span>
+                            <Cpu size={12} className="text-slate-400" />
+                            <span>{getReportDevices(report).length} Devices</span>
                           </div>
-                          {(report.device?.serial || getReportDevices(report).some(d => d.serial)) && (
-                            <div className="flex items-center gap-1.5">
-                              <Hash size={12} className="text-slate-400" />
-                              <span className="font-mono">{report.device?.serial || getReportDevices(report).map(d => d.serial).filter(Boolean).join(', ')}</span>
-                            </div>
-                          )}
                           {report.uploadedFiles && report.uploadedFiles.length > 0 && (
                             <div className="flex items-center gap-1.5">
                               <FileText size={12} className="text-slate-400" />
@@ -1121,6 +1567,7 @@ function ReportPageContent() {
                           </div>
                         )}
                       </div>
+                    </div>
                       <div className="text-right shrink-0">
                         <p className="text-[10px] text-slate-400">Created: {formatDate(report.createdAt)}</p>
                       </div>
@@ -1153,6 +1600,234 @@ function ReportPageContent() {
           </>
         )}
 
+        {isDownloadFilesModalOpen && (
+          <div
+            className="fixed inset-0 z-[210] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget && !downloadingImages) setIsDownloadFilesModalOpen(false);
+            }}
+          >
+            <div className="bg-white w-full max-w-5xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-violet-50 to-purple-50">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Download Files</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Choose locations to download files from {selectedReportsArray.length > 0 ? `${selectedReportsArray.length} selected report${selectedReportsArray.length > 1 ? 's' : ''}` : 'current filtered reports'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsDownloadFilesModalOpen(false)}
+                    disabled={downloadingImages}
+                    className="p-2 rounded-full hover:bg-white/70 transition-colors disabled:opacity-50"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                {(sofsWithImages.length > 0 || sitesWithImages.length > 0) && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleDownloadAllSites1Site1SOF}
+                      disabled={downloadingImages || downloadSourceReports.length === 0}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      <Image size={14} />
+                      Download all (1 site 1 SOF)
+                    </button>
+                  </div>
+                )}
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="flex-1">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Search</label>
+                    <div className="relative">
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        value={downloadSiteSearch}
+                        onChange={(e) => setDownloadSiteSearch(e.target.value)}
+                        placeholder="Search site or location..."
+                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                      />
+                    </div>
+                  </div>
+                  <div className="w-full sm:w-[220px]">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">SOF</label>
+                    <div className="relative">
+                      <select
+                        value={downloadSofFilter}
+                        onChange={(e) => setDownloadSofFilter(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                      >
+                        <option value="">All SOFs</option>
+                        {downloadSofOptions.map((sof) => (
+                          <option key={sof} value={sof}>{sof}</option>
+                        ))}
+                      </select>
+                      {downloadSofFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setDownloadSofFilter('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          title="Clear"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-full sm:w-[220px]">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Location</label>
+                    <div className="relative">
+                      <select
+                        value={downloadLocationFilter}
+                        onChange={(e) => setDownloadLocationFilter(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                      >
+                        <option value="">All locations</option>
+                        {downloadLocationOptions.map((loc) => (
+                          <option key={loc} value={loc}>{loc}</option>
+                        ))}
+                      </select>
+                      {downloadLocationFilter && (
+                        <button
+                          type="button"
+                          onClick={() => setDownloadLocationFilter('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          title="Clear"
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-full">
+                      <thead className="bg-slate-100 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Site</th>
+                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">
+                            <label className="inline-flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={downloadModalAllPageSelected}
+                                onChange={(e) => toggleDownloadSitePage(e.target.checked)}
+                                className="rounded border-slate-300"
+                              />
+                              <span>Location</span>
+                            </label>
+                          </th>
+                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Files</th>
+                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">SOFs</th>
+                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Visits</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {downloadModalSitePageGroups.map((group) => {
+                          const siteKeys = getDownloadLocationKeysBySite(group.siteName);
+                          const allSiteSelected = siteKeys.length > 0 && siteKeys.every((key) => downloadSiteSelected.has(key));
+                          return group.rows.map((row, index) => (
+                            <tr key={row.key} className="border-t border-slate-100 hover:bg-slate-50">
+                              {index === 0 && (
+                                <td rowSpan={group.rows.length} className="px-3 py-2 font-medium text-slate-800 align-top bg-white">
+                                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={allSiteSelected}
+                                      onChange={() => toggleDownloadSiteGroup(group.siteName)}
+                                      className="rounded border-slate-300 mt-0.5"
+                                    />
+                                    <span>{group.siteName}</span>
+                                  </label>
+                                </td>
+                              )}
+                              <td className="px-3 py-2 text-slate-600">
+                                <label className="inline-flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={downloadSiteSelected.has(row.key)}
+                                    onChange={() => toggleDownloadLocation(row.key)}
+                                    className="rounded border-slate-300"
+                                  />
+                                  <span>{row.location}</span>
+                                </label>
+                              </td>
+                              <td className="px-3 py-2 text-slate-600">{row.fileCount}</td>
+                              <td className="px-3 py-2 text-slate-600">{row.sofCount}</td>
+                              <td className="px-3 py-2 text-slate-600">{row.visitCount || '—'}</td>
+                            </tr>
+                          ));
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 flex-wrap text-sm text-slate-600">
+                  <span>{downloadModalSelectedCount} of {downloadModalLocationRows.length} locations selected</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDownloadModalPage((p) => Math.max(1, p - 1))}
+                      disabled={downloadModalCurrentPage <= 1}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft size={16} /> Previous page
+                    </button>
+                    <span>Page {downloadModalCurrentPage} / {downloadModalTotalPages}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDownloadModalPage((p) => Math.min(downloadModalTotalPages, p + 1))}
+                      disabled={downloadModalCurrentPage >= downloadModalTotalPages}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next page <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                {downloadModalTotal === 0 && (
+                  <p className="text-sm text-slate-500 text-center py-6">No locations match the current filter.</p>
+                )}
+
+              </div>
+
+              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-slate-50">
+                <button
+                  onClick={() => setIsDownloadFilesModalOpen(false)}
+                  disabled={downloadingImages}
+                  className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadSelectedSites}
+                  disabled={downloadModalSelectedCount === 0 || downloadingImages}
+                  className={`px-6 py-2 text-sm font-bold text-white rounded-lg transition-all flex items-center gap-2 ${
+                    downloadModalSelectedCount === 0 || downloadingImages ? 'bg-gray-300 cursor-not-allowed' : 'bg-violet-600 hover:bg-violet-700'
+                  }`}
+                >
+                  {downloadingImages ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Preparing download...
+                    </>
+                  ) : (
+                    `Download ${downloadModalSelectedCount} selected locations`
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Report detail modal - Portal above sidebar */}
         {selectedReport && typeof document !== 'undefined' && createPortal(
           <div
@@ -1179,9 +1854,14 @@ function ReportPageContent() {
                     <h2 className="text-xl font-bold text-slate-800">
                       {tab === 'pm' ? 'PM' : 'MA'} Report Details
                     </h2>
-                    <p className="text-sm text-slate-500 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                      {getReportDevices(selectedReport).map((d, i) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ')}
-                    </p>
+                    {tab === 'ma' && (selectedReport as MAReport).site_name?.trim() && (
+                      <p
+                        className="text-sm text-slate-500 break-words"
+                        style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
+                      >
+                        {(selectedReport as MAReport).site_name!.trim()}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <button
@@ -1194,20 +1874,24 @@ function ReportPageContent() {
 
               <div className="flex-1 overflow-y-auto p-8 space-y-8">
                 {/* Main info */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 min-w-0">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 min-w-0 text-center">
                     <p className="text-xs font-medium text-slate-500 mb-1">Technician</p>
-                    <p className="font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{selectedReport.technicianName || '-'}</p>
+                    <p className="text-sm font-semibold text-slate-800 break-words leading-snug" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{getEngineerDisplay(selectedReport)}</p>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                     <p className="text-xs font-medium text-slate-500 mb-1">{tab === 'pm' ? 'PM Date' : 'MA Date'}</p>
                     <p className="font-semibold text-slate-800">
                       {formatDate(tab === 'pm' ? (selectedReport as PMReport).pmDate : (selectedReport as MAReport).maDate)}
                     </p>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
+                    <p className="text-xs font-medium text-slate-500 mb-1">Number of Devices</p>
+                    <p className="font-semibold text-slate-800">{getReportDevices(selectedReport).length}</p>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                     <p className="text-xs font-medium text-slate-500 mb-1">{tab === 'pm' ? 'Status' : 'Result'}</p>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center gap-2">
                       {tab === 'pm' ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold text-white bg-emerald-500">
                           Done
@@ -1218,50 +1902,12 @@ function ReportPageContent() {
                             (selectedReport as MAReport).maResult === 'pass' ? 'bg-emerald-500' : 'bg-red-500'
                           }`}
                         >
-                          {(selectedReport as MAReport).maResult === 'pass' ? 'Pass' : 'Fail'}
+                          {(selectedReport as MAReport).maResult === 'pass' ? 'Completed' : 'Pending'}
                         </span>
                       )}
                     </div>
-                    </div>
-                </div>
-
-                {/* Devices — โชว์เป็นตาราง */}
-                {getReportDevices(selectedReport).length > 0 && (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-6">
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
-                        <Cpu size={20} className="text-slate-600" />
-                      </div>
-                      <h3 className="font-bold text-slate-800">Devices ({getReportDevices(selectedReport).length})</h3>
-                    </div>
-                    <div className="overflow-x-auto rounded-xl border border-slate-200">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200">
-                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Model</th>
-                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Asset</th>
-                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Serial</th>
-                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Site</th>
-                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Refer SOF</th>
-                            <th className="text-left py-3 px-4 font-semibold text-slate-700">Vendor</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {getReportDevices(selectedReport).map((d, idx) => (
-                            <tr key={idx} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                              <td className="py-3 px-4 text-slate-600 break-words">{d.model ?? (d as any).Model ?? (d as any).Manufacturername ?? '-'}</td>
-                              <td className="py-3 px-4 text-slate-600">{d.Asset_Number || '-'}</td>
-                              <td className="py-3 px-4 text-slate-600 font-mono">{d.serial || '-'}</td>
-                              <td className="py-3 px-4 text-slate-600 break-words">{d.Sitename || '-'}</td>
-                              <td className="py-3 px-4 text-slate-600 break-words">{d.Refer_SOF ?? (d as any).refer_sof ?? '-'}</td>
-                              <td className="py-3 px-4 text-slate-600 break-words">{(d as any).Vendor ?? (d as any).vendor ?? '-'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
                   </div>
-                )}
+                </div>
 
                 {/* MA: Contract Information */}
                 {tab === 'ma' && (() => {
@@ -1436,7 +2082,7 @@ function ReportPageContent() {
                           <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
                             <FileText size={20} className="text-indigo-600" />
                           </div>
-                          <h3 className="font-bold text-slate-800">Device Information</h3>
+                          <h3 className="font-bold text-slate-800">Information</h3>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                           {fields.map(({ label, key, icon }) => (

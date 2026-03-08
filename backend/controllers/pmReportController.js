@@ -4,6 +4,25 @@
 
 const db = require('../config/database');
 
+async function generateNextReportId() {
+  const [rows] = await db.execute(
+    `
+    SELECT
+      CASE
+        WHEN NOT EXISTS (SELECT 1 FROM report WHERE report_id = 1) THEN 1
+        ELSE (
+          SELECT MIN(r1.report_id + 1)
+          FROM report r1
+          LEFT JOIN report r2 ON r2.report_id = r1.report_id + 1
+          WHERE r2.report_id IS NULL
+        )
+      END AS nextId
+    `
+  );
+  const nextId = rows?.[0]?.nextId;
+  return nextId != null ? Number(nextId) : 1;
+}
+
 // แปลง pmResult (pass/warning/fail) เป็น status และ sla_result
 function mapResultToStatus(pmResult) {
   const r = (pmResult || '').toLowerCase();
@@ -38,18 +57,26 @@ const submitPmReport = async (req, res) => {
     const filePaths = JSON.stringify(files.filter((f) => f.type !== 'image'));
     const imagePaths = JSON.stringify(files.filter((f) => f.type === 'image'));
 
-    // report table ไม่มี task_type, created_at - ใช้ schema: report_id, id, file_path, image_path, sla_result, status
-    // report_id ไม่มี AUTO_INCREMENT จึงต้อง generate เอง
-    const [maxRows] = await db.execute(
-      `SELECT COALESCE(MAX(report_id), 0) + 1 AS nextId FROM report`
-    );
-    const reportId = maxRows[0]?.nextId ?? 1;
-
-    await db.execute(
-      `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [reportId, taskId, filePaths, imagePaths, sla_result, status]
-    );
+    // เลือก report_id ที่ว่างที่น้อยที่สุด (gap-filling)
+    let reportId = 1;
+    let inserted = false;
+    for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
+      reportId = await generateNextReportId();
+      try {
+        await db.execute(
+          `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [reportId, taskId, filePaths, imagePaths, sla_result, status]
+        );
+        inserted = true;
+      } catch (err) {
+        if (err.code === 'ER_DUP_ENTRY') continue;
+        throw err;
+      }
+    }
+    if (!inserted) {
+      throw new Error('Unable to generate a unique report_id, please try again');
+    }
     const reportData = {
       id: String(reportId),
       report_id: reportId,

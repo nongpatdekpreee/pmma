@@ -5,6 +5,25 @@
 
 const db = require('../config/database');
 
+async function generateNextReportId() {
+  const [rows] = await db.execute(
+    `
+    SELECT
+      CASE
+        WHEN NOT EXISTS (SELECT 1 FROM report WHERE report_id = 1) THEN 1
+        ELSE (
+          SELECT MIN(r1.report_id + 1)
+          FROM report r1
+          LEFT JOIN report r2 ON r2.report_id = r1.report_id + 1
+          WHERE r2.report_id IS NULL
+        )
+      END AS nextId
+    `
+  );
+  const nextId = rows?.[0]?.nextId;
+  return nextId != null ? Number(nextId) : 1;
+}
+
 // ถ้าได้ตัวเลข (sla_result) ใช้เกณฑ์ Pass/Fail
 // MA: อิงตาม sla_term จาก contract (ผ่าน task), PM: ใช้ 70
 function getStatusAndSlaResult(body, resultKey, slaThreshold = 70) {
@@ -99,27 +118,40 @@ const submitReport = async (req, res) => {
     const deviceJsonStr = device ? JSON.stringify(device) : null;
     const deviceIdVal = deviceId ? parseInt(deviceId, 10) : null;
 
-    const [maxRows] = await db.execute(
-      `SELECT COALESCE(MAX(report_id), 0) + 1 AS nextId FROM report`
-    );
-    const reportId = maxRows[0]?.nextId ?? 1;
-
-    try {
-      await db.execute(
-        `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status, checklist_items, comment, technician_name, pm_date, device_id, device_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [reportId, taskId, filePaths, imagePaths, sla_result, status, checklistItemsJson, comment || null, technicianName || null, pmDateVal, deviceIdVal, deviceJsonStr]
-      );
-    } catch (insertErr) {
-      if (insertErr.code === 'ER_BAD_FIELD_ERROR' || insertErr.message?.includes('Unknown column')) {
+    let reportId = 1;
+    let inserted = false;
+    for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
+      reportId = await generateNextReportId();
+      try {
         await db.execute(
-          `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [reportId, taskId, filePaths, imagePaths, sla_result, status]
+          `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status, checklist_items, comment, technician_name, pm_date, device_id, device_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [reportId, taskId, filePaths, imagePaths, sla_result, status, checklistItemsJson, comment || null, technicianName || null, pmDateVal, deviceIdVal, deviceJsonStr]
         );
-      } else {
-        throw insertErr;
+        inserted = true;
+      } catch (insertErr) {
+        // schema เก่าอาจไม่มีคอลัมน์เพิ่ม → fallback insert แบบสั้น
+        if (insertErr.code === 'ER_BAD_FIELD_ERROR' || insertErr.message?.includes('Unknown column')) {
+          try {
+            await db.execute(
+              `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              [reportId, taskId, filePaths, imagePaths, sla_result, status]
+            );
+            inserted = true;
+          } catch (fallbackErr) {
+            if (fallbackErr.code === 'ER_DUP_ENTRY') continue;
+            throw fallbackErr;
+          }
+        } else if (insertErr.code === 'ER_DUP_ENTRY') {
+          continue; // มีคนแทรก id เดียวกันพอดี → คำนวณใหม่
+        } else {
+          throw insertErr;
+        }
       }
+    }
+    if (!inserted) {
+      throw new Error('Unable to generate a unique report_id, please try again');
     }
 
     const reportData = {
@@ -229,7 +261,10 @@ const getReports = async (req, res) => {
               Sitename: firstAsset.site ?? firstAsset.Sitename,
             }
           : null;
-      const technicianName = r.technician_name || (firstEngineer ? (firstEngineer.name ?? firstEngineer.id ?? '') : null);
+      const fullNameFromEngineer = firstEngineer
+        ? `${firstEngineer.name ?? firstEngineer.id ?? ''} ${firstEngineer.lastName ?? ''}`.trim() || null
+        : null;
+      const technicianName = r.technician_name || fullNameFromEngineer;
       const reportDate = r.pm_date
         ? (typeof r.pm_date === 'string' ? r.pm_date : r.pm_date.toISOString?.()?.slice(0, 10))
         : (r.start_date ? (typeof r.start_date === 'string' ? r.start_date : r.start_date.toISOString?.()?.slice(0, 10)) : null);
@@ -241,6 +276,7 @@ const getReports = async (req, res) => {
         task_type: taskType,
         deviceId,
         device,
+        engineers,
         checklistItems: Array.isArray(checklistItems) ? checklistItems : [],
         comment: r.comment || undefined,
         uploadedFiles: [...file_path, ...image_path],

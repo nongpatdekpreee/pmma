@@ -76,6 +76,8 @@ const mapTaskRow = (row) => {
   reporterName: row.reporter_name,
   reporterTel: row.reporter_tel,
   ticket: row.ticket,
+  rootCause: row.root_cause,
+  resolution: row.resolution,
   ...(slaVal != null && slaVal !== '' ? { slaTerm: slaVal } : {}),
   coverageScope: row.coverage_scope,
   startDate: row.start_date,
@@ -114,6 +116,8 @@ const createTask = async (req, res) => {
       reporterName,
       reporterTel,
       ticket,
+      rootCause,
+      resolution,
       coverageScope,
       startDate,
       endDate,
@@ -154,8 +158,9 @@ const createTask = async (req, res) => {
       INSERT INTO tasks (
         id, task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name, vendor_tel
         , reporter_name, reporter_tel, ticket
+        , root_cause, resolution
         , coverage_scope, start_date, end_date, engineers, assets, asset_binding, status, actually_went, notes, photos
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const safeParseInt = (value) => {
@@ -176,6 +181,8 @@ const createTask = async (req, res) => {
       reporterName || null,
       reporterTel || null,
       ticket || null,
+      rootCause || null,
+      resolution || null,
       coverageScope || null,
       startDate,
       endDate,
@@ -278,6 +285,8 @@ const updateTask = async (req, res) => {
       reporterName,
       reporterTel,
       ticket,
+      rootCause,
+      resolution,
       coverageScope,
       startDate,
       endDate,
@@ -325,6 +334,8 @@ const updateTask = async (req, res) => {
     if (reporterName !== undefined) addUpdate('reporter_name', reporterName || null);
     if (reporterTel !== undefined) addUpdate('reporter_tel', reporterTel || null);
     if (ticket !== undefined) addUpdate('ticket', ticket || null);
+    if (rootCause !== undefined) addUpdate('root_cause', rootCause || null);
+    if (resolution !== undefined) addUpdate('resolution', resolution || null);
     if (coverageScope !== undefined) addUpdate('coverage_scope', coverageScope || null);
     // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
     if (existing[0].status !== 'done') {

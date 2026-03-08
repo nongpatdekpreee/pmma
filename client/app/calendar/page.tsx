@@ -2,7 +2,7 @@
 
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
-import { ChevronLeft, ChevronRight, X, FileCheck } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, FileCheck, FileX2 } from 'lucide-react';
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -51,6 +51,8 @@ interface CalendarEvent {
   reporterName?: string;
   reporterTel?: string;
   ticket?: string;
+  rootCause?: string;
+  resolution?: string;
   slaTerm?: string;
   duration?: string;
   assetBinding?: string;
@@ -163,6 +165,8 @@ export default function CalendarPage() {
       reporterName: task.reporterName || task.reporter_name,
       reporterTel: task.reporterTel || task.reporter_tel,
       ticket: task.ticket,
+      rootCause: task.rootCause || task.root_cause,
+      resolution: task.resolution,
       ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
       assetBinding: task.assetBinding || task.asset_binding,
@@ -999,8 +1003,13 @@ export default function CalendarPage() {
                                     {isDone && (
                                       <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                                     )}
+                                    {isDone && !hasReport && (
+                                      <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
+                                        <FileX2 size={12} strokeWidth={2.5} />
+                                      </span>
+                                    )}
                                     {hasReport && (
-                                      <span className="ml-1 flex-shrink-0 text-emerald-600" title="ทำรายงานแล้ว">
+                                      <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
                                         <FileCheck size={12} strokeWidth={2.5} />
                                       </span>
                                     )}
@@ -1095,8 +1104,13 @@ export default function CalendarPage() {
                         {isDone && (
                           <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                         )}
+                        {isDone && !hasReport && (
+                          <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
+                            <FileX2 size={12} strokeWidth={2.5} />
+                          </span>
+                        )}
                         {hasReport && (
-                          <span className="ml-1 flex-shrink-0 text-emerald-600" title="ทำรายงานแล้ว">
+                          <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
                             <FileCheck size={12} strokeWidth={2.5} />
                           </span>
                         )}
@@ -1138,15 +1152,21 @@ export default function CalendarPage() {
                   'bg-gray-100 text-gray-700'
                 }`}>
                   {hoveredEvent.status === 'done' ? 'Done' :
-                   hoveredEvent.status === 'working' ? 'Working' :
+                   hoveredEvent.status === 'working' ? 'In Process' :
                    hoveredEvent.status === 'stuck' ? 'Stuck' :
                    'Not Started'}
                 </span>
               )}
               {(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="ทำรายงานแล้ว">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="Reported">
                   <FileCheck size={12} strokeWidth={2.5} />
-                  ทำรายงานแล้ว
+                  Reported
+                </span>
+              )}
+              {hoveredEvent.status === 'done' && !(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700" title="No report">
+                  <FileX2 size={12} strokeWidth={2.5} />
+                  No report
                 </span>
               )}
             </div>
@@ -1309,6 +1329,9 @@ export default function CalendarPage() {
         onUpdate={handleTaskUpdate}
         reportLink={selectedTask && (selectedTask.taskType === 'MA' ? reportedMATaskIds.has(Number(selectedTask.id)) : reportedPMTaskIds.has(Number(selectedTask.id)))
           ? `/pmchecklist_report?tab=${selectedTask.taskType === 'MA' ? 'ma' : 'pm'}&taskId=${selectedTask.id}`
+          : null}
+        createReportLink={selectedTask && selectedTask.status === 'done' && !(selectedTask.taskType === 'MA' ? reportedMATaskIds.has(Number(selectedTask.id)) : reportedPMTaskIds.has(Number(selectedTask.id)))
+          ? (selectedTask.taskType === 'MA' ? '/machecklist_report/add' : '/pmchecklist_report/add')
           : null}
       />
       <ToastContainer toasts={toasts} onRemove={removeToast} />

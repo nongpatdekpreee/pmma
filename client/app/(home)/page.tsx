@@ -506,7 +506,7 @@ export default function DashboardPage() {
                   'bg-gray-100 text-gray-700'
                 }`}>
                   {hoveredEvent.status === 'done' ? 'Done' :
-                   hoveredEvent.status === 'working' ? 'Working' :
+                   hoveredEvent.status === 'working' ? 'In Process' :
                    hoveredEvent.status === 'stuck' ? 'Stuck' :
                    'Not Started'}
                 </span>
