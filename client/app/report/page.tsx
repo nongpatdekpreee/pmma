@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart,
   Bar,
@@ -8,7 +8,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
   PieChart,
   Pie,
@@ -29,18 +28,18 @@ import {
   Trophy,
   ArrowUpRight,
   ChevronRight,
-  Activity,
   BarChart3,
   Shield,
+  ChevronDown,
 } from 'lucide-react';
-import { getMaDashboard, getPmDashboard } from '@/lib/api';
+import { getMaDashboard, getPmDashboard, getDeviceRoles, getDeviceTypes, getSitesLocation } from '@/lib/api';
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['data']>;
 
 const EMPTY: DashboardData = {
   months: 6,
   range: { start: '', endExclusive: '' },
-  summary: { totalMA: 0, totalDone: 0, totalFailed: 0, totalPassed: 0, totalOverdue: 0, totalPending: 0, completionRate: 0, failRate: 0, topVendor: 'N/A', topVendorCount: 0, topEquipment: 'N/A', topEquipmentCount: 0 },
+  summary: { totalMA: 0, totalDone: 0, totalInprocess: 0, totalFailed: 0, totalPassed: 0, totalOverdue: 0, totalPending: 0, completionRate: 0, failRate: 0, topVendor: 'N/A', topVendorCount: 0, topEquipment: 'N/A', topEquipmentCount: 0 },
   monthlyMA: [],
   vendorRanking: [],
   siteRanking: [],
@@ -50,11 +49,11 @@ const EMPTY: DashboardData = {
 };
 
 const PIE_COLOR_BY_NAME: Record<string, string> = {
-  Pass: '#4ade80',
-  Fail: '#f87171',
-  Overdue: '#fbbf24',
+  Inprocess: '#fb923c',
   Pending: '#facc15',
   Done: '#10b981',
+  Complete: '#10b981',
+  Overdue: '#ef4444',
 };
 const PIE_COLOR_PM: Record<string, string> = {
   Done: '#10b981',
@@ -90,13 +89,77 @@ export default function ReportPage() {
   const [error, setError] = useState('');
   const [data, setData] = useState<DashboardData>(EMPTY);
   const [activeTab, setActiveTab] = useState<'vendor' | 'equipment' | 'site'>('vendor');
+  const [equipmentRoleFilter, setEquipmentRoleFilter] = useState<string | null>(null);
+  const [equipmentModelFilter, setEquipmentModelFilter] = useState<string | null>(null);
+  const [equipmentSiteFilter, setEquipmentSiteFilter] = useState<string | null>(null);
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [siteDropdownOpen, setSiteDropdownOpen] = useState(false);
+  const roleDropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const siteDropdownRef = useRef<HTMLDivElement>(null);
+  const [equipmentOrderBy, setEquipmentOrderBy] = useState<'total' | 'vendor'>('total');
+  const [deviceRolesList, setDeviceRolesList] = useState<{ DeRoleid: number; name: string }[]>([]);
+  const [deviceModelsList, setDeviceModelsList] = useState<{ Dtypeid: number; model: string }[]>([]);
+  const [sitesList, setSitesList] = useState<{ SLid: number; SiteName: string }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getDeviceRoles().then((res) => {
+      if (!cancelled && res?.success && Array.isArray(res.data)) setDeviceRolesList(res.data);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    getDeviceTypes().then((res) => {
+      if (!cancelled && res?.success && Array.isArray(res.data)) setDeviceModelsList(res.data);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    getSitesLocation().then((res) => {
+      if (!cancelled && res?.success && Array.isArray(res.data)) setSitesList(res.data);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!roleDropdownOpen) return;
+    const close = (e: MouseEvent) => {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) setRoleDropdownOpen(false);
+    };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [roleDropdownOpen]);
+  useEffect(() => {
+    if (!modelDropdownOpen) return;
+    const close = (e: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(e.target as Node)) setModelDropdownOpen(false);
+    };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [modelDropdownOpen]);
+  useEffect(() => {
+    if (!siteDropdownOpen) return;
+    const close = (e: MouseEvent) => {
+      if (siteDropdownRef.current && !siteDropdownRef.current.contains(e.target as Node)) setSiteDropdownOpen(false);
+    };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [siteDropdownOpen]);
 
   const months = useMemo(() => {
     if (timeFilter === '1 Month') return 1;
     if (timeFilter === '3 Months') return 3;
     if (timeFilter === '6 Months') return 6;
     if (timeFilter === '1 Year') return 12;
-    if (timeFilter === 'All Time') return 24;
+    if (timeFilter === '2 Years') return 24;
+    if (timeFilter === '3 Years') return 36;
+    if (timeFilter === '4 Years') return 48;
+    if (timeFilter === '5 Years') return 60;
+    if (timeFilter === 'All Time') return 120;
     return 6;
   }, [timeFilter]);
 
@@ -126,9 +189,31 @@ export default function ReportPage() {
     return () => { cancelled = true; };
   }, [months, reportType]);
 
-  const { summary, monthlyMA, vendorRanking, siteRanking, equipmentRanking, vendorReportStats } = data;
+  const { summary, monthlyMA, vendorRanking, siteRanking, equipmentRanking, range, months: dataMonths } = data;
+  const isMa = reportType === 'ma';
   const taskLabel = reportType === 'ma' ? 'MA' : 'PM';
   const equipmentLabel = reportType === 'ma' ? 'Most Repaired Equipment' : 'Most Serviced Equipment';
+  const maCompleteCount = Number(summary.totalPassed || 0) + Number(summary.totalFailed || 0);
+
+  const rangeLabel = useMemo(() => {
+    if (!range?.start || !range?.endExclusive) return null;
+    const startStr = range.start.split('T')[0];
+    const endStr = range.endExclusive.split('T')[0];
+    const [sy, sm] = startStr.split('-').map(Number);
+    const [ey, em] = endStr.split('-').map(Number);
+    const startDate = new Date(sy, sm - 1, 1);
+    const endDate = new Date(ey, em, 0);
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const fmt = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+    const n = dataMonths ?? 0;
+    const monthText = n === 1 ? '1 month' : `${n} months`;
+    return `${fmt(startDate)} - ${fmt(endDate)} (${monthText})`;
+  }, [range?.start, range?.endExclusive, dataMonths]);
+
+  const monthlyTrendData = monthlyMA.map((item) => ({
+    ...item,
+    complete: Number(item.reportPass || 0) + Number(item.reportFail || 0),
+  }));
 
   const pieData = reportType === 'pm'
     ? [
@@ -137,15 +222,46 @@ export default function ReportPage() {
         { name: 'Overdue', value: summary.totalOverdue },
       ].filter(d => d.value > 0)
     : [
-        { name: 'Pass', value: summary.totalPassed },
-        { name: 'Fail', value: summary.totalFailed },
-        { name: 'Overdue', value: summary.totalOverdue },
+        { name: 'Complete', value: maCompleteCount },
+        { name: 'Inprocess', value: summary.totalInprocess },
         { name: 'Pending', value: Math.max(0, summary.totalPending - summary.totalOverdue) },
+        { name: 'Overdue', value: summary.totalOverdue },
       ].filter(d => d.value > 0);
+
+  /** รายการ Role จาก DB (device_role) สำหรับ dropdown */
+  const equipmentRoles = useMemo(() => deviceRolesList.map((r) => r.name).filter(Boolean), [deviceRolesList]);
+  /** รายการ Model จาก DB (device_type) สำหรับ dropdown */
+  const equipmentModels = useMemo(() => deviceModelsList.map((m) => m.model).filter(Boolean), [deviceModelsList]);
+  /** รายการ Site จาก DB (sites/locations) - distinct SiteName */
+  const equipmentSites = useMemo(() => [...new Set(sitesList.map((s) => s.SiteName))].filter(Boolean).sort((a, b) => a.localeCompare(b)), [sitesList]);
+
+  const filteredEquipmentRanking = useMemo(() => {
+    let list = equipmentRanking;
+    if (equipmentRoleFilter) {
+      const want = equipmentRoleFilter.toLowerCase();
+      list = list.filter((e) => (e.role ?? '').toLowerCase() === want);
+    }
+    if (equipmentModelFilter) {
+      const want = equipmentModelFilter.toLowerCase();
+      list = list.filter((e) => (e.model ?? '').toLowerCase() === want);
+    }
+    if (equipmentSiteFilter) {
+      const want = equipmentSiteFilter.toLowerCase();
+      list = list.filter((e) => (e.site ?? '').toLowerCase() === want);
+    }
+    if (equipmentOrderBy === 'total') return list;
+    const key = equipmentOrderBy;
+    return [...list].sort((a, b) => {
+      const va = String((a as Record<string, unknown>)[key] ?? '').toLowerCase();
+      const vb = String((b as Record<string, unknown>)[key] ?? '').toLowerCase();
+      const cmp = va.localeCompare(vb);
+      return cmp !== 0 ? cmp : b.total - a.total;
+    });
+  }, [equipmentRanking, equipmentRoleFilter, equipmentModelFilter, equipmentSiteFilter, equipmentOrderBy]);
 
   const maxVendorTotal = vendorRanking.length > 0 ? vendorRanking[0].total : 1;
   const maxSiteTotal = siteRanking.length > 0 ? siteRanking[0].total : 1;
-  const maxEquipTotal = equipmentRanking.length > 0 ? equipmentRanking[0].total : 1;
+  const maxEquipTotal = filteredEquipmentRanking.length > 0 ? Math.max(...filteredEquipmentRanking.map((e) => e.total)) : 1;
 
   const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
@@ -156,7 +272,7 @@ export default function ReportPage() {
 
     const gen = new Date().toISOString().slice(0, 19).replace('T', ' ');
     lines.push(escape(`${taskLabel} Dashboard Report - Detailed Export (Generated: ${gen})`));
-    lines.push(escape(`Period: ${timeFilter}`));
+    lines.push(escape(`Period: ${rangeLabel ?? timeFilter}`));
     nl();
 
     // 1) Summary
@@ -164,12 +280,15 @@ export default function ReportPage() {
     row(['Metric', 'Value']);
     row([`Total ${taskLabel} Tasks`, String(summary.totalMA)]);
     row(['Total Done', String(summary.totalDone)]);
-    row(['Total Pass (Report)', String(summary.totalPassed)]);
-    if (reportType === 'ma') row(['Total Fail (Report)', String(summary.totalFailed)]);
-    row(['Total Overdue', String(summary.totalOverdue)]);
-    row(['Total Pending', String(summary.totalPending)]);
+    if (isMa) {
+      row(['Total Inprocess', String(summary.totalInprocess)]);
+      row(['Total Pending', String(summary.totalPending)]);
+    } else {
+      row(['Total Pass (Report)', String(summary.totalPassed)]);
+      row(['Total Overdue', String(summary.totalOverdue)]);
+      row(['Total Pending', String(summary.totalPending)]);
+    }
     row(['Completion Rate (%)', String(summary.completionRate)]);
-    if (reportType === 'ma') row(['Fail Rate (%)', String(summary.failRate)]);
     row(['Top MA Vendor', summary.topVendor]);
     row(['Top Vendor MA Count', String(summary.topVendorCount)]);
     row([equipmentLabel, summary.topEquipment]);
@@ -178,84 +297,76 @@ export default function ReportPage() {
 
     // 2) Monthly Trend
     lines.push(escape(`SECTION: Monthly ${taskLabel} Trend`));
-    if (reportType === 'pm') {
+    if (!isMa) {
       row(['Month', 'Total', 'Done', 'Pass', 'Overdue', 'Pending']);
       monthlyMA.forEach((m) => {
         row([m.month, String(m.total), String(m.done), String(m.reportPass), String(m.overdue), String(m.total - m.done)]);
       });
     } else {
-      row(['Month', 'Total', 'Done', 'Pass', 'Fail', 'Overdue', 'Pending']);
+      row(['Month', 'Total', 'Done', 'Inprocess', 'Pending']);
       monthlyMA.forEach((m) => {
-        row([m.month, String(m.total), String(m.done), String(m.reportPass), String(m.reportFail), String(m.overdue), String(m.total - m.done)]);
+        row([m.month, String(m.total), String(m.done), String(m.inprocess), String(m.pending)]);
       });
     }
     nl();
 
     // 3) Result Breakdown
     lines.push(escape(`SECTION: ${taskLabel} Result Breakdown`));
-    if (reportType === 'pm') {
+    if (!isMa) {
       row(['Done', 'Pending', 'Overdue']);
       row([String(summary.totalDone), String(Math.max(0, summary.totalPending - summary.totalOverdue)), String(summary.totalOverdue)]);
     } else {
-      row(['Pass', 'Fail', 'Overdue', 'Pending']);
-      row([String(summary.totalPassed), String(summary.totalFailed), String(summary.totalOverdue), String(Math.max(0, summary.totalPending - summary.totalOverdue))]);
+      row(['Complete', 'Inprocess', 'Pending', 'Overdue']);
+      row([String(maCompleteCount), String(summary.totalInprocess), String(Math.max(0, summary.totalPending - summary.totalOverdue)), String(summary.totalOverdue)]);
     }
     nl();
 
     // 4) Vendor Ranking
     lines.push(escape(`SECTION: Vendor Ranking (Top ${taskLabel} Vendors)`));
-    if (reportType === 'pm') {
+    if (!isMa) {
       row(['Rank', 'Vendor', 'Total', 'Done', 'Pass', 'Overdue', 'Completion Rate (%)']);
       vendorRanking.forEach((v, i) => {
         row([String(i + 1), v.vendor, String(v.total), String(v.done), String(v.reportPass), String(v.overdue), String(v.completionRate)]);
       });
     } else {
-      row(['Rank', 'Vendor', 'Total', 'Done', 'Pass', 'Fail', 'Overdue', 'Completion Rate (%)']);
+      row(['Rank', 'Vendor', 'Total', 'Done', 'Inprocess', 'Pending', 'Completion Rate (%)']);
       vendorRanking.forEach((v, i) => {
-        row([String(i + 1), v.vendor, String(v.total), String(v.done), String(v.reportPass), String(v.reportFail), String(v.overdue), String(v.completionRate)]);
+        row([String(i + 1), v.vendor, String(v.total), String(v.done), String(v.inprocess), String(v.pending), String(v.completionRate)]);
       });
     }
     nl();
 
     // 5) Site Ranking
     lines.push(escape(`SECTION: Site Ranking (Top ${taskLabel} Sites)`));
-    if (reportType === 'pm') {
+    if (!isMa) {
       row(['Rank', 'Site', 'Total', 'Done', 'Pass', 'Overdue', 'Completion Rate (%)']);
       siteRanking.forEach((s, i) => {
         row([String(i + 1), s.site, String(s.total), String(s.done), String(s.reportPass), String(s.overdue), String(s.completionRate)]);
       });
     } else {
-      row(['Rank', 'Site', 'Total', 'Done', 'Pass', 'Fail', 'Overdue', 'Completion Rate (%)']);
+      row(['Rank', 'Site', 'Total', 'Done', 'Inprocess', 'Pending', 'Completion Rate (%)']);
       siteRanking.forEach((s, i) => {
-        row([String(i + 1), s.site, String(s.total), String(s.done), String(s.reportPass), String(s.reportFail), String(s.overdue), String(s.completionRate)]);
+        row([String(i + 1), s.site, String(s.total), String(s.done), String(s.inprocess), String(s.pending), String(s.completionRate)]);
       });
     }
     nl();
 
-    // 6) Equipment Ranking (Most Repaired)
-    lines.push(escape(`SECTION: ${equipmentLabel} (Top 15)`));
-    if (reportType === 'pm') {
-      row(['Rank', 'Device Name', 'Model', 'Serial', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Pass']);
-      equipmentRanking.forEach((e, i) => {
-        row([String(i + 1), e.deviceName, e.model || '-', e.serial || '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.reportPass)]);
+    // 6) Equipment Ranking (Most Repaired) — respects Role filter
+    const exportEquipment = filteredEquipmentRanking.slice(0, 15);
+    const filterParts = [equipmentRoleFilter && `Role: ${equipmentRoleFilter}`, equipmentModelFilter && `Model: ${equipmentModelFilter}`, equipmentSiteFilter && `Site: ${equipmentSiteFilter}`].filter(Boolean);
+    lines.push(escape(`SECTION: ${equipmentLabel} (Top 15)${filterParts.length ? ` - ${filterParts.join(', ')}` : ''}`));
+    if (!isMa) {
+      row(['Rank', 'Model', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Pass']);
+      exportEquipment.forEach((e, i) => {
+        row([String(i + 1), e.model || '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.reportPass)]);
       });
     } else {
-      row(['Rank', 'Device Name', 'Model', 'Serial', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Pass', 'Fail']);
-      equipmentRanking.forEach((e, i) => {
-        row([String(i + 1), e.deviceName, e.model || '-', e.serial || '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.reportPass), String(e.reportFail)]);
+      row(['Rank', 'Model', 'Role', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Inprocess', 'Pending']);
+      exportEquipment.forEach((e, i) => {
+        row([String(i + 1), e.model || '-', e.role ?? '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.inprocess), String(e.pending)]);
       });
     }
     nl();
-
-    // 7) Vendor SLA Report (Pass/Fail Rate) - เฉพาะ MA
-    if (reportType === 'ma' && vendorReportStats.length > 0) {
-      lines.push(escape('SECTION: Vendor SLA Report (Pass/Fail Rate)'));
-      row(['Vendor', 'Total Reports', 'Pass', 'Fail', 'Pass Rate (%)']);
-      vendorReportStats.forEach((v) => {
-        row([v.vendor, String(v.totalReports), String(v.passReports), String(v.failReports), String(v.passRate)]);
-      });
-      nl();
-    }
 
     const csv = lines.join('\r\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -285,19 +396,30 @@ export default function ReportPage() {
             </div>
 
             <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
-              <Calendar size={16} className="text-slate-400" />
-              <select
-                value={timeFilter}
-                onChange={(e) => setTimeFilter(e.target.value)}
-                className="border-none outline-none text-sm font-medium text-slate-700 bg-transparent cursor-pointer"
-              >
-                <option>1 Month</option>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
+                <Calendar size={16} className="text-slate-400" />
+                <select
+                  value={timeFilter}
+                  onChange={(e) => setTimeFilter(e.target.value)}
+                  className="border-none outline-none text-sm font-medium text-slate-700 bg-transparent cursor-pointer"
+                >
+                  <option>1 Month</option>
                 <option>3 Months</option>
                 <option>6 Months</option>
                 <option>1 Year</option>
+                <option>2 Years</option>
+                <option>3 Years</option>
+                <option>4 Years</option>
+                <option>5 Years</option>
                 <option>All Time</option>
-              </select>
+                </select>
+              </div>
+              {rangeLabel && (
+                <div className="bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-slate-600">
+                  {rangeLabel}
+                </div>
+              )}
             </div>
             <button
               onClick={handleExport}
@@ -357,36 +479,17 @@ export default function ReportPage() {
             </div>
           </div>
 
-          {reportType === 'pm' ? (
-            <div className="bg-red-50/80 border border-red-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">Overdue</span>
-                <AlertTriangle size={16} className="text-red-500" />
-              </div>
-              <p className="text-3xl font-black text-red-700">{summary.totalOverdue.toLocaleString()}</p>
-              <div className="flex items-center gap-2 text-xs text-red-600">
-                <span>Overdue</span>
-                <span className="text-emerald-600">Done {summary.totalDone}</span>
-              </div>
+          <div className="bg-red-50/80 border border-red-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">Overdue</span>
+              <AlertTriangle size={16} className="text-red-500" />
             </div>
-          ) : (
-            <div className="bg-red-50/80 border border-red-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-red-500 uppercase tracking-wide">Fail</span>
-                <AlertTriangle size={16} className="text-red-400" />
-              </div>
-              <div className="flex items-baseline gap-2">
-                <p className="text-3xl font-black text-red-600">{summary.totalFailed.toLocaleString()}</p>
-                {summary.totalOverdue > 0 && (
-                  <p className="text-base font-bold text-amber-600">+{summary.totalOverdue} <span className="text-xs font-normal">overdue</span></p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs">
-                <span className="text-red-500">Fail rate {summary.failRate}%</span>
-                <span className="text-emerald-600">Pass {summary.totalPassed}</span>
-              </div>
+            <p className="text-3xl font-black text-red-700">{summary.totalOverdue.toLocaleString()}</p>
+            <div className="flex items-center gap-2 text-xs text-red-600">
+              <span>Past due tasks</span>
+              <span className="text-emerald-600">Done {summary.totalDone}</span>
             </div>
-          )}
+          </div>
 
           <div className="bg-violet-50/80 border border-violet-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -417,14 +520,23 @@ export default function ReportPage() {
               </h3>
               <div className="flex items-center gap-4 text-xs text-slate-500">
                 <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" /> Total</span>
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Done</span>
-                {reportType === 'ma' && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Fail</span>}
-                <span className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-sm ${reportType === 'pm' ? 'bg-red-400' : 'bg-amber-400'}`} /> Overdue</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Complete</span>
+                {isMa ? (
+                  <>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-400" /> Inprocess</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Overdue</span>
+                  </>
+                )}
               </div>
             </div>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyMA} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
+                <BarChart data={monthlyTrendData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
@@ -433,9 +545,18 @@ export default function ReportPage() {
                     labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
                   />
                   <Bar dataKey="total" fill="#3b82f6" name="Total" radius={[6, 6, 0, 0]} barSize={20} />
-                  <Bar dataKey="done" fill="#10b981" name="Done" radius={[6, 6, 0, 0]} barSize={20} />
-                  {reportType === 'ma' && <Bar dataKey="reportFail" fill="#ef4444" name="Fail" radius={[6, 6, 0, 0]} barSize={20} />}
-                  <Bar dataKey="overdue" fill={reportType === 'pm' ? '#ef4444' : '#f59e0b'} name="Overdue" radius={[6, 6, 0, 0]} barSize={20} />
+                  <Bar dataKey="complete" fill="#10b981" name="Complete" radius={[6, 6, 0, 0]} barSize={20} />
+                  {isMa ? (
+                    <>
+                      <Bar dataKey="inprocess" fill="#f97316" name="Inprocess" radius={[6, 6, 0, 0]} barSize={20} />
+                      <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
+                    </>
+                  ) : (
+                    <>
+                      <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
+                      <Bar dataKey="overdue" fill="#ef4444" name="Overdue" radius={[6, 6, 0, 0]} barSize={20} />
+                    </>
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -553,9 +674,17 @@ export default function ReportPage() {
                       <ProgressBar value={v.total} max={maxVendorTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-blue-300'} />
                       <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
                         <span className="text-emerald-600">Done {v.done}</span>
-                        {reportType === 'ma' && v.reportFail > 0 && <span className="text-red-500">Fail {v.reportFail}</span>}
-                        {v.reportPass > 0 && <span className="text-emerald-500">Pass {v.reportPass}</span>}
-                        {v.overdue > 0 && <span className={reportType === 'pm' ? 'text-red-500' : 'text-amber-600'}>Overdue {v.overdue}</span>}
+                        {isMa ? (
+                          <>
+                            <span className="text-orange-500">Inprocess {v.inprocess}</span>
+                            <span className="text-yellow-600">Pending {v.pending}</span>
+                          </>
+                        ) : (
+                          <>
+                            {v.reportPass > 0 && <span className="text-emerald-500">Pass {v.reportPass}</span>}
+                            {v.overdue > 0 && <span className="text-red-500">Overdue {v.overdue}</span>}
+                          </>
+                        )}
                         <span>{v.completionRate}%</span>
                       </div>
                     </div>
@@ -575,48 +704,161 @@ export default function ReportPage() {
               {equipmentLabel} (Top 15)
             </h3>
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[900px]">
                 <thead>
                   <tr className="border-b border-slate-100">
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-12">Rank</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Device Name</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Model</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Serial</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Vendor</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Site</th>
-                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Total {taskLabel}</th>
-                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Done</th>
-                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Pass</th>
-                    {reportType === 'ma' && <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">Fail</th>}
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-40">Ratio</th>
+                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Rank</th>
+                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[180px]">
+                      <div className="relative flex justify-center" ref={modelDropdownRef}>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setModelDropdownOpen((o) => !o); }}
+                          className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
+                        >
+                          Model <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${modelDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
+                        </button>
+                        {modelDropdownOpen && (
+                          <div className="absolute left-0 top-full mt-1 z-10 min-w-[140px] max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                            <button
+                              type="button"
+                              onClick={() => { setEquipmentModelFilter(null); setModelDropdownOpen(false); }}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentModelFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                            >
+                              All
+                            </button>
+                            {equipmentModels.map((model) => (
+                              <button
+                                key={model}
+                                type="button"
+                                onClick={() => { setEquipmentModelFilter(model); setModelDropdownOpen(false); }}
+                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 truncate ${equipmentModelFilter === model ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                              >
+                                {model}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </th>
+                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[90px]">
+                      <div className="relative flex justify-center" ref={roleDropdownRef}>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setRoleDropdownOpen((o) => !o); }}
+                          className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
+                        >
+                          Role <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${roleDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
+                        </button>
+                        {roleDropdownOpen && (
+                          <div className="absolute left-0 top-full mt-1 z-10 min-w-[120px] bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                            <button
+                              type="button"
+                              onClick={() => { setEquipmentRoleFilter(null); setRoleDropdownOpen(false); }}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentRoleFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                            >
+                              All
+                            </button>
+                            {equipmentRoles.map((role) => (
+                              <button
+                                key={role}
+                                type="button"
+                                onClick={() => { setEquipmentRoleFilter(role); setRoleDropdownOpen(false); }}
+                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 capitalize ${equipmentRoleFilter === role ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                              >
+                                {role}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:bg-slate-50 min-w-[160px] align-middle"
+                      onClick={() => setEquipmentOrderBy(equipmentOrderBy === 'vendor' ? 'total' : 'vendor')}
+                    >
+                      Vendor
+                    </th>
+                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[220px]">
+                      <div className="relative flex justify-center" ref={siteDropdownRef}>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setSiteDropdownOpen((o) => !o); }}
+                          className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
+                        >
+                          Site <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${siteDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
+                        </button>
+                        {siteDropdownOpen && (
+                          <div className="absolute left-0 top-full mt-1 z-10 min-w-[140px] max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                            <button
+                              type="button"
+                              onClick={() => { setEquipmentSiteFilter(null); setSiteDropdownOpen(false); }}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentSiteFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                            >
+                              All
+                            </button>
+                            {equipmentSites.map((site) => (
+                              <button
+                                key={site}
+                                type="button"
+                                onClick={() => { setEquipmentSiteFilter(site); setSiteDropdownOpen(false); }}
+                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 truncate ${equipmentSiteFilter === site ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                              >
+                                {site}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </th>
+                    <th
+                      className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:bg-slate-50 w-16 align-middle"
+                      onClick={() => setEquipmentOrderBy('total')}
+                    >
+                      Total {taskLabel}
+                    </th>
+                    <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Done</th>
+                    {isMa ? (
+                      <>
+                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Inprocess</th>
+                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-12 align-middle">Pending</th>
+                      </>
+                    ) : (
+                      <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Pass</th>
+                    )}
+                    <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-24 align-middle">Ratio</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {equipmentRanking.map((e, i) => (
+                  {filteredEquipmentRanking.slice(0, 15).map((e, i) => (
                     <tr key={e.deviceId + i} className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors ${i < 3 ? 'bg-red-50/30' : ''}`}>
-                      <td className="py-3 px-3"><RankBadge rank={i + 1} /></td>
-                      <td className="py-3 px-3">
-                        <span className="font-medium text-sm text-slate-700">{e.deviceName}</span>
+                      <td className="py-3 px-3 w-14 text-center"><RankBadge rank={i + 1} /></td>
+                      <td className="py-3 px-3 text-sm text-slate-400 whitespace-nowrap text-center" title={e.model || undefined}>{e.model || '-'}</td>
+                      <td className="py-3 px-3 text-center">
+                        <span className="text-sm text-slate-600 capitalize">{e.role ?? '-'}</span>
                       </td>
-                      <td className="py-3 px-3 text-sm text-slate-400">{e.model || '-'}</td>
-                      <td className="py-3 px-3 text-sm text-slate-400 font-mono text-xs">{e.serial || '-'}</td>
-                      <td className="py-3 px-3">
+                      <td className="py-3 px-3 text-center">
                         <span className="text-sm text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md">{e.vendor || '-'}</span>
                       </td>
-                      <td className="py-3 px-3 text-sm text-slate-400">{e.site || '-'}</td>
-                      <td className="py-3 px-3 text-center">
-                        <span className="text-sm font-bold text-slate-600 bg-blue-50 px-2 py-0.5 rounded-lg">{e.total}</span>
+                      <td className="py-3 px-3 text-sm text-slate-400 text-center" title={e.site || undefined}>{e.site || '-'}</td>
+                      <td className="py-3 px-2 text-center w-16">
+                        <span className="text-sm font-bold text-slate-600 bg-blue-50 px-1.5 py-0.5 rounded-lg">{e.total}</span>
                       </td>
-                      <td className="py-3 px-3 text-center text-sm font-medium text-slate-500">{e.done}</td>
-                      <td className="py-3 px-3 text-center text-sm font-medium text-emerald-600">{e.reportPass}</td>
-                      {reportType === 'ma' && <td className="py-3 px-3 text-center text-sm font-medium text-red-500">{e.reportFail}</td>}
-                      <td className="py-3 px-3">
+                      <td className="py-3 px-2 text-center text-sm font-medium text-slate-500 w-10">{e.done}</td>
+                      {isMa ? (
+                        <>
+                          <td className="py-3 px-2 text-center text-sm font-medium text-orange-500 w-14">{e.inprocess}</td>
+                          <td className="py-3 px-2 text-center text-sm font-medium text-yellow-600 w-12">{e.pending}</td>
+                        </>
+                      ) : (
+                        <td className="py-3 px-2 text-center text-sm font-medium text-emerald-600 w-10">{e.reportPass}</td>
+                      )}
+                      <td className="py-3 px-2 w-24 text-center">
                         <ProgressBar value={e.total} max={maxEquipTotal} color={i < 3 ? 'bg-red-400' : 'bg-blue-300'} />
                       </td>
                     </tr>
                   ))}
-                  {equipmentRanking.length === 0 && (
-                    <tr><td colSpan={reportType === 'pm' ? 10 : 11} className="text-center py-8 text-sm text-slate-400">No data available</td></tr>
+                  {filteredEquipmentRanking.length === 0 && (
+                    <tr><td colSpan={isMa ? 10 : 9} className="text-center py-8 text-sm text-slate-400">No data available</td></tr>
                   )}
                 </tbody>
               </table>
@@ -666,63 +908,23 @@ export default function ReportPage() {
                       <ProgressBar value={s.total} max={maxSiteTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-teal-300'} />
                       <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
                         <span className="text-emerald-600">Done {s.done}</span>
-                        {reportType === 'ma' && s.reportFail > 0 && <span className="text-red-500">Fail {s.reportFail}</span>}
-                        {s.reportPass > 0 && <span className="text-emerald-500">Pass {s.reportPass}</span>}
-                        {s.overdue > 0 && <span className={reportType === 'pm' ? 'text-red-500' : 'text-amber-600'}>Overdue {s.overdue}</span>}
+                        {isMa ? (
+                          <>
+                            <span className="text-orange-500">Inprocess {s.inprocess}</span>
+                            <span className="text-yellow-600">Pending {s.pending}</span>
+                          </>
+                        ) : (
+                          <>
+                            {s.reportPass > 0 && <span className="text-emerald-500">Pass {s.reportPass}</span>}
+                            {s.overdue > 0 && <span className="text-red-500">Overdue {s.overdue}</span>}
+                          </>
+                        )}
                         <span>{s.completionRate}%</span>
                       </div>
                     </div>
                   </div>
                 ))}
                 {siteRanking.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No data available</p>}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Vendor SLA Report - เฉพาะ MA (PM ไม่มี SLA) */}
-        {reportType === 'ma' && vendorReportStats.length > 0 && (
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
-              <Shield size={18} className="text-slate-400" />
-              Vendor SLA Report - Pass/Fail Rate
-            </h3>
-            <div className="grid grid-cols-2 gap-6">
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={vendorReportStats} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="vendor" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#b0b8c4' }} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#b0b8c4' }} />
-                    <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', color: '#475569', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} />
-                    <Legend />
-                    <Bar dataKey="passReports" fill="#10b981" name="Pass" radius={[4, 4, 0, 0]} stackId="a" />
-                    <Bar dataKey="failReports" fill="#ef4444" name="Fail" radius={[4, 4, 0, 0]} stackId="a" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-2">
-                {vendorReportStats.map((v) => (
-                  <div key={v.vendor} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/70">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-sm text-slate-700">{v.vendor}</span>
-                        <span className={`text-sm font-semibold px-2 py-0.5 rounded-md ${v.passRate >= 80 ? 'bg-emerald-100 text-emerald-700' : v.passRate >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-600'}`}>
-                          {v.passRate}% Pass
-                        </span>
-                      </div>
-                      <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden flex">
-                        <div className="h-full bg-emerald-400 transition-all" style={{ width: `${v.passRate}%` }} />
-                        <div className="h-full bg-red-400 transition-all" style={{ width: `${100 - v.passRate}%` }} />
-                      </div>
-                      <div className="flex gap-4 mt-1 text-xs text-slate-400">
-                        <span>Reports: {v.totalReports}</span>
-                        <span className="text-emerald-600">Pass: {v.passReports}</span>
-                        <span className="text-red-500">Fail: {v.failReports}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
@@ -760,7 +962,10 @@ export default function ReportPage() {
               {equipmentRanking.slice(0, 3).map((e, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <ChevronRight size={14} className="text-amber-500 mt-0.5 shrink-0" />
-                  <span><strong className="text-amber-700">{e.deviceName}</strong> - {e.total} {taskLabel} times {reportType === 'ma' && e.reportFail > 0 && <span className="text-red-500">(Fail {e.reportFail})</span>}</span>
+                  <span>
+                    <strong className="text-amber-700">{e.deviceName}</strong> - {e.total} {taskLabel} times
+                    {isMa && (e.inprocess > 0 || e.pending > 0) && <span className="text-orange-500"> (Inprocess {e.inprocess}, Pending {e.pending})</span>}
+                  </span>
                 </li>
               ))}
               {equipmentRanking.length === 0 && <li className="text-slate-400">No data available</li>}
@@ -779,7 +984,7 @@ export default function ReportPage() {
               </li>
               <li className="flex items-start gap-2">
                 <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
-                <span>Follow up with vendors that have high fail rates to improve SLA</span>
+                <span>{isMa ? 'Follow up MA tasks that remain in Inprocess or Pending for too long' : 'Follow up with vendors that have high fail rates to improve SLA'}</span>
               </li>
               <li className="flex items-start gap-2">
                 <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />

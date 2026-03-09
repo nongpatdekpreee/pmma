@@ -225,6 +225,8 @@ export default function AddPMReportPage() {
 
   // Device ที่เลือกได้ต้องมาจาก Task (assets + อุปกรณ์ที่เอามาแลกเปลี่ยน replacementDeviceId)
   const allowedDeviceIds = useMemo(() => {
+    // ยังไม่เลือก task → ไม่ต้องแสดงอะไรเลย
+    if (selectedTaskId == null) return new Set<string>();
     const ids = new Set<string>();
     const addTaskDevices = (task: any) => {
       task.assets?.forEach((a: any) => {
@@ -233,12 +235,8 @@ export default function AddPMReportPage() {
       });
       if (task.replacementDeviceId != null) ids.add(String(task.replacementDeviceId));
     };
-    if (selectedTaskId !== null) {
-      const task = availablePMTasks.find((t: any) => t.id === selectedTaskId);
-      if (task) addTaskDevices(task);
-    } else {
-      availablePMTasks.forEach(addTaskDevices);
-    }
+    const task = availablePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    if (task) addTaskDevices(task);
     return ids;
   }, [availablePMTasks, selectedTaskId]);
 
@@ -248,12 +246,62 @@ export default function AddPMReportPage() {
     return devices.filter((d) => allowedDeviceIds.has(String(d.Did)));
   }, [devices, allowedDeviceIds]);
 
+  const selectedTask = useMemo(() => {
+    if (selectedTaskId == null) return null;
+    return availablePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId)) ?? null;
+  }, [availablePMTasks, selectedTaskId]);
+
+  const selectedDevice = useMemo(() => {
+    if (!selectedDeviceId) return null;
+    return devices.find((d) => String(d.Did) === String(selectedDeviceId)) ?? null;
+  }, [devices, selectedDeviceId]);
+
+  const selectedTaskSiteName = useMemo(() => {
+    const t: any = selectedTask as any;
+    return (t?.siteName ?? t?.site_name ?? '').toString().trim();
+  }, [selectedTask]);
+
+  const selectedDeviceLocationName = useMemo(() => {
+    return (selectedDevice?.Location2 ?? '').toString().trim();
+  }, [selectedDevice]);
+
+  const selectedSiteDisplayName = useMemo(() => {
+    if (selectedTaskId == null) return '';
+    if (selectedTaskSiteName) return selectedTaskSiteName;
+    return (selectedDevice?.Sitename ?? '').toString().trim();
+  }, [selectedTaskId, selectedTaskSiteName, selectedDevice]);
+
+  const selectedLocationDisplayName = useMemo(() => {
+    if (selectedTaskId == null) return '';
+    const loc = selectedDeviceLocationName;
+    if (!loc) return '';
+    const site = selectedSiteDisplayName;
+    // กันค่าซ้ำ เช่น "Beer Thai Beer Thai"
+    if (site && site.toLowerCase().includes(loc.toLowerCase())) return '';
+    return loc;
+  }, [selectedTaskId, selectedDeviceLocationName, selectedSiteDisplayName]);
+
+  const selectedTaskSiteLocationLabel = useMemo(() => {
+    if (selectedTaskId == null) return '';
+    // ให้เป็น “อันเดียว” คือ site จาก task ที่เลือก (แล้วค่อยต่อ location ถ้ามี)
+    if (selectedTaskSiteName) {
+      return [selectedTaskSiteName, selectedLocationDisplayName].filter(Boolean).join(' ').trim();
+    }
+    // fallback: ถ้า task ไม่มี siteName ให้ใช้จาก device
+    const deviceSite = (selectedDevice?.Sitename ?? '').toString().trim();
+    return [deviceSite, selectedLocationDisplayName].filter(Boolean).join(' ').trim();
+  }, [selectedTaskId, selectedTaskSiteName, selectedLocationDisplayName, selectedDevice]);
+
   // เคลียร์ Device ที่เลือกถ้าไม่อยู่ในรายการที่อนุญาต (เมื่อเปลี่ยน Task)
   useEffect(() => {
+    if (selectedTaskId == null) {
+      setSelectedDeviceId('');
+      return;
+    }
     if (selectedDeviceId && allowedDevices.length > 0 && !allowedDevices.some((d) => d.Did.toString() === selectedDeviceId)) {
       setSelectedDeviceId('');
     }
-  }, [allowedDevices, selectedDeviceId]);
+  }, [selectedTaskId, allowedDevices, selectedDeviceId]);
 
   // เลือก device แรกอัตโนมัติเมื่อมี devices (หลังเลือก Task)
   useEffect(() => {
@@ -276,6 +324,21 @@ export default function AddPMReportPage() {
     return Number.isNaN(n) ? 70 : n;
   }, [availablePMTasks, selectedTaskId, contractSlaMap]);
 
+  // ใช้ local date เพื่อไม่ให้ timezone เลื่อนวัน (รับได้ทั้ง ISO และ YYYY-MM-DD)
+  const toYmd = (value: any): string => {
+    if (value == null) return '';
+    const s = String(value).trim();
+    if (!s) return '';
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return '';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   // ใช้ข้อมูลจาก Task ที่เลือก pre-fill form
   const applyTaskToForm = (task: any) => {
     setSelectedTaskId(task.id);
@@ -284,9 +347,15 @@ export default function AddPMReportPage() {
       const deviceId = getDeviceIdFromAsset(firstAsset);
       if (deviceId) setSelectedDeviceId(deviceId);
     }
-    if (task.startDate) setPmDate(task.startDate.split('T')[0]);
+    // PM date: ใช้ "วันที่กด Done" (updatedAt) ก่อน แล้วค่อย fallback เป็น startDate
+    const doneDate = toYmd(task.updatedAt ?? task.updated_at);
+    if (doneDate) setPmDate(doneDate);
+    else {
+      const start = toYmd(task.startDate ?? task.start_date);
+      if (start) setPmDate(start);
+    }
     const eng = task.engineers && task.engineers[0];
-    if (eng) setTechnicianName(eng.name || eng.id || '');
+    if (eng) setTechnicianName(`${eng.name || eng.id || ''} ${eng.lastName || ''}`.trim());
   };
 
   // Add new checklist item
@@ -362,12 +431,12 @@ export default function AddPMReportPage() {
       return;
     }
 
-
-    const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
+    const task: any = availablePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
 
     setSaving(true);
     try {
-      const siteName = (selectedDevice?.Sitename ?? '').toString().trim() || 'Unknown';
+      // ต้องเปลี่ยนตาม task ที่เราเลือก (ใช้ site_name จาก task ก่อน)
+      const siteName = (task?.siteName ?? task?.site_name ?? selectedDevice?.Sitename ?? '').toString().trim() || 'Unknown';
       const locationName = (selectedDevice?.Location2 ?? '').toString().trim() || 'Unknown';
       const safeForName = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
       const getExt = (name: string, type: string) => {
@@ -403,7 +472,7 @@ export default function AddPMReportPage() {
 
       const res = await postPmReport(reportData);
       if (res.success) {
-        alert('Save PM Checklist Report Success\n\nSent: ' + (res.list?.length ?? checklistItems.length) + ' items');
+        alert('Report successful\n\nSent: ' + (res.list?.length ?? checklistItems.length) + ' items');
         // Redirect back to list
         router.push('/pmchecklist_report');
       } else {
@@ -620,67 +689,38 @@ export default function AddPMReportPage() {
 
         {/* Main Form */}
         <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
-          {/* Device — โชว์ข้อมูล devices ของ Task ในตาราง (ไม่ต้องเลือก) */}
+          {/* Devices – แสดงเฉพาะจำนวนอุปกรณ์ ไม่ต้องโชว์ตาราง */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-3">
-              Devices 
+            <label className="block text-sm font-bold text-slate-700 mb-1">
+              Devices
             </label>
             {loadingDevices ? (
-              <p className="text-sm text-slate-500 py-4">Loading devices...</p>
+              <p className="text-sm text-slate-500 py-2">Loading devices...</p>
             ) : availablePMTasks.length > 0 && allowedDevices.length === 0 ? (
-              <p className="text-sm text-slate-500 py-4">Please select a task above first.</p>
+              <p className="text-sm text-slate-500 py-2">Please select a task above first.</p>
             ) : allowedDevices.length > 0 ? (
-              (() => {
-                const columns: { key: string; label: string }[] = [
-                  { key: 'CI_Name', label: 'CI Name' },
-                  { key: 'Asset_Number', label: 'Asset Number' },
-                  { key: 'serial', label: 'Serial' },
-                  { key: 'model', label: 'Model' },
-                  { key: 'Refer_SOF', label: 'SOF' },
-                  { key: 'Manufacturer', label: 'Manufacturer' },
-                  { key: 'Sitename', label: 'Site' },
-                  { key: 'Location2', label: 'Location' },
-                  { key: 'Vendor', label: 'Vendor' },
-                ];
-                const getVal = (d: Device, key: string) => {
-                  if (key === 'Location2') return (d as any).Location2 ?? (d as any).location2 ?? '-';
-                  if (key === 'Manufacturer') return (d as any).manufacturername ?? (d as any).Manufacturername ?? '-';
-                  const v = (d as any)[key];
-                  return v != null && v !== '' ? String(v) : '-';
-                };
-                return (
-                  <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto overflow-y-auto max-h-[260px]">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200">
-                          {columns.map(({ label }) => (
-                            <th key={label} className="text-left py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap">{label}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {allowedDevices.map((device) => {
-                          const isReplacement = selectedTaskId != null && availablePMTasks.find((t: any) => t.id === selectedTaskId)?.replacementDeviceId === device.Did;
-                          return (
-                            <tr key={device.Did} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                              {columns.map(({ key }) => (
-                                <td key={key} className="py-2.5 px-3 text-slate-800 break-words">
-                                  {getVal(device, key)}
-                                  {key === 'CI_Name' && isReplacement ? (
-                                    <span className="ml-1 text-xs text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Replacement</span>
-                                  ) : null}
-                                </td>
-                              ))}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+              <div className="py-2 space-y-1">
+                <p className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-700 text-xs">
+                    {allowedDevices.length}
+                  </span>
+                  <span>{allowedDevices.length === 1 ? 'Device' : 'Devices'}</span>
+                </p>
+                {selectedTaskId != null && (selectedSiteDisplayName || selectedLocationDisplayName) ? (
+                  <div className="space-y-0.5">
+                    <p className="text-base font-extrabold text-slate-900">
+                      {selectedSiteDisplayName}
+                    </p>
+                    {selectedLocationDisplayName ? (
+                      <p className="text-xs text-slate-500">
+                        {selectedLocationDisplayName}
+                      </p>
+                    ) : null}
                   </div>
-                );
-              })()
+                ) : null}
+              </div>
             ) : (
-              <p className="text-sm text-slate-500 py-4">No devices to show. Select a task above.</p>
+              <p className="text-sm text-slate-500 py-2">No devices to show. Select a task above.</p>
             )}
           </div>
 
@@ -688,13 +728,13 @@ export default function AddPMReportPage() {
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">
-                Technician *
+                Technician (ชื่อ-นามสกุล) *
               </label>
               <input
                 type="text"
                 value={technicianName}
                 onChange={(e) => setTechnicianName(e.target.value)}
-                placeholder="Enter technician name"
+                placeholder="กรอกชื่อ-นามสกุล"
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
             </div>

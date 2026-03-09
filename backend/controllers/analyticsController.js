@@ -301,18 +301,20 @@ const getSlaContracts = async (req, res) => {
 // Detailed MA dashboard: top equipment, top vendors, failure ranking, monthly MA counts
 const getMaDashboard = async (req, res) => {
   try {
-    const months = clampInt(req.query.months, { min: 1, max: 24, fallback: 6 });
+    const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
     const { start, endExclusive } = getRange(months);
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
 
-    // 1) Monthly MA task counts + report fail count (from report.status = 'Fail')
+    // 1) Monthly MA task counts by task status
     const [monthlyMA] = await db.execute(
       `SELECT
          DATE_FORMAT(t.start_date, '%Y-%m-01') AS month_start,
          COUNT(DISTINCT t.id) AS total,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
-         COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done') AND t.end_date < CURDATE() THEN t.id END) AS overdue,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) <> 'done' AND t.end_date < CURDATE() THEN t.id END) AS overdue,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done', 'working') AND (t.end_date IS NULL OR t.end_date >= CURDATE()) THEN t.id END) AS pending,
          COUNT(DISTINCT CASE WHEN r.status = 'Fail' THEN t.id END) AS report_fail,
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
@@ -347,13 +349,35 @@ const getMaDashboard = async (req, res) => {
       }
     }
     const deviceIdToVendor = {};
+    const deviceIdToModel = {};
+    const deviceIdToSerial = {};
+    const deviceIdToRole = {};
     if (deviceIdsFromTasks.size > 0) {
+      const ids = Array.from(deviceIdsFromTasks);
       const [deviceRows] = await db.execute(
-        `SELECT Did, COALESCE(NULLIF(TRIM(Vendor), ''), 'Unknown') AS vendor FROM devices WHERE Did IN (${Array.from(deviceIdsFromTasks).map(() => '?').join(',')})`,
-        Array.from(deviceIdsFromTasks)
+        `SELECT Did, COALESCE(NULLIF(TRIM(Vendor), ''), 'Unknown') AS vendor FROM devices WHERE Did IN (${ids.map(() => '?').join(',')})`,
+        ids
       );
       for (const d of deviceRows) {
         deviceIdToVendor[String(d.Did)] = d.vendor || 'Unknown';
+      }
+      const [deviceDetailRows] = await db.execute(
+        `SELECT d.Did, d.CI_Name, d.serial, r.name AS role_name
+         FROM devices d
+         LEFT JOIN device_role r ON r.DeRoleid = d.DeRoleid
+         WHERE d.Did IN (${ids.map(() => '?').join(',')})`,
+        ids
+      );
+      for (const d of deviceDetailRows) {
+        const sid = String(d.Did);
+        const ciName = d.CI_Name ? String(d.CI_Name).trim() : '';
+        deviceIdToSerial[sid] = d.serial ? String(d.serial).trim() : null;
+        deviceIdToRole[sid] = d.role_name ? String(d.role_name).trim() : null;
+        if (ciName && ciName.includes(' / ')) {
+          deviceIdToModel[sid] = ciName.split(' / ')[0].trim() || null;
+        } else {
+          deviceIdToModel[sid] = ciName || null;
+        }
       }
     }
     const vendorAgg = {};
@@ -365,11 +389,20 @@ const getMaDashboard = async (req, res) => {
       const firstId = Array.isArray(assets) && assets[0] != null ? (assets[0].id ?? assets[0].Did ?? assets[0].deviceId) : null;
       const vendor = firstId != null ? (deviceIdToVendor[String(firstId)] || 'Unknown') : 'Unknown';
       if (!vendorAgg[vendor]) {
-        vendorAgg[vendor] = { total: 0, done: 0, overdue: 0, report_fail: 0, report_pass: 0 };
+        vendorAgg[vendor] = { total: 0, done: 0, inprocess: 0, pending: 0, overdue: 0, report_fail: 0, report_pass: 0 };
       }
       vendorAgg[vendor].total++;
-      if ((row.task_status || '').toLowerCase() === 'done') vendorAgg[vendor].done++;
-      if ((row.task_status || '').toLowerCase() !== 'done' && row.end_date && new Date(row.end_date) < new Date()) vendorAgg[vendor].overdue++;
+      const taskStatus = (row.task_status || '').toLowerCase();
+      const hasReport = row.report_status != null;
+      if (taskStatus === 'done') {
+        vendorAgg[vendor].done++;
+        if (!hasReport) vendorAgg[vendor].inprocess++;
+      } else if (taskStatus === 'working') {
+        vendorAgg[vendor].inprocess++;
+      } else {
+        vendorAgg[vendor].pending++;
+      }
+      if (taskStatus !== 'done' && row.end_date && new Date(row.end_date) < new Date()) vendorAgg[vendor].overdue++;
       if (row.report_status === 'Fail') vendorAgg[vendor].report_fail++;
       if (row.report_status === 'Pass') vendorAgg[vendor].report_pass++;
     }
@@ -378,13 +411,15 @@ const getMaDashboard = async (req, res) => {
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
 
-    // 3) Site MA ranking (top 10) + report fail count
+    // 3) Site MA ranking (top 10) by task status
     const [siteMA] = await db.execute(
       `SELECT
          COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown') AS site,
          COUNT(DISTINCT t.id) AS total,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
-         COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done') AND t.end_date < CURDATE() THEN t.id END) AS overdue,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) <> 'done' AND t.end_date < CURDATE() THEN t.id END) AS overdue,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done', 'working') AND (t.end_date IS NULL OR t.end_date >= CURDATE()) THEN t.id END) AS pending,
          COUNT(DISTINCT CASE WHEN r.status = 'Fail' THEN t.id END) AS report_fail,
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
@@ -417,23 +452,39 @@ const getMaDashboard = async (req, res) => {
         const name = a.name || a.CI_Name || a.deviceName || 'Unknown Device';
         const id = a.id || a.Did || a.deviceId || name;
         const key = `${id}__${name}`;
-        const vendorFromDevice = id != null ? (deviceIdToVendor[String(id)] || null) : null;
+        const sid = id != null ? String(id) : null;
+        const vendorFromDevice = sid ? (deviceIdToVendor[sid] || null) : null;
+        const modelFromDb = sid ? (deviceIdToModel[sid] || null) : null;
+        const serialFromDb = sid ? (deviceIdToSerial[sid] || null) : null;
+        const roleFromDb = sid ? (deviceIdToRole[sid] || null) : null;
         if (!equipMap[key]) {
           equipMap[key] = {
             deviceId: String(id),
             deviceName: name,
-            model: a.model || a.deviceModel || null,
-            serial: a.serialNumber || a.serial || null,
+            model: a.model || a.deviceModel || modelFromDb || null,
+            serial: a.serialNumber || a.serial || serialFromDb || null,
+            role: roleFromDb,
             vendor: vendorFromDevice || (row.vendor_name || '').trim() || null,
             site: (row.site_name || '').trim() || null,
             total: 0,
             done: 0,
+            inprocess: 0,
+            pending: 0,
             reportFail: 0,
             reportPass: 0,
           };
         }
         equipMap[key].total++;
-        if ((row.task_status || '').toLowerCase() === 'done') equipMap[key].done++;
+        const taskStatus = (row.task_status || '').toLowerCase();
+        const hasReport = row.report_status != null;
+        if (taskStatus === 'done') {
+          equipMap[key].done++;
+          if (!hasReport) equipMap[key].inprocess++;
+        } else if (taskStatus === 'working') {
+          equipMap[key].inprocess++;
+        } else {
+          equipMap[key].pending++;
+        }
         if (row.report_status === 'Fail') equipMap[key].reportFail++;
         if (row.report_status === 'Pass') equipMap[key].reportPass++;
       }
@@ -487,10 +538,11 @@ const getMaDashboard = async (req, res) => {
     // 7) Overall summary - "failed" = report.status = 'Fail'
     const totalMA = monthlyMA.reduce((s, r) => s + Number(r.total), 0);
     const totalDone = monthlyMA.reduce((s, r) => s + Number(r.done), 0);
+    const totalInprocess = monthlyMA.reduce((s, r) => s + Number(r.inprocess || 0), 0);
     const totalReportFail = monthlyMA.reduce((s, r) => s + Number(r.report_fail), 0);
     const totalReportPass = monthlyMA.reduce((s, r) => s + Number(r.report_pass), 0);
     const totalOverdue = monthlyMA.reduce((s, r) => s + Number(r.overdue || 0), 0);
-    const totalPending = totalMA - totalDone;
+    const totalPending = monthlyMA.reduce((s, r) => s + Number(r.pending || 0), 0);
 
     const topVendor = vendorMA.length > 0 ? vendorMA[0].vendor : 'N/A';
     const topEquip = equipmentRanking.length > 0 ? equipmentRanking[0].deviceName : 'N/A';
@@ -503,6 +555,7 @@ const getMaDashboard = async (req, res) => {
         summary: {
           totalMA,
           totalDone,
+          totalInprocess,
           totalFailed: totalReportFail,
           totalPassed: totalReportPass,
           totalOverdue,
@@ -519,27 +572,32 @@ const getMaDashboard = async (req, res) => {
           monthKey: r.month_start,
           total: Number(r.total),
           done: Number(r.done),
+          inprocess: Number(r.inprocess || 0),
           reportFail: Number(r.report_fail),
           reportPass: Number(r.report_pass),
           overdue: Number(r.overdue || 0),
-          pending: Number(r.total) - Number(r.done),
+          pending: Number(r.pending || 0),
         })),
         vendorRanking: vendorMA.map(r => ({
           vendor: r.vendor,
           total: Number(r.total),
           done: Number(r.done),
+          inprocess: Number(r.inprocess || 0),
           reportFail: Number(r.report_fail),
           reportPass: Number(r.report_pass),
           overdue: Number(r.overdue || 0),
+          pending: Number(r.pending || 0),
           completionRate: Number(r.total) > 0 ? Math.round((Number(r.done) / Number(r.total)) * 100) : 0,
         })),
         siteRanking: siteMA.map(r => ({
           site: r.site,
           total: Number(r.total),
           done: Number(r.done),
+          inprocess: Number(r.inprocess || 0),
           reportFail: Number(r.report_fail),
           reportPass: Number(r.report_pass),
           overdue: Number(r.overdue || 0),
+          pending: Number(r.pending || 0),
           completionRate: Number(r.total) > 0 ? Math.round((Number(r.done) / Number(r.total)) * 100) : 0,
         })),
         equipmentRanking,
@@ -562,7 +620,7 @@ const getMaDashboard = async (req, res) => {
 // Same structure as MA dashboard but for task_type = 'PM'
 const getPmDashboard = async (req, res) => {
   try {
-    const months = clampInt(req.query.months, { min: 1, max: 24, fallback: 6 });
+    const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
     const { start, endExclusive } = getRange(months);
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
@@ -605,13 +663,33 @@ const getPmDashboard = async (req, res) => {
       }
     }
     const deviceIdToVendor = {};
+    const deviceIdToModel = {};
+    const deviceIdToRole = {};
     if (deviceIdsFromTasks.size > 0) {
+      const ids = Array.from(deviceIdsFromTasks);
       const [deviceRows] = await db.execute(
-        `SELECT Did, COALESCE(NULLIF(TRIM(Vendor), ''), 'Unknown') AS vendor FROM devices WHERE Did IN (${Array.from(deviceIdsFromTasks).map(() => '?').join(',')})`,
-        Array.from(deviceIdsFromTasks)
+        `SELECT Did, COALESCE(NULLIF(TRIM(Vendor), ''), 'Unknown') AS vendor FROM devices WHERE Did IN (${ids.map(() => '?').join(',')})`,
+        ids
       );
       for (const d of deviceRows) {
         deviceIdToVendor[String(d.Did)] = d.vendor || 'Unknown';
+      }
+      const [deviceDetailRows] = await db.execute(
+        `SELECT d.Did, d.CI_Name, d.serial, r.name AS role_name
+         FROM devices d
+         LEFT JOIN device_role r ON r.DeRoleid = d.DeRoleid
+         WHERE d.Did IN (${ids.map(() => '?').join(',')})`,
+        ids
+      );
+      for (const d of deviceDetailRows) {
+        const sid = String(d.Did);
+        const ciName = d.CI_Name ? String(d.CI_Name).trim() : '';
+        deviceIdToRole[sid] = d.role_name ? String(d.role_name).trim() : null;
+        if (ciName && ciName.includes(' / ')) {
+          deviceIdToModel[sid] = ciName.split(' / ')[0].trim() || null;
+        } else {
+          deviceIdToModel[sid] = ciName || null;
+        }
       }
     }
     const vendorAgg = {};
@@ -673,23 +751,30 @@ const getPmDashboard = async (req, res) => {
         const name = a.name || a.CI_Name || a.deviceName || 'Unknown Device';
         const id = a.id || a.Did || a.deviceId || name;
         const key = `${id}__${name}`;
-        const vendorFromDevice = id != null ? (deviceIdToVendor[String(id)] || null) : null;
+        const sid = id != null ? String(id) : null;
+        const vendorFromDevice = sid ? (deviceIdToVendor[sid] || null) : null;
+        const modelFromDb = sid ? (deviceIdToModel[sid] || null) : null;
+        const roleFromDb = sid ? (deviceIdToRole[sid] || null) : null;
         if (!equipMap[key]) {
           equipMap[key] = {
             deviceId: String(id),
             deviceName: name,
-            model: a.model || a.deviceModel || null,
+            model: a.model || a.deviceModel || modelFromDb || null,
             serial: a.serialNumber || a.serial || null,
+            role: roleFromDb,
             vendor: vendorFromDevice || (row.vendor_name || '').trim() || null,
             site: (row.site_name || '').trim() || null,
             total: 0,
             done: 0,
+            inprocess: 0,
+            pending: 0,
             reportFail: 0,
             reportPass: 0,
           };
         }
         equipMap[key].total++;
         if ((row.task_status || '').toLowerCase() === 'done') equipMap[key].done++;
+        else equipMap[key].pending++;
         if (row.report_status === 'Fail') equipMap[key].reportFail++;
         if (row.report_status === 'Pass') equipMap[key].reportPass++;
       }
@@ -756,6 +841,7 @@ const getPmDashboard = async (req, res) => {
         summary: {
           totalMA,
           totalDone,
+          totalInprocess: 0,
           totalFailed: totalReportFail,
           totalPassed: totalReportPass,
           totalOverdue,
@@ -772,6 +858,7 @@ const getPmDashboard = async (req, res) => {
           monthKey: r.month_start,
           total: Number(r.total),
           done: Number(r.done),
+          inprocess: 0,
           reportFail: Number(r.report_fail),
           reportPass: Number(r.report_pass),
           overdue: Number(r.overdue || 0),
@@ -781,18 +868,22 @@ const getPmDashboard = async (req, res) => {
           vendor: r.vendor,
           total: Number(r.total),
           done: Number(r.done),
+          inprocess: 0,
           reportFail: Number(r.report_fail),
           reportPass: Number(r.report_pass),
           overdue: Number(r.overdue || 0),
+          pending: Math.max(0, Number(r.total) - Number(r.done)),
           completionRate: Number(r.total) > 0 ? Math.round((Number(r.done) / Number(r.total)) * 100) : 0,
         })),
         siteRanking: siteMA.map(r => ({
           site: r.site,
           total: Number(r.total),
           done: Number(r.done),
+          inprocess: 0,
           reportFail: Number(r.report_fail),
           reportPass: Number(r.report_pass),
           overdue: Number(r.overdue || 0),
+          pending: Math.max(0, Number(r.total) - Number(r.done)),
           completionRate: Number(r.total) > 0 ? Math.round((Number(r.done) / Number(r.total)) * 100) : 0,
         })),
         equipmentRanking,

@@ -1,0 +1,4 @@
+ALTER TABLE tasks
+  ADD COLUMN root_cause TEXT DEFAULT NULL AFTER ticket,
+  ADD COLUMN resolution TEXT DEFAULT NULL AFTER root_cause;
+
