@@ -276,7 +276,7 @@ const EmployeeManagement = () => {
     }
   };
 
-  // Parse CSV: expects header name,gmail,tel,positionType,employmentType (or no header, columns in order)
+  // Parse CSV: accepts readable headers or no header if columns stay in order
   const parseCSV = (text: string): Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> => {
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (lines.length === 0) return [];
@@ -296,18 +296,20 @@ const EmployeeManagement = () => {
     return rows;
   };
 
+  const normalizeHeader = (value: string) => value.toLowerCase().replace(/[\s_-]/g, "");
+
   const rowsFromSheetData = (jsonData: any[][]): Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> => {
     if (!jsonData || jsonData.length === 0) return [];
     const rows: Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> = [];
     const firstRow = (jsonData[0] || []).map((c: any) => String(c ?? "").trim());
-    const firstRowLower = firstRow.map((c) => c.toLowerCase().replace(/\s/g, ""));
+    const firstRowLower = firstRow.map((c) => normalizeHeader(c));
     const hasHeader = firstRowLower.some((c) => c === "name") && (firstRowLower.some((c) => c === "gmail") || firstRowLower.some((c) => c === "email"));
     const start = hasHeader ? 1 : 0;
 
-    const nameIdx = hasHeader ? firstRowLower.findIndex((c) => /^name$/i.test(c.replace(/\s/g, ""))) : 0;
-    const gmailIdx = hasHeader ? firstRowLower.findIndex((c) => /^(gmail|email)$/i.test(c.replace(/\s/g, ""))) : 1;
-    const telIdx = hasHeader ? firstRowLower.findIndex((c) => /^(tel|phone)$/i.test(c.replace(/\s/g, ""))) : 2;
-    const positionIdx = hasHeader ? firstRowLower.findIndex((c) => /position/i.test(c.replace(/\s/g, "")) && !/employment/i.test(c)) : 3;
+    const nameIdx = hasHeader ? firstRowLower.findIndex((c) => c === "name") : 0;
+    const gmailIdx = hasHeader ? firstRowLower.findIndex((c) => c === "gmail" || c === "email") : 1;
+    const telIdx = hasHeader ? firstRowLower.findIndex((c) => c === "tel" || c === "phone" || c === "phonenumber") : 2;
+    const positionIdx = hasHeader ? firstRowLower.findIndex((c) => c.includes("position") && !c.includes("employment")) : 3;
     const employmentIdx = hasHeader ? firstRowLower.findIndex((c) => /employment/i.test(c.replace(/\s/g, ""))) : 4;
 
     const safe = (row: any[], i: number, d: string) => (i >= 0 && i < (row || []).length ? String(row[i] ?? "").trim() : "") || d;
@@ -327,16 +329,16 @@ const EmployeeManagement = () => {
   const rowsFromSheetObjects = (objData: Record<string, any>[]): Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> => {
     const rows: Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> = [];
     const getVal = (obj: Record<string, any>, ...candidates: string[]) => {
-      const lower = candidates.map((c) => c.toLowerCase().replace(/\s/g, ""));
-      const k = Object.keys(obj || {}).find((k) => lower.includes(k.trim().toLowerCase().replace(/\s/g, "")));
+      const lower = candidates.map((c) => normalizeHeader(c));
+      const k = Object.keys(obj || {}).find((k) => lower.includes(normalizeHeader(k.trim())));
       return k != null ? String(obj[k] ?? "").trim() : "";
     };
     for (const obj of objData) {
       const name = getVal(obj, "name");
       const gmail = getVal(obj, "gmail", "email");
-      const tel = (getVal(obj, "tel", "phone") || "").replace(/\s/g, "");
-      const positionType = getVal(obj, "positiontype", "position type") || "Technical";
-      const employmentType = getVal(obj, "employmenttype", "employment type") || "Full-Time";
+      const tel = (getVal(obj, "tel", "phone", "phone_number") || "").replace(/\s/g, "");
+      const positionType = getVal(obj, "positiontype", "position type", "position_type") || "Technical";
+      const employmentType = getVal(obj, "employmenttype", "employment type", "employment_type") || "Full-Time";
       if (name || gmail || tel) rows.push({ name, gmail, tel, positionType: positionType || "Technical", employmentType: employmentType || "Full-Time" });
     }
     return rows;
@@ -389,7 +391,7 @@ const EmployeeManagement = () => {
       setImportRows(rows);
     } catch (err) {
       console.error(err);
-      alert("Failed to parse file. Check format (columns: name, gmail, tel, positionType, employmentType).");
+      alert("Failed to parse file. Check format (columns: Name, Email, Phone_Number, Position_Type, Employment_Type).");
     } finally {
       setImportParsing(false);
     }
@@ -491,7 +493,7 @@ const EmployeeManagement = () => {
   };
 
   const downloadEmployeeTemplate = () => {
-    const header = ["name", "gmail", "tel", "positionType", "employmentType"];
+    const header = ["Name", "Email", "Phone_Number", "Position_Type", "Employment_Type"];
     const exampleRow = [" Nena nana", "exampletcc-technology.com", "0812345678", "Technical", "Full-Time"];
     const ws = XLSX.utils.aoa_to_sheet([header, exampleRow]);
     const wb = XLSX.utils.book_new();
@@ -925,16 +927,16 @@ const EmployeeManagement = () => {
                         </span>
                       </div>
                       <div className="text-xs text-blue-700 space-y-1">
-                        <p><strong>Required columns:</strong></p>
+                        <p><strong>Required columns in the file:</strong></p>
                         <ul className="ml-4 list-disc space-y-0.5">
-                          <li><strong>name</strong> — Employee name</li>
-                          <li><strong>gmail</strong> — Email</li>
-                          <li><strong>tel</strong> — Phone number</li>
-                          <li><strong>positionType</strong> — Technical or Management</li>
-                          <li><strong>employmentType</strong> — e.g. Full-Time, Contract, Part-time</li>
+                          <li><strong>Name</strong> = employee name</li>
+                          <li><strong>Email</strong> = email address</li>
+                          <li><strong>Phone_Number</strong> = phone number</li>
+                          <li><strong>Position_Type</strong> = Technical or Management</li>
+                          <li><strong>Employment_Type</strong> = Full-Time, Contract, or Part-time</li>
                         </ul>
                         <p className="mt-2 text-[10px] text-blue-600">
-                          <strong>Note:</strong> The first row can be a header.
+                          <strong>Note:</strong> If your file includes a header row, use these exact column names: <strong>Name</strong>, <strong>Email</strong>, <strong>Phone_Number</strong>, <strong>Position_Type</strong>, and <strong>Employment_Type</strong>.
                         </p>
                       </div>
                     </div>

@@ -70,7 +70,7 @@ export default function AddMAReportPage() {
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [maResult, setMaResult] = useState<'pass' | 'fail' | ''>('');
+  const maResult: 'pass' = 'pass';
   const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
   const [maDate, setMaDate] = useState(new Date().toISOString().split('T')[0]);
@@ -239,7 +239,7 @@ export default function AddMAReportPage() {
     }
     if (task.startDate) setMaDate(task.startDate.split('T')[0]);
     const eng = task.engineers && task.engineers[0];
-    if (eng) setTechnicianName(eng.name || eng.id || '');
+    if (eng) setTechnicianName(`${eng.name || eng.id || ''} ${eng.lastName || ''}`.trim());
   };
 
   // sla_term จาก Contract (ผ่าน Task ที่เลือก) ใช้เป็นเกณฑ์ Pass/Fail
@@ -328,15 +328,6 @@ export default function AddMAReportPage() {
       alert('Please select a device.');
       return;
     }
-    if (!maResult) {
-      alert('Please select MA Result (Pass or Fail).');
-      return;
-    }
-    if (maResult === 'fail' && comment.trim() === '') {
-      alert('Please enter reason in Notes when result is Fail.');
-      return;
-    }
-
     const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
 
     setSaving(true);
@@ -799,13 +790,13 @@ export default function AddMAReportPage() {
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">
-                Technician *
+                Technician (ชื่อ-นามสกุล) *
               </label>
               <input
                 type="text"
                 value={technicianName}
                 onChange={(e) => setTechnicianName(e.target.value)}
-                placeholder="Enter technician name"
+                placeholder="กรอกชื่อ-นามสกุล"
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
             </div>
@@ -894,41 +885,19 @@ export default function AddMAReportPage() {
             )}
           </div>
 
-          {/* MA Result - Pass / Fail */}
+          {/* MA Result - Complete */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-slate-700 mb-3">
               MA Result *
             </label>
             <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setMaResult('pass')}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
-                  maResult === 'pass'
-                    ? 'bg-emerald-500 text-white border-emerald-500 shadow-sm'
-                    : 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50'
-                }`}
-              >
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border bg-emerald-500 text-white border-emerald-500 shadow-sm">
                 <CheckCircle2 size={16} />
-                Pass
-              </button>
-              <button
-                type="button"
-                onClick={() => setMaResult('fail')}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
-                  maResult === 'fail'
-                    ? 'bg-red-500 text-white border-red-500 shadow-sm'
-                    : 'bg-white text-red-600 border-red-200 hover:bg-red-50'
-                }`}
-              >
-                <XCircle size={16} />
-                Fail
-              </button>
-              {maResult === 'fail' && (
-                <span className="text-xs text-red-500">
-                  Please fill in the reason in Notes below.
-                </span>
-              )}
+                Complete
+              </div>
+              <span className="text-xs text-slate-500">
+                Saved automatically as complete.
+              </span>
             </div>
           </div>
 

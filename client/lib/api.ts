@@ -112,6 +112,24 @@ export async function getMaPmAnalytics(params?: { months?: number }): Promise<{
   return res.json();
 }
 
+/** GET /api/device-roles - รายการ Role จากตาราง device_role (switch, router, server ฯลฯ) */
+export async function getDeviceRoles(): Promise<{
+  success: boolean;
+  data?: { DeRoleid: number; name: string; slug?: string; color?: string; device_count?: number }[];
+}> {
+  const res = await fetch(apiUrl('/api/device-roles'));
+  return parseJsonResponse(res, { success: false, data: [] });
+}
+
+/** GET /api/device-types - รายการ Model จากตาราง device_type */
+export async function getDeviceTypes(): Promise<{
+  success: boolean;
+  data?: { Dtypeid: number; model: string; slug?: string; u_height?: number; Mid?: number; manufacturer_name?: string; device_count?: number }[];
+}> {
+  const res = await fetch(apiUrl('/api/device-types'));
+  return parseJsonResponse(res, { success: false, data: [] });
+}
+
 /** GET /api/analytics/ma-dashboard - ข้อมูล MA Dashboard แบบละเอียด */
 export async function getMaDashboard(params?: { months?: number }): Promise<{
   success: boolean;
@@ -121,6 +139,7 @@ export async function getMaDashboard(params?: { months?: number }): Promise<{
     summary: {
       totalMA: number;
       totalDone: number;
+      totalInprocess: number;
       totalFailed: number;
       totalPassed: number;
       totalOverdue: number;
@@ -132,18 +151,21 @@ export async function getMaDashboard(params?: { months?: number }): Promise<{
       topEquipment: string;
       topEquipmentCount: number;
     };
-    monthlyMA: Array<{ month: string; monthKey: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; pending: number }>;
-    vendorRanking: Array<{ vendor: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; completionRate: number }>;
-    siteRanking: Array<{ site: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; completionRate: number }>;
+    monthlyMA: Array<{ month: string; monthKey: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number }>;
+    vendorRanking: Array<{ vendor: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number; completionRate: number }>;
+    siteRanking: Array<{ site: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number; completionRate: number }>;
     equipmentRanking: Array<{
       deviceId: string;
       deviceName: string;
       model: string | null;
       serial: string | null;
+      role?: string | null;
       vendor: string | null;
       site: string | null;
       total: number;
       done: number;
+      inprocess: number;
+      pending: number;
       reportFail: number;
       reportPass: number;
     }>;
@@ -168,6 +190,7 @@ export async function getPmDashboard(params?: { months?: number }): Promise<{
     summary: {
       totalMA: number;
       totalDone: number;
+      totalInprocess: number;
       totalFailed: number;
       totalPassed: number;
       totalOverdue: number;
@@ -179,18 +202,21 @@ export async function getPmDashboard(params?: { months?: number }): Promise<{
       topEquipment: string;
       topEquipmentCount: number;
     };
-    monthlyMA: Array<{ month: string; monthKey: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; pending: number }>;
-    vendorRanking: Array<{ vendor: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; completionRate: number }>;
-    siteRanking: Array<{ site: string; total: number; done: number; reportFail: number; reportPass: number; overdue: number; completionRate: number }>;
+    monthlyMA: Array<{ month: string; monthKey: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number }>;
+    vendorRanking: Array<{ vendor: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number; completionRate: number }>;
+    siteRanking: Array<{ site: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number; completionRate: number }>;
     equipmentRanking: Array<{
       deviceId: string;
       deviceName: string;
       model: string | null;
       serial: string | null;
+      role?: string | null;
       vendor: string | null;
       site: string | null;
       total: number;
       done: number;
+      inprocess: number;
+      pending: number;
       reportFail: number;
       reportPass: number;
     }>;

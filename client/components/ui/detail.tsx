@@ -11,6 +11,7 @@ interface Device {
   name: string;
   
   type: string;
+  role?: string;
   serialNumber?: string;
   site?: string;
   assetNumber?: string;
@@ -50,6 +51,8 @@ interface TaskDetail {
   reporterName?: string;
   reporterTel?: string;
   ticket?: string;
+  rootCause?: string;
+  resolution?: string;
   slaTerm?: string;
   duration?: string;
   assetBinding?: string;
@@ -73,18 +76,66 @@ interface Props {
   onDelete?: (taskId: string) => void;
   /** เมื่อมี report แล้ว ใส่ link ไปหน้ารายงาน (เช่น /pmchecklist_report?tab=pm&taskId=123) */
   reportLink?: string | null;
+  /** ถ้ายังไม่มี report ให้ใส่ link ไปหน้าสร้างรายงาน (เช่น /pmchecklist_report/add) */
+  createReportLink?: string | null;
 }
 
-export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete, reportLink }: Props) {
+export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete, reportLink, createReportLink }: Props) {
   const [status, setStatus] = useState<'done' | 'working' | 'stuck' | 'not-started'>(task?.status || 'not-started');
+  const [assetDetailsMap, setAssetDetailsMap] = useState<Record<string, Device>>({});
   const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, Device>>({});
+  const [assetPage, setAssetPage] = useState(1);
+  const assetsPerPage = 5;
 
   // Update local state when task changes
   useEffect(() => {
     if (task) {
       setStatus(task.status || 'not-started');
+      setAssetPage(1);
     }
   }, [task]);
+
+  useEffect(() => {
+    if (!isOpen || !task?.assets || task.assets.length === 0) {
+      setAssetDetailsMap({});
+      return;
+    }
+
+    let cancelled = false;
+
+    const load = async () => {
+      const map: Record<string, Device> = {};
+      await Promise.all(
+        task.assets!.map(async (asset) => {
+          try {
+            const res = await fetch(apiUrl(`/api/devices/${asset.id}`));
+            const json = await res.json();
+            if (!cancelled && res.ok && json.data) {
+              const d = json.data;
+              map[String(asset.id)] = {
+                id: String(d.Did ?? asset.id),
+                name: task.taskType === 'MA'
+                  ? (d.model || d.CI_Name || d.Asset_Number || asset.name || '')
+                  : (d.CI_Name || d.Asset_Number || asset.name || ''),
+                type: d.model || d.manufacturername || asset.type || '—',
+                role: d.roleName || (asset as any).role || undefined,
+                serialNumber: d.serial || asset.serialNumber,
+                site: d.Sitename || d.Location2 || asset.site,
+                assetNumber: d.Asset_Number || asset.assetNumber,
+                replacementDeviceId: asset.replacementDeviceId ?? null,
+              };
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+      );
+      if (!cancelled) setAssetDetailsMap(map);
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [isOpen, task?.id, task?.assets]);
 
   // Fetch replacement device details for MA tasks - รองรับหลายคู่ (แต่ละ asset อาจมี replacementDeviceId)
   useEffect(() => {
@@ -115,8 +166,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               const d = json.data;
               map[String(rid)] = {
                 id: String(d.Did),
-                name: d.CI_Name || d.Asset_Number || '',
+                name: d.model || d.CI_Name || d.Asset_Number || '',
                 type: d.model || d.manufacturername || '—',
+                role: d.roleName || d.role || undefined,
                 serialNumber: d.serial,
                 site: d.Sitename || d.Location2,
                 assetNumber: d.Asset_Number,
@@ -134,6 +186,10 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   }, [isOpen, task?.id, task?.taskType, task?.replacementDeviceId, task?.assets]);
 
   if (!isOpen || !task) return null;
+  const hasReport = !!reportLink;
+  const totalAssets = task.assets?.length || 0;
+  const totalAssetPages = Math.max(1, Math.ceil(totalAssets / assetsPerPage));
+  const paginatedAssets = task.assets?.slice((assetPage - 1) * assetsPerPage, assetPage * assetsPerPage) || [];
 
   const handleSave = () => {
     const updatedTask: TaskDetail = {
@@ -143,6 +199,21 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
 
     onUpdate?.(updatedTask);
     onClose();
+  };
+
+  const getDeviceTypeLabel = (device?: Device | null) => {
+    if (!device) return '—';
+    return device.role || device.type || '—';
+  };
+
+  const getDeviceDisplayName = (name?: string | null) => {
+    if (!name) return '';
+    return name.split(' / ')[0]?.trim() || name;
+  };
+
+  const getResolvedAsset = (asset?: Device | null) => {
+    if (!asset) return null;
+    return assetDetailsMap[String(asset.id)] || asset;
   };
 
   const formatDate = (dateString?: string) => {
@@ -189,12 +260,13 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
     
     // เพิ่มข้อมูล
     task.assets.forEach(asset => {
+      const resolvedAsset = getResolvedAsset(asset) || asset;
       const row = worksheet.addRow([
-        asset.name || '',
-        asset.type || '',
-        asset.serialNumber || '',
-        asset.site || '',
-        asset.assetNumber || ''
+        getDeviceDisplayName(resolvedAsset.name),
+        getDeviceTypeLabel(resolvedAsset),
+        resolvedAsset.serialNumber || '',
+        resolvedAsset.site || '',
+        resolvedAsset.assetNumber || ''
       ]);
       
       // เพิ่ม borders ให้ทุก cell
@@ -298,6 +370,14 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 <label className="text-[10px] font-semibold uppercase text-slate-500">End Date</label>
                 <p className="text-sm font-medium text-slate-800 mt-1">{task.endDate ? formatDate(task.endDate) : '—'}</p>
               </div>
+              {task.status === 'done' && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Report</label>
+                  <p className={`text-sm font-bold mt-1 ${hasReport ? 'text-emerald-700' : 'text-rose-700'}`}>
+                    {hasReport ? 'Reported' : 'Not reported'}
+                  </p>
+                </div>
+              )}
               {task.coverageScope != null && String(task.coverageScope).trim() !== '' && (
                 <div className="col-span-2">
                   <label className="text-[10px] font-semibold uppercase text-slate-500">Coverage Scope</label>
@@ -350,7 +430,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-bold text-slate-700">
-                  {task.taskType === 'MA' ? 'Devices' : 'Selected Assets'}
+                  {task.taskType === 'MA' ? `Devices (${totalAssets})` : `Selected Assets (${totalAssets})`}
                 </h3>
                 {task.assets && task.assets.length > 0 && (
                   <button
@@ -366,16 +446,18 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 {/* MA: แต่ละคู่ อุปกรณ์ที่เสีย ต่อด้วย เปลี่ยนเป็น [replacement] */}
                 {task.taskType === 'MA' && task.assets && task.assets.length > 0 && (
                   <>
-                    {task.assets.map((asset, index) => {
-                      const repId = (asset as any).replacementDeviceId ?? (index === 0 ? task.replacementDeviceId : null);
+                    {paginatedAssets.map((asset, pageIndex) => {
+                      const index = (assetPage - 1) * assetsPerPage + pageIndex;
+                      const resolvedAsset = getResolvedAsset(asset) || asset;
+                      const repId = (resolvedAsset as any).replacementDeviceId ?? (index === 0 ? task.replacementDeviceId : null);
                       const replacementDevice = repId != null ? replacementDevicesMap[String(repId)] : null;
                       return (
                         <div key={asset.id} className="flex flex-wrap items-center gap-2">
                           <div className="px-2 py-1.5 bg-white rounded-md border border-slate-200 min-w-0 flex-1">
-                            <p className="text-[11px] font-medium text-slate-800 truncate">{asset.name}</p>
+                            <p className="text-[11px] font-medium text-slate-800 truncate">{getDeviceDisplayName(resolvedAsset.name)}</p>
                             <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5">
-                              <span>{asset.type}</span>
-                              {asset.serialNumber && <span>| SN: {asset.serialNumber}</span>}
+                              <span>{getDeviceTypeLabel(resolvedAsset)}</span>
+                              {resolvedAsset.serialNumber && <span>| SN: {resolvedAsset.serialNumber}</span>}
                             </div>
                           </div>
                           {repId != null && (
@@ -384,9 +466,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                               <div className="px-2 py-1.5 bg-green-50 rounded-md border border-green-200 min-w-0 flex-1">
                                 {replacementDevice ? (
                                   <>
-                                    <p className="text-[11px] font-medium text-slate-800 truncate">{replacementDevice.name}</p>
+                                    <p className="text-[11px] font-medium text-slate-800 truncate">{getDeviceDisplayName(replacementDevice.name)}</p>
                                     <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5">
-                                      <span>{replacementDevice.type}</span>
+                                      <span>{getDeviceTypeLabel(replacementDevice)}</span>
                                       {replacementDevice.serialNumber && <span>| SN: {replacementDevice.serialNumber}</span>}
                                     </div>
                                   </>
@@ -417,19 +499,49 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 {/* PM: Selected Assets */}
                 {task.taskType !== 'MA' && task.assets && task.assets.length > 0 && (
                   <div className="space-y-1.5">
-                    {task.assets.map((asset) => (
+                    {paginatedAssets.map((asset) => {
+                      const resolvedAsset = getResolvedAsset(asset) || asset;
+                      return (
                       <div key={asset.id} className="px-2 py-1.5 bg-white rounded-md border border-slate-200">
-                        <p className="text-[11px] font-medium text-slate-800 truncate">{asset.name}</p>
+                        <p className="text-[11px] font-medium text-slate-800 truncate">{getDeviceDisplayName(resolvedAsset.name)}</p>
                         <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5 flex-wrap">
-                          <span>Type: {asset.type}</span>
-                          {asset.serialNumber && <span>| SN: {asset.serialNumber}</span>}
-                          {asset.site && <span>| Site: {asset.site}</span>}
+                          <span>Type: {getDeviceTypeLabel(resolvedAsset)}</span>
+                          {resolvedAsset.serialNumber && <span>| SN: {resolvedAsset.serialNumber}</span>}
+                          {resolvedAsset.site && <span>| Site: {resolvedAsset.site}</span>}
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>
+              {totalAssets > assetsPerPage && (
+                <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3">
+                  <p className="text-[11px] text-slate-500">
+                    Showing {(assetPage - 1) * assetsPerPage + 1}-{Math.min(assetPage * assetsPerPage, totalAssets)} of {totalAssets} devices
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAssetPage((prev) => Math.max(1, prev - 1))}
+                      disabled={assetPage === 1}
+                      className="px-2.5 py-1 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-[11px] font-medium text-slate-600">
+                      Page {assetPage} / {totalAssetPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAssetPage((prev) => Math.min(totalAssetPages, prev + 1))}
+                      disabled={assetPage === totalAssetPages}
+                      className="px-2.5 py-1 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : null}
 
@@ -442,6 +554,22 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 : '—'}
             </p>
           </div>
+
+          {task.taskType === 'MA' && ((task.rootCause && task.rootCause.trim()) || (task.resolution && task.resolution.trim())) && (
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">Issue Details</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Root Cause</label>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap mt-1">{task.rootCause?.trim() || '—'}</p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Resolution</label>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap mt-1">{task.resolution?.trim() || '—'}</p>
+                </div>
+              </div>
+            </div>
+          )}
           
           {/* Notes - แสดงเฉพาะเมื่อมี notes (ใช้เมื่อเลื่อนนัด) */}
           {task.notes && (
@@ -480,7 +608,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
           {/* Task Status Section */}
           <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200">
             <h3 className="text-sm font-bold text-slate-700 mb-4">Task Status</h3>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => setStatus('done')}
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
@@ -492,14 +620,24 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 Done
               </button>
               <button
+                onClick={() => setStatus('working')}
+                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
+                  status === 'working'
+                    ? 'bg-amber-500 text-white shadow-md'
+                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-amber-300'
+                }`}
+              >
+                In Progress
+              </button>
+              <button
                 onClick={() => setStatus('not-started')}
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
-                  status === 'not-started'
+                  status === 'not-started' || status === 'stuck'
                     ? 'bg-gray-400 text-white shadow-md'
                     : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-gray-300'
                 }`}
               >
-                Not Started
+                Pending
               </button>
             </div>
           </div>
@@ -570,6 +708,17 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               >
                 <FileText size={16} />
                 Report
+              </Link>
+            )}
+            {!reportLink && task.status === 'done' && createReportLink && (
+              <Link
+                href={createReportLink}
+                onClick={onClose}
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-rose-500 text-white rounded-xl font-semibold text-sm hover:bg-rose-600 transition-colors shadow-md"
+                title="Task is done but report is not created yet"
+              >
+                <FileText size={16} />
+                Create Report
               </Link>
             )}
             <button

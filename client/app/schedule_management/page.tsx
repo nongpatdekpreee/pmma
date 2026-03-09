@@ -10,6 +10,8 @@ import {
   Edit2,
   Trash2,
   X,
+  FileCheck,
+  FileX2,
   FileSpreadsheet,
   Download,
 } from 'lucide-react';
@@ -63,6 +65,8 @@ interface CalendarEvent {
   reporterName?: string;
   reporterTel?: string;
   ticket?: string;
+  rootCause?: string;
+  resolution?: string;
   slaTerm?: string;
   duration?: string;
   assetBinding?: string;
@@ -119,7 +123,7 @@ export default function ScheduleManagement() {
   const [showEngineerFilterDropdown, setShowEngineerFilterDropdown] = useState(false);
   const engineerFilterRef = useRef<HTMLDivElement>(null);
   const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'in-progress' | 'pending'>('all');
   const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -203,6 +207,8 @@ export default function ScheduleManagement() {
       reporterName: task.reporterName || task.reporter_name,
       reporterTel: task.reporterTel || task.reporter_tel,
       ticket: task.ticket,
+      rootCause: task.rootCause || task.root_cause,
+      resolution: task.resolution,
       ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
       assetBinding: task.assetBinding || task.asset_binding,
@@ -526,11 +532,9 @@ export default function ScheduleManagement() {
       list = list.filter(e => (e.taskType || 'PM') === selectedTaskTypeFilter);
     }
     if (selectedStatusFilter !== 'all') {
-      if (selectedStatusFilter === 'done') {
-        list = list.filter(e => e.status === 'done');
-      } else {
-        list = list.filter(e => e.status !== 'done');
-      }
+      if (selectedStatusFilter === 'done') list = list.filter(e => e.status === 'done');
+      else if (selectedStatusFilter === 'in-progress') list = list.filter(e => e.status === 'working');
+      else if (selectedStatusFilter === 'pending') list = list.filter(e => e.status === 'not-started' || e.status === 'stuck');
     }
     return list;
   }, [calendarEventsWithoutDoneReported, selectedEngineerFilter, selectedTaskTypeFilter, selectedStatusFilter]);
@@ -797,8 +801,11 @@ export default function ScheduleManagement() {
 
   /* ================= Modal ================= */
   const handleSaveFromModal = async (data: any) => {
+    const normalizedTaskType = data.taskType || editingEvent?.taskType || 'PM';
+    const normalizedStartDate = data.startDate || editingEvent?.startDate || '';
+    const normalizedEndDate = data.endDate || data.startDate || editingEvent?.endDate || editingEvent?.startDate || '';
     const payload = {
-      taskType: data.taskType,
+      taskType: normalizedTaskType,
       contractId: data.contractId || data.contract_id || null,
       replacementDeviceId: data.replacementDeviceId || (data.replacementDevice?.id ? (typeof data.replacementDevice.id === 'number' ? data.replacementDevice.id : parseInt(String(data.replacementDevice.id), 10)) : null),
       siteId: data.siteId || (data.Sid ? Number(data.Sid) : null),
@@ -808,11 +815,13 @@ export default function ScheduleManagement() {
       reporterName: data.reporterName,
       reporterTel: data.reporterTel,
       ticket: data.ticket,
+      rootCause: data.rootCause,
+      resolution: data.resolution,
       assetBinding: data.assetBinding,
       ...(data.slaTerm ? { slaTerm: data.slaTerm } : {}),
       coverageScope: data.coverageScope,
-      startDate: data.startDate,
-      endDate: data.endDate,
+      startDate: normalizedStartDate,
+      endDate: normalizedEndDate,
       travelMethod: data.travelMethod,
       travelCost: data.travelCost,
       engineers: data.Eng_ids || [],
@@ -822,6 +831,10 @@ export default function ScheduleManagement() {
       notes: data.notes ?? editingEvent?.notes ?? '',
       photos: data.photos ?? editingEvent?.photos ?? [],
     };
+
+    if (!editingEvent && (!payload.taskType || !payload.startDate || !payload.endDate)) {
+      throw new Error('Please specify taskType, startDate, endDate');
+    }
 
     try {
       const res = await fetch(
@@ -1823,12 +1836,13 @@ export default function ScheduleManagement() {
               <select
                 id="status-filter-schedule"
                 value={selectedStatusFilter}
-                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'not-done')}
+                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'in-progress' | 'pending')}
                 className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
               >
                 <option value="all">All</option>
                 <option value="done">Done</option>
-                <option value="not-done">Not done</option>
+                <option value="in-progress">In Progress</option>
+                <option value="pending">Pending</option>
               </select>
             </div>
           </div>
@@ -1945,6 +1959,7 @@ export default function ScheduleManagement() {
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
                                 const isDone = ev.status === 'done';
+                                const hasReport = isMA ? reportedMATaskIds.has(Number(ev.id)) : reportedPMTaskIds.has(Number(ev.id));
                                 const endDateStr = ev.endDate || ev.startDate || '';
                                 const today = new Date();
                                 today.setHours(0, 0, 0, 0);
@@ -2013,6 +2028,16 @@ export default function ScheduleManagement() {
                                     {isDone && (
                                       <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                                     )}
+                                    {hasReport && (
+                                      <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
+                                        <FileCheck size={12} strokeWidth={2.5} />
+                                      </span>
+                                    )}
+                                    {isDone && !hasReport && (
+                                      <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
+                                        <FileX2 size={12} strokeWidth={2.5} />
+                                      </span>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -2026,6 +2051,7 @@ export default function ScheduleManagement() {
                   {multiDaySpansWithRow.map(({ event, colStart, colEnd, row }) => {
                     const isMA = event.taskType === 'MA';
                     const isDone = event.status === 'done';
+                    const hasReport = isMA ? reportedMATaskIds.has(Number(event.id)) : reportedPMTaskIds.has(Number(event.id));
                     const endDateStr = event.endDate || event.startDate || '';
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
@@ -2103,6 +2129,16 @@ export default function ScheduleManagement() {
                         {isDone && (
                           <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                         )}
+                        {hasReport && (
+                          <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
+                            <FileCheck size={12} strokeWidth={2.5} />
+                          </span>
+                        )}
+                        {isDone && !hasReport && (
+                          <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
+                            <FileX2 size={12} strokeWidth={2.5} />
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -2142,9 +2178,21 @@ export default function ScheduleManagement() {
                   'bg-gray-100 text-gray-700'
                 }`}>
                   {hoveredEvent.status === 'done' ? 'Done' :
-                   hoveredEvent.status === 'working' ? 'Working' :
+                   hoveredEvent.status === 'working' ? 'In Progress' :
                    hoveredEvent.status === 'stuck' ? 'Stuck' :
-                   'Not Started'}
+                   'Pending'}
+                </span>
+              )}
+              {(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="Reported">
+                  <FileCheck size={12} strokeWidth={2.5} />
+                  Reported
+                </span>
+              )}
+              {hoveredEvent.status === 'done' && !(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700" title="No report">
+                  <FileX2 size={12} strokeWidth={2.5} />
+                  No report
                 </span>
               )}
             </div>
@@ -2475,6 +2523,12 @@ export default function ScheduleManagement() {
           setIsModalOpen(true);
         }}
         onDelete={handleDeleteTask}
+        reportLink={selectedTask && (selectedTask.taskType === 'MA' ? reportedMATaskIds.has(Number(selectedTask.id)) : reportedPMTaskIds.has(Number(selectedTask.id)))
+          ? `/pmchecklist_report?tab=${selectedTask.taskType === 'MA' ? 'ma' : 'pm'}&taskId=${selectedTask.id}`
+          : null}
+        createReportLink={selectedTask && selectedTask.status === 'done' && !(selectedTask.taskType === 'MA' ? reportedMATaskIds.has(Number(selectedTask.id)) : reportedPMTaskIds.has(Number(selectedTask.id)))
+          ? (selectedTask.taskType === 'MA' ? '/machecklist_report/add' : '/pmchecklist_report/add')
+          : null}
       />
       {/* Import Excel/CSV Modal */}
       {isImportModalOpen && (

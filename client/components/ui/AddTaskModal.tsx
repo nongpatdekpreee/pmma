@@ -91,6 +91,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [reporterName, setReporterName] = useState('');
   const [reporterTel, setReporterTel] = useState('');
   const [ticket, setTicket] = useState('');
+  const [rootCause, setRootCause] = useState('');
+  const [resolution, setResolution] = useState('');
   const [duration, setDuration] = useState('');
   const [assetBinding, setAssetBinding] = useState('');
   const [replacementDevices, setReplacementDevices] = useState<Device[]>([]);
@@ -164,6 +166,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setReporterName('');
     setReporterTel('');
     setTicket('');
+    setRootCause('');
+    setResolution('');
     setDuration('');
     setAssetBinding('');
     setContractOptions([]);
@@ -470,6 +474,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setReporterName(editingEvent.reporterName || (editingEvent as any).reporter_name || '');
       setReporterTel(editingEvent.reporterTel || (editingEvent as any).reporter_tel || '');
       setTicket(editingEvent.ticket || '');
+      setRootCause(editingEvent.rootCause || (editingEvent as any).root_cause || '');
+      setResolution(editingEvent.resolution || '');
       setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
       setAssetBinding(editingEvent.assetBinding || '');
       const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
@@ -778,6 +784,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setReporterTel('');
       setReporterTelError('');
       setTicket('');
+      setRootCause('');
+      setResolution('');
       setDuration('');
       setAssetBinding('');
       setReplacementDevices([]);
@@ -1284,6 +1292,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       alert('Please fill required fields');
       return;
     }
+    if (editingEvent?.status !== 'done' && !(endDate || startDate)) {
+      alert('Please select an end date');
+      return;
+    }
 
     // เช็ค conflict ของ engineer - แจ้งเตือนแต่ยังบันทึกได้
     const conflictCheck = await checkEngineerConflicts();
@@ -1332,18 +1344,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         alert('Please add at least one broken device');
         return;
       }
-      // Check if all broken devices have replacement devices
-      if (brokenDevicePairs.length > 0) {
-        const missingReplacement = brokenDevicePairs.find(pair => !pair.replacementDevice);
-        if (missingReplacement) {
-          alert(`Please select a replacement device for the device: ${missingReplacement.brokenDevice.name}`);
-          return;
-        }
-      } else if (selectedDevices.length > 0 && !selectedReplacementDevice) {
-        // Legacy mode validation
-        alert('Please select a replacement device');
-        return;
-      }
     }
 
     // For MA: use brokenDevicePairs (แต่ละ asset มี replacementDeviceId ของตัวเอง), for PM: use selectedDevices
@@ -1382,7 +1382,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       Eng_id: selectedEngineers.map((e) => e.id),
       Eng_ids: selectedEngineers,
       // Task ที่เป็น Done แล้วไม่ส่ง startDate/endDate เพื่อป้องกันการแก้ไข
-      ...(editingEvent?.status !== 'done' && { startDate, endDate }),
+      ...(editingEvent?.status !== 'done' && { startDate, endDate: endDate || startDate }),
       coverageScope,
       assets: maAssets,
       // MA Contract fields (เหมือน PM)
@@ -1391,6 +1391,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       reporterName: taskType === 'MA' ? reporterName : null,
       reporterTel: taskType === 'MA' ? reporterTel : null,
       ticket: taskType === 'MA' ? ticket : null,
+      rootCause: taskType === 'MA' ? rootCause : null,
+      resolution: taskType === 'MA' ? resolution : null,
       assetBinding: taskType === 'MA' ? assetBinding : null,
       replacementDeviceId: maReplacementDeviceId,
       status: editingEvent?.status || 'not-started',
@@ -1947,7 +1949,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Broken Device Pairs (for MA only) */}
             {taskType === 'MA' && (
               <div className="border-slate-200">
-                <label className={fieldLabel}>Broken Device and Replacement Device <span className="text-red-500">*</span></label>
+                <label className={fieldLabel}>Broken Device and Replacement Device</label>
 
                 {/* First broken device selection (if no pairs yet) */}
                 {brokenDevicePairs.length === 0 && (
@@ -1997,7 +1999,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Replacement Device <span className="text-red-500">*</span>
+                        Replacement Device
                       </label>
                       {pair.loading ? (
                         <p className="text-xs text-slate-400">Loading...</p>
@@ -2023,8 +2025,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   </div>
                 ))}
 
-                {/* Add button - only show if first pair is complete */}
-                {brokenDevicePairs.length > 0 && brokenDevicePairs[0].replacementDevice && (
+                {/* Add button */}
+                {brokenDevicePairs.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
@@ -2054,8 +2056,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     value={vendorName}
                     onChange={(e) => setVendorName(e.target.value)}
                     placeholder="Enter third party vendor"
-                    className={inputBase}
+                    className={`${inputBase} ${vendorName && vendorName.trim().length < 5 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
                   />
+                  {vendorName && vendorName.trim().length < 5 && (
+                    <p className="text-[10px] text-red-500 mt-1">Third Party Vendor name must be at least 5 characters</p>
+                  )}
                 </div>
                 <div>
                   <label className={fieldLabel}>Phone number</label>
@@ -2145,8 +2150,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     value={reporterName}
                     onChange={(e) => setReporterName(e.target.value)}
                     placeholder="Reporter name"
-                    className={inputBase}
+                    className={`${inputBase} ${reporterName && reporterName.trim().length < 5 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
                   />
+                  {reporterName && reporterName.trim().length < 5 && (
+                    <p className="text-[10px] text-red-500 mt-1">Reporter name must be at least 5 characters</p>
+                  )}
                 </div>
                 <div>
                   <label className={fieldLabel}>Phone number</label>
@@ -2223,6 +2231,34 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     onChange={(e) => setTicket(e.target.value)}
                     placeholder="Ticket number"
                     className={inputBase}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {taskType === 'MA' && (
+            <div className={sectionCard}>
+              <h3 className="text-xs font-bold text-slate-700">Issue Details</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start mt-3">
+                <div>
+                  <label className={fieldLabel}>Root Cause</label>
+                  <textarea
+                    value={rootCause}
+                    onChange={(e) => setRootCause(e.target.value)}
+                    placeholder="Enter root cause"
+                    rows={3}
+                    className={`${inputBase} min-h-[72px] resize-none`}
+                  />
+                </div>
+                <div>
+                  <label className={fieldLabel}>Resolution</label>
+                  <textarea
+                    value={resolution}
+                    onChange={(e) => setResolution(e.target.value)}
+                    placeholder="Enter resolution"
+                    rows={3}
+                    className={`${inputBase} min-h-[72px] resize-none`}
                   />
                 </div>
               </div>
