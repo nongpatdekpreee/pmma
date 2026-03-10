@@ -358,7 +358,7 @@ const AssetSiteDatabase = () => {
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">
-                Asset & Site Database
+                Asset & Site 
               </h2>
               <p className="text-sm text-indigo-500">
                 Network Equipment Inventory

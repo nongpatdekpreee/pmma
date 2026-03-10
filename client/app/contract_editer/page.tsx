@@ -131,6 +131,8 @@ function ContractEditorPageContent() {
   const [contractsError, setContractsError] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
   const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
   const [contractPage, setContractPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -273,27 +275,56 @@ function ContractEditorPageContent() {
   }, []);
 
   const filteredContracts = contracts.filter((contract) => {
+    // Filter ตามสถานะ (Draft / Active / Expiring / Expired / All)
     if (activeFilter === 'Draft') {
-      return contract.contractStatus === 'draft';
-    }
-    if (activeFilter !== 'All') {
+      if (contract.contractStatus !== 'draft') return false;
+    } else if (activeFilter !== 'All') {
       const statusMap: Record<string, string> = {
-        'Active': 'active',
-        'Expiring': 'expiring',
-        'Expired': 'expired',
+        Active: 'active',
+        Expiring: 'expiring',
+        Expired: 'expired',
       };
       if (contract.status !== statusMap[activeFilter]) return false;
     }
+
+    // Filter ตามคำค้นหา
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
-      return (
+      const matchText =
         contract.id.toLowerCase().includes(searchLower) ||
         contract.name.toLowerCase().includes(searchLower) ||
         contract.partner.toLowerCase().includes(searchLower) ||
         (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
-        (contract.siteLocation ?? '').toLowerCase().includes(searchLower)
-      );
+        (contract.siteLocation ?? '').toLowerCase().includes(searchLower);
+      if (!matchText) return false;
     }
+
+    // Filter ตามช่วงวันที่ (Start / End)
+    if (startDateFilter || endDateFilter) {
+      const start = contract.startDate ? new Date(contract.startDate) : null;
+      const end = contract.endDate ? new Date(contract.endDate) : null;
+
+      if (Number.isNaN(start?.getTime() ?? NaN)) {
+        // ถ้า startDate ใช้ไม่ได้ และมีการกรอง startDateFilter ให้ตัดทิ้ง
+        if (startDateFilter) return false;
+      }
+      if (Number.isNaN(end?.getTime() ?? NaN)) {
+        // ถ้า endDate ใช้ไม่ได้ และมีการกรอง endDateFilter ให้ตัดทิ้ง
+        if (endDateFilter) return false;
+      }
+
+      if (startDateFilter) {
+        const filterStart = new Date(startDateFilter);
+        filterStart.setHours(0, 0, 0, 0);
+        if (!start || start < filterStart) return false;
+      }
+      if (endDateFilter) {
+        const filterEnd = new Date(endDateFilter);
+        filterEnd.setHours(23, 59, 59, 999);
+        if (!end || end > filterEnd) return false;
+      }
+    }
+
     return true;
   });
 
@@ -1224,37 +1255,46 @@ function ContractEditorPageContent() {
           <h1 className="text-3xl font-bold text-slate-800">
             Maintenance Contract System
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Manage maintenance contracts for equipment and machines, track maintenance schedules, equipment under contract, and important details efficiently
-          </p>
+
         </div>
 
-        {/* Stats Bar */}
+        {/* Stats Bar - กดแล้ว filter รายการสัญญาตามสถานะ */}
         {(() => {
           const total = contracts.length;
           const draft = contracts.filter((c) => c.contractStatus === 'draft').length;
           const active = contracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
           const expiring = contracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
           const expired = contracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
+          const stats = [
+            { filter: 'All' as const, number: String(total), label: 'All Contracts' },
+            { filter: 'Active' as const, number: String(active), label: 'Active Contracts' },
+            { filter: 'Expiring' as const, number: String(expiring), label: 'Expiring Contracts' },
+            { filter: 'Expired' as const, number: String(expired), label: 'Expired Contracts' },
+            { filter: 'Draft' as const, number: String(draft), label: 'Draft Contracts' },
+          ];
           return (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
-          {[
-            { number: String(total), label: 'All Contracts' },
-            { number: String(active), label: 'Active Contracts' },
-            { number: String(expiring), label: 'Expiring Contracts' },
-            { number: String(expired), label: 'Expired Contracts' },
-            { number: String(draft), label: 'Draft Contracts' },
-          ].map((stat, idx) => (
-            <div key={idx} className="text-center relative">
+          {stats.map((stat, idx) => {
+            const isSelected = activeFilter === stat.filter;
+            return (
+            <button
+              key={stat.filter}
+              type="button"
+              onClick={() => setActiveFilter(stat.filter)}
+              className={`text-center relative w-full rounded-xl p-2 -m-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 ${
+                isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : 'hover:bg-slate-50'
+              }`}
+            >
               {idx < 4 && (
-                <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-px h-[60%] bg-slate-200 hidden lg:block" />
+                <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-px h-[60%] bg-slate-200 hidden lg:block pointer-events-none" />
               )}
-              <span className="text-[2.5rem] font-bold text-blue-600 block mb-2">
+              <span className={`text-[2.5rem] font-bold block mb-2 ${isSelected ? 'text-blue-600' : 'text-blue-600'}`}>
                 {stat.number}
               </span>
-              <span className="text-slate-500 text-sm font-medium">{stat.label}</span>
-            </div>
-          ))}
+              <span className={`text-sm font-medium ${isSelected ? 'text-blue-700' : 'text-slate-500'}`}>{stat.label}</span>
+            </button>
+          );
+          })}
         </div>
           );
         })()}
@@ -1296,7 +1336,7 @@ function ContractEditorPageContent() {
               </button>
             ))}
           </div>
-          <div className="flex-1 min-w-[300px] relative">
+          <div className="flex-1 min-w-[220px] relative">
             <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
@@ -1305,6 +1345,33 @@ function ContractEditorPageContent() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full py-2.5 pl-12 pr-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             />
+          </div>
+          {/* Date range filter */}
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+            <div className="flex flex-col">
+              <span className="mb-1">Start date from</span>
+              <input
+                type="date"
+                value={startDateFilter}
+                onChange={(e) => {
+                  setStartDateFilter(e.target.value);
+                  setContractPage(1);
+                }}
+                className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+              />
+            </div>
+            <div className="flex flex-col">
+              <span className="mb-1">End date to</span>
+              <input
+                type="date"
+                value={endDateFilter}
+                onChange={(e) => {
+                  setEndDateFilter(e.target.value);
+                  setContractPage(1);
+                }}
+                className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+              />
+            </div>
           </div>
           <div className="flex border border-slate-200 rounded-lg overflow-hidden">
             <button

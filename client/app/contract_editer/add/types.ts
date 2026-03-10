@@ -1,5 +1,7 @@
   export interface SiteLocation {
     SLid: number;
+    Sid?: number;
+    lid?: number;
     SiteName: string;
     Location2: string;
   }

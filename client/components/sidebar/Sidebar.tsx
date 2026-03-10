@@ -30,7 +30,7 @@ const menuItems: MenuItem[] = [
   { icon: Calendar, label: 'Schedule Management', href: '/schedule_management' },
   { icon: BarChart3, label: 'Report & Analytics Page', href: '/report' },
   { icon: MessageSquare, label: 'Report', href: '/pmchecklist_report' },
-  { icon: Monitor, label: 'Asset & Site Database', href: '/asset_site_database'},
+  { icon: Monitor, label: 'Asset & Site', href: '/asset_site_database'},
   // MA
   { icon: ShieldCheck, label: 'Sla Compliance', href: '/slacompliance' },
  

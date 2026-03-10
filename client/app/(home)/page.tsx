@@ -250,37 +250,10 @@ export default function DashboardPage() {
               
             </div>
 
-            {/* Placeholder สำหรับ Graph */}
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
-                <Link href="/mapage" className="text-blue-600 text-sm font-medium hover:underline">
-                View all &gt;
-                </Link>
-              </div>
-              <div className="h-64 bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
-                {loadingMa ? (
-                  <div className="h-full flex items-center justify-center text-slate-400">กำลังโหลด...</div>
-                ) : vendorBars.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-slate-400">ยังไม่มีข้อมูล</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={vendorBars} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
-                      <Tooltip />
-                      <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
             {/* ส่วน Preventive Maintenance List */}
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">Preventive Maintenance</h3>
-                <Link href="/pmpage" className="text-blue-600 text-sm font-medium hover:underline">
-                View all &gt;
-                </Link>
               </div>
               <div className="space-y-3">
                 {loadingPm ? (
@@ -331,19 +304,41 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+
+            {/* Maintenance Agreement (กราฟ Vendor) */}
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
+              </div>
+              <div className="h-64 bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
+                {loadingMa ? (
+                  <div className="h-full flex items-center justify-center text-slate-400">กำลังโหลด...</div>
+                ) : vendorBars.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-400">ยังไม่มีข้อมูล</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={vendorBars} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* ฝั่งขวา: Events & Stream */}
           <div className="flex-1 space-y-6">
             <div className="bg-white p-6 rounded-[2rem] shadow-sm">
               <div className="flex justify-between mb-4">
-                <h3 className="font-bold text-slate-700">Nearest Events</h3>
+                <h3 className="font-bold text-slate-700">In Coming Events</h3>
                 <Link href="/schedule_management" className="text-blue-500 text-xs hover:underline">View all</Link>
               </div>
               {loadingEvents ? (
                 <div className="text-sm text-slate-400 py-6 text-center">กำลังโหลด...</div>
               ) : nearestEvents.length === 0 ? (
-                <div className="text-sm text-slate-400 py-6 text-center">ยังไม่มีงานที่กำลังจะถึง</div>
+                <div className="text-sm text-slate-400 py-6 text-center">There are no upcoming events</div>
               ) : (
                 <>
                   <div className="space-y-3">
