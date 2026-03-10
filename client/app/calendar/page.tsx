@@ -4,6 +4,7 @@ import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { ChevronLeft, ChevronRight, X, FileCheck, FileX2 } from 'lucide-react';
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
@@ -65,6 +66,7 @@ interface CalendarEvent {
 }
 
 export default function CalendarPage() {
+  const searchParams = useSearchParams();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [selectedTask, setSelectedTask] = useState<CalendarEvent | null>(null);
@@ -95,6 +97,13 @@ export default function CalendarPage() {
   const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
   const [holidays, setHolidays] = useState<HolidayItem[]>([]);
+  const deepLinkOpenedForRef = useRef<string | null>(null);
+
+  const deepLinkTaskId = useMemo(() => {
+    const raw = searchParams.get('taskId');
+    const v = raw ? String(raw).trim() : '';
+    return v ? v : null;
+  }, [searchParams]);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -229,6 +238,35 @@ export default function CalendarPage() {
       window.removeEventListener('focus', handleFocus);
     };
   }, []);
+
+  // Deep link: /calendar?taskId=123 -> jump to month & open TaskDetailModal
+  useEffect(() => {
+    if (!deepLinkTaskId) {
+      deepLinkOpenedForRef.current = null;
+      return;
+    }
+    if (deepLinkOpenedForRef.current === deepLinkTaskId) return;
+    if (isLoading) return;
+
+    const ev = calendarEvents.find((e) => String(e.id) === String(deepLinkTaskId));
+    if (!ev) {
+      // Only treat as "not found" after we've loaded (avoid race with initial load)
+      if (calendarEvents.length > 0 || loadError) {
+        deepLinkOpenedForRef.current = deepLinkTaskId;
+        if (!loadError) toastError(`Task ${deepLinkTaskId} not found in calendar`);
+      }
+      return;
+    }
+
+    deepLinkOpenedForRef.current = deepLinkTaskId;
+    const dateStr = ev.startDate || ev.endDate || '';
+    const d = dateStr ? new Date(dateStr) : new Date(ev.year, ev.month, ev.startDay);
+    if (!Number.isNaN(d.getTime())) {
+      setCurrentDate(d);
+    }
+    setSelectedTask(ev);
+    setIsDetailModalOpen(true);
+  }, [deepLinkTaskId, calendarEvents, isLoading, loadError, toastError]);
 
   // Load engineers for filter
   useEffect(() => {

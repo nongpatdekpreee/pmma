@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   BarChart,
   Bar,
@@ -33,6 +34,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { getMaDashboard, getPmDashboard, getDeviceRoles, getDeviceTypes, getSitesLocation } from '@/lib/api';
+import { OverdueTasksModal } from '@/components/ui/OverdueTasksModal';
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['data']>;
 
@@ -83,6 +85,7 @@ function ProgressBar({ value, max, color = 'bg-slate-300' }: { value: number; ma
 type ReportType = 'ma' | 'pm';
 
 export default function ReportPage() {
+  const router = useRouter();
   const [reportType, setReportType] = useState<ReportType>('ma');
   const [timeFilter, setTimeFilter] = useState('6 Months');
   const [loading, setLoading] = useState(true);
@@ -102,6 +105,7 @@ export default function ReportPage() {
   const [deviceRolesList, setDeviceRolesList] = useState<{ DeRoleid: number; name: string }[]>([]);
   const [deviceModelsList, setDeviceModelsList] = useState<{ Dtypeid: number; model: string }[]>([]);
   const [sitesList, setSitesList] = useState<{ SLid: number; SiteName: string }[]>([]);
+  const [overdueModalOpen, setOverdueModalOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -207,7 +211,7 @@ export default function ReportPage() {
     const fmt = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
     const n = dataMonths ?? 0;
     const monthText = n === 1 ? '1 month' : `${n} months`;
-    return `${fmt(startDate)} - ${fmt(endDate)} (${monthText})`;
+    return `${fmt(startDate)} - ${fmt(endDate)} `;
   }, [range?.start, range?.endExclusive, dataMonths]);
 
   const monthlyTrendData = monthlyMA.map((item) => ({
@@ -479,7 +483,12 @@ export default function ReportPage() {
             </div>
           </div>
 
-          <div className="bg-red-50/80 border border-red-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setOverdueModalOpen(true)}
+            className="bg-red-50/80 border border-red-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2 text-left hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-200"
+            title="View overdue tasks in calendar"
+          >
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">Overdue</span>
               <AlertTriangle size={16} className="text-red-500" />
@@ -487,9 +496,9 @@ export default function ReportPage() {
             <p className="text-3xl font-black text-red-700">{summary.totalOverdue.toLocaleString()}</p>
             <div className="flex items-center gap-2 text-xs text-red-600">
               <span>Past due tasks</span>
-              <span className="text-emerald-600">Done {summary.totalDone}</span>
+              <ChevronRight size={14} className="text-red-500" />
             </div>
-          </div>
+          </button>
 
           <div className="bg-violet-50/80 border border-violet-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -509,6 +518,16 @@ export default function ReportPage() {
             <p className="text-xs text-amber-400">{summary.topEquipmentCount} {taskLabel} tasks</p>
           </div>
         </div>
+
+        <OverdueTasksModal
+          isOpen={overdueModalOpen}
+          onClose={() => setOverdueModalOpen(false)}
+          taskTypeFilter={taskLabel as 'PM' | 'MA'}
+          onSelectTask={(taskId) => {
+            setOverdueModalOpen(false);
+            router.push(`/calendar?taskId=${encodeURIComponent(taskId)}`);
+          }}
+        />
 
         {/* Row 2: Monthly Trend + Pie */}
         <div className="grid grid-cols-3 gap-6">
