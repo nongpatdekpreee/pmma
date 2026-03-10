@@ -20,6 +20,7 @@ const inputBase =
 
 type SiteEntry = {
   id: string;
+  selectedSid?: string;
   siteId: string;
   siteLabel: string;
   devices: Array<{ id: string; label: string; role?: string }>;
@@ -241,9 +242,11 @@ function AddContractPageContent() {
         if (contract.sites && contract.sites.length > 0) {
           const newSiteEntries: SiteEntry[] = contract.sites.map((site: any) => {
             const slid = site.SLid;
+            const sl = currentSites.find((s) => s.SLid === slid);
             const devices = devicesBySLid.get(slid) || [];
             return {
               id: randomUUID(),
+              selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
               siteId: String(slid),
               siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
               devices: devices.map((d) => ({
@@ -261,8 +264,10 @@ function AddContractPageContent() {
             const siteLabel = site
               ? `${(site as any).SiteName || ''} – ${(site as any).Location2 || ''}`.trim() || `Site ${slid}`
               : `Site ${slid}`;
+            const sl = currentSites.find((s) => s.SLid === slid);
             newSiteEntries.push({
               id: randomUUID(),
+              selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
               siteId: String(slid),
               siteLabel,
               devices: devices.map((d) => ({
@@ -400,6 +405,7 @@ function AddContractPageContent() {
         const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : `Site ${slid}`;
         newSiteEntries.push({
           id: randomUUID(),
+          selectedSid: site?.Sid != null ? String(site.Sid) : undefined,
           siteId: String(slid),
           siteLabel,
           devices: devices.map((d) => ({
@@ -570,8 +576,17 @@ function AddContractPageContent() {
   const updateSiteEntry = (entryId: string, siteId: string) => {
     const site = sitesLocation.find((s) => String(s.SLid) === siteId);
     const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : '';
+    const selectedSid = site?.Sid != null ? String(site.Sid) : undefined;
     setSiteEntries((prev) =>
-      prev.map((e) => (e.id === entryId ? { ...e, siteId, siteLabel, devices: [] } : e))
+      prev.map((e) => (e.id === entryId ? { ...e, selectedSid, siteId, siteLabel, devices: [] } : e))
+    );
+  };
+
+  const setEntrySid = (entryId: string, sid: string) => {
+    setSiteEntries((prev) =>
+      prev.map((e) =>
+        e.id === entryId ? { ...e, selectedSid: sid || undefined, siteId: '', siteLabel: '', devices: [] } : e
+      )
     );
   };
 
@@ -598,6 +613,16 @@ function AddContractPageContent() {
   const clearAllDevices = () => {
     setSiteEntries((prev) => prev.map((e) => ({ ...e, devices: [] })));
   };
+
+  // เลือกตาม Sid ก่อน แล้วค่อยเลือก lid (Location) ที่ตรงกัน → ได้ SLid
+  const uniqueSites = (() => {
+    const seen = new Set<number>();
+    return sitesLocation
+      .filter((s) => s.Sid != null && !seen.has(s.Sid) && (seen.add(s.Sid), true))
+      .map((s) => ({ sid: String(s.Sid), name: s.SiteName }));
+  })();
+  const getLocationsForSid = (sid: string) =>
+    sitesLocation.filter((s) => s.Sid != null && String(s.Sid) === sid);
 
   const activeEntry = siteEntries.find((e) => e.id === activeSiteEntryId);
   const activeEntryDevices = activeEntry?.devices ?? [];
@@ -678,8 +703,8 @@ function AddContractPageContent() {
         toastError(msg);
         return;
       }
-      if (contractName.trim().length < 5) {
-        const msg = 'Contract Name must be at least 5 characters';
+      if (contractName.trim().length < 3) {
+        const msg = 'Contract Name must be at least 3 characters';
         setSaveError(msg);
         toastError(msg);
         return;
@@ -1178,7 +1203,7 @@ function AddContractPageContent() {
                   )}
                 </div>
               </FormField>
-              <FormField label="SLA Term (%)" required>
+              <FormField label="SLA Term (%)">
                 <div className="relative">
                   <input
                     type="number"
@@ -1210,7 +1235,7 @@ function AddContractPageContent() {
                 </div>
               </FormField>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <FormField label="Sale Account">
                 <div className="relative">
                   <input
@@ -1232,7 +1257,7 @@ function AddContractPageContent() {
                   )}
                 </div>
               </FormField>
-              <FormField label="Email">
+              <FormField label="Sale Email">
                 <div className="relative">
                   <input
                     type="email"
@@ -1253,7 +1278,7 @@ function AddContractPageContent() {
                   )}
                 </div>
               </FormField>
-              <FormField label="Telephone">
+              <FormField label="Sale Telephone">
                 <div className="relative">
                   <input
                     type="text"
@@ -1429,24 +1454,69 @@ function AddContractPageContent() {
                       className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3"
                     >
                       <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-[180px] flex-1">
-                          <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
-                            Site
-                          </label>
-                          <select
-                            value={entry.siteId}
-                            onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
-                            className={inputBase}
-                            disabled={dataLoading || !selectedSOF}
-                          >
-                            <option value="">-- Select Site --</option>
-                            {sitesLocation.map((s) => (
-                              <option key={s.SLid} value={String(s.SLid)}>
-                                {s.SiteName} – {s.Location2}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        {uniqueSites.length > 0 ? (
+                          <>
+                            <div className="min-w-[160px]">
+                              <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                                Site 
+                              </label>
+                              <select
+                                value={entry.selectedSid ?? (() => {
+                                  const s = sitesLocation.find((x) => String(x.SLid) === entry.siteId);
+                                  return s?.Sid != null ? String(s.Sid) : '';
+                                })()}
+                                onChange={(e) => setEntrySid(entry.id, e.target.value)}
+                                className={inputBase}
+                                disabled={dataLoading || !selectedSOF}
+                              >
+                                <option value="">-- Select Site --</option>
+                                {uniqueSites.map(({ sid, name }) => (
+                                  <option key={sid} value={sid}>{name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="min-w-[180px] flex-1">
+                              <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                                Location 
+                              </label>
+                              <select
+                                value={entry.siteId}
+                                onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
+                                className={inputBase}
+                                disabled={dataLoading || !selectedSOF || !(entry.selectedSid ?? sitesLocation.find((x) => String(x.SLid) === entry.siteId)?.Sid)}
+                              >
+                                <option value="">-- Select Location --</option>
+                                {getLocationsForSid(entry.selectedSid ?? (() => {
+                                  const s = sitesLocation.find((x) => String(x.SLid) === entry.siteId);
+                                  return s?.Sid != null ? String(s.Sid) : '';
+                                })()).map((s) => (
+                                  <option key={s.SLid} value={String(s.SLid)}>
+                                    {s.Location2}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="min-w-[180px] flex-1">
+                            <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                              Site
+                            </label>
+                            <select
+                              value={entry.siteId}
+                              onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
+                              className={inputBase}
+                              disabled={dataLoading || !selectedSOF}
+                            >
+                              <option value="">-- Select Site --</option>
+                              {sitesLocation.map((s) => (
+                                <option key={s.SLid} value={String(s.SLid)}>
+                                  {s.SiteName} – {s.Location2}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <button
                           type="button"
                           onClick={() =>

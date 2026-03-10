@@ -544,10 +544,6 @@ const createContract = async (req, res) => {
         message = `คอลัมน์ในตารางไม่ตรงกับที่ระบบใช้: ${errMsg}`;
       }
     }
-    const errMsg = String(error.message || '');
-    if ((errMsg.includes('device_id') && errMsg.toLowerCase().includes('null')) || error.code === 'ER_BAD_NULL_ERROR') {
-      message = 'ไม่สามารถบันทึก Site แบบ draft (ไม่มี Device) ได้ กรุณารัน migration: backend/migrations/allow_contract_device_null_device_id.sql';
-    }
 
     res.status(500).json({
       success: false,
@@ -1364,9 +1360,7 @@ const updateContract = async (req, res) => {
       message = 'file_paths or image_paths column does not exist';
     } else if (errMsg.includes('coverage_scope')) {
       message = 'coverage_scope column does not exist';
-    } else if ((errMsg.includes('device_id') && errMsg.toLowerCase().includes('null')) || error.code === 'ER_BAD_NULL_ERROR') {
-      message = 'ไม่สามารถบันทึก Site แบบ draft (ไม่มี Device) ได้ กรุณารัน migration: backend/migrations/allow_contract_device_null_device_id.sql';
-    }
+    } 
     res.status(500).json({
       success: false,
       message,
