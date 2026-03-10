@@ -23,8 +23,11 @@ async function parseJsonResponse<T>(res: Response, fallback: T): Promise<T> {
   }
 }
 
-/** GET /api/sites/locations - สำหรับ dropdown Site (SLid, SiteName, Location2) */
-export async function getSitesLocation(): Promise<{ success: boolean; data: { SLid: number; SiteName: string; Location?: string }[] }> {
+/** GET /api/sites/locations - สำหรับ dropdown Site (SLid, Sid, lid, SiteName, Location2) */
+export async function getSitesLocation(): Promise<{
+  success: boolean;
+  data: { SLid: number; Sid: number; lid: number; SiteName: string; Location2: string }[];
+}> {
   const res = await fetch(apiUrl('/api/sites/locations'));
   return res.json();
 }
@@ -75,12 +78,13 @@ export async function getContractById(contractId: number | string): Promise<{
   return res.json();
 }
 
-/** GET /api/contracts/:id/devices - Devices ที่ผูกกับ Contract (จาก contract_device) */
-export async function getDevicesByContract(contractId: number | string): Promise<{
+/** GET /api/contracts/:id/devices - Devices ที่ผูกกับ Contract (จาก contract_device). ส่ง site_id (= SLid) เพื่อกรองเฉพาะ site นั้น */
+export async function getDevicesByContract(contractId: number | string, siteId?: number | string | null): Promise<{
   success: boolean;
   data: { Did: number; CI_Name?: string; Asset_Number?: string; serial?: string; Asset_State?: string; Sid?: number; SiteName?: string }[];
 }> {
-  const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/devices`));
+  const q = siteId != null && siteId !== '' ? `?site_id=${encodeURIComponent(String(siteId))}` : '';
+  const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/devices${q}`));
   return res.json();
 }
 
@@ -169,6 +173,10 @@ export async function getMaDashboard(params?: { months?: number }): Promise<{
       reportFail: number;
       reportPass: number;
     }>;
+    topModelTrend?: {
+      model: string | null;
+      points: Array<{ model: string; month_start: string; total: number }>;
+    };
     vendorMonthly: Array<{ vendor: string; month: string; monthKey: string; total: number }>;
     vendorReportStats: Array<{ vendor: string; totalReports: number; passReports: number; failReports: number; passRate: number }>;
   };
@@ -303,6 +311,58 @@ export async function getTasks(params?: { month?: number; year?: number }): Prom
   if (params?.month != null) q.set('month', String(params.month));
   if (params?.year != null) q.set('year', String(params.year));
   const res = await fetch(apiUrl(`/api/tasks?${q.toString()}`));
+  return res.json();
+}
+
+/** GET /api/tasks/overdue?task_type=MA|PM&sid=&lid= - ดึงงานเกินกำหนด (รองรับ filter Sid/lid) */
+export async function getOverdueTasks(
+  taskType: 'MA' | 'PM',
+  filters?: { sid?: number | string | null; lid?: number | string | null }
+): Promise<{ success: boolean; data?: any[]; count?: number }> {
+  const q = new URLSearchParams();
+  q.set('task_type', taskType);
+  if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
+  if (filters?.lid != null && filters.lid !== '') q.set('lid', String(filters.lid));
+  const res = await fetch(apiUrl(`/api/tasks/overdue?${q.toString()}`));
+  return res.json();
+}
+
+/** GET /api/tasks/completed?task_type=MA|PM&sid=&lid= - งานที่เสร็จแล้ว (รองรับ filter Sid/lid) */
+export async function getCompletedTasks(
+  taskType: 'MA' | 'PM',
+  filters?: { sid?: number | string | null; lid?: number | string | null }
+): Promise<{ success: boolean; data?: any[]; count?: number }> {
+  const q = new URLSearchParams();
+  q.set('task_type', taskType);
+  if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
+  if (filters?.lid != null && filters.lid !== '') q.set('lid', String(filters.lid));
+  const res = await fetch(apiUrl(`/api/tasks/completed?${q.toString()}`));
+  return res.json();
+}
+
+/** GET /api/tasks/inprocess?task_type=MA|PM&sid=&lid= - งานกำลังดำเนินการ (รองรับ filter Sid/lid) */
+export async function getInprocessTasks(
+  taskType: 'MA' | 'PM',
+  filters?: { sid?: number | string | null; lid?: number | string | null }
+): Promise<{ success: boolean; data?: any[]; count?: number }> {
+  const q = new URLSearchParams();
+  q.set('task_type', taskType);
+  if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
+  if (filters?.lid != null && filters.lid !== '') q.set('lid', String(filters.lid));
+  const res = await fetch(apiUrl(`/api/tasks/inprocess?${q.toString()}`));
+  return res.json();
+}
+
+/** GET /api/tasks/pending?task_type=MA|PM&sid=&lid= - งาน pending (รองรับ filter Sid/lid) */
+export async function getPendingTasks(
+  taskType: 'MA' | 'PM',
+  filters?: { sid?: number | string | null; lid?: number | string | null }
+): Promise<{ success: boolean; data?: any[]; count?: number }> {
+  const q = new URLSearchParams();
+  q.set('task_type', taskType);
+  if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
+  if (filters?.lid != null && filters.lid !== '') q.set('lid', String(filters.lid));
+  const res = await fetch(apiUrl(`/api/tasks/pending?${q.toString()}`));
   return res.json();
 }
 

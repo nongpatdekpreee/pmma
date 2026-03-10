@@ -1,9 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
 import {
   BarChart,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -24,6 +27,8 @@ import {
   Building2,
   Server,
   AlertTriangle,
+  Clock,
+  RefreshCw,
   CheckCircle2,
   Trophy,
   ArrowUpRight,
@@ -33,6 +38,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { getMaDashboard, getPmDashboard, getDeviceRoles, getDeviceTypes, getSitesLocation } from '@/lib/api';
+import { OverdueTasksModal,CompletedTasksModal,InprocessTasksModal,PendingTasksModal  } from '@/components/ui/OverdueTasksModal';
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['data']>;
 
@@ -83,6 +89,7 @@ function ProgressBar({ value, max, color = 'bg-slate-300' }: { value: number; ma
 type ReportType = 'ma' | 'pm';
 
 export default function ReportPage() {
+  const router = useRouter();
   const [reportType, setReportType] = useState<ReportType>('ma');
   const [timeFilter, setTimeFilter] = useState('6 Months');
   const [loading, setLoading] = useState(true);
@@ -102,6 +109,15 @@ export default function ReportPage() {
   const [deviceRolesList, setDeviceRolesList] = useState<{ DeRoleid: number; name: string }[]>([]);
   const [deviceModelsList, setDeviceModelsList] = useState<{ Dtypeid: number; model: string }[]>([]);
   const [sitesList, setSitesList] = useState<{ SLid: number; SiteName: string }[]>([]);
+  const [overdueModalOpen, setOverdueModalOpen] = useState(false);
+  const [maTrendView, setMaTrendView] = useState<'summary' | 'top-model'>('summary');
+  const [completedModalOpen, setCompletedModalOpen] = useState(false);
+  const [inprocessModalOpen, setInprocessModalOpen] = useState(false);
+  const [pendingModalOpen, setPendingModalOpen] = useState(false);
+  const summaryCardsScrollRef = useRef<HTMLDivElement>(null);
+  const summaryCardsSetRef = useRef<HTMLDivElement>(null);
+  const [summaryCardsDotIndex, setSummaryCardsDotIndex] = useState(0);
+  const dragRef = useRef({ isDragging: false, startX: 0, scrollLeftStart: 0 });
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +139,47 @@ export default function ReportPage() {
       if (!cancelled && res?.success && Array.isArray(res.data)) setSitesList(res.data);
     });
     return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const el = summaryCardsScrollRef.current;
+    const setEl = summaryCardsSetRef.current;
+    if (!el || !setEl) return;
+    const oneSetWidth = setEl.offsetWidth;
+    const setStep = oneSetWidth + 16;
+    if (oneSetWidth > 0) el.scrollLeft = setStep;
+  }, [data]);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current.isDragging) return;
+      const el = summaryCardsScrollRef.current;
+      if (!el) return;
+      const dx = e.clientX - dragRef.current.startX;
+      el.scrollLeft = dragRef.current.scrollLeftStart - dx;
+    };
+    const onMouseUp = () => { dragRef.current.isDragging = false; };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = summaryCardsScrollRef.current;
+    if (!el) return;
+    const onTouchMove = (e: TouchEvent) => {
+      if (!dragRef.current.isDragging || !e.touches[0]) return;
+      const container = summaryCardsScrollRef.current;
+      if (!container) return;
+      const dx = e.touches[0].clientX - dragRef.current.startX;
+      container.scrollLeft = dragRef.current.scrollLeftStart - dx;
+      e.preventDefault();
+    };
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => el.removeEventListener('touchmove', onTouchMove);
   }, []);
 
   useEffect(() => {
@@ -207,13 +264,35 @@ export default function ReportPage() {
     const fmt = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
     const n = dataMonths ?? 0;
     const monthText = n === 1 ? '1 month' : `${n} months`;
-    return `${fmt(startDate)} - ${fmt(endDate)} (${monthText})`;
+    return `${fmt(startDate)} - ${fmt(endDate)} `;
   }, [range?.start, range?.endExclusive, dataMonths]);
 
   const monthlyTrendData = monthlyMA.map((item) => ({
     ...item,
     complete: Number(item.reportPass || 0) + Number(item.reportFail || 0),
   }));
+
+  // Top-model trend line (MA only)
+  const topModelTrendData = useMemo(() => {
+    if (!isMa || !data?.topModelTrend || !data.topModelTrend.model || !Array.isArray(data.topModelTrend.points)) {
+      return null;
+    }
+    const byMonth: Record<string, number> = {};
+    for (const p of data.topModelTrend.points) {
+      if (!p || !p.month_start) continue;
+      byMonth[p.month_start] = (byMonth[p.month_start] || 0) + Number(p.total || 0);
+    }
+    return monthlyTrendData.map((m) => ({
+      month: m.month,
+      monthKey: m.monthKey,
+      total: m.total,
+      complete: m.complete,
+      inprocess: m.inprocess,
+      overdue: m.overdue,
+      pending: m.pending,
+      topModelCount: byMonth[m.monthKey] || 0,
+    }));
+  }, [isMa, data?.topModelTrend, monthlyTrendData]);
 
   const pieData = reportType === 'pm'
     ? [
@@ -430,6 +509,69 @@ export default function ReportPage() {
             </button>
           </div>
           </div>
+            {/* Bottom Insights */}
+        <div className="grid grid-cols-3 gap-6">
+          <div className="bg-blue-50/70 border border-blue-100 p-6 rounded-[2rem] shadow-sm">
+            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
+              <TrendingUp size={16} className="text-blue-500" />
+              Overview
+            </h3>
+            <ul className="space-y-2.5 text-sm text-slate-600">
+              <li className="flex items-start gap-2">
+                <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
+                <span>Total {taskLabel} tasks: <strong className="text-blue-600">{summary.totalMA}</strong>, completion rate <strong className="text-emerald-600">{summary.completionRate}%</strong></span>
+              </li>
+              <li className="flex items-start gap-2">
+                <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
+                <span>Top {taskLabel} vendor: <strong className="text-violet-600">{summary.topVendor}</strong> ({summary.topVendorCount} tasks)</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
+                <span>{reportType === 'ma' ? 'Most repaired' : 'Most serviced'}: <strong className="text-red-500">{summary.topEquipment}</strong> ({summary.topEquipmentCount} times)</span>
+              </li>
+            </ul>
+          </div>
+
+          <div className="bg-amber-50/70 border border-amber-100 p-6 rounded-[2rem] shadow-sm">
+            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
+              <AlertTriangle size={16} className="text-amber-500" />
+              Watch List
+            </h3>
+            <ul className="space-y-2.5 text-sm text-slate-600">
+              {equipmentRanking.slice(0, 3).map((e, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <ChevronRight size={14} className="text-amber-500 mt-0.5 shrink-0" />
+                  <span>
+                    <strong className="text-amber-700">{e.deviceName}</strong> - {e.total} {taskLabel} times
+                    {isMa && (e.inprocess > 0 || e.pending > 0) && <span className="text-orange-500"> (Inprocess {e.inprocess}, Pending {e.pending})</span>}
+                  </span>
+                </li>
+              ))}
+              {equipmentRanking.length === 0 && <li className="text-slate-400">No data available</li>}
+            </ul>
+          </div>
+
+          <div className="bg-emerald-50/70 border border-emerald-100 p-6 rounded-[2rem] shadow-sm">
+            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
+              <CheckCircle2 size={16} className="text-emerald-500" />
+              Recommendations
+            </h3>
+            <ul className="space-y-2.5 text-sm text-slate-600">
+              <li className="flex items-start gap-2">
+                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+                <span>Review equipment with more than 3 MA occurrences for replacement</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+                <span>{isMa ? 'Follow up MA tasks that remain in Inprocess or Pending for too long' : 'Follow up with vendors that have high fail rates to improve SLA'}</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+                <span>Plan preventive PM for sites with high MA volume</span>
+              </li>
+            </ul>
+          </div>
+        </div>
 
           {/* MA / PM Tab */}
           <div className="flex gap-1 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-sm w-fit">
@@ -455,88 +597,273 @@ export default function ReportPage() {
             {loading ? 'Loading data...' : error}
           </div>
         )}
+        
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-5 gap-4">
-          <div className="bg-blue-50/80 border border-blue-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-blue-500 uppercase tracking-wide">Total {taskLabel} Tasks</span>
-              <Wrench size={16} className="text-blue-400" />
-            </div>
-            <p className="text-3xl font-black text-blue-700">{summary.totalMA.toLocaleString()}</p>
-            <p className="text-xs text-blue-400">Last {timeFilter}</p>
+        {/* Summary Cards - Manual infinite carousel: 7 cards, 5 visible, 2 slides, dot + drag + swipe */}
+        <div className="relative w-full overflow-hidden pb-1">
+          <div
+            ref={summaryCardsScrollRef}
+            onScroll={() => {
+              const el = summaryCardsScrollRef.current;
+              const setEl = summaryCardsSetRef.current;
+              if (!el || !setEl) return;
+              const oneSetWidth = setEl.offsetWidth;
+              const gapPx = 16;
+              const setStep = oneSetWidth + gapPx;
+              let { scrollLeft } = el;
+              if (scrollLeft >= 2 * setStep) {
+                el.scrollLeft = scrollLeft - setStep;
+                scrollLeft = el.scrollLeft;
+              } else if (scrollLeft <= 0) {
+                el.scrollLeft = scrollLeft + setStep;
+                scrollLeft = el.scrollLeft;
+              }
+              const pos = Math.min(6, Math.round(((scrollLeft - setStep) / oneSetWidth) * 7) % 7);
+              setSummaryCardsDotIndex(pos >= 3 ? 1 : 0);
+            }}
+            onMouseDown={(e) => {
+              const el = summaryCardsScrollRef.current;
+              if (!el) return;
+              dragRef.current = { isDragging: true, startX: e.clientX, scrollLeftStart: el.scrollLeft };
+            }}
+            onTouchStart={(e) => {
+              const el = summaryCardsScrollRef.current;
+              if (!el || !e.touches[0]) return;
+              dragRef.current = { isDragging: true, startX: e.touches[0].clientX, scrollLeftStart: el.scrollLeft };
+            }}
+            onTouchEnd={() => { dragRef.current.isDragging = false; }}
+            onTouchCancel={() => { dragRef.current.isDragging = false; }}
+            className="flex gap-4 overflow-x-auto overflow-y-hidden scroll-smooth touch-pan-x select-none cursor-grab active:cursor-grabbing [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+          >
+            {[1, 2, 3].map((set) => (
+              <div key={set} ref={set === 1 ? summaryCardsSetRef : undefined} className="flex gap-4 shrink-0">
+                <div className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-blue-50/80 border border-blue-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
+                  <div className="relative flex items-center">
+                    <span className="flex-1 text-xs text-center font-semibold text-blue-500 uppercase tracking-wide">Total {taskLabel} Tasks</span>
+                    <Wrench size={16} className="absolute right-0 top-1/2 -translate-y-1/2 text-blue-400 shrink-0" />
+                  </div>
+                  <p className="text-2xl pt-3 text-center font-black text-blue-700">{summary.totalMA.toLocaleString()}</p>
+                  <p className="text-xs pt-6  text-blue-400">Last {timeFilter}</p>
+                </div>
+                <button type="button" onClick={() => setCompletedModalOpen(true)} className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-emerald-50/80 border border-emerald-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
+                  <div className="relative flex items-center">
+                    <span className="flex-1 text-xs text-center font-semibold text-emerald-500 uppercase tracking-wide">Complete</span>
+                    <CheckCircle2 size={16} className="absolute right-0 top-1/2 -translate-y-1/2 text-emerald-400 shrink-0" />
+                  </div>
+                  <p className="text-2xl pt-3 text-center font-black text-emerald-700">{summary.totalDone.toLocaleString()}</p>
+                  <div className="flex items-center pt-6 gap-1 text-xs text-emerald-600">
+                    <ArrowUpRight size={12} />
+                    <span >{summary.completionRate}% completion</span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOverdueModalOpen(true)}
+                  className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-red-50/80 border border-red-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5 text-left hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-200"
+                  title="View overdue tasks in calendar"
+                >
+                  <div className="relative flex items-center">
+                    <span className="flex-1 text-xs text-center font-semibold text-red-600 uppercase tracking-wide">Overdue</span>
+                    <AlertTriangle size={16} className="absolute right-0 top-1/2 -translate-y-1/2 text-red-500 shrink-0" />
+                  </div>
+                  <p className="text-2xl pt-3 text-center font-black text-red-700">{summary.totalOverdue.toLocaleString()}</p>
+                  <div className="flex items-center pt-6 gap-2 text-xs text-red-600">
+                    <span>Past due tasks</span>
+                    <ChevronRight size={14} className="text-red-500 shrink-0" />
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInprocessModalOpen(true)}
+                  className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-orange-50/80 border border-orange-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5 text-left hover:bg-orange-50 transition-colors focus:outline-none focus:ring-2 focus:ring-orange-200"
+                  title="View in process tasks in calendar"
+                >
+                  <div className="relative flex items-center">
+                    <span className="flex-1 text-xs text-center font-semibold text-orange-600 uppercase tracking-wide">In Process</span>
+                    <RefreshCw  size={16} className="absolute right-0 top-1/2 -translate-y-1/2 text-orange-500 shrink-0" />
+                  </div>
+                  <p className="text-2xl text-center pt-3 font-black text-orange-700">{summary.totalInprocess.toLocaleString()}</p>
+                  <div className="flex items-center pt-6 gap-1 text-xs text-orange-600">
+                    <span >Currently being worked on</span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingModalOpen(true)}
+                  className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-yellow-50/80 border border-yellow-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5 text-left hover:bg-yellow-50 transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-200"
+                  title="View pending tasks in calendar"
+                >
+                    <div className="relative flex items-center">
+                      <span className="flex-1 text-xs text-center font-semibold text-yellow-600 uppercase tracking-wide">Pending</span>
+                      <Clock  size={16} className="absolute right-0 top-1/2 -translate-y-1/2 text-yellow-500 shrink-0" />
+                    </div>
+                  <p className="text-2xl pt-3 text-center font-black text-yellow-700">{summary.totalPending.toLocaleString()}</p>
+                  <div className="flex items-center pt-6 gap-1 text-xs text-yellow-600">
+                    <span >Waiting to be assigned</span>
+                  </div>
+                </button>
+                <div className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-violet-50/80 border border-violet-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-violet-500 uppercase tracking-wide">Top {taskLabel} Vendor</span>
+                    <Trophy size={16} className="text-violet-400 shrink-0" />
+                  </div>
+                  <p className="text-lg text-center pt-3 font-black text-violet-700 truncate">{summary.topVendor}</p>
+                  <p className="text-xs pt-6 text-violet-400">{summary.topVendorCount} {taskLabel} tasks</p>
+                </div>
+                <div className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-amber-50/80 border border-amber-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-amber-500 uppercase tracking-wide">{equipmentLabel}</span>
+                    <Server size={16} className="text-amber-400 shrink-0" />
+                  </div>
+                  <p className="text-base font-black text-amber-700 break-words min-h-[2rem]" title={summary.topEquipment} style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{summary.topEquipment}</p>
+                  <p className="text-xs text-amber-400">{summary.topEquipmentCount} {taskLabel} tasks</p>
+                </div>
+              </div>
+            ))}
           </div>
-
-          <div className="bg-emerald-50/80 border border-emerald-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-500 uppercase tracking-wide">Done</span>
-              <CheckCircle2 size={16} className="text-emerald-400" />
-            </div>
-            <p className="text-3xl font-black text-emerald-700">{summary.totalDone.toLocaleString()}</p>
-            <div className="flex items-center gap-1 text-xs text-emerald-600">
-              <ArrowUpRight size={12} />
-              <span>{summary.completionRate}% completion</span>
-            </div>
-          </div>
-
-          <div className="bg-red-50/80 border border-red-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">Overdue</span>
-              <AlertTriangle size={16} className="text-red-500" />
-            </div>
-            <p className="text-3xl font-black text-red-700">{summary.totalOverdue.toLocaleString()}</p>
-            <div className="flex items-center gap-2 text-xs text-red-600">
-              <span>Past due tasks</span>
-              <span className="text-emerald-600">Done {summary.totalDone}</span>
-            </div>
-          </div>
-
-          <div className="bg-violet-50/80 border border-violet-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-violet-500 uppercase tracking-wide">Top {taskLabel} Vendor</span>
-              <Trophy size={16} className="text-violet-400" />
-            </div>
-            <p className="text-lg font-black text-violet-700 truncate">{summary.topVendor}</p>
-            <p className="text-xs text-violet-400">{summary.topVendorCount} {taskLabel} tasks</p>
-          </div>
-
-          <div className="bg-amber-50/80 border border-amber-100 rounded-[2rem] shadow-sm p-5 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-amber-500 uppercase tracking-wide">{equipmentLabel}</span>
-              <Server size={16} className="text-amber-400" />
-            </div>
-            <p className="text-base font-black text-amber-700 break-words min-h-[2.5rem]" title={summary.topEquipment} style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{summary.topEquipment}</p>
-            <p className="text-xs text-amber-400">{summary.topEquipmentCount} {taskLabel} tasks</p>
+          <div className="flex justify-center items-center gap-2 py-3">
+            {[0, 1].map((i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => {
+                  const el = summaryCardsScrollRef.current;
+                  const setEl = summaryCardsSetRef.current;
+                  if (!el || !setEl) return;
+                  const oneSetWidth = setEl.offsetWidth;
+                  const setStep = oneSetWidth + 16;
+                  const target = i === 0 ? setStep : setStep + (3 / 7) * oneSetWidth;
+                  el.scrollTo({ left: target, behavior: 'smooth' });
+                }}
+                className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+                  i === summaryCardsDotIndex
+                    ? 'bg-blue-600 ring-4 ring-blue-200 scale-110'
+                    : 'bg-slate-300 hover:bg-slate-400'
+                }`}
+                aria-label={i === 0 ? 'Slide 1: Total, Done, Overdue, In Process, Pending' : 'Slide 2: Top Vendor, Most Repaired Equipment'}
+              />
+            ))}
           </div>
         </div>
+
+        <OverdueTasksModal
+          isOpen={overdueModalOpen}
+          onClose={() => setOverdueModalOpen(false)}
+          taskTypeFilter={taskLabel as 'PM' | 'MA'}
+          onSelectTask={(taskId) => {
+            setOverdueModalOpen(false);
+            router.push(`/calendar?taskId=${encodeURIComponent(taskId)}`);
+          }}
+        />
+        <CompletedTasksModal
+          isOpen={completedModalOpen}
+          onClose={() => setCompletedModalOpen(false)}
+          taskTypeFilter={taskLabel as 'PM' | 'MA'}
+          onSelectTask={(taskId) => {
+            setCompletedModalOpen(false);
+            router.push(`/calendar?taskId=${encodeURIComponent(taskId)}`);
+          }}
+        />
+        <InprocessTasksModal
+          isOpen={inprocessModalOpen}
+          onClose={() => setInprocessModalOpen(false)}
+          taskTypeFilter={taskLabel as 'PM' | 'MA'}
+          onSelectTask={(taskId) => {
+            setInprocessModalOpen(false);
+            router.push(`/calendar?taskId=${encodeURIComponent(taskId)}`);
+          }}
+        />
+        <PendingTasksModal
+          isOpen={pendingModalOpen}
+          onClose={() => setPendingModalOpen(false)}
+          taskTypeFilter={taskLabel as 'PM' | 'MA'}
+          onSelectTask={(taskId) => {
+            setPendingModalOpen(false);
+            router.push(`/calendar?taskId=${encodeURIComponent(taskId)}`);
+          }}
+        />
 
         {/* Row 2: Monthly Trend + Pie */}
         <div className="grid grid-cols-3 gap-6">
           <div className="col-span-2 bg-white p-6 rounded-[2rem] shadow-sm">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-bold text-slate-600 text-lg flex items-center gap-2">
-                <BarChart3 size={18} className="text-slate-400" />
-                Monthly {taskLabel} Trend
-              </h3>
+              <div className="flex items-center gap-3">
+                <h3 className="font-bold text-slate-600 text-lg flex items-center gap-2">
+                  <BarChart3 size={18} className="text-slate-400" />
+                  Monthly {taskLabel} Trend
+                </h3>
+                {isMa && topModelTrendData && (
+                  <div className="flex items-center gap-1 bg-slate-100 rounded-full p-1 text-[11px] text-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setMaTrendView('summary')}
+                      className={`px-3 py-1 rounded-full font-semibold transition-all ${
+                        maTrendView === 'summary' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-500'
+                      }`}
+                    >
+                      Summary
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMaTrendView('top-model')}
+                      className={`px-3 py-1 rounded-full font-semibold transition-all ${
+                        maTrendView === 'top-model' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-500'
+                      }`}
+                    >
+                      Top model trend
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="flex items-center gap-4 text-xs text-slate-500">
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-blue-500" /> Total</span>
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Complete</span>
                 {isMa ? (
-                  <>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-orange-400" /> Inprocess</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending</span>
-                  </>
+                  maTrendView === 'summary' ? (
+                    <>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-blue-500" /> Total
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Complete
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-orange-400" /> Inprocess
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending
+                      </span>
+                    </>
+                  ) : (
+                    topModelTrendData && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-rose-500" /> Top model
+                      </span>
+                    )
+                  )
                 ) : (
                   <>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Overdue</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-blue-500" /> Total
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Complete
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Overdue
+                    </span>
                   </>
                 )}
               </div>
             </div>
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyTrendData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }}>
+                <BarChart
+                  data={isMa && maTrendView === 'top-model' && topModelTrendData ? topModelTrendData : monthlyTrendData}
+                  margin={{ top: 5, right: 20, left: 0, bottom: 0 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
@@ -544,15 +871,32 @@ export default function ReportPage() {
                     contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', color: '#475569', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}
                     labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
                   />
-                  <Bar dataKey="total" fill="#3b82f6" name="Total" radius={[6, 6, 0, 0]} barSize={20} />
-                  <Bar dataKey="complete" fill="#10b981" name="Complete" radius={[6, 6, 0, 0]} barSize={20} />
                   {isMa ? (
                     <>
-                      <Bar dataKey="inprocess" fill="#f97316" name="Inprocess" radius={[6, 6, 0, 0]} barSize={20} />
-                      <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
+                      {maTrendView === 'summary' && (
+                        <>
+                          <Bar dataKey="total" fill="#3b82f6" name="Total" radius={[6, 6, 0, 0]} barSize={20} />
+                          <Bar dataKey="complete" fill="#10b981" name="Complete" radius={[6, 6, 0, 0]} barSize={20} />
+                          <Bar dataKey="inprocess" fill="#f97316" name="Inprocess" radius={[6, 6, 0, 0]} barSize={20} />
+                          <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
+                        </>
+                      )}
+                      {maTrendView === 'top-model' && topModelTrendData && (
+                        <Line
+                          type="monotone"
+                          dataKey="topModelCount"
+                          name={data?.topModelTrend?.model || 'Top model'}
+                          stroke="#ec4899"
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                          yAxisId={0}
+                        />
+                      )}
                     </>
                   ) : (
                     <>
+                      <Bar dataKey="total" fill="#3b82f6" name="Total" radius={[6, 6, 0, 0]} barSize={20} />
+                      <Bar dataKey="complete" fill="#10b981" name="Complete" radius={[6, 6, 0, 0]} barSize={20} />
                       <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
                       <Bar dataKey="overdue" fill="#ef4444" name="Overdue" radius={[6, 6, 0, 0]} barSize={20} />
                     </>
@@ -673,7 +1017,7 @@ export default function ReportPage() {
                       </div>
                       <ProgressBar value={v.total} max={maxVendorTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-blue-300'} />
                       <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
-                        <span className="text-emerald-600">Done {v.done}</span>
+                        <span className="text-emerald-600">Complete {v.done}</span>
                         {isMa ? (
                           <>
                             <span className="text-orange-500">Inprocess {v.inprocess}</span>
@@ -816,7 +1160,7 @@ export default function ReportPage() {
                     >
                       Total {taskLabel}
                     </th>
-                    <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Done</th>
+                    <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Complete</th>
                     {isMa ? (
                       <>
                         <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Inprocess</th>
@@ -907,7 +1251,7 @@ export default function ReportPage() {
                       </div>
                       <ProgressBar value={s.total} max={maxSiteTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-teal-300'} />
                       <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
-                        <span className="text-emerald-600">Done {s.done}</span>
+                        <span className="text-emerald-600">Complete {s.done}</span>
                         {isMa ? (
                           <>
                             <span className="text-orange-500">Inprocess {s.inprocess}</span>
@@ -930,69 +1274,7 @@ export default function ReportPage() {
           </div>
         )}
 
-        {/* Bottom Insights */}
-        <div className="grid grid-cols-3 gap-6">
-          <div className="bg-blue-50/70 border border-blue-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
-              <TrendingUp size={16} className="text-blue-500" />
-              Overview
-            </h3>
-            <ul className="space-y-2.5 text-sm text-slate-600">
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
-                <span>Total {taskLabel} tasks: <strong className="text-blue-600">{summary.totalMA}</strong>, completion rate <strong className="text-emerald-600">{summary.completionRate}%</strong></span>
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
-                <span>Top {taskLabel} vendor: <strong className="text-violet-600">{summary.topVendor}</strong> ({summary.topVendorCount} tasks)</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
-                <span>{reportType === 'ma' ? 'Most repaired' : 'Most serviced'}: <strong className="text-red-500">{summary.topEquipment}</strong> ({summary.topEquipmentCount} times)</span>
-              </li>
-            </ul>
-          </div>
-
-          <div className="bg-amber-50/70 border border-amber-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
-              <AlertTriangle size={16} className="text-amber-500" />
-              Watch List
-            </h3>
-            <ul className="space-y-2.5 text-sm text-slate-600">
-              {equipmentRanking.slice(0, 3).map((e, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <ChevronRight size={14} className="text-amber-500 mt-0.5 shrink-0" />
-                  <span>
-                    <strong className="text-amber-700">{e.deviceName}</strong> - {e.total} {taskLabel} times
-                    {isMa && (e.inprocess > 0 || e.pending > 0) && <span className="text-orange-500"> (Inprocess {e.inprocess}, Pending {e.pending})</span>}
-                  </span>
-                </li>
-              ))}
-              {equipmentRanking.length === 0 && <li className="text-slate-400">No data available</li>}
-            </ul>
-          </div>
-
-          <div className="bg-emerald-50/70 border border-emerald-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
-              <CheckCircle2 size={16} className="text-emerald-500" />
-              Recommendations
-            </h3>
-            <ul className="space-y-2.5 text-sm text-slate-600">
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
-                <span>Review equipment with more than 3 MA occurrences for replacement</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
-                <span>{isMa ? 'Follow up MA tasks that remain in Inprocess or Pending for too long' : 'Follow up with vendors that have high fail rates to improve SLA'}</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
-                <span>Plan preventive PM for sites with high MA volume</span>
-              </li>
-            </ul>
-          </div>
-        </div>
+      
       </div>
     </SidebarLayout>
   );
