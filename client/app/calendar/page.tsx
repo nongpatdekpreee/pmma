@@ -1038,9 +1038,6 @@ export default function CalendarPage() {
                                         )}
                                       </span>
                                     )}
-                                    {isDone && (
-                                      <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
-                                    )}
                                     {isDone && !hasReport && (
                                       <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
                                         <FileX2 size={12} strokeWidth={2.5} />
@@ -1138,9 +1135,6 @@ export default function CalendarPage() {
                               </span>
                             )}
                           </span>
-                        )}
-                        {isDone && (
-                          <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
                         )}
                         {isDone && !hasReport && (
                           <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">

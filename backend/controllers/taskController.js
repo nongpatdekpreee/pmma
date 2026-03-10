@@ -62,6 +62,20 @@ const generateNextTaskId = async () => {
   }
 };
 
+/** คืนค่า date เป็น string YYYY-MM-DD ตามที่เก็บใน DB (ส่งเป็น string เลย ไม่ให้ JSON serialize เป็น ISO แล้วเลื่อนวัน) */
+const toDateOnlyString = (val) => {
+  if (val == null) return null;
+  if (typeof val === 'string') return val.trim().substring(0, 10) || null;
+  if (val instanceof Date) {
+    const y = val.getFullYear();
+    const m = val.getMonth() + 1;
+    const d = val.getDate();
+    if (Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return null;
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  return null;
+};
+
 const mapTaskRow = (row) => {
   const slaVal = row.contract_sla_term;
   return {
@@ -80,8 +94,8 @@ const mapTaskRow = (row) => {
   resolution: row.resolution,
   ...(slaVal != null && slaVal !== '' ? { slaTerm: slaVal } : {}),
   coverageScope: row.coverage_scope,
-  startDate: row.start_date,
-  endDate: row.end_date,
+  startDate: toDateOnlyString(row.start_date),
+  endDate: toDateOnlyString(row.end_date),
   engineers: row.engineers ? (typeof row.engineers === 'string' ? JSON.parse(row.engineers) : row.engineers) : [],
   assets: row.assets ? (typeof row.assets === 'string' ? JSON.parse(row.assets) : row.assets) : [],
   assetBinding: row.asset_binding,
@@ -239,7 +253,7 @@ const getTasks = async (_req, res) => {
     console.error('Error getting tasks:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Task',
+      message: 'Error getting tasks',
       error: error.message,
     });
   }
@@ -264,7 +278,7 @@ const getTaskById = async (req, res) => {
     console.error('Error getting task by id:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Task',
+      message: 'Error getting task by id',
       error: error.message,
     });
   }
@@ -301,7 +315,7 @@ const updateTask = async (req, res) => {
 
     const [existing] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     if (!existing[0]) {
-      return res.status(404).json({ success: false, message: 'ไม่พบ Task สำหรับอัพเดท' });
+      return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
     // Helper function to safely parse integer
@@ -351,7 +365,7 @@ const updateTask = async (req, res) => {
     if (photos !== undefined) addUpdate('photos', photos && photos.length > 0 ? JSON.stringify(photos) : null);
 
     if (updates.length === 0) {
-      return res.status(400).json({ success: false, message: 'ไม่มีข้อมูลสำหรับอัพเดท' });
+        return res.status(400).json({ success: false, message: 'No data to update' });
     }
 
     values.push(id);
@@ -612,6 +626,188 @@ const checkEngineerConflict = async (req, res) => {
   }
 };
 
+// GET /api/tasks/overdue?task_type=MA | PM — ดึงงานเกินกำหนด: status='not-started', end_date < CURRENT_DATE, แยกตาม task_type
+const getOverdueTasks = async (req, res) => {
+  try {
+    const taskType = (req.query.task_type || '').toUpperCase();
+    const sid = req.query.sid != null && req.query.sid !== '' ? Number(req.query.sid) : null;
+    const lid = req.query.lid != null && req.query.lid !== '' ? Number(req.query.lid) : null;
+    if (taskType !== 'MA' && taskType !== 'PM') {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ task_type เป็น MA หรือ PM',
+      });
+    }
+    if ((sid != null && Number.isNaN(sid)) || (lid != null && Number.isNaN(lid))) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
+      });
+    }
+    const [rows] = await db.execute(
+      `SELECT t.*, c.sla_term AS contract_sla_term
+       FROM tasks t
+       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl ON sl.SLid = t.site_id
+       WHERE t.status = 'not-started' AND t.end_date < CURRENT_DATE AND t.task_type = ?
+         AND (? IS NULL OR sl.Sid = ?)
+         AND (? IS NULL OR sl.lid = ?)
+       ORDER BY t.end_date ASC, t.id ASC`,
+      [taskType, sid, sid, lid, lid]
+    );
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      data: rows.map(mapTaskRow),
+    });
+  } catch (error) {
+    console.error('Error getting overdue tasks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting overdue tasks',
+      error: error.message,
+    });
+  }
+};
+
+// GET /api/tasks/completed?task_type=MA | PM — ดึงงานที่เสร็จแล้ว: status='done', แยกตาม task_type
+const getCompletedTasks = async (req, res) => {
+  try {
+    const taskType = (req.query.task_type || '').toUpperCase();
+    const sid = req.query.sid != null && req.query.sid !== '' ? Number(req.query.sid) : null;
+    const lid = req.query.lid != null && req.query.lid !== '' ? Number(req.query.lid) : null;
+    if (taskType !== 'MA' && taskType !== 'PM') {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ task_type เป็น MA หรือ PM',
+      });
+    }
+    if ((sid != null && Number.isNaN(sid)) || (lid != null && Number.isNaN(lid))) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
+      });
+    }
+    const [rows] = await db.execute(
+      `SELECT t.*, c.sla_term AS contract_sla_term
+       FROM tasks t
+       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl ON sl.SLid = t.site_id
+       WHERE t.status = 'done' AND t.task_type = ?
+         AND (? IS NULL OR sl.Sid = ?)
+         AND (? IS NULL OR sl.lid = ?)
+       ORDER BY t.end_date DESC, t.id DESC`,
+      [taskType, sid, sid, lid, lid]
+    );
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      data: rows.map(mapTaskRow),
+    });
+  } catch (error) {
+    console.error('Error getting completed tasks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting completed tasks',
+      error: error.message,
+    });
+  }
+};
+
+// GET /api/tasks/inprocess?task_type=MA | PM — นิยามตาม analytics:
+// - inprocess = status='working' OR (status='done' AND ไม่มี report)
+const getInprocessTasks = async (req, res) => {
+  try {
+    const taskType = (req.query.task_type || '').toUpperCase();
+    const sid = req.query.sid != null && req.query.sid !== '' ? Number(req.query.sid) : null;
+    const lid = req.query.lid != null && req.query.lid !== '' ? Number(req.query.lid) : null;
+    if (taskType !== 'MA' && taskType !== 'PM') {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ task_type เป็น MA หรือ PM',
+      });
+    }
+    if ((sid != null && Number.isNaN(sid)) || (lid != null && Number.isNaN(lid))) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
+      });
+    }
+    const [rows] = await db.execute(
+      `SELECT t.*, c.sla_term AS contract_sla_term
+       FROM tasks t
+       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN report r ON r.id = t.id
+       LEFT JOIN sites_location sl ON sl.SLid = t.site_id
+       WHERE t.task_type = ?
+         AND (LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL))
+         AND (? IS NULL OR sl.Sid = ?)
+         AND (? IS NULL OR sl.lid = ?)
+       ORDER BY t.end_date ASC, t.id ASC`,
+      [taskType, sid, sid, lid, lid]
+    );
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      data: rows.map(mapTaskRow),
+    });
+  } catch (error) {
+    console.error('Error getting inprocess tasks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting inprocess tasks',
+      error: error.message,
+    });
+  }
+};
+
+// GET /api/tasks/pending?task_type=MA | PM — นิยามตาม analytics:
+// - pending = status NOT IN ('done','working') AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+const getPendingTasks = async (req, res) => {
+  try {
+    const taskType = (req.query.task_type || '').toUpperCase();
+    const sid = req.query.sid != null && req.query.sid !== '' ? Number(req.query.sid) : null;
+    const lid = req.query.lid != null && req.query.lid !== '' ? Number(req.query.lid) : null;
+    if (taskType !== 'MA' && taskType !== 'PM') {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ task_type เป็น MA หรือ PM',
+      });
+    }
+    if ((sid != null && Number.isNaN(sid)) || (lid != null && Number.isNaN(lid))) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
+      });
+    }
+    const [rows] = await db.execute(
+      `SELECT t.*, c.sla_term AS contract_sla_term
+       FROM tasks t
+       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl ON sl.SLid = t.site_id
+       WHERE t.task_type = ?
+         AND LOWER(t.status) NOT IN ('done', 'working')
+         AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
+         AND (? IS NULL OR sl.Sid = ?)
+         AND (? IS NULL OR sl.lid = ?)
+       ORDER BY (t.end_date IS NULL) ASC, t.end_date ASC, t.id ASC`,
+      [taskType, sid, sid, lid, lid]
+    );
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      data: rows.map(mapTaskRow),
+    });
+  } catch (error) {
+    console.error('Error getting pending tasks:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting pending tasks',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createTask,
   getTasks,
@@ -619,4 +815,8 @@ module.exports = {
   updateTask,
   deleteTask,
   checkEngineerConflict,
+  getOverdueTasks,
+  getCompletedTasks,
+  getInprocessTasks,
+  getPendingTasks,
 };

@@ -381,6 +381,7 @@ const getMaDashboard = async (req, res) => {
       }
     }
     const vendorAgg = {};
+    const modelMonthlyAgg = {};
     for (const row of vendorTaskRows) {
       let assets = [];
       try {
@@ -405,6 +406,20 @@ const getMaDashboard = async (req, res) => {
       if (taskStatus !== 'done' && row.end_date && new Date(row.end_date) < new Date()) vendorAgg[vendor].overdue++;
       if (row.report_status === 'Fail') vendorAgg[vendor].report_fail++;
       if (row.report_status === 'Pass') vendorAgg[vendor].report_pass++;
+
+      // model monthly aggregation (for trendline)
+      const monthStart = row.start_date ? new Date(row.start_date).toISOString().slice(0, 7) + '-01' : null;
+      if (monthStart && Array.isArray(assets) && assets.length > 0) {
+        const firstAsset = assets[0];
+        const rawId = firstAsset.id ?? firstAsset.Did ?? firstAsset.deviceId;
+        const sid = rawId != null ? String(rawId) : null;
+        const modelFromDb = sid ? (deviceIdToModel[sid] || null) : null;
+        const model =
+          (firstAsset.model || firstAsset.deviceModel || modelFromDb || '').toString().trim() || 'Unknown Model';
+        const mmKey = `${model}\t${monthStart}`;
+        if (!modelMonthlyAgg[mmKey]) modelMonthlyAgg[mmKey] = { model, month_start: monthStart, total: 0 };
+        modelMonthlyAgg[mmKey].total++;
+      }
     }
     const vendorMA = Object.entries(vendorAgg)
       .map(([vendor, v]) => ({ vendor, ...v }))
@@ -492,6 +507,17 @@ const getMaDashboard = async (req, res) => {
     const equipmentRanking = Object.values(equipMap)
       .sort((a, b) => b.total - a.total)
       .slice(0, 15);
+
+    // Top model monthly trend (overall most repaired model)
+    const topModelName = equipmentRanking.length > 0
+      ? (equipmentRanking[0].model || equipmentRanking[0].deviceName || 'Unknown Model')
+      : null;
+    let topModelMonthly = [];
+    if (topModelName) {
+      topModelMonthly = Object.values(modelMonthlyAgg)
+        .filter((m) => m.model === topModelName)
+        .sort((a, b) => a.month_start.localeCompare(b.month_start));
+    }
 
     // 5) Vendor vs monthly MA heatmap data (vendor from device)
     const vendorMonthlyAgg = {};
@@ -601,6 +627,10 @@ const getMaDashboard = async (req, res) => {
           completionRate: Number(r.total) > 0 ? Math.round((Number(r.done) / Number(r.total)) * 100) : 0,
         })),
         equipmentRanking,
+        topModelTrend: {
+          model: topModelName,
+          points: topModelMonthly,
+        },
         vendorMonthly: vendorMonthly.map(r => ({
           vendor: r.vendor,
           month: monthLabel(new Date(r.month_start)),
@@ -631,6 +661,8 @@ const getPmDashboard = async (req, res) => {
          COUNT(DISTINCT t.id) AS total,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done') AND t.end_date < CURDATE() THEN t.id END) AS overdue,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'not-started' AND t.start_date >= CURDATE() THEN t.id END) AS pending,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
          COUNT(DISTINCT CASE WHEN r.status = 'Fail' THEN t.id END) AS report_fail,
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
@@ -828,7 +860,7 @@ const getPmDashboard = async (req, res) => {
     const totalReportFail = monthlyMA.reduce((s, r) => s + Number(r.report_fail), 0);
     const totalReportPass = monthlyMA.reduce((s, r) => s + Number(r.report_pass), 0);
     const totalOverdue = monthlyMA.reduce((s, r) => s + Number(r.overdue || 0), 0);
-    const totalPending = totalMA - totalDone;
+    const totalPending = monthlyMA.reduce((s, r) => s + Number(r.pending || 0), 0);
 
     const topVendor = vendorMA.length > 0 ? vendorMA[0].vendor : 'N/A';
     const topEquip = equipmentRanking.length > 0 ? equipmentRanking[0].deviceName : 'N/A';

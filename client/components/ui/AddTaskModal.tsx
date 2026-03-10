@@ -268,10 +268,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
   };
 
-  const fetchDevicesByContract = async (contractId: string) => {
+  const fetchDevicesByContract = async (contractId: string, siteId?: string | null) => {
     if (!contractId) return [];
     try {
-      const result = await getDevicesByContract(contractId);
+      const result = await getDevicesByContract(contractId, siteId);
       if (!result.success) {
         throw new Error('Cannot load devices of contract.');
       }
@@ -422,8 +422,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setDeviceError(null);
     try {
       // For MA: only load devices from Contract (broken devices must be from contract)
-      // For PM: load from contract only
-      const contractList = contractId ? await fetchDevicesByContract(contractId) : [];
+      // For PM: load from contract only. ส่ง Sid (SLid) เพื่อให้ backend กรอง devices ตาม site ที่เลือก
+      const contractList = contractId ? await fetchDevicesByContract(contractId, Sid || null) : [];
 
       // Only load available devices for replacement device selection (not for broken device selection)
       if (currentTaskType === 'MA') {
@@ -684,7 +684,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     if (!isOpen) return;
     // If editing and we have assets, preserve them when loading devices
     const preserveDevices = editingEvent?.assets || [];
-    // โหลด devices เมื่อเลือก contract แล้ว
+    // โหลด devices เมื่อเลือก contract (และส่ง Sid เพื่อกรองตาม site ที่เลือก)
     if (selectedContractId) {
       loadDevicesForSelection(selectedContractId, taskType, preserveDevices.length > 0 && editingEvent ? preserveDevices : []);
     } else {
@@ -692,7 +692,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setSelectedDevices([]);
       setBrokenDevicePairs([]);
     }
-  }, [selectedContractId, taskType, isOpen, editingEvent]);
+  }, [selectedContractId, taskType, Sid, isOpen, editingEvent]);
 
   // Re-map devices when deviceRoles and deviceTypes are loaded to include role and manufacturer
   useEffect(() => {
@@ -1949,14 +1949,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Broken Device Pairs (for MA only) */}
             {taskType === 'MA' && (
               <div className="border-slate-200">
-                <label className={fieldLabel}>Broken Device and Replacement Device</label>
+                <label className={fieldLabel}> Device and Replacement Device</label>
 
                 {/* First broken device selection (if no pairs yet) */}
                 {brokenDevicePairs.length === 0 && (
                   <div className="space-y-3">
                     <div>
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Broken Device 1 <span className="text-red-500">*</span>
+                        Device 1 <span className="text-red-500">*</span>
                       </label>
                       {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
@@ -1966,7 +1966,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         <SearchableDeviceSelect
                           devices={devicesToShow}
                           value={null}
-                          placeholder="-- Select Broken Device --"
+                          placeholder="-- Select Device --"
                           onSelect={(d) => d && addBrokenDevicePair(d)}
                         />
                       )}
@@ -1980,7 +1980,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1">
                         <p className="text-xs font-semibold text-slate-700 mb-1">
-                          Broken Device {index + 1}: {pair.brokenDevice.name}
+                          Device {index + 1}: {pair.brokenDevice.name}
                         </p>
                         <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-500">
                           <span>Type: {pair.brokenDevice.role || pair.brokenDevice.type || '-'}</span>
@@ -2036,7 +2036,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition mt-2"
                   >
                     <Plus size={14} />
-                    Add Broken Device {brokenDevicePairs.length + 1}
+                    Add Device {brokenDevicePairs.length + 1}
                   </button>
                 )}
               </div>
