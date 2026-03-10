@@ -192,7 +192,7 @@ function ContractEditorPageContent() {
   // Form state
   const [contractForm, setContractForm] = useState({
     name: '',
-    partner: '',
+    site: '',
     maintenanceType: '',
     startDate: '',
     endDate: '',
@@ -547,7 +547,7 @@ function ContractEditorPageContent() {
     setCurrentEquipmentList([]);
     setContractForm({
       name: '',
-      partner: '',
+      site: '',
       maintenanceType: '',
       startDate: '',
       endDate: '',
@@ -632,6 +632,7 @@ function ContractEditorPageContent() {
       ...contractForm,
       equipment: [...currentEquipmentList],
       formattedValue,
+      partner: contractForm.site, // Ensure partner is included as required by Contract type
       formattedStartDate,
       formattedEndDate,
     };
@@ -1442,8 +1443,10 @@ function ContractEditorPageContent() {
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Contract Partner:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.partner}</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Site:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.siteName ?? contract.partner ?? '—'}
+                </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Calendar size={18} /></span>
@@ -1462,8 +1465,23 @@ function ContractEditorPageContent() {
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Wrench size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Equipment:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.deviceCount || 0} List Items</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Device:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.deviceCount || 0} items
+                </span>
+              </div>
+              <div className="mb-3 flex items-start gap-3 text-sm">
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><CheckCircle2 size={18} /></span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Status:</span>
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(
+                      contract.contractStatus === 'draft' ? 'draft' : contract.status
+                    )}`}
+                  >
+                    {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
+                  </span>
+                </span>
               </div>
               <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-slate-200 min-w-0 overflow-hidden items-center justify-between">
                 <div className="flex flex-wrap gap-2 min-w-0">
@@ -1661,8 +1679,8 @@ function ContractEditorPageContent() {
                   id="contractPartner"
                   required
                   placeholder="Enter the name of the service provider"
-                  value={contractForm.partner}
-                  onChange={(e) => setContractForm({ ...contractForm, partner: e.target.value })}
+                  value={contractForm.site}
+                  onChange={(e) => setContractForm({ ...contractForm, site: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
@@ -1850,8 +1868,8 @@ function ContractEditorPageContent() {
                   id="editContractPartner"
                   required
                   placeholder="Enter the name of the service provider"
-                  value={contractForm.partner}
-                  onChange={(e) => setContractForm({ ...contractForm, partner: e.target.value })}
+                  value={contractForm.site}
+                  onChange={(e) => setContractForm({ ...contractForm, site: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
