@@ -11,7 +11,10 @@ function monthLabel(date) {
 }
 
 function toISODate(d) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function getRange(months) {
@@ -24,6 +27,21 @@ function getRange(months) {
   endExclusive.setHours(0, 0, 0, 0);
   endExclusive.setDate(1);
   endExclusive.setMonth(endExclusive.getMonth() + 1);
+  return { start, endExclusive };
+}
+
+/** คำนวณช่วงจากปี (และเดือนถ้ามี) - year: ค.ศ., month: 1-12 หรือ null = ทั้งปี */
+function getRangeFromYearMonth(year, month) {
+  const y = parseInt(String(year ?? ''), 10);
+  if (Number.isNaN(y) || y < 2000 || y > 2100) return null;
+  const start = new Date(y, month != null ? month - 1 : 0, 1);
+  start.setHours(0, 0, 0, 0);
+  const endExclusive = new Date(start);
+  if (month != null && month >= 1 && month <= 12) {
+    endExclusive.setMonth(endExclusive.getMonth() + 1);
+  } else {
+    endExclusive.setFullYear(endExclusive.getFullYear() + 1);
+  }
   return { start, endExclusive };
 }
 
@@ -297,11 +315,13 @@ const getSlaContracts = async (req, res) => {
   }
 };
 
-// GET /api/analytics/ma-dashboard?months=6
+// GET /api/analytics/ma-dashboard?months=6 | ?year=2024 | ?year=2024&month=3
 // Detailed MA dashboard: top equipment, top vendors, failure ranking, monthly MA counts
 const getMaDashboard = async (req, res) => {
   try {
     const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
+    const yearParam = req.query.year;
+    const monthParam = req.query.month != null && req.query.month !== '' ? parseInt(String(req.query.month), 10) : null;
 
     // Optional filters for MA top-model / equipment analytics
     const roleFilterRaw = req.query.role_id;
@@ -315,7 +335,17 @@ const getMaDashboard = async (req, res) => {
         ? Number(siteFilterRaw)
         : null;
 
-    const { start, endExclusive } = getRange(months);
+    let start, endExclusive, effectiveMonths = months;
+    const rangeFromYear = yearParam != null && yearParam !== '' ? getRangeFromYearMonth(parseInt(String(yearParam), 10), (monthParam >= 1 && monthParam <= 12) ? monthParam : null) : null;
+    if (rangeFromYear) {
+      start = rangeFromYear.start;
+      endExclusive = rangeFromYear.endExclusive;
+      effectiveMonths = monthParam >= 1 && monthParam <= 12 ? 1 : 12;
+    } else {
+      const range = getRange(months);
+      start = range.start;
+      endExclusive = range.endExclusive;
+    }
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
 
@@ -617,7 +647,7 @@ const getMaDashboard = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        months,
+        months: effectiveMonths,
         range: { start: startISO, endExclusive: endISO },
         summary: {
           totalMA,
@@ -687,12 +717,25 @@ const getMaDashboard = async (req, res) => {
   }
 };
 
-// GET /api/analytics/pm-dashboard?months=6
+// GET /api/analytics/pm-dashboard?months=6 | ?year=2024 | ?year=2024&month=3
 // Same structure as MA dashboard but for task_type = 'PM'
 const getPmDashboard = async (req, res) => {
   try {
     const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
-    const { start, endExclusive } = getRange(months);
+    const yearParam = req.query.year;
+    const monthParam = req.query.month != null && req.query.month !== '' ? parseInt(String(req.query.month), 10) : null;
+
+    let start, endExclusive, effectiveMonths = months;
+    const rangeFromYear = yearParam != null && yearParam !== '' ? getRangeFromYearMonth(parseInt(String(yearParam), 10), (monthParam >= 1 && monthParam <= 12) ? monthParam : null) : null;
+    if (rangeFromYear) {
+      start = rangeFromYear.start;
+      endExclusive = rangeFromYear.endExclusive;
+      effectiveMonths = monthParam >= 1 && monthParam <= 12 ? 1 : 12;
+    } else {
+      const range = getRange(months);
+      start = range.start;
+      endExclusive = range.endExclusive;
+    }
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
 
@@ -909,7 +952,7 @@ const getPmDashboard = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        months,
+        months: effectiveMonths,
         range: { start: startISO, endExclusive: endISO },
         summary: {
           totalMA,
