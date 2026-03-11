@@ -134,8 +134,8 @@ export async function getDeviceTypes(): Promise<{
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
-/** GET /api/analytics/ma-dashboard - ข้อมูล MA Dashboard แบบละเอียด */
-export async function getMaDashboard(params?: { months?: number; roleId?: number; slId?: number }): Promise<{
+/** GET /api/analytics/ma-dashboard - ข้อมูล MA Dashboard แบบละเอียด (รองรับ months หรือ year+month) */
+export async function getMaDashboard(params?: { months?: number; year?: number; month?: number; roleId?: number; slId?: number }): Promise<{
   success: boolean;
   data?: {
     months: number;
@@ -185,6 +185,8 @@ export async function getMaDashboard(params?: { months?: number; roleId?: number
 }> {
   const q = new URLSearchParams();
   if (params?.months != null) q.set('months', String(params.months));
+  if (params?.year != null) q.set('year', String(params.year));
+  if (params?.month != null) q.set('month', String(params.month));
   if (params?.roleId != null) q.set('role_id', String(params.roleId));
   if (params?.slId != null) q.set('sl_id', String(params.slId));
   const query = q.toString();
@@ -193,8 +195,8 @@ export async function getMaDashboard(params?: { months?: number; roleId?: number
   return res.json();
 }
 
-/** GET /api/analytics/pm-dashboard - ข้อมูล PM Dashboard (โครงเดียวกับ MA) */
-export async function getPmDashboard(params?: { months?: number }): Promise<{
+/** GET /api/analytics/pm-dashboard - ข้อมูล PM Dashboard (โครงเดียวกับ MA, รองรับ year+month) */
+export async function getPmDashboard(params?: { months?: number; year?: number; month?: number }): Promise<{
   success: boolean;
   data?: {
     months: number;
@@ -240,6 +242,8 @@ export async function getPmDashboard(params?: { months?: number }): Promise<{
 }> {
   const q = new URLSearchParams();
   if (params?.months != null) q.set('months', String(params.months));
+  if (params?.year != null) q.set('year', String(params.year));
+  if (params?.month != null) q.set('month', String(params.month));
   const res = await fetch(apiUrl(`/api/analytics/pm-dashboard?${q.toString()}`));
   return res.json();
 }
