@@ -81,7 +81,7 @@ export async function getContractById(contractId: number | string): Promise<{
 /** GET /api/contracts/:id/devices - Devices ที่ผูกกับ Contract (จาก contract_device). ส่ง site_id (= SLid) เพื่อกรองเฉพาะ site นั้น */
 export async function getDevicesByContract(contractId: number | string, siteId?: number | string | null): Promise<{
   success: boolean;
-  data: { Did: number; CI_Name?: string; Asset_Number?: string; serial?: string; Asset_State?: string; Sid?: number; SiteName?: string }[];
+  data: { Did: number; contract_id?: number; CI_Name?: string; Asset_Number?: string; serial?: string; Asset_State?: string; Sid?: number; SiteName?: string }[];
 }> {
   const q = siteId != null && siteId !== '' ? `?site_id=${encodeURIComponent(String(siteId))}` : '';
   const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/devices${q}`));
@@ -135,7 +135,7 @@ export async function getDeviceTypes(): Promise<{
 }
 
 /** GET /api/analytics/ma-dashboard - ข้อมูล MA Dashboard แบบละเอียด */
-export async function getMaDashboard(params?: { months?: number }): Promise<{
+export async function getMaDashboard(params?: { months?: number; roleId?: number; slId?: number }): Promise<{
   success: boolean;
   data?: {
     months: number;
@@ -185,7 +185,11 @@ export async function getMaDashboard(params?: { months?: number }): Promise<{
 }> {
   const q = new URLSearchParams();
   if (params?.months != null) q.set('months', String(params.months));
-  const res = await fetch(apiUrl(`/api/analytics/ma-dashboard?${q.toString()}`));
+  if (params?.roleId != null) q.set('role_id', String(params.roleId));
+  if (params?.slId != null) q.set('sl_id', String(params.slId));
+  const query = q.toString();
+  const url = query ? `/api/analytics/ma-dashboard?${query}` : '/api/analytics/ma-dashboard';
+  const res = await fetch(apiUrl(url));
   return res.json();
 }
 

@@ -111,6 +111,8 @@ export default function ReportPage() {
   const [sitesList, setSitesList] = useState<{ SLid: number; SiteName: string }[]>([]);
   const [overdueModalOpen, setOverdueModalOpen] = useState(false);
   const [maTrendView, setMaTrendView] = useState<'summary' | 'top-model'>('summary');
+  const [maTrendRoleFilterId, setMaTrendRoleFilterId] = useState<number | null>(null);
+  const [maTrendSiteFilterId, setMaTrendSiteFilterId] = useState<number | null>(null);
   const [completedModalOpen, setCompletedModalOpen] = useState(false);
   const [inprocessModalOpen, setInprocessModalOpen] = useState(false);
   const [pendingModalOpen, setPendingModalOpen] = useState(false);
@@ -226,7 +228,14 @@ export default function ReportPage() {
       setLoading(true);
       setError('');
       try {
-        const res = reportType === 'pm' ? await getPmDashboard({ months }) : await getMaDashboard({ months });
+        const res =
+          reportType === 'pm'
+            ? await getPmDashboard({ months })
+            : await getMaDashboard({
+                months,
+                roleId: maTrendRoleFilterId != null ? maTrendRoleFilterId : undefined,
+                slId: maTrendSiteFilterId != null ? maTrendSiteFilterId : undefined,
+              });
         if (!cancelled && res?.success && res.data) {
           setData(res.data);
         } else if (!cancelled) {
@@ -244,7 +253,7 @@ export default function ReportPage() {
     };
     load();
     return () => { cancelled = true; };
-  }, [months, reportType]);
+  }, [months, reportType, maTrendRoleFilterId, maTrendSiteFilterId]);
 
   const { summary, monthlyMA, vendorRanking, siteRanking, equipmentRanking, range, months: dataMonths } = data;
   const isMa = reportType === 'ma';
@@ -787,7 +796,7 @@ export default function ReportPage() {
         {/* Row 2: Monthly Trend + Pie */}
         <div className="grid grid-cols-3 gap-6">
           <div className="col-span-2 bg-white p-6 rounded-[2rem] shadow-sm">
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
                 <h3 className="font-bold text-slate-600 text-lg flex items-center gap-2">
                   <BarChart3 size={18} className="text-slate-400" />
@@ -858,6 +867,46 @@ export default function ReportPage() {
                 )}
               </div>
             </div>
+            {isMa && maTrendView === 'top-model' && (
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4 text-xs">
+                <div className="flex items-center gap-2">
+                  <label className="text-slate-500">Role:</label>
+                  <select
+                    className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    value={maTrendRoleFilterId != null ? String(maTrendRoleFilterId) : ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setMaTrendRoleFilterId(v ? Number(v) : null);
+                    }}
+                  >
+                    <option value="">All</option>
+                    {deviceRolesList.map((r) => (
+                      <option key={r.DeRoleid} value={r.DeRoleid}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-slate-500">Site:</label>
+                  <select
+                    className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-[160px]"
+                    value={maTrendSiteFilterId != null ? String(maTrendSiteFilterId) : ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setMaTrendSiteFilterId(v ? Number(v) : null);
+                    }}
+                  >
+                    <option value="">All</option>
+                    {sitesList.map((s) => (
+                      <option key={s.SLid} value={s.SLid}>
+                        {s.SiteName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart

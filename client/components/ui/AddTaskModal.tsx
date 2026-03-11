@@ -42,6 +42,7 @@ interface Device {
   SLid?: number; // สำหรับกรองตาม site
   role?: string;
   manufacturer?: string;
+  contract_id?: number; // จาก contract_device ใช้เช็คให้ device ตรงกับ contract ที่เลือก
 }
 
 interface Engineer {
@@ -205,6 +206,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     SLid: item.SLid != null ? Number(item.SLid) : undefined,
     role: item.roleName || '', // Will be set by useEffect
     manufacturer: item.manufacturername || '', // Will be set by useEffect
+    contract_id: item.contract_id != null ? Number(item.contract_id) : undefined,
   });
 
   const fetchAllSites = async () => {
@@ -421,9 +423,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setLoadingDevices(true);
     setDeviceError(null);
     try {
-      // For MA: only load devices from Contract (broken devices must be from contract)
-      // For PM: load from contract only. ส่ง Sid (SLid) เพื่อให้ backend กรอง devices ตาม site ที่เลือก
-      const contractList = contractId ? await fetchDevicesByContract(contractId, Sid || null) : [];
+      // ดึง devices ตาม contract (+ site ถ้าเลือกไว้)
+      let contractList = contractId ? await fetchDevicesByContract(contractId, Sid || null) : [];
+      // ถ้าไม่เจอ (เช่น กรองตาม site แล้วไม่มี) ลองเช็คแค่ว่า contract_id นี้มี device ผูกอยู่ไหนบ้าง (ไม่กรอง site)
+      if (contractId && contractList.length === 0 && Sid) {
+        contractList = await fetchDevicesByContract(contractId, null);
+      }
 
       // Only load available devices for replacement device selection (not for broken device selection)
       if (currentTaskType === 'MA') {
@@ -1068,10 +1073,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     })
     : contractOptions;
 
-  // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices)
-  const devicesToShow = Sid
-    ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid)
-    : [];
+  // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices). ถ้ากรองตาม site แล้วไม่เจอ (เช่น fallback มาจากดึงแค่ตาม contract) ให้โชว์ทั้งหมดที่ผูกกับ contract นั้น
+  const bySite = Sid ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid) : devices;
+  const devicesToShow = Sid && bySite.length > 0 ? bySite : devices;
   // Get unique device types, sites, roles, models, and manufacturers for filter dropdowns
   const uniqueDeviceTypes = Array.from(new Set(devicesToShow.map(d => d.type).filter(Boolean))).sort();
   const uniqueDeviceSites = Array.from(new Set(devicesToShow.map(d => d.site).filter(Boolean))).sort();
@@ -1960,7 +1964,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       </label>
                       {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                            {!Sid ? 'Select Site' : !selectedContractId ? 'Select Contract to show devices' : 'No devices in this site'}
+                            {!Sid ? 'Select Site' : !selectedContractId ? 'Select Contract to load devices for this contract' : (Sid ? 'No devices in this contract for the selected site' : 'No devices in this contract')}
                         </p>
                       ) : (
                         <SearchableDeviceSelect
