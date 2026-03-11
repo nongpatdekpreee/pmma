@@ -161,9 +161,11 @@ function ContractEditorPageContent() {
   const [showAssignSiteModal, setShowAssignSiteModal] = useState(false);
   const [assignModalLoading, setAssignModalLoading] = useState(false);
   const [assignModalSubmitting, setAssignModalSubmitting] = useState(false);
-  const [sitesLocation, setSitesLocation] = useState<Array<{ SLid: number; SiteName?: string; Location2?: string }>>([]);
+  const [sitesLocation, setSitesLocation] = useState<Array<{ SLid: number; Sid?: number; SiteName?: string; Location2?: string }>>([]);
   const [assignDeviceDetails, setAssignDeviceDetails] = useState<Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }>>({});
   const [deviceTargetSite, setDeviceTargetSite] = useState<Record<string, string>>({});
+  /** เลือก Site แล้วแต่ยังไม่เลือก Location (เก็บ Sid เพื่อแสดงชื่อ + กรอง Location) */
+  const [deviceTargetSid, setDeviceTargetSid] = useState<Record<string, string>>({});
   const [assignDeviceSelected, setAssignDeviceSelected] = useState<Set<string>>(new Set());
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
   const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
@@ -758,6 +760,7 @@ function ContractEditorPageContent() {
     setShowAssignSiteModal(true);
     setAssignDeviceDetails({});
     setDeviceTargetSite({});
+    setDeviceTargetSid({});
     setAssignDeviceSelected(new Set());
     setAssignModalSelectedSiteSlid(null);
     try {
@@ -1321,8 +1324,8 @@ function ContractEditorPageContent() {
         </div>
 
         {/* Filters */}
-        <div className="flex gap-4 flex-wrap items-center">
-          <div className="flex gap-2">
+        <div className="flex gap-4 flex-nowrap items-center overflow-x-auto pb-1">
+          <div className="flex gap-2 shrink-0">
             {['All', 'Active', 'Expiring', 'Expired', 'Draft'].map((filter) => (
               <button
                 key={filter}
@@ -1337,7 +1340,7 @@ function ContractEditorPageContent() {
               </button>
             ))}
           </div>
-          <div className="flex-1 min-w-[220px] relative">
+          <div className="flex-1 min-w-0 relative">
             <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
@@ -1348,7 +1351,7 @@ function ContractEditorPageContent() {
             />
           </div>
           {/* Date range filter */}
-          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <div className="flex items-center gap-2 text-xs text-slate-600 shrink-0">
             <div className="flex flex-col">
               <span className="mb-1">Start date from</span>
               <input
@@ -1374,7 +1377,7 @@ function ContractEditorPageContent() {
               />
             </div>
           </div>
-          <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+          <div className="flex border border-slate-200 rounded-lg overflow-hidden shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('card')}
@@ -2672,8 +2675,21 @@ function ContractEditorPageContent() {
                     const selectedCount = assignDeviceSelected.size;
                     const firstSelectedId = selectedCount > 0 ? [...assignDeviceSelected][0] : null;
                     const bulkTargetValue = firstSelectedId != null ? (deviceTargetSite[firstSelectedId] ?? '') : '';
+                    const assignUniqueSites = (() => {
+                      const seen = new Set<number>();
+                      return sitesLocation
+                        .filter((s) => s.Sid != null && !seen.has(s.Sid) && (seen.add(s.Sid), true))
+                        .map((s) => ({ sid: String(s.Sid), name: s.SiteName ?? `Site ${s.Sid}` }));
+                    })();
+                    const assignGetLocationsForSid = (sid: string) =>
+                      sitesLocation.filter((s) => s.Sid != null && String(s.Sid) === sid);
                     return (
                   <>
+                  <datalist id="assign-modal-site-list">
+                    {assignUniqueSites.map(({ sid, name }) => (
+                      <option key={sid} value={name} />
+                    ))}
+                  </datalist>
                   {showSitePills && (
                     <div className="flex flex-wrap gap-2 mb-4">
                       <button
@@ -2836,26 +2852,116 @@ function ContractEditorPageContent() {
                                 )}
                               </td>
                               <td className="px-3 py-2">
-                                <select
-                                  value={deviceTargetSite[String(device.Did)] ?? ''}
-                                  onChange={(ev) => {
-                                    const newSiteId = ev.target.value;
-                                    setDeviceTargetSite((prev) => {
-                                      const next = { ...prev };
-                                      assignDeviceSelected.forEach((id) => { next[id] = newSiteId; });
-                                      return next;
-                                    });
-                                  }}
-                                  disabled={!isSelected}
-                                  className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
-                                >
-                                  <option value="">-- Select Site --</option>
-                                  {sitesLocation.map((s) => (
-                                    <option key={s.SLid} value={String(s.SLid)}>
-                                      {s.SiteName} – {s.Location2}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                  {(() => {
+                                    const currentSlid = deviceTargetSite[String(device.Did)] ?? '';
+                                    const currentSite = sitesLocation.find((s) => String(s.SLid) === currentSlid);
+                                    const currentSid = currentSite?.Sid != null ? String(currentSite.Sid) : (deviceTargetSid[String(device.Did)] ?? '');
+                                    const locationsForSid = assignGetLocationsForSid(currentSid);
+                                    const siteDisplayName = currentSite?.SiteName ?? (currentSid ? (assignUniqueSites.find((s) => s.sid === currentSid)?.name ?? '') : '');
+                                    const inputBaseClass = `min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 pr-7 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`;
+                                    const clearSiteForSelected = () => {
+                                      setDeviceTargetSid((prev) => {
+                                        const next = { ...prev };
+                                        assignDeviceSelected.forEach((id) => { delete next[id]; });
+                                        return next;
+                                      });
+                                      setDeviceTargetSite((prev) => {
+                                        const next = { ...prev };
+                                        assignDeviceSelected.forEach((id) => { next[id] = ''; });
+                                        return next;
+                                      });
+                                    };
+                                    const clearLocationOnlyForSelected = () => {
+                                      setDeviceTargetSite((prev) => {
+                                        const next = { ...prev };
+                                        assignDeviceSelected.forEach((id) => { next[id] = ''; });
+                                        return next;
+                                      });
+                                    };
+                                    return (
+                                      <>
+                                        <datalist id={`assign-modal-loc-${device.Did}`}>
+                                          {locationsForSid.map((s) => (
+                                            <option key={s.SLid} value={s.Location2 ?? ''} />
+                                          ))}
+                                        </datalist>
+                                        <div className="relative min-w-0 flex-1 flex items-center">
+                                          <input
+                                            type="text"
+                                            list="assign-modal-site-list"
+                                            placeholder="-- Select Site --"
+                                            defaultValue={siteDisplayName}
+                                            key={`site-${device.Did}-${currentSlid}-${currentSid}`}
+                                            onInput={(e) => {
+                                              const name = e.currentTarget.value.trim();
+                                              const found = assignUniqueSites.find((x) => x.name === name);
+                                              if (found) {
+                                                setDeviceTargetSid((prev) => {
+                                                  const next = { ...prev };
+                                                  assignDeviceSelected.forEach((id) => { next[id] = found.sid; });
+                                                  return next;
+                                                });
+                                                setDeviceTargetSite((prev) => {
+                                                  const next = { ...prev };
+                                                  assignDeviceSelected.forEach((id) => { next[id] = ''; });
+                                                  return next;
+                                                });
+                                              }
+                                            }}
+                                            disabled={!isSelected}
+                                            className={inputBaseClass}
+                                            title="Site (พิมพ์หรือเลือก)"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={clearSiteForSelected}
+                                            disabled={!isSelected}
+                                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none"
+                                            title="ล้าง Site และ Location"
+                                            aria-label="ล้าง Site และ Location"
+                                          >
+                                            <X size={12} />
+                                          </button>
+                                        </div>
+                                        <div className="relative min-w-0 flex-1 flex items-center">
+                                          <input
+                                            type="text"
+                                            list={`assign-modal-loc-${device.Did}`}
+                                            placeholder="-- Select Location --"
+                                            defaultValue={currentSite?.Location2 ?? ''}
+                                            key={`loc-${device.Did}-${currentSlid}`}
+                                            onInput={(e) => {
+                                              const text = e.currentTarget.value.trim();
+                                              const found = locationsForSid.find((s) => (s.Location2 ?? '') === text);
+                                              if (found) {
+                                                const newSlid = String(found.SLid);
+                                                setDeviceTargetSite((prev) => {
+                                                  const next = { ...prev };
+                                                  assignDeviceSelected.forEach((id) => { next[id] = newSlid; });
+                                                  return next;
+                                                });
+                                              }
+                                            }}
+                                            disabled={!isSelected}
+                                            className={inputBaseClass}
+                                            title="Location (พิมพ์หรือเลือก, กรองตาม Site)"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={clearLocationOnlyForSelected}
+                                            disabled={!isSelected}
+                                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none"
+                                            title="ล้าง Location เท่านั้น (คง Site)"
+                                            aria-label="ล้าง Location"
+                                          >
+                                            <X size={12} />
+                                          </button>
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
                               </td>
                             </tr>
                           );

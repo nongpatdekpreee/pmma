@@ -815,6 +815,7 @@ const getDevicesByContract = async (req, res) => {
         d.serial,
         d.Asset_State,
         d.SLid,
+        cd.contract_id,
         cd.SLid AS contract_SLid,
         d.Dtypeid,
         d.DeRoleid,

@@ -613,9 +613,9 @@ const EmployeeManagement = () => {
           {/* ================= Table Card ================= */}
           <div className="rounded-2xl bg-white p-6 shadow-md">
             {/* Header */}
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">
+            <div className="mb-6 flex flex-nowrap items-center justify-between gap-4 min-w-0 overflow-x-auto pb-1">
+              <div className="min-w-0 shrink-0">
+                <h2 className="text-lg font-semibold text-gray-900 truncate">
                   All Employees
                 </h2>
                 <p className="text-sm text-indigo-500">
@@ -623,7 +623,7 @@ const EmployeeManagement = () => {
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 shrink-0">
                 <div className="flex h-10 items-center gap-2 rounded-full bg-gray-100 px-4 text-sm text-gray-500">
                   <Search size={18} className="text-gray-400 flex-shrink-0" />
                   <input

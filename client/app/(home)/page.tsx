@@ -239,12 +239,12 @@ export default function DashboardPage() {
       <DashboardHeader />
 
       {/* Content Body */}
-      <div className="flex p-6 pt-0 gap-6 md:mt-0 mt-16">
+      <div className="flex flex-nowrap p-6 pt-0 gap-6 md:mt-0 mt-16 min-w-0 overflow-x-auto">
           
           {/* ฝั่งซ้าย: Dashboard & Maintenance */}
-          <div className="flex-[2] space-y-6">
-            <div className="flex items-center justify-between">
-              <Link href="/" className="text-3xl font-bold text-slate-800">
+          <div className="flex-[2] space-y-6 min-w-0">
+            <div className="flex flex-nowrap items-center justify-between gap-4">
+              <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate">
                 Dashboard 
                 </Link>
               
@@ -329,7 +329,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ฝั่งขวา: Events & Stream */}
-          <div className="flex-1 space-y-6">
+          <div className="flex-1 space-y-6 min-w-0">
             <div className="bg-white p-6 rounded-[2rem] shadow-sm">
               <div className="flex justify-between mb-4">
                 <h3 className="font-bold text-slate-700">In Coming Events</h3>
