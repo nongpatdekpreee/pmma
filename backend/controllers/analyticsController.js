@@ -302,6 +302,19 @@ const getSlaContracts = async (req, res) => {
 const getMaDashboard = async (req, res) => {
   try {
     const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
+
+    // Optional filters for MA top-model / equipment analytics
+    const roleFilterRaw = req.query.role_id;
+    const siteFilterRaw = req.query.sl_id;
+    const roleFilter =
+      roleFilterRaw != null && roleFilterRaw !== '' && !Number.isNaN(Number(roleFilterRaw))
+        ? Number(roleFilterRaw)
+        : null;
+    const siteFilter =
+      siteFilterRaw != null && siteFilterRaw !== '' && !Number.isNaN(Number(siteFilterRaw))
+        ? Number(siteFilterRaw)
+        : null;
+
     const { start, endExclusive } = getRange(months);
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
@@ -352,6 +365,8 @@ const getMaDashboard = async (req, res) => {
     const deviceIdToModel = {};
     const deviceIdToSerial = {};
     const deviceIdToRole = {};
+    const deviceIdToRoleId = {};
+    const deviceIdToSiteId = {};
     if (deviceIdsFromTasks.size > 0) {
       const ids = Array.from(deviceIdsFromTasks);
       const [deviceRows] = await db.execute(
@@ -362,7 +377,7 @@ const getMaDashboard = async (req, res) => {
         deviceIdToVendor[String(d.Did)] = d.vendor || 'Unknown';
       }
       const [deviceDetailRows] = await db.execute(
-        `SELECT d.Did, d.CI_Name, d.serial, r.name AS role_name
+        `SELECT d.Did, d.CI_Name, d.serial, d.DeRoleid, d.SLid, r.name AS role_name
          FROM devices d
          LEFT JOIN device_role r ON r.DeRoleid = d.DeRoleid
          WHERE d.Did IN (${ids.map(() => '?').join(',')})`,
@@ -373,6 +388,8 @@ const getMaDashboard = async (req, res) => {
         const ciName = d.CI_Name ? String(d.CI_Name).trim() : '';
         deviceIdToSerial[sid] = d.serial ? String(d.serial).trim() : null;
         deviceIdToRole[sid] = d.role_name ? String(d.role_name).trim() : null;
+        deviceIdToRoleId[sid] = d.DeRoleid != null && !Number.isNaN(Number(d.DeRoleid)) ? Number(d.DeRoleid) : null;
+        deviceIdToSiteId[sid] = d.SLid != null && !Number.isNaN(Number(d.SLid)) ? Number(d.SLid) : null;
         if (ciName && ciName.includes(' / ')) {
           deviceIdToModel[sid] = ciName.split(' / ')[0].trim() || null;
         } else {
@@ -381,13 +398,29 @@ const getMaDashboard = async (req, res) => {
       }
     }
     const vendorAgg = {};
+    const modelMonthlyAgg = {};
     for (const row of vendorTaskRows) {
       let assets = [];
       try {
         assets = typeof row.assets === 'string' ? JSON.parse(row.assets) : (Array.isArray(row.assets) ? row.assets : []);
       } catch (_) { /* ignore */ }
-      const firstId = Array.isArray(assets) && assets[0] != null ? (assets[0].id ?? assets[0].Did ?? assets[0].deviceId) : null;
-      const vendor = firstId != null ? (deviceIdToVendor[String(firstId)] || 'Unknown') : 'Unknown';
+      const firstAsset = Array.isArray(assets) && assets[0] != null ? assets[0] : null;
+      const rawId = firstAsset ? (firstAsset.id ?? firstAsset.Did ?? firstAsset.deviceId) : null;
+      const primaryId = rawId != null ? String(rawId).trim() : null;
+
+      // Apply optional device role / site filters using primary asset
+      if (primaryId) {
+        const devRoleId = deviceIdToRoleId[primaryId] ?? null;
+        const devSiteId = deviceIdToSiteId[primaryId] ?? null;
+        if ((roleFilter != null && devRoleId !== roleFilter) || (siteFilter != null && devSiteId !== siteFilter)) {
+          continue;
+        }
+      } else if (roleFilter != null || siteFilter != null) {
+        // If we cannot resolve a device id, exclude when filters are active
+        continue;
+      }
+
+      const vendor = primaryId != null ? (deviceIdToVendor[primaryId] || 'Unknown') : 'Unknown';
       if (!vendorAgg[vendor]) {
         vendorAgg[vendor] = { total: 0, done: 0, inprocess: 0, pending: 0, overdue: 0, report_fail: 0, report_pass: 0 };
       }
@@ -405,6 +438,17 @@ const getMaDashboard = async (req, res) => {
       if (taskStatus !== 'done' && row.end_date && new Date(row.end_date) < new Date()) vendorAgg[vendor].overdue++;
       if (row.report_status === 'Fail') vendorAgg[vendor].report_fail++;
       if (row.report_status === 'Pass') vendorAgg[vendor].report_pass++;
+
+      // model monthly aggregation (for trendline)
+      const monthStart = row.start_date ? new Date(row.start_date).toISOString().slice(0, 7) + '-01' : null;
+      if (monthStart && Array.isArray(assets) && assets.length > 0 && primaryId) {
+        const modelFromDb = deviceIdToModel[primaryId] || null;
+        const model =
+          (firstAsset.model || firstAsset.deviceModel || modelFromDb || '').toString().trim() || 'Unknown Model';
+        const mmKey = `${model}\t${monthStart}`;
+        if (!modelMonthlyAgg[mmKey]) modelMonthlyAgg[mmKey] = { model, month_start: monthStart, total: 0 };
+        modelMonthlyAgg[mmKey].total++;
+      }
     }
     const vendorMA = Object.entries(vendorAgg)
       .map(([vendor, v]) => ({ vendor, ...v }))
@@ -451,8 +495,20 @@ const getMaDashboard = async (req, res) => {
       for (const a of assets) {
         const name = a.name || a.CI_Name || a.deviceName || 'Unknown Device';
         const id = a.id || a.Did || a.deviceId || name;
+        const sid = id != null ? String(id).trim() : null;
+
+        // Apply optional device role / site filters per asset
+        if (sid) {
+          const devRoleId = deviceIdToRoleId[sid] ?? null;
+          const devSiteId = deviceIdToSiteId[sid] ?? null;
+          if ((roleFilter != null && devRoleId !== roleFilter) || (siteFilter != null && devSiteId !== siteFilter)) {
+            continue;
+          }
+        } else if (roleFilter != null || siteFilter != null) {
+          continue;
+        }
+
         const key = `${id}__${name}`;
-        const sid = id != null ? String(id) : null;
         const vendorFromDevice = sid ? (deviceIdToVendor[sid] || null) : null;
         const modelFromDb = sid ? (deviceIdToModel[sid] || null) : null;
         const serialFromDb = sid ? (deviceIdToSerial[sid] || null) : null;
@@ -492,6 +548,17 @@ const getMaDashboard = async (req, res) => {
     const equipmentRanking = Object.values(equipMap)
       .sort((a, b) => b.total - a.total)
       .slice(0, 15);
+
+    // Top model monthly trend (overall most repaired model)
+    const topModelName = equipmentRanking.length > 0
+      ? (equipmentRanking[0].model || equipmentRanking[0].deviceName || 'Unknown Model')
+      : null;
+    let topModelMonthly = [];
+    if (topModelName) {
+      topModelMonthly = Object.values(modelMonthlyAgg)
+        .filter((m) => m.model === topModelName)
+        .sort((a, b) => a.month_start.localeCompare(b.month_start));
+    }
 
     // 5) Vendor vs monthly MA heatmap data (vendor from device)
     const vendorMonthlyAgg = {};
@@ -601,6 +668,10 @@ const getMaDashboard = async (req, res) => {
           completionRate: Number(r.total) > 0 ? Math.round((Number(r.done) / Number(r.total)) * 100) : 0,
         })),
         equipmentRanking,
+        topModelTrend: {
+          model: topModelName,
+          points: topModelMonthly,
+        },
         vendorMonthly: vendorMonthly.map(r => ({
           vendor: r.vendor,
           month: monthLabel(new Date(r.month_start)),
@@ -631,6 +702,8 @@ const getPmDashboard = async (req, res) => {
          COUNT(DISTINCT t.id) AS total,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done') AND t.end_date < CURDATE() THEN t.id END) AS overdue,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'not-started' AND t.start_date >= CURDATE() THEN t.id END) AS pending,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
          COUNT(DISTINCT CASE WHEN r.status = 'Fail' THEN t.id END) AS report_fail,
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
@@ -828,7 +901,7 @@ const getPmDashboard = async (req, res) => {
     const totalReportFail = monthlyMA.reduce((s, r) => s + Number(r.report_fail), 0);
     const totalReportPass = monthlyMA.reduce((s, r) => s + Number(r.report_pass), 0);
     const totalOverdue = monthlyMA.reduce((s, r) => s + Number(r.overdue || 0), 0);
-    const totalPending = totalMA - totalDone;
+    const totalPending = monthlyMA.reduce((s, r) => s + Number(r.pending || 0), 0);
 
     const topVendor = vendorMA.length > 0 ? vendorMA[0].vendor : 'N/A';
     const topEquip = equipmentRanking.length > 0 ? equipmentRanking[0].deviceName : 'N/A';

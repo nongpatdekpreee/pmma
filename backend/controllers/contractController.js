@@ -785,9 +785,11 @@ const getSitesByContract = async (req, res) => {
 };
 
 // GET - ดึง Devices ที่ผูกกับ Contract (จาก contract_device)
+// รองรับ query site_id (= SLid) เพื่อกรองเฉพาะ devices ที่ผูกกับ site นี้ในสัญญา (cd.SLid) หรืออยู่ที่ site นี้ (d.SLid)
 const getDevicesByContract = async (req, res) => {
   try {
     const contractId = req.params.id;
+    const siteId = req.query.site_id ? parseInt(req.query.site_id, 10) : null;
 
     if (!contractId) {
       return res.status(400).json({
@@ -797,6 +799,14 @@ const getDevicesByContract = async (req, res) => {
     }
 
     // TccStock (7): SLid = sites_location.SLid; ดึง type (model) และ role จาก database
+    // เมื่อส่ง site_id มา: กรองเฉพาะ device ที่ผูกกับ site นี้ในสัญญา (cd.SLid) หรือ device อยู่ที่ site นี้ (d.SLid)
+    let whereClause = 'WHERE cd.contract_id = ?';
+    const params = [parseInt(contractId, 10)];
+    if (siteId != null && !isNaN(siteId)) {
+      whereClause += ' AND (cd.SLid = ? OR d.SLid = ?)';
+      params.push(siteId, siteId);
+    }
+
     const sql = `
       SELECT 
         d.Did,
@@ -805,6 +815,8 @@ const getDevicesByContract = async (req, res) => {
         d.serial,
         d.Asset_State,
         d.SLid,
+        cd.contract_id,
+        cd.SLid AS contract_SLid,
         d.Dtypeid,
         d.DeRoleid,
         s.Name AS SiteName,
@@ -817,11 +829,11 @@ const getDevicesByContract = async (req, res) => {
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
       LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
-      WHERE cd.contract_id = ?
+      ${whereClause}
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC
     `;
 
-    const [rows] = await db.execute(sql, [parseInt(contractId, 10)]);
+    const [rows] = await db.execute(sql, params);
 
     res.status(200).json({
       success: true,

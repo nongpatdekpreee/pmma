@@ -624,10 +624,10 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
                   status === 'working'
                     ? 'bg-amber-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-amber-300'
+                    : 'bg-white text-slate-600 border-2 border-slate-200 hover-border-amber-300'
                 }`}
               >
-                In Progress
+                In Process
               </button>
               <button
                 onClick={() => setStatus('not-started')}
