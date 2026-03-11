@@ -473,9 +473,9 @@ export default function ReportPage() {
       <div className="flex flex-col p-6 pt-0 gap-6 bg-slate-50 min-h-screen">
         {/* Header */}
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+          <div className="flex flex-nowrap items-center justify-between gap-4 min-w-0 overflow-x-auto pb-1">
+            <div className="min-w-0 shrink-0">
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text truncate">
                 Report Dashboard
               </h1>
               <p className="text-sm text-slate-400 mt-1">
@@ -483,7 +483,7 @@ export default function ReportPage() {
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-nowrap items-center gap-3 shrink-0">
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
                 <Calendar size={16} className="text-slate-400" />
