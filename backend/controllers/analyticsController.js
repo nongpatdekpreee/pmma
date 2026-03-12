@@ -399,6 +399,7 @@ const getMaDashboard = async (req, res) => {
     const deviceIdToRole = {};
     const deviceIdToRoleId = {};
     const deviceIdToSiteId = {};
+    const roleIdToName = {};
     if (deviceIdsFromTasks.size > 0) {
       const ids = Array.from(deviceIdsFromTasks);
       const [deviceRows] = await db.execute(
@@ -422,6 +423,7 @@ const getMaDashboard = async (req, res) => {
         deviceIdToRole[sid] = d.role_name ? String(d.role_name).trim() : null;
         deviceIdToRoleId[sid] = d.DeRoleid != null && !Number.isNaN(Number(d.DeRoleid)) ? Number(d.DeRoleid) : null;
         deviceIdToSiteId[sid] = d.SLid != null && !Number.isNaN(Number(d.SLid)) ? Number(d.SLid) : null;
+        if (d.DeRoleid != null && d.role_name) roleIdToName[Number(d.DeRoleid)] = String(d.role_name).trim();
         if (ciName && ciName.includes(' / ')) {
           deviceIdToModel[sid] = ciName.split(' / ')[0].trim() || null;
         } else {
@@ -429,8 +431,23 @@ const getMaDashboard = async (req, res) => {
         }
       }
     }
+
+    // For frontend dropdowns: show only roles/sites that have MA data in this range
+    const availableRoleIdsSet = new Set();
+    const availableSiteIdsSet = new Set();
+    for (const did of deviceIdsFromTasks) {
+      const rId = deviceIdToRoleId[String(did)] ?? null;
+      const sId = deviceIdToSiteId[String(did)] ?? null;
+      if (rId != null) availableRoleIdsSet.add(rId);
+      if (sId != null) availableSiteIdsSet.add(sId);
+    }
+    const availableFilters = {
+      roleIds: Array.from(availableRoleIdsSet).sort((a, b) => a - b),
+      siteIds: Array.from(availableSiteIdsSet).sort((a, b) => a - b),
+    };
     const vendorAgg = {};
     const modelMonthlyAgg = {};
+    const modelMonthlyAggByRole = {};
     for (const row of vendorTaskRows) {
       let assets = [];
       try {
@@ -473,6 +490,7 @@ const getMaDashboard = async (req, res) => {
 
       // model monthly aggregation (for trendline)
       const monthStart = row.start_date ? new Date(row.start_date).toISOString().slice(0, 7) + '-01' : null;
+      const devRoleId = primaryId ? (deviceIdToRoleId[primaryId] ?? null) : null;
       if (monthStart && Array.isArray(assets) && assets.length > 0 && primaryId) {
         const modelFromDb = deviceIdToModel[primaryId] || null;
         const model =
@@ -480,6 +498,11 @@ const getMaDashboard = async (req, res) => {
         const mmKey = `${model}\t${monthStart}`;
         if (!modelMonthlyAgg[mmKey]) modelMonthlyAgg[mmKey] = { model, month_start: monthStart, total: 0 };
         modelMonthlyAgg[mmKey].total++;
+        if (devRoleId != null) {
+          const rKey = `${devRoleId}\t${model}\t${monthStart}`;
+          if (!modelMonthlyAggByRole[rKey]) modelMonthlyAggByRole[rKey] = { roleId: devRoleId, model, month_start: monthStart, total: 0 };
+          modelMonthlyAggByRole[rKey].total++;
+        }
       }
     }
     const vendorMA = Object.entries(vendorAgg)
@@ -594,6 +617,30 @@ const getMaDashboard = async (req, res) => {
         .sort((a, b) => a.month_start.localeCompare(b.month_start));
     }
 
+    // When no role filter (All): top model trend per role for multiple lines (Switch, Server, etc.)
+    let topModelTrendByRole = [];
+    if (roleFilter == null && siteFilter == null && Object.keys(modelMonthlyAggByRole).length > 0) {
+      const roleEntries = Object.values(modelMonthlyAggByRole);
+      for (const roleId of availableRoleIdsSet) {
+        const roleName = roleIdToName[roleId] || `Role ${roleId}`;
+        const byModel = {};
+        for (const e of roleEntries) {
+          if (e.roleId !== roleId) continue;
+          if (!byModel[e.model]) byModel[e.model] = 0;
+          byModel[e.model] += e.total;
+        }
+        const modelsByTotal = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
+        const topModelForRole = modelsByTotal.length > 0 ? modelsByTotal[0][0] : null;
+        if (!topModelForRole) continue;
+        const points = roleEntries
+          .filter((e) => e.roleId === roleId && e.model === topModelForRole)
+          .map((e) => ({ month_start: e.month_start, total: e.total }))
+          .sort((a, b) => a.month_start.localeCompare(b.month_start));
+        topModelTrendByRole.push({ roleId, roleName, model: topModelForRole, points });
+      }
+      topModelTrendByRole.sort((a, b) => String(a.roleName).localeCompare(String(b.roleName)));
+    }
+
     // 5) Vendor vs monthly MA heatmap data (vendor from device)
     const vendorMonthlyAgg = {};
     for (const row of vendorTaskRows) {
@@ -653,6 +700,7 @@ const getMaDashboard = async (req, res) => {
       data: {
         months: effectiveMonths,
         range: { start: startISO, endExclusive: endISO },
+        availableFilters,
         summary: {
           totalMA,
           totalDone,
@@ -709,6 +757,7 @@ const getMaDashboard = async (req, res) => {
           model: topModelName,
           points: topModelMonthly,
         },
+        topModelTrendByRole: topModelTrendByRole.length > 0 ? topModelTrendByRole : undefined,
         vendorMonthly: vendorMonthly.map(r => ({
           vendor: r.vendor,
           month: monthLabel(new Date(r.month_start)),

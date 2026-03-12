@@ -1,7 +1,10 @@
-const API_BASE = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL
-  ? process.env.NEXT_PUBLIC_API_URL
-  //: 'http://localhost:5000';
-   : 'http://10.4.102.212:5000';
+const API_BASE =
+  // In dev, prefer local backend to avoid env pointing elsewhere
+  typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    ? 'http://localhost:5000'
+    : typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL
+      ? process.env.NEXT_PUBLIC_API_URL
+      : 'http://localhost:5000';
 
 
 export function apiUrl(path: string): string {
@@ -140,6 +143,7 @@ export async function getMaDashboard(params?: { months?: number; year?: number; 
   data?: {
     months: number;
     range: { start: string; endExclusive: string };
+    availableFilters?: { roleIds: number[]; siteIds: number[] };
     summary: {
       totalMA: number;
       totalDone: number;
@@ -177,6 +181,12 @@ export async function getMaDashboard(params?: { months?: number; year?: number; 
       model: string | null;
       points: Array<{ model: string; month_start: string; total: number }>;
     };
+    topModelTrendByRole?: Array<{
+      roleId: number;
+      roleName: string;
+      model: string;
+      points: Array<{ month_start: string; total: number }>;
+    }>;
     vendorMonthly: Array<{ vendor: string; month: string; monthKey: string; total: number }>;
     vendorReportStats: Array<{ vendor: string; totalReports: number; passReports: number; failReports: number; passRate: number }>;
   };

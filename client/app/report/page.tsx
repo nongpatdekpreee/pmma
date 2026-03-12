@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { createPortal } from 'react-dom';
 
 import {
   BarChart,
@@ -94,6 +95,10 @@ export default function ReportPage() {
   const [timeFilter, setTimeFilter] = useState('6 Months');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
+  const periodDropdownRef = useRef<HTMLDivElement>(null);
+  const periodMenuRef = useRef<HTMLDivElement>(null);
+  const [periodMenuPos, setPeriodMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState<DashboardData>(EMPTY);
@@ -211,6 +216,37 @@ export default function ReportPage() {
     return () => document.removeEventListener('click', close);
   }, [siteDropdownOpen]);
 
+  useEffect(() => {
+    if (!periodDropdownOpen) return;
+    const close = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inButton = periodDropdownRef.current?.contains(target) ?? false;
+      const inMenu = periodMenuRef.current?.contains(target) ?? false;
+      if (!inButton && !inMenu) setPeriodDropdownOpen(false);
+    };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [periodDropdownOpen]);
+
+  useEffect(() => {
+    if (!periodDropdownOpen) return;
+    const updatePos = () => {
+      const root = periodDropdownRef.current;
+      const btn = root?.querySelector('button');
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      // fixed menu anchored to button's right edge (viewport-based)
+      setPeriodMenuPos({ top: rect.bottom + 8, right: Math.max(12, window.innerWidth - rect.right) });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
+  }, [periodDropdownOpen]);
+
   const months = useMemo(() => {
     if (timeFilter === '1 Month') return 1;
     if (timeFilter === '3 Months') return 3;
@@ -298,6 +334,20 @@ export default function ReportPage() {
   const equipmentLabel = reportType === 'ma' ? 'Most Repaired Equipment' : 'Most Serviced Equipment';
   const maCompleteCount = Number(summary.totalPassed || 0) + Number(summary.totalFailed || 0);
 
+  const maTrendRoleOptions = useMemo(() => {
+    const allow = data?.availableFilters?.roleIds;
+    if (!Array.isArray(allow) || allow.length === 0) return deviceRolesList;
+    const set = new Set(allow);
+    return deviceRolesList.filter((r) => set.has(r.DeRoleid));
+  }, [data?.availableFilters?.roleIds, deviceRolesList]);
+
+  const maTrendSiteOptions = useMemo(() => {
+    const allow = data?.availableFilters?.siteIds;
+    if (!Array.isArray(allow) || allow.length === 0) return sitesList;
+    const set = new Set(allow);
+    return sitesList.filter((s) => set.has(s.SLid));
+  }, [data?.availableFilters?.siteIds, sitesList]);
+
   const rangeLabel = useMemo(() => {
     if (!range?.start || !range?.endExclusive) return null;
     const startStr = range.start.split('T')[0];
@@ -313,12 +363,82 @@ export default function ReportPage() {
     return `${fmt(startDate)} - ${fmt(endDate)} `;
   }, [range?.start, range?.endExclusive, dataMonths]);
 
-  const monthlyTrendData = monthlyMA.map((item) => ({
-    ...item,
-    complete: Number(item.reportPass || 0) + Number(item.reportFail || 0),
-  }));
+  const periodLabel = useMemo(() => {
+    if (selectedYear) {
+      const y = selectedYear;
+      if (selectedMonth && selectedMonth !== 'all') {
+        const m = parseInt(selectedMonth, 10);
+        const label = m >= 1 && m <= 12 ? MONTH_LABELS[m - 1] : 'All';
+        return `Custom: ${label} ${y}`;
+      }
+      return `Custom: ${y}`;
+    }
+    return timeFilter;
+  }, [selectedYear, selectedMonth, timeFilter, MONTH_LABELS]);
 
-  // Top-model trend line (MA only)
+  const monthlyTrendData = useMemo(() => {
+    // Backend may omit months with 0 data; fill missing months in the selected range with zeros.
+    if (!range?.start || !range?.endExclusive) {
+      return monthlyMA.map((item) => ({
+        ...item,
+        complete: Number(item.reportPass || 0) + Number(item.reportFail || 0),
+      }));
+    }
+
+    const startStr = range.start.split('T')[0];
+    const endStr = range.endExclusive.split('T')[0];
+    const [sy, sm] = startStr.split('-').map(Number);
+    const [ey, em] = endStr.split('-').map(Number);
+    if (!sy || !sm || !ey || !em) {
+      return monthlyMA.map((item) => ({
+        ...item,
+        complete: Number(item.reportPass || 0) + Number(item.reportFail || 0),
+      }));
+    }
+
+    const byKey = new Map<string, any>();
+    for (const it of monthlyMA) {
+      if (it?.monthKey) byKey.set(String(it.monthKey), it);
+    }
+
+    const result: any[] = [];
+    const cur = new Date(sy, sm - 1, 1);
+    const endExclusive = new Date(ey, em - 1, 1); // month start of endExclusive
+    while (cur < endExclusive) {
+      const y = cur.getFullYear();
+      const m = cur.getMonth() + 1;
+      const mm = String(m).padStart(2, '0');
+      const key = `${y}-${mm}-01`;
+      const label = MONTH_LABELS[m - 1] ?? `${m}`;
+      const found = byKey.get(key);
+      const base = found ?? {
+        month: label,
+        monthKey: key,
+        total: 0,
+        reportPass: 0,
+        reportFail: 0,
+        inprocess: 0,
+        overdue: 0,
+        pending: 0,
+      };
+      result.push({
+        ...base,
+        month: base.month ?? label,
+        monthKey: base.monthKey ?? key,
+        total: Number(base.total || 0),
+        reportPass: Number(base.reportPass || 0),
+        reportFail: Number(base.reportFail || 0),
+        inprocess: Number(base.inprocess || 0),
+        overdue: Number(base.overdue || 0),
+        pending: Number(base.pending || 0),
+        complete: Number(base.reportPass || 0) + Number(base.reportFail || 0),
+      });
+      cur.setMonth(cur.getMonth() + 1);
+    }
+    return result;
+  }, [monthlyMA, range?.start, range?.endExclusive, MONTH_LABELS]);
+
+  // Top-model trend line (MA only) – single series when a role is selected
   const topModelTrendData = useMemo(() => {
     if (!isMa || !data?.topModelTrend || !data.topModelTrend.model || !Array.isArray(data.topModelTrend.points)) {
       return null;
@@ -339,6 +459,37 @@ export default function ReportPage() {
       topModelCount: byMonth[m.monthKey] || 0,
     }));
   }, [isMa, data?.topModelTrend, monthlyTrendData]);
+
+  // Top-model trend by role (MA only) – multiple series when Role = All
+  const topModelTrendByRoleData = useMemo(() => {
+    if (!isMa || !data?.topModelTrendByRole?.length || !monthlyTrendData.length) return null;
+    const byRoleByMonth: Record<string, Record<string, number>> = {};
+    for (const r of data.topModelTrendByRole) {
+      const roleKey = String(r.roleName || r.roleId).trim() || `Role ${r.roleId}`;
+      byRoleByMonth[roleKey] = {};
+      for (const p of r.points || []) {
+        if (!p?.month_start) continue;
+        byRoleByMonth[roleKey][p.month_start] = Number(p.total || 0);
+      }
+    }
+    return monthlyTrendData.map((m) => {
+      const row: Record<string, unknown> = {
+        month: m.month,
+        monthKey: m.monthKey,
+        total: m.total,
+        complete: m.complete,
+        inprocess: m.inprocess,
+        overdue: m.overdue,
+        pending: m.pending,
+      };
+      for (const roleKey of Object.keys(byRoleByMonth)) {
+        row[roleKey] = byRoleByMonth[roleKey][m.monthKey] ?? 0;
+      }
+      return row;
+    });
+  }, [isMa, data?.topModelTrendByRole, monthlyTrendData]);
+
+  const topModelRoleColors = ['#ec4899', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
 
   const pieData = reportType === 'pm'
     ? [
@@ -522,53 +673,132 @@ export default function ReportPage() {
 
             <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
-                <Calendar size={16} className="text-slate-400" />
-                <select
-                  value={timeFilter}
-                  onChange={(e) => { setTimeFilter(e.target.value); if (e.target.value) setSelectedYear(''); }}
-                  disabled={!!selectedYear}
-                  className="border-none outline-none text-sm font-medium bg-transparent cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed text-slate-700"
-                  title={selectedYear ? 'ล้างปีที่เลือกเพื่อใช้ช่วง' : undefined}
+              <div ref={periodDropdownRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setPeriodDropdownOpen((v) => !v)}
+                  className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  aria-haspopup="listbox"
+                  aria-expanded={periodDropdownOpen}
                 >
-                  <option>1 Month</option>
-                  <option>3 Months</option>
-                  <option>6 Months</option>
-                  <option>1 Year</option>
-                  <option>2 Years</option>
-                  <option>3 Years</option>
-                  <option>4 Years</option>
-                  <option>5 Years</option>
-                  <option>All Time</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
-                <span className="text-slate-400 text-sm">Year</span>
-                <select
-                  value={selectedYear}
-                  onChange={(e) => { setSelectedYear(e.target.value); if (!e.target.value) setSelectedMonth('all'); }}
-                  className="border-none outline-none text-sm font-medium text-slate-700 bg-transparent cursor-pointer min-w-[72px]"
-                >
-                  {yearOptions.map((o) => (
-                    <option key={o.value || 'x'} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </div>
-              {selectedYear && (
-                <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
-                    <span className="text-slate-400 text-sm">Month</span>
-                  <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="border-none outline-none text-sm font-medium text-slate-700 bg-transparent cursor-pointer min-w-[80px]"
+                  <Calendar size={16} className="text-slate-400" />
+                  <span className="text-slate-500">Period</span>
+                  <span className="font-semibold text-slate-800">{periodLabel}</span>
+                  <ChevronDown size={16} className="text-slate-400" />
+                </button>
+
+                {periodDropdownOpen && periodMenuPos && createPortal(
+                  <div
+                    ref={periodMenuRef}
+                    className="fixed w-[320px] rounded-2xl bg-white shadow-xl border border-slate-100 p-2 z-[9999]"
+                    style={{ top: periodMenuPos.top, right: periodMenuPos.right }}
                   >
-                    <option value="all">All</option>
-                    {MONTH_LABELS.map((label, i) => (
-                      <option key={i} value={String(i + 1)}>{label}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+                    <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Period</div>
+                    <div className="space-y-1">
+                      {['3 Months', '6 Months'].map((label) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => {
+                            setTimeFilter(label);
+                            setSelectedYear('');
+                            setSelectedMonth('all');
+                            setPeriodDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
+                            !selectedYear && timeFilter === label ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="my-2 h-px bg-slate-100" />
+                    <div className="space-y-1">
+                      {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => {
+                            setTimeFilter(label);
+                            setSelectedYear('');
+                            setSelectedMonth('all');
+                            setPeriodDropdownOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
+                            !selectedYear && timeFilter === label ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="my-2 h-px bg-slate-100" />
+                    <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Custom</div>
+                    <div className="px-3 pb-3">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1">
+                          <label className="mb-1 block text-[11px] font-semibold text-slate-500">Year</label>
+                          <select
+                            aria-label="Year"
+                            value={selectedYear}
+                            onChange={(e) => {
+                              setSelectedYear(e.target.value);
+                              if (!e.target.value) setSelectedMonth('all');
+                            }}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
+                          >
+                            {yearOptions.map((o) => (
+                              <option key={o.value || 'x'} value={o.value}>
+                                {o.value ? o.label : 'Select year'}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <label className="mb-1 block text-[11px] font-semibold text-slate-500">Month</label>
+                          <select
+                            aria-label="Month"
+                            value={selectedMonth}
+                            onChange={(e) => setSelectedMonth(e.target.value)}
+                            disabled={!selectedYear}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                          >
+                            <option value="all">All months</option>
+                            {MONTH_LABELS.map((label, i) => (
+                              <option key={i} value={String(i + 1)}>
+                                {label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedYear('');
+                            setSelectedMonth('all');
+                          }}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPeriodDropdownOpen(false)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  </div>,
+                  document.body
+                )}
+              </div>
               {rangeLabel && (
                 <div className="bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-slate-600">
                   {rangeLabel}
@@ -868,7 +1098,7 @@ export default function ReportPage() {
                   <BarChart3 size={18} className="text-slate-400" />
                   Monthly {taskLabel} Trend
                 </h3>
-                {isMa && topModelTrendData && (
+                {isMa && (topModelTrendData || topModelTrendByRoleData) && (
                   <div className="flex items-center gap-1 bg-slate-100 rounded-full p-1 text-[11px] text-slate-600">
                     <button
                       type="button"
@@ -908,6 +1138,18 @@ export default function ReportPage() {
                         <span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending
                       </span>
                     </>
+                  ) : maTrendRoleFilterId == null && data?.topModelTrendByRole?.length ? (
+                    <>
+                      {data.topModelTrendByRole.map((r, i) => (
+                        <span key={r.roleId} className="flex items-center gap-1.5">
+                          <span
+                            className="w-2.5 h-2.5 rounded-sm"
+                            style={{ backgroundColor: topModelRoleColors[i % topModelRoleColors.length] }}
+                          />
+                          {r.roleName}
+                        </span>
+                      ))}
+                    </>
                   ) : (
                     topModelTrendData && (
                       <span className="flex items-center gap-1.5">
@@ -946,7 +1188,7 @@ export default function ReportPage() {
                     }}
                   >
                     <option value="">All</option>
-                    {deviceRolesList.map((r) => (
+                    {maTrendRoleOptions.map((r) => (
                       <option key={r.DeRoleid} value={r.DeRoleid}>
                         {r.name}
                       </option>
@@ -964,7 +1206,7 @@ export default function ReportPage() {
                     }}
                   >
                     <option value="">All</option>
-                    {sitesList.map((s) => (
+                    {maTrendSiteOptions.map((s) => (
                       <option key={s.SLid} value={s.SLid}>
                         {s.SiteName}
                       </option>
@@ -976,7 +1218,13 @@ export default function ReportPage() {
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={isMa && maTrendView === 'top-model' && topModelTrendData ? topModelTrendData : monthlyTrendData}
+                  data={
+                    isMa && maTrendView === 'top-model'
+                      ? (maTrendRoleFilterId == null && topModelTrendByRoleData
+                          ? topModelTrendByRoleData
+                          : topModelTrendData) ?? monthlyTrendData
+                      : monthlyTrendData
+                  }
                   margin={{ top: 5, right: 20, left: 0, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
@@ -996,17 +1244,33 @@ export default function ReportPage() {
                           <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
                         </>
                       )}
-                      {maTrendView === 'top-model' && topModelTrendData && (
-                        <Line
-                          type="monotone"
-                          dataKey="topModelCount"
-                          name={data?.topModelTrend?.model || 'Top model'}
-                          stroke="#ec4899"
-                          strokeWidth={2}
-                          dot={{ r: 3 }}
-                          yAxisId={0}
-                        />
-                      )}
+                      {maTrendView === 'top-model' && maTrendRoleFilterId == null && topModelTrendByRoleData && data?.topModelTrendByRole?.length
+                        ? data.topModelTrendByRole.map((r, i) => {
+                            const roleKey = String(r.roleName || r.roleId).trim() || `Role ${r.roleId}`;
+                            return (
+                              <Line
+                                key={r.roleId}
+                                type="monotone"
+                                dataKey={roleKey}
+                                name={`${roleKey} (${r.model})`}
+                                stroke={topModelRoleColors[i % topModelRoleColors.length]}
+                                strokeWidth={2}
+                                dot={{ r: 3 }}
+                                yAxisId={0}
+                              />
+                            );
+                          })
+                        : maTrendView === 'top-model' && topModelTrendData && (
+                            <Line
+                              type="monotone"
+                              dataKey="topModelCount"
+                              name={data?.topModelTrend?.model || 'Top model'}
+                              stroke="#ec4899"
+                              strokeWidth={2}
+                              dot={{ r: 3 }}
+                              yAxisId={0}
+                            />
+                          )}
                     </>
                   ) : (
                     <>
