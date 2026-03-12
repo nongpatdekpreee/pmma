@@ -544,10 +544,6 @@ const createContract = async (req, res) => {
         message = `คอลัมน์ในตารางไม่ตรงกับที่ระบบใช้: ${errMsg}`;
       }
     }
-    const errMsg = String(error.message || '');
-    if ((errMsg.includes('device_id') && errMsg.toLowerCase().includes('null')) || error.code === 'ER_BAD_NULL_ERROR') {
-      message = 'ไม่สามารถบันทึก Site แบบ draft (ไม่มี Device) ได้ กรุณารัน migration: backend/migrations/allow_contract_device_null_device_id.sql';
-    }
 
     res.status(500).json({
       success: false,
@@ -671,6 +667,7 @@ const getContractsBySite = async (req, res) => {
 
 // GET - ดึง Devices ที่ไม่มี Contract (แสดงเฉพาะ device ที่ไม่มี contract ใน contract_device)
 // รองรับ site_id (optional) เพื่อกรองตาม site
+// เมื่อส่ง contract_id (edit contract): เฉพาะ device ที่ยังไม่มี SOF (Refer_SOF ว่าง) และอยู่ที่ SLid = 2
 const getAvailableDevices = async (req, res) => {
   try {
     const siteId = req.query.site_id;
@@ -690,7 +687,10 @@ const getAvailableDevices = async (req, res) => {
     
     let whereCondition = `WHERE d.Did NOT IN (${excludeContractCondition})`;
 
-    if (siteId) {
+    // ตอน edit contract: เฉพาะ device ที่ยังไม่มี SOF และอยู่ที่ SLid = 2 (ไม่กรอง site_id)
+    if (contractId) {
+      whereCondition += ' AND (d.Refer_SOF IS NULL OR d.Refer_SOF = \'\') AND d.SLid = 2';
+    } else if (siteId) {
       const sid = parseInt(siteId, 10);
       if (!isNaN(sid)) {
         whereCondition += ' AND d.SLid = ?';
@@ -1372,9 +1372,7 @@ const updateContract = async (req, res) => {
       message = 'file_paths or image_paths column does not exist';
     } else if (errMsg.includes('coverage_scope')) {
       message = 'coverage_scope column does not exist';
-    } else if ((errMsg.includes('device_id') && errMsg.toLowerCase().includes('null')) || error.code === 'ER_BAD_NULL_ERROR') {
-      message = 'ไม่สามารถบันทึก Site แบบ draft (ไม่มี Device) ได้ กรุณารัน migration: backend/migrations/allow_contract_device_null_device_id.sql';
-    }
+    } 
     res.status(500).json({
       success: false,
       message,

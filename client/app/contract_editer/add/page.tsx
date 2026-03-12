@@ -20,6 +20,7 @@ const inputBase =
 
 type SiteEntry = {
   id: string;
+  selectedSid?: string;
   siteId: string;
   siteLabel: string;
   devices: Array<{ id: string; label: string; role?: string }>;
@@ -241,9 +242,11 @@ function AddContractPageContent() {
         if (contract.sites && contract.sites.length > 0) {
           const newSiteEntries: SiteEntry[] = contract.sites.map((site: any) => {
             const slid = site.SLid;
+            const sl = currentSites.find((s) => s.SLid === slid);
             const devices = devicesBySLid.get(slid) || [];
             return {
               id: randomUUID(),
+              selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
               siteId: String(slid),
               siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
               devices: devices.map((d) => ({
@@ -261,8 +264,10 @@ function AddContractPageContent() {
             const siteLabel = site
               ? `${(site as any).SiteName || ''} – ${(site as any).Location2 || ''}`.trim() || `Site ${slid}`
               : `Site ${slid}`;
+            const sl = currentSites.find((s) => s.SLid === slid);
             newSiteEntries.push({
               id: randomUUID(),
+              selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
               siteId: String(slid),
               siteLabel,
               devices: devices.map((d) => ({
@@ -400,6 +405,7 @@ function AddContractPageContent() {
         const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : `Site ${slid}`;
         newSiteEntries.push({
           id: randomUUID(),
+          selectedSid: site?.Sid != null ? String(site.Sid) : undefined,
           siteId: String(slid),
           siteLabel,
           devices: devices.map((d) => ({
@@ -448,16 +454,43 @@ function AddContractPageContent() {
     load();
   }, [selectedSOF, referSOFList]);
 
-  // SOF ตรงใน DB (มีใน referSOFList) = ดึง devices ตาม SOF+site; ไม่ตรง = ดึงทุก devices ที่ยังไม่มี SOF (ทุก site)
+  // SOF ตรงใน DB (มีใน referSOFList) = ดึง devices ตาม SOF+site
   const sofExistsInDb = selectedSOF?.trim() ? referSOFList.includes(selectedSOF.trim()) : false;
 
-  const loadDevicesForSite = async (siteId: string): Promise<DeviceItem[]> => {
+  const loadDevicesForSite = async (siteId: string, includeDeviceIds: string[] = []): Promise<DeviceItem[]> => {
     if (!selectedSOF?.trim()) return [];
     
     const allDevices: DeviceItem[] = [];
     
-    if (sofExistsInDb) {
-      // SOF มีใน DB: ดึง devices ตาม SOF+site
+    if (editContractId) {
+      // Edit contract: ต้องเห็น device ที่ยังไม่มี SOF + In Store + SLid=2 เสมอ (ไม่ผูกกับ site ที่เลือก)
+      const res = await fetch(
+        apiUrl(`/api/devices/no-sof-in-store?contract_id=${encodeURIComponent(editContractId)}`)
+      );
+      const json = await res.json();
+      if (res.ok && json.data) {
+        allDevices.push(...json.data);
+      } else {
+        throw new Error(json.message || 'Load Devices failed');
+      }
+
+      // เฉพาะกรณี SOF มีในระบบ: ค่อยดึง devices ตาม SOF+site เพิ่ม
+      if (sofExistsInDb) {
+        if (!siteId) return allDevices;
+        const res2 = await fetch(
+          apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedSOF.trim())}&site_id=${siteId}`)
+        );
+        const json2 = await res2.json();
+        if (res2.ok && json2.data) {
+          const existingIds = new Set(allDevices.map((d) => d.Did));
+          const extra = (json2.data as DeviceItem[]).filter((d) => !existingIds.has(d.Did));
+          allDevices.push(...extra);
+        } else {
+          throw new Error(json2.message || 'Load Devices failed');
+        }
+      }
+    } else if (sofExistsInDb) {
+      // Add contract + SOF มีใน DB: ดึง devices ตาม SOF+site
       if (!siteId) return [];
       const res = await fetch(
         apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedSOF.trim())}&site_id=${siteId}`)
@@ -469,7 +502,7 @@ function AddContractPageContent() {
         throw new Error(json.message || 'Load Devices failed');
       }
     } else {
-      // SOF ไม่มีใน DB: แสดงทุก devices ที่ยังไม่มีเลข SOF (ทุก site, ไม่กรองตาม site)
+      // Add contract + SOF ใหม่: ดึง devices ที่ยังไม่มี SOF (default ที่ SLid=2 ตาม backend)
       const res = await fetch(apiUrl(`/api/devices/by-site-no-sof`));
       const json = await res.json();
       if (res.ok && json.data) {
@@ -479,27 +512,37 @@ function AddContractPageContent() {
       }
     }
     
-    // ในกรณี edit contract: เพิ่ม devices ที่ยังไม่มี contract อื่น (available devices)
-    // แต่ไม่รวม devices ที่อยู่ใน contract ปัจจุบัน (ส่ง contract_id เพื่อกรองออก)
-    if (editContractId) {
-      try {
-        const queryParams = new URLSearchParams();
-        if (siteId) queryParams.append('site_id', siteId);
-        queryParams.append('contract_id', editContractId);
-        const availableRes = await fetch(
-          apiUrl(`/api/contracts/devices/available?${queryParams.toString()}`)
-        );
-        const availableJson = await availableRes.json();
-        if (availableRes.ok && availableJson.data) {
-          // รวม available devices โดยไม่ให้ซ้ำ (ใช้ Did เป็น key)
-          const existingDeviceIds = new Set(allDevices.map(d => d.Did));
-          const newDevices = availableJson.data.filter((d: DeviceItem) => !existingDeviceIds.has(d.Did));
-          allDevices.push(...newDevices);
-        }
-      } catch (e) {
-        // ถ้าโหลด available devices ไม่ได้ ไม่ต้อง throw error แค่ข้ามไป
-        console.warn('Failed to load available devices:', e);
-      }
+    // Ensure devices that were already selected are still visible in the picker,
+    // even if their current devices.SLid / SOF filter would exclude them.
+    const existingDeviceIds = new Set(allDevices.map((d) => String(d.Did)));
+    const missingSelected = (includeDeviceIds || []).map(String).filter((id) => id && !existingDeviceIds.has(id));
+    if (missingSelected.length > 0) {
+      const results = await Promise.allSettled(
+        missingSelected.map(async (id) => {
+          const res = await fetch(apiUrl(`/api/devices/${encodeURIComponent(id)}`));
+          const json = await res.json();
+          if (res.ok && json?.data) return json.data;
+          return null;
+        })
+      );
+      results.forEach((r) => {
+        const data = r.status === 'fulfilled' ? r.value : null;
+        if (!data) return;
+        const did = data.Did ?? data.did;
+        if (did == null) return;
+        const didStr = String(did);
+        if (existingDeviceIds.has(didStr)) return;
+        allDevices.push({
+          Did: Number(did),
+          CI_Name: data.CI_Name ?? data.ci_name ?? null,
+          Asset_Number: data.Asset_Number ?? data.asset_number ?? null,
+          serial: data.serial ?? null,
+          model: data.model ?? null,
+          roleName: data.roleName ?? null,
+          manufacturername: data.manufacturername ?? null,
+        });
+        existingDeviceIds.add(didStr);
+      });
     }
     
     return allDevices;
@@ -510,7 +553,9 @@ function AddContractPageContent() {
     setDevicesLoading(true);
     setFetchError('');
     try {
-      const devices = await loadDevicesForSite(siteId);
+      const entry = siteEntries.find((e) => e.id === entryId);
+      const includeIds = entry?.devices?.map((d) => String(d.id)) ?? [];
+      const devices = await loadDevicesForSite(siteId, includeIds);
       setDevicesBySite(devices);
       setIsDeviceModalOpen(true);
     } catch (e) {
@@ -531,8 +576,17 @@ function AddContractPageContent() {
   const updateSiteEntry = (entryId: string, siteId: string) => {
     const site = sitesLocation.find((s) => String(s.SLid) === siteId);
     const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : '';
+    const selectedSid = site?.Sid != null ? String(site.Sid) : undefined;
     setSiteEntries((prev) =>
-      prev.map((e) => (e.id === entryId ? { ...e, siteId, siteLabel, devices: [] } : e))
+      prev.map((e) => (e.id === entryId ? { ...e, selectedSid, siteId, siteLabel, devices: [] } : e))
+    );
+  };
+
+  const setEntrySid = (entryId: string, sid: string) => {
+    setSiteEntries((prev) =>
+      prev.map((e) =>
+        e.id === entryId ? { ...e, selectedSid: sid || undefined, siteId: '', siteLabel: '', devices: [] } : e
+      )
     );
   };
 
@@ -559,6 +613,16 @@ function AddContractPageContent() {
   const clearAllDevices = () => {
     setSiteEntries((prev) => prev.map((e) => ({ ...e, devices: [] })));
   };
+
+  // เลือกตาม Sid ก่อน แล้วค่อยเลือก lid (Location) ที่ตรงกัน → ได้ SLid
+  const uniqueSites = (() => {
+    const seen = new Set<number>();
+    return sitesLocation
+      .filter((s) => s.Sid != null && !seen.has(s.Sid) && (seen.add(s.Sid), true))
+      .map((s) => ({ sid: String(s.Sid), name: s.SiteName }));
+  })();
+  const getLocationsForSid = (sid: string) =>
+    sitesLocation.filter((s) => s.Sid != null && String(s.Sid) === sid);
 
   const activeEntry = siteEntries.find((e) => e.id === activeSiteEntryId);
   const activeEntryDevices = activeEntry?.devices ?? [];
@@ -596,7 +660,7 @@ function AddContractPageContent() {
       .flatMap((e) => e.devices.map((d) => d.id))
   );
   const devicesAvailableForCurrentSite =
-    !sofExistsInDb && alreadySelectedInOtherSites.size > 0
+    alreadySelectedInOtherSites.size > 0
       ? devicesBySite.filter((d) => !alreadySelectedInOtherSites.has(String(d.Did)))
       : devicesBySite;
 
@@ -639,8 +703,8 @@ function AddContractPageContent() {
         toastError(msg);
         return;
       }
-      if (contractName.trim().length < 5) {
-        const msg = 'Contract Name must be at least 5 characters';
+      if (contractName.trim().length < 3) {
+        const msg = 'Contract Name must be at least 3 characters';
         setSaveError(msg);
         toastError(msg);
         return;
@@ -1022,8 +1086,8 @@ function AddContractPageContent() {
                     value={contractName}
                     onChange={(e) => setContractName(e.target.value)}
                     placeholder="contract name"
-                    className={`${inputBase} pr-9 ${contractName.trim().length > 0 && contractName.trim().length < 5 ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`}
-                    minLength={5}
+                    className={`${inputBase} pr-9 ${contractName.trim().length > 0 && contractName.trim().length < 4 ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`}
+                    minLength={4}
                   />
                   {contractName && (
                     <button
@@ -1036,8 +1100,8 @@ function AddContractPageContent() {
                     </button>
                   )}
                 </div>
-                {contractName.trim().length > 0 && contractName.trim().length < 5 && (
-                  <p className="mt-1 text-xs text-red-600">Contract Name must be at least 5 characters</p>
+                {contractName.trim().length > 0 && contractName.trim().length < 4 && (
+                  <p className="mt-1 text-xs text-red-600">Contract Name must be at least 4 characters</p>
                 )}
               </FormField>
               {!renewContractId && (
@@ -1139,7 +1203,7 @@ function AddContractPageContent() {
                   )}
                 </div>
               </FormField>
-              <FormField label="SLA Term (%)" required>
+              <FormField label="SLA Term (%)">
                 <div className="relative">
                   <input
                     type="number"
@@ -1171,7 +1235,7 @@ function AddContractPageContent() {
                 </div>
               </FormField>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-3">
               <FormField label="Sale Account">
                 <div className="relative">
                   <input
@@ -1193,7 +1257,7 @@ function AddContractPageContent() {
                   )}
                 </div>
               </FormField>
-              <FormField label="Email">
+              <FormField label="Sale Email">
                 <div className="relative">
                   <input
                     type="email"
@@ -1214,7 +1278,7 @@ function AddContractPageContent() {
                   )}
                 </div>
               </FormField>
-              <FormField label="Telephone">
+              <FormField label="Sale Telephone">
                 <div className="relative">
                   <input
                     type="text"
@@ -1390,24 +1454,69 @@ function AddContractPageContent() {
                       className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3"
                     >
                       <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-[180px] flex-1">
-                          <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
-                            Site
-                          </label>
-                          <select
-                            value={entry.siteId}
-                            onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
-                            className={inputBase}
-                            disabled={dataLoading || !selectedSOF}
-                          >
-                            <option value="">-- Select Site --</option>
-                            {sitesLocation.map((s) => (
-                              <option key={s.SLid} value={String(s.SLid)}>
-                                {s.SiteName} – {s.Location2}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        {uniqueSites.length > 0 ? (
+                          <>
+                            <div className="min-w-[160px]">
+                              <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                                Site 
+                              </label>
+                              <select
+                                value={entry.selectedSid ?? (() => {
+                                  const s = sitesLocation.find((x) => String(x.SLid) === entry.siteId);
+                                  return s?.Sid != null ? String(s.Sid) : '';
+                                })()}
+                                onChange={(e) => setEntrySid(entry.id, e.target.value)}
+                                className={inputBase}
+                                disabled={dataLoading || !selectedSOF}
+                              >
+                                <option value="">-- Select Site --</option>
+                                {uniqueSites.map(({ sid, name }) => (
+                                  <option key={sid} value={sid}>{name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="min-w-[180px] flex-1">
+                              <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                                Location 
+                              </label>
+                              <select
+                                value={entry.siteId}
+                                onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
+                                className={inputBase}
+                                disabled={dataLoading || !selectedSOF || !(entry.selectedSid ?? sitesLocation.find((x) => String(x.SLid) === entry.siteId)?.Sid)}
+                              >
+                                <option value="">-- Select Location --</option>
+                                {getLocationsForSid(entry.selectedSid ?? (() => {
+                                  const s = sitesLocation.find((x) => String(x.SLid) === entry.siteId);
+                                  return s?.Sid != null ? String(s.Sid) : '';
+                                })()).map((s) => (
+                                  <option key={s.SLid} value={String(s.SLid)}>
+                                    {s.Location2}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="min-w-[180px] flex-1">
+                            <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                              Site
+                            </label>
+                            <select
+                              value={entry.siteId}
+                              onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
+                              className={inputBase}
+                              disabled={dataLoading || !selectedSOF}
+                            >
+                              <option value="">-- Select Site --</option>
+                              {sitesLocation.map((s) => (
+                                <option key={s.SLid} value={String(s.SLid)}>
+                                  {s.SiteName} – {s.Location2}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <button
                           type="button"
                           onClick={() =>
@@ -1513,7 +1622,15 @@ function AddContractPageContent() {
                 setDeviceFilter('');
               }}
               title={activeEntry ? `Select Device - ${activeEntry.siteLabel || 'Site'}` : 'Select Device'}
-              devices={devicesAvailableForCurrentSite.map((d) => ({
+            devices={(() => {
+              const selectedIds = new Set(activeEntryDevices.map((d) => String(d.id)));
+              const sorted = [...devicesAvailableForCurrentSite].sort((a, b) => {
+                const aSel = selectedIds.has(String(a.Did));
+                const bSel = selectedIds.has(String(b.Did));
+                if (aSel === bSel) return 0;
+                return aSel ? -1 : 1;
+              });
+              return sorted.map((d) => ({
                 id: String(d.Did),
                 name: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
                 type: d.model || '',
@@ -1522,7 +1639,8 @@ function AddContractPageContent() {
                 assetNumber: d.Asset_Number || '',
                 role: d.roleName || '',
                 manufacturer: d.manufacturername || '',
-              }))}
+              }));
+            })()}
               selectedIds={activeEntryDevices.map((d) => d.id)}
               filter={deviceFilter}
               onFilterChange={setDeviceFilter}

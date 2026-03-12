@@ -67,7 +67,7 @@ const getSitesLocationBySOF = async (req, res) => {
       });
     }
     const sql = `
-      SELECT DISTINCT SL.SLid, S.Name AS SiteName, L.Location2
+      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid

@@ -1185,10 +1185,16 @@ const getVendors = async (req, res) => {
 const getReferSOFList = async (req, res) => {
   try {
     const [rows] = await db.execute(
-      `SELECT DISTINCT Refer_SOF as refer_sof
-       FROM devices
-       WHERE Refer_SOF IS NOT NULL AND Refer_SOF != '' AND Refer_SOF != 'Not Assigned'
-       ORDER BY Refer_SOF ASC`
+      `SELECT DISTINCT d.Refer_SOF AS refer_sof
+       FROM devices d
+       WHERE d.Refer_SOF IS NOT NULL AND d.Refer_SOF != '' AND d.Refer_SOF != 'Not Assigned'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM contract_device cd
+           INNER JOIN devices d2 ON d2.Did = cd.device_id
+           WHERE d2.Refer_SOF = d.Refer_SOF
+         )
+       ORDER BY d.Refer_SOF ASC`
     );
     res.status(200).json({ 
       success: true, 
@@ -1381,6 +1387,57 @@ const getDevicesBySiteNoSOF = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการดึง Devices ที่ยังไม่มี SOF',
+      error: error.message
+    });
+  }
+};
+
+// GET - ดึง Devices ที่ยังไม่มี SOF และสถานะ In Store และอยู่ที่ SLid = 2 (คลัง)
+// รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญาอื่น (ทั้ง contract.device_id และ contract_device)
+const getDevicesNoSofInStore = async (req, res) => {
+  try {
+    const contractId = req.query.contract_id;
+    const noSofCondition = `(d.Refer_SOF IS NULL 
+                             OR TRIM(COALESCE(d.Refer_SOF,'')) = '' 
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned'
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'n/a'
+                             OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
+    const inStoreCondition = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
+    const slid2Condition = `d.SLid = 2`;
+    let contractExclusionCondition = '';
+    const params = [];
+    if (contractId) {
+      const cid = parseInt(contractId, 10);
+      if (!isNaN(cid)) {
+        contractExclusionCondition = `
+          AND d.Did NOT IN (SELECT device_id FROM contract WHERE contract_id != ? AND device_id IS NOT NULL)
+          AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE contract_id != ? AND device_id IS NOT NULL)
+        `;
+        params.push(cid, cid);
+      }
+    } else {
+      contractExclusionCondition = `
+        AND d.Did NOT IN (SELECT device_id FROM contract WHERE device_id IS NOT NULL)
+        AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE device_id IS NOT NULL)
+      `;
+    }
+    const sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
+                 FROM devices d
+                 LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+                 LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+                 LEFT JOIN manufacturer m ON dt.Mid = m.Mid
+                 WHERE ${noSofCondition}
+                   AND ${inStoreCondition}
+                   AND ${slid2Condition}
+                   ${contractExclusionCondition}
+                 ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
+    const [rows] = await db.execute(sql, params);
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices (no SOF, In Store):', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึง Devices ที่ไม่มี SOF และสถานะ In Store',
       error: error.message
     });
   }
@@ -2064,6 +2121,7 @@ module.exports = {
   getDevicesByContractAndSite, // GET (devices จาก contract_device ตาม contract_id + slid)
   getDevicesBySerials,       // GET (devices ตาม serial หลายตัว ?serials=A,B,C)
   getDevicesBySiteNoSOF,     // GET (devices ตาม site_id ที่ยังไม่มี SOF)
+  getDevicesNoSofInStore,    // GET (devices ที่ไม่มี SOF + สถานะ In Store สำหรับ Edit Contract SOF ใหม่)
   getDevicesBySite,          // GET (devices ตาม site_id สำหรับ Asset Binding)
   getDevicesByAssetState,    // GET (devices ตาม Asset_State สำหรับ MA)
   getReplacementDevices,    // GET (devices In Store สำหรับ replacement ตาม Dtypeid และ DeRoleid)

@@ -7,7 +7,7 @@ import Link from 'next/link';
 import DateTime from '@/components/ui/DateTime';
 import DashboardHeader from '@/components/ui/Header';
 import { useEffect, useMemo, useState } from 'react';
-import { getTasks, getVendorStatistics } from '@/lib/api';
+import { getTasks, getVendorStatistics, getEmployees, apiUrl } from '@/lib/api';
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from 'recharts';
 
 type EventItem = {
@@ -65,8 +65,17 @@ export default function DashboardPage() {
     const loadPm = async () => {
       setLoadingPm(true);
       try {
-        const res = await getTasks();
-        const all = Array.isArray(res?.data) ? res.data : [];
+        const [tasksRes, employeesRes] = await Promise.all([getTasks(), getEmployees({ limit: 1000 })]);
+        const all = Array.isArray(tasksRes?.data) ? tasksRes.data : [];
+        const employeeList = employeesRes?.success && Array.isArray(employeesRes.data) ? employeesRes.data : [];
+        const employeePhotoById: Record<string, string> = {};
+        employeeList.forEach((emp: { id: string; photo?: string | null }) => {
+          const id = String(emp.id ?? '');
+          if (id && emp.photo) {
+            employeePhotoById[id] = emp.photo.startsWith('http') ? emp.photo : apiUrl(emp.photo);
+          }
+        });
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -76,7 +85,7 @@ export default function DashboardPage() {
           .map((t: any) => ({ ...t, _start: new Date(t.startDate) }))
           .filter((t: any) => !Number.isNaN(t._start.getTime()) && t._start >= today)
           .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
-          .slice(0, 4); 
+          .slice(0, 4);
 
         const mapped = upcomingPm.map((t: any) => {
           const assets = Array.isArray(t.assets) ? t.assets : [];
@@ -84,6 +93,9 @@ export default function DashboardPage() {
           const serial = first?.serial || first?.Serial || '—';
           const engineers = Array.isArray(t.engineers) ? t.engineers : [];
           const assignees = engineers.slice(0, 4).map((e: any, i: number) => {
+            const eid = String(e?.id ?? e?.user_id ?? '');
+            const realPhoto = eid ? employeePhotoById[eid] : null;
+            if (realPhoto) return realPhoto;
             const seed = (e?.name || e?.id || String(i + 1)).toString();
             return `https://i.pravatar.cc/150?u=${encodeURIComponent(seed)}`;
           });
@@ -227,48 +239,21 @@ export default function DashboardPage() {
       <DashboardHeader />
 
       {/* Content Body */}
-      <div className="flex p-6 pt-0 gap-6 md:mt-0 mt-16">
+      <div className="flex flex-nowrap p-6 pt-0 gap-6 md:mt-0 mt-16 min-w-0 overflow-x-auto">
           
           {/* ฝั่งซ้าย: Dashboard & Maintenance */}
-          <div className="flex-[2] space-y-6">
-            <div className="flex items-center justify-between">
-              <Link href="/" className="text-3xl font-bold text-slate-800">
+          <div className="flex-[2] space-y-6 min-w-0">
+            <div className="flex flex-nowrap items-center justify-between gap-4">
+              <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate">
                 Dashboard 
                 </Link>
               
             </div>
 
-            {/* Placeholder สำหรับ Graph */}
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
-                <Link href="/mapage" className="text-blue-600 text-sm font-medium hover:underline">
-                View all &gt;
-                </Link>
-              </div>
-              <div className="h-64 bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
-                {loadingMa ? (
-                  <div className="h-full flex items-center justify-center text-slate-400">กำลังโหลด...</div>
-                ) : vendorBars.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-slate-400">ยังไม่มีข้อมูล</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={vendorBars} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
-                      <Tooltip />
-                      <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
             {/* ส่วน Preventive Maintenance List */}
             <div>
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">Preventive Maintenance</h3>
-                <Link href="/pmpage" className="text-blue-600 text-sm font-medium hover:underline">
-                View all &gt;
-                </Link>
               </div>
               <div className="space-y-3">
                 {loadingPm ? (
@@ -319,19 +304,41 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+
+            {/* Maintenance Agreement (กราฟ Vendor) */}
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
+              </div>
+              <div className="h-64 bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
+                {loadingMa ? (
+                  <div className="h-full flex items-center justify-center text-slate-400">กำลังโหลด...</div>
+                ) : vendorBars.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-slate-400">ยังไม่มีข้อมูล</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={vendorBars} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* ฝั่งขวา: Events & Stream */}
-          <div className="flex-1 space-y-6">
+          <div className="flex-1 space-y-6 min-w-0">
             <div className="bg-white p-6 rounded-[2rem] shadow-sm">
               <div className="flex justify-between mb-4">
-                <h3 className="font-bold text-slate-700">Nearest Events</h3>
+                <h3 className="font-bold text-slate-700">In Coming Events</h3>
                 <Link href="/schedule_management" className="text-blue-500 text-xs hover:underline">View all</Link>
               </div>
               {loadingEvents ? (
                 <div className="text-sm text-slate-400 py-6 text-center">กำลังโหลด...</div>
               ) : nearestEvents.length === 0 ? (
-                <div className="text-sm text-slate-400 py-6 text-center">ยังไม่มีงานที่กำลังจะถึง</div>
+                <div className="text-sm text-slate-400 py-6 text-center">There are no upcoming events</div>
               ) : (
                 <>
                   <div className="space-y-3">

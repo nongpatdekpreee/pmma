@@ -131,6 +131,8 @@ function ContractEditorPageContent() {
   const [contractsError, setContractsError] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
   const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
   const [contractPage, setContractPage] = useState(1);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -159,9 +161,11 @@ function ContractEditorPageContent() {
   const [showAssignSiteModal, setShowAssignSiteModal] = useState(false);
   const [assignModalLoading, setAssignModalLoading] = useState(false);
   const [assignModalSubmitting, setAssignModalSubmitting] = useState(false);
-  const [sitesLocation, setSitesLocation] = useState<Array<{ SLid: number; SiteName?: string; Location2?: string }>>([]);
+  const [sitesLocation, setSitesLocation] = useState<Array<{ SLid: number; Sid?: number; SiteName?: string; Location2?: string }>>([]);
   const [assignDeviceDetails, setAssignDeviceDetails] = useState<Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }>>({});
   const [deviceTargetSite, setDeviceTargetSite] = useState<Record<string, string>>({});
+  /** เลือก Site แล้วแต่ยังไม่เลือก Location (เก็บ Sid เพื่อแสดงชื่อ + กรอง Location) */
+  const [deviceTargetSid, setDeviceTargetSid] = useState<Record<string, string>>({});
   const [assignDeviceSelected, setAssignDeviceSelected] = useState<Set<string>>(new Set());
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
   const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
@@ -190,7 +194,7 @@ function ContractEditorPageContent() {
   // Form state
   const [contractForm, setContractForm] = useState({
     name: '',
-    partner: '',
+    site: '',
     maintenanceType: '',
     startDate: '',
     endDate: '',
@@ -273,27 +277,56 @@ function ContractEditorPageContent() {
   }, []);
 
   const filteredContracts = contracts.filter((contract) => {
+    // Filter ตามสถานะ (Draft / Active / Expiring / Expired / All)
     if (activeFilter === 'Draft') {
-      return contract.contractStatus === 'draft';
-    }
-    if (activeFilter !== 'All') {
+      if (contract.contractStatus !== 'draft') return false;
+    } else if (activeFilter !== 'All') {
       const statusMap: Record<string, string> = {
-        'Active': 'active',
-        'Expiring': 'expiring',
-        'Expired': 'expired',
+        Active: 'active',
+        Expiring: 'expiring',
+        Expired: 'expired',
       };
       if (contract.status !== statusMap[activeFilter]) return false;
     }
+
+    // Filter ตามคำค้นหา
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
-      return (
+      const matchText =
         contract.id.toLowerCase().includes(searchLower) ||
         contract.name.toLowerCase().includes(searchLower) ||
         contract.partner.toLowerCase().includes(searchLower) ||
         (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
-        (contract.siteLocation ?? '').toLowerCase().includes(searchLower)
-      );
+        (contract.siteLocation ?? '').toLowerCase().includes(searchLower);
+      if (!matchText) return false;
     }
+
+    // Filter ตามช่วงวันที่ (Start / End)
+    if (startDateFilter || endDateFilter) {
+      const start = contract.startDate ? new Date(contract.startDate) : null;
+      const end = contract.endDate ? new Date(contract.endDate) : null;
+
+      if (Number.isNaN(start?.getTime() ?? NaN)) {
+        // ถ้า startDate ใช้ไม่ได้ และมีการกรอง startDateFilter ให้ตัดทิ้ง
+        if (startDateFilter) return false;
+      }
+      if (Number.isNaN(end?.getTime() ?? NaN)) {
+        // ถ้า endDate ใช้ไม่ได้ และมีการกรอง endDateFilter ให้ตัดทิ้ง
+        if (endDateFilter) return false;
+      }
+
+      if (startDateFilter) {
+        const filterStart = new Date(startDateFilter);
+        filterStart.setHours(0, 0, 0, 0);
+        if (!start || start < filterStart) return false;
+      }
+      if (endDateFilter) {
+        const filterEnd = new Date(endDateFilter);
+        filterEnd.setHours(23, 59, 59, 999);
+        if (!end || end > filterEnd) return false;
+      }
+    }
+
     return true;
   });
 
@@ -377,15 +410,36 @@ function ContractEditorPageContent() {
     try {
       // Sheet 1: Contracts — หนึ่งแถวต่อ (contract, site): Contract Name | Site | Location | Start Date | End Date | Device Count
       const contractSiteRows: { 'Contract Name': string; 'Site': string; 'Location': string; 'Start Date': string; 'End Date': string; 'Device Count': number }[] = [];
-      // Sheet 2: แต่ละสัญญาเป็นบล็อกแนวนอน ความกว้างต่อบล็อก = 1 หรือ 2 คอลัมน์
-      const blocks: { rows: string[][]; width: number }[] = [];
+      // Sheets 2..N: 1 sheet ต่อ 1 contract (device name ใช้ serial)
+      const sheetsPerContract: Array<{ sheetName: string; rows: any[][] }> = [];
+
+      const makeSheetName = (() => {
+        const used = new Set<string>();
+        return (raw: string, fallback: string) => {
+          const cleaned = String(raw || '').trim() || fallback;
+          // Excel sheet name rules: <=31 chars, cannot contain : \ / ? * [ ]
+          const safe = cleaned.replace(/[:\\\/\?\*\[\]]/g, ' ').replace(/\s+/g, ' ').trim() || fallback;
+          const base = safe.length > 31 ? safe.slice(0, 31).trim() : safe;
+          let name = base || fallback;
+          let i = 2;
+          while (used.has(name)) {
+            const suffix = ` (${i})`;
+            const cut = Math.max(1, 31 - suffix.length);
+            name = `${base.slice(0, cut).trim()}${suffix}`;
+            i++;
+          }
+          used.add(name);
+          return name;
+        };
+      })();
+
       for (const c of toExport) {
         const res = await fetch(apiUrl(`/api/contracts/${c.id}`));
         const json = await res.json();
         const detail = json?.data;
         const devices = (detail?.devices || []) as Array<{ contract_SLid?: number | null; SLid?: number | null; SiteName?: string | null; Location2?: string | null; CI_Name?: string | null; serial?: string | null }>;
         const slid = (d: { contract_SLid?: number | null; SLid?: number | null }) => d.contract_SLid ?? d.SLid ?? 0;
-        const deviceName = (d: { CI_Name?: string | null; serial?: string | null }) => (d.CI_Name != null && String(d.CI_Name).trim()) ? String(d.CI_Name).trim() : (d.serial != null ? String(d.serial) : '—');
+        const deviceName = (d: { serial?: string | null; CI_Name?: string | null }) => (d.serial != null && String(d.serial).trim()) ? String(d.serial).trim() : ((d.CI_Name != null && String(d.CI_Name).trim()) ? String(d.CI_Name).trim() : '—');
         const bySite = new Map<number, { siteName: string; location: string; devices: string[] }>();
         for (const d of devices) {
           const key = slid(d);
@@ -408,55 +462,43 @@ function ContractEditorPageContent() {
             contractSiteRows.push({ 'Contract Name': c.name, 'Site': s.siteName, 'Location': s.location, 'Start Date': startDate, 'End Date': endDate, 'Device Count': s.devices.length });
           }
         }
-        // บล็อกต่อสัญญา: ถ้า 1 site ใช้ 1 คอลัมน์ (A); ถ้ามีหลาย site ใช้ 2 คอลัมน์ (A,B)
-        const blockRows: string[][] = [];
-        let width = 1;
-        const singleSite = siteOrder.length <= 1;
-        if (singleSite && siteOrder.length === 1) {
-          const s = bySite.get(siteOrder[0])!;
-          const siteLine = s.location ? `${s.siteName} – ${s.location}` : s.siteName;
-          blockRows.push([c.name]);
-          blockRows.push([siteLine]);
-          for (const dev of s.devices) blockRows.push([dev]);
-          width = 1;
-        } else if (singleSite && siteOrder.length === 0) {
-          blockRows.push([c.name]);
-          blockRows.push(['(No sites)']);
-          width = 1;
+
+        const sheetRows: any[][] = [];
+        sheetRows.push(['Contract Name', c.name]);
+        sheetRows.push(['Start Date', startDate, 'End Date', endDate]);
+        sheetRows.push([]);
+        sheetRows.push(['Site', 'Location', 'Serial']);
+        if (siteOrder.length === 0) {
+          sheetRows.push(['—', '—', '']);
         } else {
-          blockRows.push([c.name, c.name]);
-          for (const sLid of siteOrder) {
+          siteOrder.forEach((sLid, idx) => {
             const s = bySite.get(sLid)!;
-            const siteDetail = s.location ? `${s.siteName} – ${s.location}` : s.siteName;
-            blockRows.push([s.siteName, siteDetail]);
-          }
-          const allDevices = siteOrder.flatMap((k) => bySite.get(k)!.devices);
-          for (let i = 0; i < allDevices.length; i += 2) {
-            blockRows.push([allDevices[i] ?? '', allDevices[i + 1] ?? '']);
-          }
-          width = 2;
+            if (idx > 0) sheetRows.push([]); // เว้นบรรทัดคั่นระหว่างแต่ละ site
+            if (!s.devices || s.devices.length === 0) {
+              sheetRows.push([s.siteName, s.location, '']);
+            } else {
+              s.devices.forEach((dev, devIdx) => {
+                if (devIdx === 0) {
+                  sheetRows.push([s.siteName, s.location, dev]);
+                } else {
+                  sheetRows.push(['', '', dev]);
+                }
+              });
+            }
+          });
         }
-        blocks.push({ rows: blockRows, width });
-      }
-      // เรียงเป็นแถว: แถวที่ i = รวมคอลัมน์ของทุกสัญญา โดยใช้ width ของแต่ละบล็อก
-      const maxRows = Math.max(1, ...blocks.map((b) => b.rows.length));
-      const deviceRows: (string)[][] = [];
-      for (let r = 0; r < maxRows; r++) {
-        const row: string[] = [];
-        for (const block of blocks) {
-          const cells = block.rows[r] ?? [];
-          for (let i = 0; i < block.width; i++) {
-            row.push(cells[i] ?? '');
-          }
-        }
-        deviceRows.push(row);
+
+        const sheetName = makeSheetName(c.name, `Contract-${c.id}`);
+        sheetsPerContract.push({ sheetName, rows: sheetRows });
       }
       const wsContracts = contractSiteRows.length > 0 ? XLSX.utils.json_to_sheet(contractSiteRows) : XLSX.utils.aoa_to_sheet([['Contract Name', 'Site', 'Location', 'Start Date', 'End Date', 'Device Count']]);
-      const wsDevices = deviceRows.length > 0 ? XLSX.utils.aoa_to_sheet(deviceRows) : XLSX.utils.aoa_to_sheet([['A', 'B'], ['(No data)', '']]);
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, wsContracts, 'Contracts');
-      XLSX.utils.book_append_sheet(wb, wsDevices, 'Devices');
+      for (const s of sheetsPerContract) {
+        const ws = XLSX.utils.aoa_to_sheet(s.rows);
+        XLSX.utils.book_append_sheet(wb, ws, s.sheetName);
+      }
       const dateStr = new Date().toISOString().split('T')[0];
       XLSX.writeFile(wb, `contracts_export_${dateStr}.xlsx`);
       toastSuccess(`Exported ${toExport.length} contract(s)`);
@@ -507,7 +549,7 @@ function ContractEditorPageContent() {
     setCurrentEquipmentList([]);
     setContractForm({
       name: '',
-      partner: '',
+      site: '',
       maintenanceType: '',
       startDate: '',
       endDate: '',
@@ -592,6 +634,7 @@ function ContractEditorPageContent() {
       ...contractForm,
       equipment: [...currentEquipmentList],
       formattedValue,
+      partner: contractForm.site, // Ensure partner is included as required by Contract type
       formattedStartDate,
       formattedEndDate,
     };
@@ -717,6 +760,7 @@ function ContractEditorPageContent() {
     setShowAssignSiteModal(true);
     setAssignDeviceDetails({});
     setDeviceTargetSite({});
+    setDeviceTargetSid({});
     setAssignDeviceSelected(new Set());
     setAssignModalSelectedSiteSlid(null);
     try {
@@ -968,7 +1012,7 @@ function ContractEditorPageContent() {
       'sla term': 'sla_term', 'sla_term': 'sla_term', 'slaterm': 'sla_term',
       'sale account': 'sale_account', 'sale_account': 'sale_account', 'saleaccount': 'sale_account',
       'email': 'email_acc', 'email_acc': 'email_acc', 'email acc': 'email_acc',
-      'tel': 'tel_acc', 'tel_acc': 'tel_acc', 'tel acc': 'tel_acc', 'phone': 'tel_acc',
+      'tel': 'tel_acc', 'tel_acc': 'tel_acc', 'tel acc': 'tel_acc', 'phone': 'tel_acc', 'telephone': 'tel_acc',
       'coverage scope': 'coverage_scope', 'coverage_scope': 'coverage_scope', 'coveragescope': 'coverage_scope',
       'devices': 'device_ids', 'device ids': 'device_ids', 'device_ids': 'device_ids', 'device': 'device_ids',
     };
@@ -1131,6 +1175,8 @@ function ContractEditorPageContent() {
           assigned_service: row.assigned_service || null,
           sla_term: row.sla_term || '12',
           sale_account: row.sale_account || null,
+          email_acc: row.email_acc || null,
+          tel_acc: row.tel_acc || null,
           coverage_scope: row.coverage_scope || null,
           site_device_pairs: row.site_device_pairs || [],
           status: asDraft ? 'draft' : 'official',
@@ -1213,37 +1259,46 @@ function ContractEditorPageContent() {
           <h1 className="text-3xl font-bold text-slate-800">
             Maintenance Contract System
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Manage maintenance contracts for equipment and machines, track maintenance schedules, equipment under contract, and important details efficiently
-          </p>
+
         </div>
 
-        {/* Stats Bar */}
+        {/* Stats Bar - กดแล้ว filter รายการสัญญาตามสถานะ */}
         {(() => {
           const total = contracts.length;
           const draft = contracts.filter((c) => c.contractStatus === 'draft').length;
           const active = contracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
           const expiring = contracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
           const expired = contracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
+          const stats = [
+            { filter: 'All' as const, number: String(total), label: 'All Contracts' },
+            { filter: 'Active' as const, number: String(active), label: 'Active Contracts' },
+            { filter: 'Expiring' as const, number: String(expiring), label: 'Expiring Contracts' },
+            { filter: 'Expired' as const, number: String(expired), label: 'Expired Contracts' },
+            { filter: 'Draft' as const, number: String(draft), label: 'Draft Contracts' },
+          ];
           return (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
-          {[
-            { number: String(total), label: 'All Contracts' },
-            { number: String(active), label: 'Active Contracts' },
-            { number: String(expiring), label: 'Expiring Contracts' },
-            { number: String(expired), label: 'Expired Contracts' },
-            { number: String(draft), label: 'Draft Contracts' },
-          ].map((stat, idx) => (
-            <div key={idx} className="text-center relative">
+          {stats.map((stat, idx) => {
+            const isSelected = activeFilter === stat.filter;
+            return (
+            <button
+              key={stat.filter}
+              type="button"
+              onClick={() => setActiveFilter(stat.filter)}
+              className={`text-center relative w-full rounded-xl p-2 -m-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 ${
+                isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : 'hover:bg-slate-50'
+              }`}
+            >
               {idx < 4 && (
-                <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-px h-[60%] bg-slate-200 hidden lg:block" />
+                <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-px h-[60%] bg-slate-200 hidden lg:block pointer-events-none" />
               )}
-              <span className="text-[2.5rem] font-bold text-blue-600 block mb-2">
+              <span className={`text-[2.5rem] font-bold block mb-2 ${isSelected ? 'text-blue-600' : 'text-blue-600'}`}>
                 {stat.number}
               </span>
-              <span className="text-slate-500 text-sm font-medium">{stat.label}</span>
-            </div>
-          ))}
+              <span className={`text-sm font-medium ${isSelected ? 'text-blue-700' : 'text-slate-500'}`}>{stat.label}</span>
+            </button>
+          );
+          })}
         </div>
           );
         })()}
@@ -1269,8 +1324,8 @@ function ContractEditorPageContent() {
         </div>
 
         {/* Filters */}
-        <div className="flex gap-4 flex-wrap items-center">
-          <div className="flex gap-2">
+        <div className="flex gap-4 flex-nowrap items-center overflow-x-auto pb-1">
+          <div className="flex gap-2 shrink-0">
             {['All', 'Active', 'Expiring', 'Expired', 'Draft'].map((filter) => (
               <button
                 key={filter}
@@ -1285,7 +1340,7 @@ function ContractEditorPageContent() {
               </button>
             ))}
           </div>
-          <div className="flex-1 min-w-[300px] relative">
+          <div className="flex-1 min-w-0 relative">
             <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
@@ -1295,7 +1350,34 @@ function ContractEditorPageContent() {
               className="w-full py-2.5 pl-12 pr-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             />
           </div>
-          <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+          {/* Date range filter */}
+          <div className="flex items-center gap-2 text-xs text-slate-600 shrink-0">
+            <div className="flex flex-col">
+              <span className="mb-1">Start date from</span>
+              <input
+                type="date"
+                value={startDateFilter}
+                onChange={(e) => {
+                  setStartDateFilter(e.target.value);
+                  setContractPage(1);
+                }}
+                className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+              />
+            </div>
+            <div className="flex flex-col">
+              <span className="mb-1">End date to</span>
+              <input
+                type="date"
+                value={endDateFilter}
+                onChange={(e) => {
+                  setEndDateFilter(e.target.value);
+                  setContractPage(1);
+                }}
+                className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+              />
+            </div>
+          </div>
+          <div className="flex border border-slate-200 rounded-lg overflow-hidden shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('card')}
@@ -1364,8 +1446,10 @@ function ContractEditorPageContent() {
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Contract Partner:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.partner}</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Site:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.siteName ?? contract.partner ?? '—'}
+                </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Calendar size={18} /></span>
@@ -1384,8 +1468,23 @@ function ContractEditorPageContent() {
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Wrench size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Equipment:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.deviceCount || 0} List Items</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Device:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.deviceCount || 0} items
+                </span>
+              </div>
+              <div className="mb-3 flex items-start gap-3 text-sm">
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><CheckCircle2 size={18} /></span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Status:</span>
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(
+                      contract.contractStatus === 'draft' ? 'draft' : contract.status
+                    )}`}
+                  >
+                    {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
+                  </span>
+                </span>
               </div>
               <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-slate-200 min-w-0 overflow-hidden items-center justify-between">
                 <div className="flex flex-wrap gap-2 min-w-0">
@@ -1583,8 +1682,8 @@ function ContractEditorPageContent() {
                   id="contractPartner"
                   required
                   placeholder="Enter the name of the service provider"
-                  value={contractForm.partner}
-                  onChange={(e) => setContractForm({ ...contractForm, partner: e.target.value })}
+                  value={contractForm.site}
+                  onChange={(e) => setContractForm({ ...contractForm, site: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
@@ -1772,8 +1871,8 @@ function ContractEditorPageContent() {
                   id="editContractPartner"
                   required
                   placeholder="Enter the name of the service provider"
-                  value={contractForm.partner}
-                  onChange={(e) => setContractForm({ ...contractForm, partner: e.target.value })}
+                  value={contractForm.site}
+                  onChange={(e) => setContractForm({ ...contractForm, site: e.target.value })}
                   className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
@@ -2576,8 +2675,21 @@ function ContractEditorPageContent() {
                     const selectedCount = assignDeviceSelected.size;
                     const firstSelectedId = selectedCount > 0 ? [...assignDeviceSelected][0] : null;
                     const bulkTargetValue = firstSelectedId != null ? (deviceTargetSite[firstSelectedId] ?? '') : '';
+                    const assignUniqueSites = (() => {
+                      const seen = new Set<number>();
+                      return sitesLocation
+                        .filter((s) => s.Sid != null && !seen.has(s.Sid) && (seen.add(s.Sid), true))
+                        .map((s) => ({ sid: String(s.Sid), name: s.SiteName ?? `Site ${s.Sid}` }));
+                    })();
+                    const assignGetLocationsForSid = (sid: string) =>
+                      sitesLocation.filter((s) => s.Sid != null && String(s.Sid) === sid);
                     return (
                   <>
+                  <datalist id="assign-modal-site-list">
+                    {assignUniqueSites.map(({ sid, name }) => (
+                      <option key={sid} value={name} />
+                    ))}
+                  </datalist>
                   {showSitePills && (
                     <div className="flex flex-wrap gap-2 mb-4">
                       <button
@@ -2740,26 +2852,116 @@ function ContractEditorPageContent() {
                                 )}
                               </td>
                               <td className="px-3 py-2">
-                                <select
-                                  value={deviceTargetSite[String(device.Did)] ?? ''}
-                                  onChange={(ev) => {
-                                    const newSiteId = ev.target.value;
-                                    setDeviceTargetSite((prev) => {
-                                      const next = { ...prev };
-                                      assignDeviceSelected.forEach((id) => { next[id] = newSiteId; });
-                                      return next;
-                                    });
-                                  }}
-                                  disabled={!isSelected}
-                                  className={`w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`}
-                                >
-                                  <option value="">-- Select Site --</option>
-                                  {sitesLocation.map((s) => (
-                                    <option key={s.SLid} value={String(s.SLid)}>
-                                      {s.SiteName} – {s.Location2}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                  {(() => {
+                                    const currentSlid = deviceTargetSite[String(device.Did)] ?? '';
+                                    const currentSite = sitesLocation.find((s) => String(s.SLid) === currentSlid);
+                                    const currentSid = currentSite?.Sid != null ? String(currentSite.Sid) : (deviceTargetSid[String(device.Did)] ?? '');
+                                    const locationsForSid = assignGetLocationsForSid(currentSid);
+                                    const siteDisplayName = currentSite?.SiteName ?? (currentSid ? (assignUniqueSites.find((s) => s.sid === currentSid)?.name ?? '') : '');
+                                    const inputBaseClass = `min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 pr-7 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`;
+                                    const clearSiteForSelected = () => {
+                                      setDeviceTargetSid((prev) => {
+                                        const next = { ...prev };
+                                        assignDeviceSelected.forEach((id) => { delete next[id]; });
+                                        return next;
+                                      });
+                                      setDeviceTargetSite((prev) => {
+                                        const next = { ...prev };
+                                        assignDeviceSelected.forEach((id) => { next[id] = ''; });
+                                        return next;
+                                      });
+                                    };
+                                    const clearLocationOnlyForSelected = () => {
+                                      setDeviceTargetSite((prev) => {
+                                        const next = { ...prev };
+                                        assignDeviceSelected.forEach((id) => { next[id] = ''; });
+                                        return next;
+                                      });
+                                    };
+                                    return (
+                                      <>
+                                        <datalist id={`assign-modal-loc-${device.Did}`}>
+                                          {locationsForSid.map((s) => (
+                                            <option key={s.SLid} value={s.Location2 ?? ''} />
+                                          ))}
+                                        </datalist>
+                                        <div className="relative min-w-0 flex-1 flex items-center">
+                                          <input
+                                            type="text"
+                                            list="assign-modal-site-list"
+                                            placeholder="-- Select Site --"
+                                            defaultValue={siteDisplayName}
+                                            key={`site-${device.Did}-${currentSlid}-${currentSid}`}
+                                            onInput={(e) => {
+                                              const name = e.currentTarget.value.trim();
+                                              const found = assignUniqueSites.find((x) => x.name === name);
+                                              if (found) {
+                                                setDeviceTargetSid((prev) => {
+                                                  const next = { ...prev };
+                                                  assignDeviceSelected.forEach((id) => { next[id] = found.sid; });
+                                                  return next;
+                                                });
+                                                setDeviceTargetSite((prev) => {
+                                                  const next = { ...prev };
+                                                  assignDeviceSelected.forEach((id) => { next[id] = ''; });
+                                                  return next;
+                                                });
+                                              }
+                                            }}
+                                            disabled={!isSelected}
+                                            className={inputBaseClass}
+                                            title="Site (พิมพ์หรือเลือก)"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={clearSiteForSelected}
+                                            disabled={!isSelected}
+                                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none"
+                                            title="ล้าง Site และ Location"
+                                            aria-label="ล้าง Site และ Location"
+                                          >
+                                            <X size={12} />
+                                          </button>
+                                        </div>
+                                        <div className="relative min-w-0 flex-1 flex items-center">
+                                          <input
+                                            type="text"
+                                            list={`assign-modal-loc-${device.Did}`}
+                                            placeholder="-- Select Location --"
+                                            defaultValue={currentSite?.Location2 ?? ''}
+                                            key={`loc-${device.Did}-${currentSlid}`}
+                                            onInput={(e) => {
+                                              const text = e.currentTarget.value.trim();
+                                              const found = locationsForSid.find((s) => (s.Location2 ?? '') === text);
+                                              if (found) {
+                                                const newSlid = String(found.SLid);
+                                                setDeviceTargetSite((prev) => {
+                                                  const next = { ...prev };
+                                                  assignDeviceSelected.forEach((id) => { next[id] = newSlid; });
+                                                  return next;
+                                                });
+                                              }
+                                            }}
+                                            disabled={!isSelected}
+                                            className={inputBaseClass}
+                                            title="Location (พิมพ์หรือเลือก, กรองตาม Site)"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={clearLocationOnlyForSelected}
+                                            disabled={!isSelected}
+                                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none"
+                                            title="ล้าง Location เท่านั้น (คง Site)"
+                                            aria-label="ล้าง Location"
+                                          >
+                                            <X size={12} />
+                                          </button>
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
+                                </div>
                               </td>
                             </tr>
                           );

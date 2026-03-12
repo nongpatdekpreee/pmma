@@ -6,12 +6,10 @@ import {
   Calendar, 
   Users, 
   MessageSquare, 
-  Info, 
   LogOut, 
   Menu,
   BarChart3,
   Monitor,
-  ShieldCheck,
   FileText,
 } from 'lucide-react';
 import { useSidebar } from './SidebarContext';
@@ -22,18 +20,15 @@ type MenuItem =
   | { type?: never; icon: LucideIcon; label: string; href: string };
 
 const menuItems: MenuItem[] = [
-  { icon: LayoutDashboard, label: 'Dashboard', href: '/' }, 
-  { icon: FileText, label: 'Add Contract', href: '/contract_editer' },
-  { icon: Calendar, label: 'Calendar', href: '/calendar' },
+  { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
+  { icon: FileText, label: 'Contract', href: '/contract_editer' },
   { icon: Users, label: 'Employee', href: '/employee' },
-  { type: 'section', label: 'PM' },
+  { icon: Calendar, label: 'Calendar', href: '/calendar' },
   { icon: Calendar, label: 'Schedule Management', href: '/schedule_management' },
-  { icon: BarChart3, label: 'Report & Analytics Page', href: '/report' },
+  { type: 'section', label: 'PM' },
   { icon: MessageSquare, label: 'Report', href: '/pmchecklist_report' },
-  { icon: Monitor, label: 'Asset & Site Database', href: '/asset_site_database'},
-  // MA
-  { icon: ShieldCheck, label: 'Sla Compliance', href: '/slacompliance' },
- 
+  { icon: BarChart3, label: 'Report & Analytics', href: '/report' },
+  { icon: Monitor, label: 'Asset & Site', href: '/asset_site_database' },
 ];
 
 export function Sidebar() {
