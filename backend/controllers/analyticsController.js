@@ -11,7 +11,10 @@ function monthLabel(date) {
 }
 
 function toISODate(d) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function getRange(months) {
@@ -27,6 +30,21 @@ function getRange(months) {
   return { start, endExclusive };
 }
 
+/** คำนวณช่วงจากปี (และเดือนถ้ามี) - year: ค.ศ., month: 1-12 หรือ null = ทั้งปี */
+function getRangeFromYearMonth(year, month) {
+  const y = parseInt(String(year ?? ''), 10);
+  if (Number.isNaN(y) || y < 2000 || y > 2100) return null;
+  const start = new Date(y, month != null ? month - 1 : 0, 1);
+  start.setHours(0, 0, 0, 0);
+  const endExclusive = new Date(start);
+  if (month != null && month >= 1 && month <= 12) {
+    endExclusive.setMonth(endExclusive.getMonth() + 1);
+  } else {
+    endExclusive.setFullYear(endExclusive.getFullYear() + 1);
+  }
+  return { start, endExclusive };
+}
+
 // GET /api/analytics/ma-pm?months=6
 // นิยาม:
 // - maCoverage: % งาน MA ที่เป็น done ต่อจำนวนงาน MA ทั้งหมดในเดือน
@@ -36,11 +54,11 @@ const getMaPmAnalytics = async (req, res) => {
     const months = clampInt(req.query.months, { min: 1, max: 24, fallback: 6 });
     const { start, endExclusive } = getRange(months);
 
-    // Monthly (PM/MA) completion %
+    // Monthly (PM/MA) completion % (month_key matches GROUP BY for ONLY_FULL_GROUP_BY)
     const [monthlyRows] = await db.execute(
       `
       SELECT
-        DATE_FORMAT(t.start_date, '%Y-%m-01') AS month_start,
+        DATE_FORMAT(t.start_date, '%Y-%m') AS month_key,
         SUM(CASE WHEN t.task_type = 'MA' THEN 1 ELSE 0 END) AS ma_total,
         SUM(CASE WHEN t.task_type = 'MA' AND t.status = 'done' THEN 1 ELSE 0 END) AS ma_done,
         SUM(CASE WHEN t.task_type = 'PM' THEN 1 ELSE 0 END) AS pm_total,
@@ -48,7 +66,7 @@ const getMaPmAnalytics = async (req, res) => {
       FROM tasks t
       WHERE t.start_date >= ? AND t.start_date < ?
       GROUP BY DATE_FORMAT(t.start_date, '%Y-%m')
-      ORDER BY month_start ASC
+      ORDER BY month_key ASC
       `,
       [toISODate(start), toISODate(endExclusive)]
     );
@@ -88,6 +106,7 @@ const getMaPmAnalytics = async (req, res) => {
     );
 
     const comparisonData = monthlyRows.map((r) => {
+      const monthStart = (r.month_key || '') + '-01';
       const maTotal = Number(r.ma_total || 0);
       const maDone = Number(r.ma_done || 0);
       const pmTotal = Number(r.pm_total || 0);
@@ -96,7 +115,7 @@ const getMaPmAnalytics = async (req, res) => {
       const actualPM = pmTotal > 0 ? Math.round((pmDone / pmTotal) * 100) : 0;
       const target = 90;
       return {
-        month: monthLabel(new Date(r.month_start)),
+        month: monthLabel(new Date(monthStart)),
         maCoverage,
         actualPM,
         target,
@@ -153,7 +172,7 @@ const getSlaAnalytics = async (req, res) => {
     const [monthlyRows] = await db.execute(
       `
       SELECT
-        DATE_FORMAT(t.start_date, '%Y-%m-01') AS month_start,
+        DATE_FORMAT(t.start_date, '%Y-%m') AS month_key,
         COUNT(r.report_id) AS total_reports,
         SUM(CASE WHEN r.status = 'Pass' THEN 1 ELSE 0 END) AS pass_reports
       FROM report r
@@ -161,7 +180,7 @@ const getSlaAnalytics = async (req, res) => {
       WHERE t.contract_id IS NOT NULL
         AND t.start_date >= ? AND t.start_date < ?
       GROUP BY DATE_FORMAT(t.start_date, '%Y-%m')
-      ORDER BY month_start ASC
+      ORDER BY month_key ASC
       `,
       [toISODate(start), toISODate(endExclusive)]
     );
@@ -204,7 +223,8 @@ const getSlaAnalytics = async (req, res) => {
       const total = Number(r.total_reports || 0);
       const pass = Number(r.pass_reports || 0);
       const pct = total > 0 ? Math.round((pass / total) * 100) : 0;
-      return { month: monthLabel(new Date(r.month_start)), value: pct };
+      const monthStart = (r.month_key || '') + '-01';
+      return { month: monthLabel(new Date(monthStart)), value: pct };
     });
 
     const vendorData = vendorRows.map((r) => {
@@ -297,11 +317,13 @@ const getSlaContracts = async (req, res) => {
   }
 };
 
-// GET /api/analytics/ma-dashboard?months=6
+// GET /api/analytics/ma-dashboard?months=6 | ?year=2024 | ?year=2024&month=3
 // Detailed MA dashboard: top equipment, top vendors, failure ranking, monthly MA counts
 const getMaDashboard = async (req, res) => {
   try {
     const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
+    const yearParam = req.query.year;
+    const monthParam = req.query.month != null && req.query.month !== '' ? parseInt(String(req.query.month), 10) : null;
 
     // Optional filters for MA top-model / equipment analytics
     const roleFilterRaw = req.query.role_id;
@@ -315,14 +337,24 @@ const getMaDashboard = async (req, res) => {
         ? Number(siteFilterRaw)
         : null;
 
-    const { start, endExclusive } = getRange(months);
+    let start, endExclusive, effectiveMonths = months;
+    const rangeFromYear = yearParam != null && yearParam !== '' ? getRangeFromYearMonth(parseInt(String(yearParam), 10), (monthParam >= 1 && monthParam <= 12) ? monthParam : null) : null;
+    if (rangeFromYear) {
+      start = rangeFromYear.start;
+      endExclusive = rangeFromYear.endExclusive;
+      effectiveMonths = monthParam >= 1 && monthParam <= 12 ? 1 : 12;
+    } else {
+      const range = getRange(months);
+      start = range.start;
+      endExclusive = range.endExclusive;
+    }
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
 
-    // 1) Monthly MA task counts by task status
+    // 1) Monthly MA task counts by task status (month_key matches GROUP BY for ONLY_FULL_GROUP_BY)
     const [monthlyMA] = await db.execute(
       `SELECT
-         DATE_FORMAT(t.start_date, '%Y-%m-01') AS month_start,
+         DATE_FORMAT(t.start_date, '%Y-%m') AS month_key,
          COUNT(DISTINCT t.id) AS total,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
@@ -334,7 +366,7 @@ const getMaDashboard = async (req, res) => {
        LEFT JOIN report r ON r.id = t.id
        WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?
        GROUP BY DATE_FORMAT(t.start_date, '%Y-%m')
-       ORDER BY month_start ASC`,
+       ORDER BY month_key ASC`,
       [startISO, endISO]
     );
 
@@ -617,7 +649,7 @@ const getMaDashboard = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        months,
+        months: effectiveMonths,
         range: { start: startISO, endExclusive: endISO },
         summary: {
           totalMA,
@@ -634,17 +666,20 @@ const getMaDashboard = async (req, res) => {
           topEquipment: topEquip,
           topEquipmentCount: equipmentRanking.length > 0 ? equipmentRanking[0].total : 0,
         },
-        monthlyMA: monthlyMA.map(r => ({
-          month: monthLabel(new Date(r.month_start)),
-          monthKey: r.month_start,
-          total: Number(r.total),
-          done: Number(r.done),
-          inprocess: Number(r.inprocess || 0),
-          reportFail: Number(r.report_fail),
-          reportPass: Number(r.report_pass),
-          overdue: Number(r.overdue || 0),
-          pending: Number(r.pending || 0),
-        })),
+        monthlyMA: monthlyMA.map(r => {
+          const monthStart = (r.month_key || '') + '-01';
+          return {
+            month: monthLabel(new Date(monthStart)),
+            monthKey: monthStart,
+            total: Number(r.total),
+            done: Number(r.done),
+            inprocess: Number(r.inprocess || 0),
+            reportFail: Number(r.report_fail),
+            reportPass: Number(r.report_pass),
+            overdue: Number(r.overdue || 0),
+            pending: Number(r.pending || 0),
+          };
+        }),
         vendorRanking: vendorMA.map(r => ({
           vendor: r.vendor,
           total: Number(r.total),
@@ -687,18 +722,31 @@ const getMaDashboard = async (req, res) => {
   }
 };
 
-// GET /api/analytics/pm-dashboard?months=6
+// GET /api/analytics/pm-dashboard?months=6 | ?year=2024 | ?year=2024&month=3
 // Same structure as MA dashboard but for task_type = 'PM'
 const getPmDashboard = async (req, res) => {
   try {
     const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
-    const { start, endExclusive } = getRange(months);
+    const yearParam = req.query.year;
+    const monthParam = req.query.month != null && req.query.month !== '' ? parseInt(String(req.query.month), 10) : null;
+
+    let start, endExclusive, effectiveMonths = months;
+    const rangeFromYear = yearParam != null && yearParam !== '' ? getRangeFromYearMonth(parseInt(String(yearParam), 10), (monthParam >= 1 && monthParam <= 12) ? monthParam : null) : null;
+    if (rangeFromYear) {
+      start = rangeFromYear.start;
+      endExclusive = rangeFromYear.endExclusive;
+      effectiveMonths = monthParam >= 1 && monthParam <= 12 ? 1 : 12;
+    } else {
+      const range = getRange(months);
+      start = range.start;
+      endExclusive = range.endExclusive;
+    }
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
 
     const [monthlyMA] = await db.execute(
       `SELECT
-         DATE_FORMAT(t.start_date, '%Y-%m-01') AS month_start,
+         DATE_FORMAT(t.start_date, '%Y-%m') AS month_key,
          COUNT(DISTINCT t.id) AS total,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done') AND t.end_date < CURDATE() THEN t.id END) AS overdue,
@@ -710,7 +758,7 @@ const getPmDashboard = async (req, res) => {
        LEFT JOIN report r ON r.id = t.id
        WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?
        GROUP BY DATE_FORMAT(t.start_date, '%Y-%m')
-       ORDER BY month_start ASC`,
+       ORDER BY month_key ASC`,
       [startISO, endISO]
     );
 
@@ -909,7 +957,7 @@ const getPmDashboard = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        months,
+        months: effectiveMonths,
         range: { start: startISO, endExclusive: endISO },
         summary: {
           totalMA,
@@ -926,17 +974,20 @@ const getPmDashboard = async (req, res) => {
           topEquipment: topEquip,
           topEquipmentCount: equipmentRanking.length > 0 ? equipmentRanking[0].total : 0,
         },
-        monthlyMA: monthlyMA.map(r => ({
-          month: monthLabel(new Date(r.month_start)),
-          monthKey: r.month_start,
-          total: Number(r.total),
-          done: Number(r.done),
-          inprocess: 0,
-          reportFail: Number(r.report_fail),
-          reportPass: Number(r.report_pass),
-          overdue: Number(r.overdue || 0),
-          pending: Number(r.total) - Number(r.done),
-        })),
+        monthlyMA: monthlyMA.map(r => {
+          const monthStart = (r.month_key || '') + '-01';
+          return {
+            month: monthLabel(new Date(monthStart)),
+            monthKey: monthStart,
+            total: Number(r.total),
+            done: Number(r.done),
+            inprocess: 0,
+            reportFail: Number(r.report_fail),
+            reportPass: Number(r.report_pass),
+            overdue: Number(r.overdue || 0),
+            pending: Number(r.total) - Number(r.done),
+          };
+        }),
         vendorRanking: vendorMA.map(r => ({
           vendor: r.vendor,
           total: Number(r.total),

@@ -92,6 +92,8 @@ export default function ReportPage() {
   const router = useRouter();
   const [reportType, setReportType] = useState<ReportType>('ma');
   const [timeFilter, setTimeFilter] = useState('6 Months');
+  const [selectedYear, setSelectedYear] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState<DashboardData>(EMPTY);
@@ -222,25 +224,60 @@ export default function ReportPage() {
     return 6;
   }, [timeFilter]);
 
+  const yearOptions = useMemo(() => {
+    const current = new Date().getFullYear();
+    const list: { value: string; label: string }[] = [{ value: '', label: ' ' }];
+    for (let y = current + 1; y >= 2020; y--) list.push({ value: String(y), label: String(y) });
+    return list;
+  }, []);
+
+  const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const dashboardParams = useMemo(() => {
+    if (selectedYear && selectedYear !== '') {
+      const year = parseInt(selectedYear, 10);
+      const month = selectedMonth && selectedMonth !== 'all' ? parseInt(selectedMonth, 10) : undefined;
+      return { year, month };
+    }
+    return null;
+  }, [selectedYear, selectedMonth]);
+
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       setLoading(true);
       setError('');
       try {
-        const res =
-          reportType === 'pm'
-            ? await getPmDashboard({ months })
-            : await getMaDashboard({
-                months,
-                roleId: maTrendRoleFilterId != null ? maTrendRoleFilterId : undefined,
-                slId: maTrendSiteFilterId != null ? maTrendSiteFilterId : undefined,
-              });
-        if (!cancelled && res?.success && res.data) {
-          setData(res.data);
-        } else if (!cancelled) {
-          setData(EMPTY);
-          setError(res?.message || res?.error || 'Failed to load data');
+        if (dashboardParams) {
+          const res =
+            reportType === 'pm'
+              ? await getPmDashboard(dashboardParams)
+              : await getMaDashboard({
+                  ...dashboardParams,
+                  roleId: maTrendRoleFilterId != null ? maTrendRoleFilterId : undefined,
+                  slId: maTrendSiteFilterId != null ? maTrendSiteFilterId : undefined,
+                });
+          if (!cancelled && res?.success && res.data) {
+            setData(res.data);
+          } else if (!cancelled) {
+            setData(EMPTY);
+            setError(res?.message || res?.error || 'Failed to load data');
+          }
+        } else {
+          const res =
+            reportType === 'pm'
+              ? await getPmDashboard({ months })
+              : await getMaDashboard({
+                  months,
+                  roleId: maTrendRoleFilterId != null ? maTrendRoleFilterId : undefined,
+                  slId: maTrendSiteFilterId != null ? maTrendSiteFilterId : undefined,
+                });
+          if (!cancelled && res?.success && res.data) {
+            setData(res.data);
+          } else if (!cancelled) {
+            setData(EMPTY);
+            setError(res?.message || res?.error || 'Failed to load data');
+          }
         }
       } catch (e: any) {
         if (!cancelled) {
@@ -253,7 +290,7 @@ export default function ReportPage() {
     };
     load();
     return () => { cancelled = true; };
-  }, [months, reportType, maTrendRoleFilterId, maTrendSiteFilterId]);
+  }, [months, reportType, maTrendRoleFilterId, maTrendSiteFilterId, dashboardParams]);
 
   const { summary, monthlyMA, vendorRanking, siteRanking, equipmentRanking, range, months: dataMonths } = data;
   const isMa = reportType === 'ma';
@@ -483,26 +520,55 @@ export default function ReportPage() {
               </p>
             </div>
 
-            <div className="flex flex-nowrap items-center gap-3 shrink-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
                 <Calendar size={16} className="text-slate-400" />
                 <select
                   value={timeFilter}
-                  onChange={(e) => setTimeFilter(e.target.value)}
-                  className="border-none outline-none text-sm font-medium text-slate-700 bg-transparent cursor-pointer"
+                  onChange={(e) => { setTimeFilter(e.target.value); if (e.target.value) setSelectedYear(''); }}
+                  disabled={!!selectedYear}
+                  className="border-none outline-none text-sm font-medium bg-transparent cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed text-slate-700"
+                  title={selectedYear ? 'ล้างปีที่เลือกเพื่อใช้ช่วง' : undefined}
                 >
                   <option>1 Month</option>
-                <option>3 Months</option>
-                <option>6 Months</option>
-                <option>1 Year</option>
-                <option>2 Years</option>
-                <option>3 Years</option>
-                <option>4 Years</option>
-                <option>5 Years</option>
-                <option>All Time</option>
+                  <option>3 Months</option>
+                  <option>6 Months</option>
+                  <option>1 Year</option>
+                  <option>2 Years</option>
+                  <option>3 Years</option>
+                  <option>4 Years</option>
+                  <option>5 Years</option>
+                  <option>All Time</option>
                 </select>
               </div>
+              <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
+                <span className="text-slate-400 text-sm">ปี</span>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => { setSelectedYear(e.target.value); if (!e.target.value) setSelectedMonth('all'); }}
+                  className="border-none outline-none text-sm font-medium text-slate-700 bg-transparent cursor-pointer min-w-[72px]"
+                >
+                  {yearOptions.map((o) => (
+                    <option key={o.value || 'x'} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              {selectedYear && (
+                <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
+                  <span className="text-slate-400 text-sm">เดือน</span>
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="border-none outline-none text-sm font-medium text-slate-700 bg-transparent cursor-pointer min-w-[80px]"
+                  >
+                    <option value="all">All</option>
+                    {MONTH_LABELS.map((label, i) => (
+                      <option key={i} value={String(i + 1)}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {rangeLabel && (
                 <div className="bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-slate-600">
                   {rangeLabel}
@@ -1067,6 +1133,7 @@ export default function ReportPage() {
                       <ProgressBar value={v.total} max={maxVendorTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-blue-300'} />
                       <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
                         <span className="text-emerald-600">Complete {v.done}</span>
+                        <span>{v.completionRate}%</span>
                         {isMa ? (
                           <>
                             <span className="text-orange-500">Inprocess {v.inprocess}</span>
@@ -1078,7 +1145,7 @@ export default function ReportPage() {
                             {v.overdue > 0 && <span className="text-red-500">Overdue {v.overdue}</span>}
                           </>
                         )}
-                        <span>{v.completionRate}%</span>
+                      
                       </div>
                     </div>
                   </div>
@@ -1301,6 +1368,7 @@ export default function ReportPage() {
                       <ProgressBar value={s.total} max={maxSiteTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-teal-300'} />
                       <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
                         <span className="text-emerald-600">Complete {s.done}</span>
+                        <span>{s.completionRate}%</span>
                         {isMa ? (
                           <>
                             <span className="text-orange-500">Inprocess {s.inprocess}</span>
@@ -1312,7 +1380,6 @@ export default function ReportPage() {
                             {s.overdue > 0 && <span className="text-red-500">Overdue {s.overdue}</span>}
                           </>
                         )}
-                        <span>{s.completionRate}%</span>
                       </div>
                     </div>
                   </div>

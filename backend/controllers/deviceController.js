@@ -1185,10 +1185,16 @@ const getVendors = async (req, res) => {
 const getReferSOFList = async (req, res) => {
   try {
     const [rows] = await db.execute(
-      `SELECT DISTINCT Refer_SOF as refer_sof
-       FROM devices
-       WHERE Refer_SOF IS NOT NULL AND Refer_SOF != '' AND Refer_SOF != 'Not Assigned'
-       ORDER BY Refer_SOF ASC`
+      `SELECT DISTINCT d.Refer_SOF AS refer_sof
+       FROM devices d
+       WHERE d.Refer_SOF IS NOT NULL AND d.Refer_SOF != '' AND d.Refer_SOF != 'Not Assigned'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM contract_device cd
+           INNER JOIN devices d2 ON d2.Did = cd.device_id
+           WHERE d2.Refer_SOF = d.Refer_SOF
+         )
+       ORDER BY d.Refer_SOF ASC`
     );
     res.status(200).json({ 
       success: true, 
