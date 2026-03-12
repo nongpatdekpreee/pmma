@@ -21,13 +21,13 @@ type MenuItem =
 
 const menuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
+  { icon: BarChart3, label: 'Report & Analytics', href: '/report' },
   { icon: FileText, label: 'Contract', href: '/contract_editer' },
   { icon: Users, label: 'Employee', href: '/employee' },
   { icon: Calendar, label: 'Calendar', href: '/calendar' },
   { icon: Calendar, label: 'Schedule Management', href: '/schedule_management' },
-  { type: 'section', label: 'PM' },
+  
   { icon: MessageSquare, label: 'Report', href: '/pmchecklist_report' },
-  { icon: BarChart3, label: 'Report & Analytics', href: '/report' },
   { icon: Monitor, label: 'Asset & Site', href: '/asset_site_database' },
 ];
 

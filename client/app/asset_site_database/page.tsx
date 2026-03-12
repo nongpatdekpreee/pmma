@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { LucideIcon, Server, Network, Shield, HardDrive, Zap, Radio, ChevronDown, ChevronUp, Search, Filter, X, Calendar, MapPin, History, Loader2 } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
@@ -662,13 +663,25 @@ const AssetSiteDatabase = () => {
           </div>
         </div>
 
-        {/* PM History Modal */}
-        {showPMHistory && selectedDevice && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-            <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
+        {/* PM History Modal - ใช้ Portal ให้ popup อยู่บนสุดและกด backdrop ปิดได้ */}
+        {showPMHistory && selectedDevice && typeof document !== "undefined" && createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+            onClick={() => {
+              setShowPMHistory(false);
+              setSelectedDevice(null);
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pm-history-title"
+          >
+            <div
+              className="w-full max-w-2xl rounded-2xl bg-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="flex items-center justify-between border-b px-6 py-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
+                  <h3 id="pm-history-title" className="text-lg font-semibold text-gray-900">
                     PM History - {selectedDevice.deviceId}
                   </h3>
                   <p className="text-sm text-gray-500">
@@ -681,6 +694,7 @@ const AssetSiteDatabase = () => {
                     setSelectedDevice(null);
                   }}
                   className="rounded-lg p-2 hover:bg-gray-100"
+                  aria-label="ปิด"
                 >
                   <X className="h-5 w-5 text-gray-400" />
                 </button>
@@ -755,7 +769,8 @@ const AssetSiteDatabase = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </main>
     </SidebarLayout>
