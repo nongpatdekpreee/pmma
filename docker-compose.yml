@@ -1,8 +1,10 @@
 services:
 
   backend:
-    image: 10.4.102.212:8080/tccstock-backend:1
-    container_name: tccstock_backend
+    volumes:
+      - /data/pmm/uploads:/app/backend/uploads
+    image: 10.4.102.212:8080/pmma-backend:latest
+    container_name: pmma-backend
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -19,8 +21,8 @@ services:
       - app-net
 
   frontend:
-    image: 10.4.102.212:8080/tccstock-client:1
-    container_name: tccstock_frontend
+    image: 10.4.102.212:8080/pmma-client:latest
+    container_name: pmma-client
     restart: unless-stopped
     ports:
       - "9000:9000"

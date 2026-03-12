@@ -1086,8 +1086,8 @@ function AddContractPageContent() {
                     value={contractName}
                     onChange={(e) => setContractName(e.target.value)}
                     placeholder="contract name"
-                    className={`${inputBase} pr-9 ${contractName.trim().length > 0 && contractName.trim().length < 5 ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`}
-                    minLength={5}
+                    className={`${inputBase} pr-9 ${contractName.trim().length > 0 && contractName.trim().length < 4 ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`}
+                    minLength={4}
                   />
                   {contractName && (
                     <button
@@ -1100,8 +1100,8 @@ function AddContractPageContent() {
                     </button>
                   )}
                 </div>
-                {contractName.trim().length > 0 && contractName.trim().length < 5 && (
-                  <p className="mt-1 text-xs text-red-600">Contract Name must be at least 5 characters</p>
+                {contractName.trim().length > 0 && contractName.trim().length < 4 && (
+                  <p className="mt-1 text-xs text-red-600">Contract Name must be at least 4 characters</p>
                 )}
               </FormField>
               {!renewContractId && (
