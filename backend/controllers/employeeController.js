@@ -366,18 +366,27 @@ const updateEmployee = async (req, res) => {
     let type = positionType || 'Technical';
     if (type !== 'Technical' && type !== 'Management') type = 'Technical';
 
-    const updateSql = `UPDATE user_profiles SET 
-      name = ?, gmail = ?, phone = ?, type = ?, employment = ?, em_picture = ?
-      WHERE user_id = ?`;
-    const [result] = await db.execute(updateSql, [
-      name,
-      gmail,
-      tel,
-      type,
-      employment,
-      photo || null,
-      id,
-    ]);
+    // em_picture บาง DB ถูกตั้ง NOT NULL → เวลา "ลบรูป" ให้ fallback เป็น default avatar แทน NULL
+    const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/png?seed=${id}`;
+    const hasPhotoField = Object.prototype.hasOwnProperty.call(req.body || {}, 'photo');
+    const nextPhoto =
+      !hasPhotoField
+        ? undefined // ไม่ได้ส่งมา = ไม่แก้รูปเดิม
+        : typeof photo === 'string'
+          ? (photo.trim() ? photo.trim() : defaultAvatar)
+          : photo == null
+            ? defaultAvatar
+            : defaultAvatar;
+
+    const setParts = ['name = ?', 'gmail = ?', 'phone = ?', 'type = ?', 'employment = ?'];
+    const params = [name, gmail, tel, type, employment];
+    if (nextPhoto !== undefined) {
+      setParts.push('em_picture = ?');
+      params.push(nextPhoto);
+    }
+    const updateSql = `UPDATE user_profiles SET ${setParts.join(', ')} WHERE user_id = ?`;
+    params.push(id);
+    const [result] = await db.execute(updateSql, params);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({
