@@ -543,7 +543,7 @@ export default function ReportPage() {
                 </select>
               </div>
               <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
-                <span className="text-slate-400 text-sm">ปี</span>
+                <span className="text-slate-400 text-sm">Year</span>
                 <select
                   value={selectedYear}
                   onChange={(e) => { setSelectedYear(e.target.value); if (!e.target.value) setSelectedMonth('all'); }}
@@ -556,7 +556,7 @@ export default function ReportPage() {
               </div>
               {selectedYear && (
                 <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm">
-                  <span className="text-slate-400 text-sm">เดือน</span>
+                    <span className="text-slate-400 text-sm">Month</span>
                   <select
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}

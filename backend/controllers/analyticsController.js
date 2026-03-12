@@ -540,20 +540,22 @@ const getMaDashboard = async (req, res) => {
           continue;
         }
 
-        const key = `${id}__${name}`;
         const vendorFromDevice = sid ? (deviceIdToVendor[sid] || null) : null;
         const modelFromDb = sid ? (deviceIdToModel[sid] || null) : null;
         const serialFromDb = sid ? (deviceIdToSerial[sid] || null) : null;
         const roleFromDb = sid ? (deviceIdToRole[sid] || null) : null;
+        const model = (a.model || a.deviceModel || modelFromDb || '').toString().trim() || 'Unknown Model';
+        const site = (row.site_name || '').toString().trim() || '';
+        const key = `${site}\t${model}`;
         if (!equipMap[key]) {
           equipMap[key] = {
             deviceId: String(id),
             deviceName: name,
-            model: a.model || a.deviceModel || modelFromDb || null,
+            model: model === 'Unknown Model' ? null : model,
             serial: a.serialNumber || a.serial || serialFromDb || null,
             role: roleFromDb,
             vendor: vendorFromDevice || (row.vendor_name || '').trim() || null,
-            site: (row.site_name || '').trim() || null,
+            site: site || null,
             total: 0,
             done: 0,
             inprocess: 0,
@@ -871,20 +873,22 @@ const getPmDashboard = async (req, res) => {
       for (const a of assets) {
         const name = a.name || a.CI_Name || a.deviceName || 'Unknown Device';
         const id = a.id || a.Did || a.deviceId || name;
-        const key = `${id}__${name}`;
         const sid = id != null ? String(id) : null;
         const vendorFromDevice = sid ? (deviceIdToVendor[sid] || null) : null;
         const modelFromDb = sid ? (deviceIdToModel[sid] || null) : null;
         const roleFromDb = sid ? (deviceIdToRole[sid] || null) : null;
+        const model = (a.model || a.deviceModel || modelFromDb || '').toString().trim() || 'Unknown Model';
+        const site = (row.site_name || '').toString().trim() || '';
+        const key = `${site}\t${model}`;
         if (!equipMap[key]) {
           equipMap[key] = {
             deviceId: String(id),
             deviceName: name,
-            model: a.model || a.deviceModel || modelFromDb || null,
+            model: model === 'Unknown Model' ? null : model,
             serial: a.serialNumber || a.serial || null,
             role: roleFromDb,
             vendor: vendorFromDevice || (row.vendor_name || '').trim() || null,
-            site: (row.site_name || '').trim() || null,
+            site: site || null,
             total: 0,
             done: 0,
             inprocess: 0,
