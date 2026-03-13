@@ -1,10 +1,8 @@
-const API_BASE =
-  // In dev, prefer local backend to avoid env pointing elsewhere
-  typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)
-    ? 'http://localhost:5000'
-    : typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL
-      : 'http://localhost:5000';
+const API_BASE = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL
+  ? process.env.NEXT_PUBLIC_API_URL
+  //: 'http://localhost:5000';
+   : 'http://10.4.102.212:5000';
+
 
 
 export function apiUrl(path: string): string {

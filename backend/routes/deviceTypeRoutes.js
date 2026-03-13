@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   createDeviceType,
   getDeviceTypes,
-  updateDeviceType,
+  updateDeviceType, 
   deleteDeviceType
 } = require('../controllers/deviceTypeController');
 

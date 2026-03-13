@@ -115,11 +115,14 @@ export default function ReportPage() {
   const [equipmentOrderBy, setEquipmentOrderBy] = useState<'total' | 'vendor'>('total');
   const [deviceRolesList, setDeviceRolesList] = useState<{ DeRoleid: number; name: string }[]>([]);
   const [deviceModelsList, setDeviceModelsList] = useState<{ Dtypeid: number; model: string }[]>([]);
-  const [sitesList, setSitesList] = useState<{ SLid: number; SiteName: string }[]>([]);
+  const [sitesList, setSitesList] = useState<{ SLid: number; Sid: number; lid: number; SiteName: string; Location2: string }[]>([]);
   const [overdueModalOpen, setOverdueModalOpen] = useState(false);
   const [maTrendView, setMaTrendView] = useState<'summary' | 'top-model'>('summary');
   const [maTrendRoleFilterId, setMaTrendRoleFilterId] = useState<number | null>(null);
   const [maTrendSiteFilterId, setMaTrendSiteFilterId] = useState<number | null>(null);
+  const [maTrendModelFilter, setMaTrendModelFilter] = useState<string | null>(null);
+  const [maTrendSidFilter, setMaTrendSidFilter] = useState<string>('');
+  const [maTrendLidFilter, setMaTrendLidFilter] = useState<string>('');
   const [completedModalOpen, setCompletedModalOpen] = useState(false);
   const [inprocessModalOpen, setInprocessModalOpen] = useState(false);
   const [pendingModalOpen, setPendingModalOpen] = useState(false);
@@ -347,6 +350,57 @@ export default function ReportPage() {
     const set = new Set(allow);
     return sitesList.filter((s) => set.has(s.SLid));
   }, [data?.availableFilters?.siteIds, sitesList]);
+
+  // Distinct Site (Sid-level) options for cascaded Site filter – เฉพาะ site ที่มีข้อมูล MA
+  const maTrendSidOptions = useMemo(() => {
+    const allow = data?.availableFilters?.siteIds;
+    const allowedSlids = Array.isArray(allow) && allow.length > 0 ? new Set(allow) : null;
+    const map = new Map<number, string>();
+    for (const s of sitesList) {
+      if (allowedSlids && !allowedSlids.has(s.SLid)) continue;
+      if (!map.has(s.Sid)) {
+        map.set(s.Sid, s.SiteName);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([Sid, name]) => ({ Sid, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [data?.availableFilters?.siteIds, sitesList]);
+
+  // Distinct Location (lid-level) options for selected Sid – เฉพาะ location ที่มีข้อมูล MA
+  const maTrendLidOptions = useMemo(() => {
+    if (!maTrendSidFilter) return [];
+    const sidNum = Number(maTrendSidFilter);
+    if (Number.isNaN(sidNum)) return [];
+    const allow = data?.availableFilters?.siteIds;
+    const allowedSlids = Array.isArray(allow) && allow.length > 0 ? new Set(allow) : null;
+    const map = new Map<number, string>();
+    for (const s of sitesList) {
+      if (s.Sid !== sidNum) continue;
+      if (allowedSlids && !allowedSlids.has(s.SLid)) continue;
+      const label = s.Location2 || `LID ${s.lid}`;
+      if (!map.has(s.lid)) {
+        map.set(s.lid, label);
+      }
+    }
+    return Array.from(map.entries())
+      .map(([lid, label]) => ({ lid, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [maTrendSidFilter, data?.availableFilters?.siteIds, sitesList]);
+
+  // Model options for MA top-model trend (unique models from topModelTrend / topModelTrendByRole)
+  const maTrendModelOptions = useMemo(() => {
+    const models = new Set<string>();
+    if (data?.topModelTrend?.model) {
+      models.add(String(data.topModelTrend.model));
+    }
+    if (Array.isArray(data?.topModelTrendByRole)) {
+      for (const r of data.topModelTrendByRole) {
+        if (r?.model) models.add(String(r.model));
+      }
+    }
+    return Array.from(models).sort((a, b) => a.localeCompare(b));
+  }, [data?.topModelTrend?.model, data?.topModelTrendByRole]);
 
   const rangeLabel = useMemo(() => {
     if (!range?.start || !range?.endExclusive) return null;
@@ -1091,9 +1145,9 @@ export default function ReportPage() {
 
         {/* Row 2: Monthly Trend + Pie */}
         <div className="grid grid-cols-3 gap-6">
-          <div className="col-span-2 bg-white p-6 rounded-[2rem] shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
+          <div className="col-span-2 min-w-0 overflow-hidden bg-white p-6 rounded-[2rem] shadow-sm">
+            <div className="flex items-center justify-between mb-3 min-w-0">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
                 <h3 className="font-bold text-slate-600 text-lg flex items-center gap-2">
                   <BarChart3 size={18} className="text-slate-400" />
                   Monthly {taskLabel} Trend
@@ -1121,7 +1175,7 @@ export default function ReportPage() {
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-4 text-xs text-slate-500">
+              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 min-w-0">
                 {isMa ? (
                   maTrendView === 'summary' ? (
                     <>
@@ -1140,7 +1194,9 @@ export default function ReportPage() {
                     </>
                   ) : maTrendRoleFilterId == null && data?.topModelTrendByRole?.length ? (
                     <>
-                      {data.topModelTrendByRole.map((r, i) => (
+                      {data.topModelTrendByRole
+                        .filter((r) => !maTrendModelFilter || !r?.model || String(r.model) === maTrendModelFilter)
+                        .map((r, i) => (
                         <span key={r.roleId} className="flex items-center gap-1.5">
                           <span
                             className="w-2.5 h-2.5 rounded-sm"
@@ -1176,42 +1232,95 @@ export default function ReportPage() {
               </div>
             </div>
             {isMa && maTrendView === 'top-model' && (
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4 text-xs">
-                <div className="flex items-center gap-2">
-                  <label className="text-slate-500">Role:</label>
-                  <select
-                    className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                    value={maTrendRoleFilterId != null ? String(maTrendRoleFilterId) : ''}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setMaTrendRoleFilterId(v ? Number(v) : null);
-                    }}
-                  >
-                    <option value="">All</option>
-                    {maTrendRoleOptions.map((r) => (
-                      <option key={r.DeRoleid} value={r.DeRoleid}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-slate-500">Site:</label>
-                  <select
-                    className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-[160px]"
-                    value={maTrendSiteFilterId != null ? String(maTrendSiteFilterId) : ''}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setMaTrendSiteFilterId(v ? Number(v) : null);
-                    }}
-                  >
-                    <option value="">All</option>
-                    {maTrendSiteOptions.map((s) => (
-                      <option key={s.SLid} value={s.SLid}>
-                        {s.SiteName}
-                      </option>
-                    ))}
-                  </select>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4 text-xs min-w-0 overflow-x-auto">
+                <div className="flex items-center gap-3 flex-wrap min-w-0">
+                  {/* Cascaded Site filter: select Sid then lid */}
+                  <div className="flex items-center gap-2 min-w-0 shrink-0">
+                    <label className="text-slate-500 shrink-0">Site:</label>
+                    <select
+                      className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[160px]"
+                      value={maTrendSidFilter}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMaTrendSidFilter(v);
+                        setMaTrendLidFilter('');
+                        // ไม่รู้ SLid จนกว่าจะเลือก lid เสร็จ
+                        setMaTrendSiteFilterId(null);
+                      }}
+                    >
+                      <option value="All Sites">All Sites</option>
+                      {maTrendSidOptions.map((s) => (
+                        <option key={s.Sid} value={s.Sid}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[140px]"
+                      value={maTrendLidFilter}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMaTrendLidFilter(v);
+                        if (!v || !maTrendSidFilter) {
+                          setMaTrendSiteFilterId(null);
+                          return;
+                        }
+                        const sidNum = Number(maTrendSidFilter);
+                        const lidNum = Number(v);
+                        const found = sitesList.find(
+                          (s) => s.Sid === sidNum && s.lid === lidNum
+                        );
+                        setMaTrendSiteFilterId(found ? found.SLid : null);
+                      }}
+                      disabled={!maTrendSidFilter}
+                    >
+                      <option value="">Location</option>
+                      {maTrendLidOptions.map((l) => (
+                        <option key={l.lid} value={l.lid}>
+                          {l.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="flex items-center gap-2 min-w-0 shrink-0">
+                    <label className="text-slate-500 shrink-0">Role:</label>
+                    <select
+                      className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[120px]"
+                      value={maTrendRoleFilterId != null ? String(maTrendRoleFilterId) : ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMaTrendRoleFilterId(v ? Number(v) : null);
+                      }}
+                    >
+                      <option value="">All</option>
+                      {maTrendRoleOptions.map((r) => (
+                        <option key={r.DeRoleid} value={r.DeRoleid}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Model filter (before Site) */}
+                  <div className="flex items-center gap-2 min-w-0 shrink-0">
+                    <label className="text-slate-500 shrink-0">Model:</label>
+                    <select
+                      className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[160px]"
+                      value={maTrendModelFilter ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value || null;
+                        setMaTrendModelFilter(v);
+                      }}
+                    >
+                      <option value="">All</option>
+                      {maTrendModelOptions.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -1245,7 +1354,9 @@ export default function ReportPage() {
                         </>
                       )}
                       {maTrendView === 'top-model' && maTrendRoleFilterId == null && topModelTrendByRoleData && data?.topModelTrendByRole?.length
-                        ? data.topModelTrendByRole.map((r, i) => {
+                        ? data.topModelTrendByRole
+                            .filter((r) => !maTrendModelFilter || !r?.model || String(r.model) === maTrendModelFilter)
+                            .map((r, i) => {
                             const roleKey = String(r.roleName || r.roleId).trim() || `Role ${r.roleId}`;
                             return (
                               <Line
@@ -1656,6 +1767,8 @@ export default function ReportPage() {
 
       
       </div>
+
+      {/* MA Top-model advanced filter modal (Site & Model) */}
     </SidebarLayout>
   );
 }
