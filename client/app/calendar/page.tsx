@@ -98,6 +98,8 @@ export default function CalendarPage() {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
   const [holidays, setHolidays] = useState<HolidayItem[]>([]);
   const [calendarViewMode, setCalendarViewMode] = useState<'calendar' | 'table'>('calendar');
+  const TABLE_PAGE_SIZE = 15;
+  const [tablePage, setTablePage] = useState(1);
   const deepLinkOpenedForRef = useRef<string | null>(null);
 
   const deepLinkTaskId = useMemo(() => {
@@ -391,6 +393,16 @@ export default function CalendarPage() {
         return da - db;
       });
   }, [filteredCalendarEvents, currentYear, currentMonth]);
+
+  const totalTablePages = Math.max(1, Math.ceil(tasksInCurrentMonth.length / TABLE_PAGE_SIZE));
+  const paginatedTableTasks = useMemo(
+    () => tasksInCurrentMonth.slice((tablePage - 1) * TABLE_PAGE_SIZE, tablePage * TABLE_PAGE_SIZE),
+    [tasksInCurrentMonth, tablePage]
+  );
+
+  useEffect(() => {
+    setTablePage((p) => (p > totalTablePages ? totalTablePages : p < 1 ? 1 : p));
+  }, [totalTablePages]);
 
   const filteredEngineersForFilter = availableEngineers.filter(
     eng => !selectedEngineerFilter.includes(String(eng.id)) &&
@@ -960,7 +972,7 @@ export default function CalendarPage() {
                         <td colSpan={6} className="py-8 text-center text-slate-400">No tasks in this month</td>
                       </tr>
                     ) : (
-                      tasksInCurrentMonth.map((ev) => {
+                      paginatedTableTasks.map((ev) => {
                         const isMA = ev.taskType === 'MA';
                         const isDone = ev.status === 'done';
                         const hasReport = isMA ? reportedMATaskIds.has(Number(ev.id)) : reportedPMTaskIds.has(Number(ev.id));
@@ -1009,6 +1021,34 @@ export default function CalendarPage() {
                   </tbody>
                 </table>
               </div>
+              {tasksInCurrentMonth.length > TABLE_PAGE_SIZE && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50">
+                  <p className="text-xs text-slate-500">
+                    Showing {(tablePage - 1) * TABLE_PAGE_SIZE + 1}–{Math.min(tablePage * TABLE_PAGE_SIZE, tasksInCurrentMonth.length)} of {tasksInCurrentMonth.length}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setTablePage((p) => Math.max(1, p - 1))}
+                      disabled={tablePage <= 1}
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-sm text-slate-600">
+                      Page {tablePage} of {totalTablePages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setTablePage((p) => Math.min(totalTablePages, p + 1))}
+                      disabled={tablePage >= totalTablePages}
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
           <div className="bg-gray-100 rounded-xl overflow-hidden border border-gray-100">
