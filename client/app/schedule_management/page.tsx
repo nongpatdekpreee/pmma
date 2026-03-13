@@ -14,6 +14,8 @@ import {
   FileX2,
   FileSpreadsheet,
   Download,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
@@ -136,6 +138,7 @@ export default function ScheduleManagement() {
   const [restoringOfficialHolidays, setRestoringOfficialHolidays] = useState(false);
   const [hidingOfficialHolidays, setHidingOfficialHolidays] = useState(false);
   const holidayFileInputRef = useRef<HTMLInputElement>(null);
+  const [calendarViewMode, setCalendarViewMode] = useState<'calendar' | 'table'>('calendar');
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -538,6 +541,25 @@ export default function ScheduleManagement() {
     }
     return list;
   }, [calendarEventsWithoutDoneReported, selectedEngineerFilter, selectedTaskTypeFilter, selectedStatusFilter]);
+
+  // Tasks in current month for table view (events that overlap current month)
+  const tasksInCurrentMonth = useMemo(() => {
+    const first = new Date(currentYear, currentMonth, 1);
+    const last = new Date(currentYear, currentMonth + 1, 0);
+    first.setHours(0, 0, 0, 0);
+    last.setHours(23, 59, 59, 999);
+    return filteredCalendarEvents.filter(e => {
+      const start = e.startDate ? new Date(e.startDate) : new Date(currentYear, currentMonth, e.startDay);
+      const end = e.endDate ? new Date(e.endDate) : new Date(currentYear, currentMonth, e.endDay);
+      start.setHours(0, 0, 0, 0);
+      end.setHours(23, 59, 59, 999);
+      return start <= last && end >= first;
+    }).sort((a, b) => {
+      const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+      const db = b.startDate ? new Date(b.startDate).getTime() : 0;
+      return da - db;
+    });
+  }, [filteredCalendarEvents, currentYear, currentMonth]);
 
   const filteredEngineersForFilter = availableEngineers.filter(
     eng => !selectedEngineerFilter.includes(String(eng.id)) &&
@@ -1859,8 +1881,17 @@ export default function ScheduleManagement() {
         />
 
         <div className="bg-white p-6 rounded-[2.5rem] shadow-sm">
-          <div className="relative flex items-center mb-6">
-            <div className="mx-auto flex items-center gap-8">
+          <div className="flex items-center gap-4 mb-6">
+            <div className="flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsHolidayModalOpen(true)}
+                className="px-4 py-2 rounded-xl text-amber-800 text-sm font-medium hover:bg-amber-100 border border-amber-200"
+              >
+                Holidays
+              </button>
+            </div>
+            <div className="flex-1 flex items-center justify-center gap-8">
               <button
                 onClick={goToPreviousMonth}
                 className="text-blue-500 hover:text-blue-700 transition-colors"
@@ -1877,15 +1908,99 @@ export default function ScheduleManagement() {
                 <ChevronRight size={24} />
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsHolidayModalOpen(true)}
-              className="absolute right-0 px-4 py-2 rounded-xl  text-amber-800 text-sm font-medium hover:bg-amber-100  "
-            >
-              Holidays
-            </button>
+            <div className="flex-shrink-0">
+              <div className="flex rounded-xl border border-slate-200 p-0.5 bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setCalendarViewMode('calendar')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'calendar' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <LayoutGrid size={16} />
+                  Calendar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCalendarViewMode('table')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'table' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <List size={16} />
+                  Table
+                </button>
+              </div>
+            </div>
           </div>
 
+          {calendarViewMode === 'table' ? (
+            <div className="rounded-xl border border-slate-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Date</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Responsible</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Status</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600 w-20"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tasksInCurrentMonth.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">No tasks in this month</td>
+                      </tr>
+                    ) : (
+                      tasksInCurrentMonth.map((ev) => {
+                        const isMA = ev.taskType === 'MA';
+                        const isDone = ev.status === 'done';
+                        const hasReport = isMA ? reportedMATaskIds.has(Number(ev.id)) : reportedPMTaskIds.has(Number(ev.id));
+                        const endDateStr = ev.endDate || ev.startDate || '';
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const endDate = endDateStr ? new Date(endDateStr) : null;
+                        if (endDate) endDate.setHours(0, 0, 0, 0);
+                        const isOverdue = !isDone && endDate && endDate < today;
+                        const statusLabel = isDone ? 'Done' : isOverdue ? 'Overdue' : hasReport && isMA ? 'Reported' : ev.status === 'working' ? 'Working' : 'Pending';
+                        return (
+                          <tr
+                            key={ev.id}
+                            className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
+                          >
+                            <td className="py-2.5 px-4 text-slate-600 whitespace-nowrap">
+                              {ev.startDate === ev.endDate || !ev.endDate
+                                ? ev.startDate || `${ev.startDay}/${currentMonth + 1}/${currentYear}`
+                                : `${ev.startDate || ''} – ${ev.endDate || ''}`}
+                            </td>
+                            <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate" title={ev.title}>{ev.title}</td>
+                            <td className="py-2.5 px-4">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${isMA ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {ev.taskType || 'PM'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4 text-slate-600">{ev.engineer || '—'}</td>
+                            <td className="py-2.5 px-4">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs ${isDone ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                                {statusLabel}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <button
+                                type="button"
+                                onClick={() => { setSelectedTask(ev); setIsDetailModalOpen(true); }}
+                                className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                              >
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
           <div className="bg-gray-100 rounded-xl overflow-hidden border border-gray-100">
             {/* Header row */}
             <div className="grid grid-cols-7 gap-px">
@@ -2146,6 +2261,7 @@ export default function ScheduleManagement() {
               );
             })}
           </div>
+          )}
         </div>
       </main>
 
