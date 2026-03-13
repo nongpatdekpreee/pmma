@@ -4,6 +4,7 @@ const API_BASE = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_
    : 'http://10.4.102.212:5000';
 
 
+
 export function apiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`;
   return `${API_BASE}${p}`;
@@ -140,6 +141,7 @@ export async function getMaDashboard(params?: { months?: number; year?: number; 
   data?: {
     months: number;
     range: { start: string; endExclusive: string };
+    availableFilters?: { roleIds: number[]; siteIds: number[] };
     summary: {
       totalMA: number;
       totalDone: number;
@@ -177,6 +179,12 @@ export async function getMaDashboard(params?: { months?: number; year?: number; 
       model: string | null;
       points: Array<{ model: string; month_start: string; total: number }>;
     };
+    topModelTrendByRole?: Array<{
+      roleId: number;
+      roleName: string;
+      model: string;
+      points: Array<{ month_start: string; total: number }>;
+    }>;
     vendorMonthly: Array<{ vendor: string; month: string; monthKey: string; total: number }>;
     vendorReportStats: Array<{ vendor: string; totalReports: number; passReports: number; failReports: number; passRate: number }>;
   };

@@ -836,8 +836,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const json = await res.json();
       if (res.ok && json.data) {
         const raw = json.data.map((item: any) => mapDeviceFromApi(item, 'available'));
+        // Safety: replacement device must be SLid=2 and Asset_State='in store' เท่านั้น
+        const safeFiltered = raw.filter((d: Device) => {
+          const state = (d.assetState ?? '').toString().trim().toLowerCase();
+          return d.SLid === 2 && state === 'in store';
+        });
         const excludeIds = new Set(excludeDevices.map((d: Device) => String(d.id)));
-        setReplacementDevices(raw.filter((d: Device) => !excludeIds.has(String(d.id))));
+        setReplacementDevices(safeFiltered.filter((d: Device) => !excludeIds.has(String(d.id))));
       } else {
         setReplacementDevices([]);
       }
@@ -861,13 +866,18 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const json = await res.json();
       if (res.ok && json.data) {
         const rawReplacement = json.data.map((item: any) => mapDeviceFromApi(item, 'available'));
+        // Safety: replacement device must be SLid=2 and Asset_State='in store' เท่านั้น
+        const safeReplacement = rawReplacement.filter((d: Device) => {
+          const state = (d.assetState ?? '').toString().trim().toLowerCase();
+          return d.SLid === 2 && state === 'in store';
+        });
         setBrokenDevicePairs((prev) => {
           const excludeIds = new Set<string>();
           prev.forEach((p) => {
             excludeIds.add(String(p.brokenDevice.id));
             if (p.replacementDevice) excludeIds.add(String(p.replacementDevice.id));
           });
-          const replacementDevices = rawReplacement.filter((d: Device) => !excludeIds.has(String(d.id)));
+          const replacementDevices = safeReplacement.filter((d: Device) => !excludeIds.has(String(d.id)));
           return prev.map((pair) =>
             pair.id === pairId
               ? { ...pair, replacementDevices, loading: false }
@@ -2003,12 +2013,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Replacement Device
+                        Replacement Device <span className="text-slate-400">(optional)</span>
                       </label>
                       {pair.loading ? (
                         <p className="text-xs text-slate-400">Loading...</p>
                       ) : pair.replacementDevices.length === 0 ? (
-                        <p className="text-xs text-slate-400">No devices in store</p>
+                        <p className="text-xs text-slate-400">No devices in store (leave blank)</p>
                       ) : (
                         <SearchableDeviceSelect
                           devices={pair.replacementDevices}
@@ -2016,6 +2026,15 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           placeholder="-- Select Replacement Device --"
                           onSelect={(d) => updateBrokenDeviceReplacement(pair.id, d)}
                         />
+                      )}
+                      {pair.replacementDevice && (
+                        <button
+                          type="button"
+                          onClick={() => updateBrokenDeviceReplacement(pair.id, null)}
+                          className="mt-2 text-[11px] font-semibold text-slate-500 hover:text-slate-700 underline"
+                        >
+                          Clear replacement device
+                        </button>
                       )}
                       {pair.replacementDevice && (
                         <div className="mt-2 p-2 bg-green-50 rounded-lg">

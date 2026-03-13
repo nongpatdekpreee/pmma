@@ -161,6 +161,8 @@ const EmployeeManagement = () => {
     if (nameErr || gmailErr || telErr) return;
     const nameTrim = editForm.name.trim();
     const telTrim = editForm.tel.trim().replace(/\s/g, "");
+    const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/png?seed=${editingEmployee.id}`;
+    const photoToSend = editForm.photo == null ? defaultAvatar : editForm.photo;
     setEditSaving(true);
     try {
       const res = await updateEmployee(editingEmployee.id, {
@@ -169,7 +171,8 @@ const EmployeeManagement = () => {
         tel: telTrim,
         positionType: editForm.positionType,
         employmentType: editForm.employmentType,
-        photo: editForm.photo || undefined,
+        // ถ้าลบรูป ให้ส่ง default avatar แทน (รองรับ DB ที่ em_picture = NOT NULL)
+        photo: photoToSend,
       });
       if (res.success) {
         setEditingEmployee(null);

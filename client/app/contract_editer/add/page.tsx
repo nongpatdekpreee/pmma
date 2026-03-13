@@ -1210,7 +1210,7 @@ function AddContractPageContent() {
                     value={slaTerm}
                     onChange={(e) => {
                       const value = e.target.value;
-                      // อนุญาตให้กรอกเฉพาะตัวเลข 0-100
+                      
                       if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
                         setSlaTerm(value);
                       }
@@ -1339,11 +1339,20 @@ function AddContractPageContent() {
                   className={inputBase}
                 >
                   <option value="">Select</option>
-                  {Array.from({ length: 60 }, (_, i) => i + 1).map((m) => (
-                    <option key={m} value={m}>
-                      {m} months
+                  {/* 1-11 months */}
+                  {Array.from({ length: 11 }, (_, i) => i + 1).map((m) => (
+                    <option key={`m-${m}`} value={m}>
+                      {m} {m === 1 ? "month" : "months"}
                     </option>
                   ))}
+
+                  {/* 1-5 years (mapped to months) */}
+                  {Array.from({ length: 5 }, (_, i) => i + 1).map((y) => (
+                    <option key={`y-${y}`} value={y * 12}>
+                      {y} {y ===1 ? "year" : "years"}
+                    </option>
+                  ))}
+                  
                 </select>
               </FormField>
               <FormField label="End Date">
