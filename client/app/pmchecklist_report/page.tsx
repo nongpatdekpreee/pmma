@@ -501,7 +501,7 @@ function ReportPageContent() {
     const gen = new Date().toISOString().slice(0, 19).replace('T', ' ');
     lines.push(escape(`${taskLabel} Checklist Report - Export (Generated: ${gen})`));
     nl();
-    const pmHeaders = ['Report ID', 'Serial', 'Asset Number', 'Site', 'Location', 'Technician', 'PM Date', 'Status', 'Comment'];
+    const pmHeaders = ['Report ID', 'Total devices', 'Asset Number', 'Site', 'Location', 'Technician', 'PM Date', 'Status', 'Comment'];
     const maHeaders = ['Report ID', 'Serial', 'Asset Number', 'Site', 'Location', 'Technician', 'MA Date', 'Result', 'Replace Device', 'New Site', 'New Location', 'Third Party Vendor name', 'Third Party Vendor phone', 'Reporter name', 'Reporter phone', 'Ticket', 'Comment'];
     const headers = tab === 'ma' ? maHeaders : pmHeaders;
     row(headers);
@@ -512,13 +512,15 @@ function ReportPageContent() {
       const site = dev?.Sitename != null ? String(dev.Sitename) : '-';
       const location = dev?.Location2 != null ? String(dev.Location2) : '-';
       if (tab === 'pm') {
+        const assets = Array.isArray((r as any).assets) ? (r as any).assets : [];
+        const totalDevicesThisReport = assets.length > 0 ? assets.length : 1;
         row([
           r.id,
-          r.device?.serial || '-',
+          String(totalDevicesThisReport),
           r.device?.Asset_Number || '-',
           site,
           location,
-          r.technicianName || '-',
+          getEngineerDisplay(r),
           String(dateVal ?? '-'),
           String(resultVal ?? '-'),
           (r.comment || '').replace(/\n/g, ' '),
@@ -568,7 +570,7 @@ function ReportPageContent() {
         assetStr,
         site,
         location,
-        r.technicianName || '-',
+        getEngineerDisplay(r),
         String(dateVal ?? '-'),
         String(resultVal ?? '-'),
         replaceDeviceStr,
