@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import { 
   LayoutDashboard, 
   Calendar, 
+  CalendarCog,
   Users, 
   MessageSquare, 
   LogOut, 
@@ -25,7 +26,7 @@ const menuItems: MenuItem[] = [
   { icon: FileText, label: 'Contract', href: '/contract_editer' },
   { icon: Users, label: 'Employee', href: '/employee' },
   { icon: Calendar, label: 'Calendar', href: '/calendar' },
-  { icon: Calendar, label: 'Schedule Management', href: '/schedule_management' },
+  { icon: CalendarCog, label: 'Schedule Management', href: '/schedule_management' },
   
   { icon: MessageSquare, label: 'Report', href: '/pmchecklist_report' },
   { icon: Monitor, label: 'Asset & Site', href: '/asset_site_database' },

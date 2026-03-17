@@ -232,11 +232,11 @@ export default function ScheduleManagement() {
     try {
       const res = await fetch(apiUrl('/api/tasks'));
       const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'โหลดข้อมูลไม่สำเร็จ');
+      if (!json.success) throw new Error(json.message || 'Cannot load tasks');
       setCalendarEvents((json.data || []).map(mapTaskToEvent));
     } catch (error: any) {
       console.error('loadTasksFromApi error', error);
-      setLoadError(error.message || 'ไม่สามารถโหลดรายการงานได้');
+      setLoadError(error.message || 'Cannot load tasks');
     } finally {
       setIsLoading(false);
     }
@@ -688,7 +688,7 @@ export default function ScheduleManagement() {
       });
       const json = await res.json();
       if (!res.ok) {
-        throw new Error(json.message || 'อัพเดทไม่สำเร็จ');
+        throw new Error(json.message || 'Update task dates failed');
       }
       // Reload tasks to get updated data from server
       await loadTasksFromApi();
@@ -771,7 +771,7 @@ export default function ScheduleManagement() {
 
   const confirmMoveTask = async () => {
     if (!pendingMove || !moveReason.trim()) {
-      toastError('กรุณากรอกเหตุผลในการย้ายงาน');
+      toastError('Please provide a reason for moving the task');
       return;
     }
 
@@ -813,10 +813,10 @@ export default function ScheduleManagement() {
         newEndDate,
         moveReason.trim()
       );
-      toastSuccess('ย้ายงานสำเร็จ');
+        toastSuccess('Move task successfully');
     } catch (error) {
-      console.error('Failed to update task dates:', error);
-      toastError('ย้ายงานไม่สำเร็จ');
+      console.error('Failed to move task:', error);
+      toastError('Move task failed');
       // Error is already handled in persistTaskDates (reloads data)
     }
   };
@@ -880,7 +880,7 @@ export default function ScheduleManagement() {
         }
       );
       const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'บันทึกข้อมูลไม่สำเร็จ');
+      if (!json.success) throw new Error(json.message || 'Save task failed');
 
       const mapped = mapTaskToEvent(json.data);
       setCalendarEvents((events) =>
@@ -893,7 +893,7 @@ export default function ScheduleManagement() {
       toastSuccess('Plan success');
     } catch (error: any) {
       console.error('handleSaveFromModal error', error);
-      toastError(error.message || 'บันทึก Task ไม่สำเร็จ');
+      toastError(error.message || 'Save task failed');
     }
   };
 
@@ -902,14 +902,14 @@ export default function ScheduleManagement() {
     try {
       const res = await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
       const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'ลบไม่สำเร็จ');
+      if (!json.success) throw new Error(json.message || 'Delete task failed');
       setCalendarEvents((prev) => prev.filter((e) => e.id !== taskId));
       setIsDetailModalOpen(false);
       setSelectedTask(null);
-      toastSuccess('ลบ Task สำเร็จ');
+      toastSuccess('Delete task successfully');
     } catch (error: any) {
       console.error('handleDeleteTask error', error);
-      toastError(error?.message || 'ลบ Task ไม่สำเร็จ');
+      toastError(error?.message || 'Delete task failed');
     }
   };
 
@@ -1367,7 +1367,7 @@ export default function ScheduleManagement() {
             // เช็ค contract: ต้องมี contract และยังไม่หมดอายุ ถึงจะ add task ได้
             if (task.sofName) {
               if (!task.contractId) {
-                errors.push(`Row ${i + 1}: SOF "${task.sofName}" ไม่มี contract ในระบบ — ไม่สามารถเพิ่ม task ได้`);
+                errors.push(`Row ${i + 1}: SOF "${task.sofName}" does not have a contract in the system — cannot add task`);
                 continue;
               }
               const endDateStr = task._contractEndDate || availableContracts.find(c => c.contract_id === task.contractId)?.end_date;
@@ -1377,7 +1377,7 @@ export default function ScheduleManagement() {
                 const today = new Date();
                 today.setHours(0, 0, 0, 0);
                 if (endDate < today) {
-                  errors.push(`Row ${i + 1}: Contract หมดอายุแล้ว (SOF "${task.sofName}") — ไม่สามารถเพิ่ม task ได้`);
+                  errors.push(`Row ${i + 1}: Contract expired (SOF "${task.sofName}") — cannot add task`);
                   continue;
                 }
               }
@@ -1526,7 +1526,7 @@ export default function ScheduleManagement() {
         if (task.sofName) {
           const contractId = task.contractId ? Number(task.contractId) : null;
           if (!contractId) {
-            errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): SOF "${task.sofName}" ไม่มี contract ในระบบ — ไม่สามารถเพิ่ม task ได้`);
+            errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): SOF "${task.sofName}" does not have a contract in the system — cannot add task`);
             continue;
           }
           const contract = availableContracts.find(c => c.contract_id === contractId);
@@ -1536,13 +1536,13 @@ export default function ScheduleManagement() {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
             if (endDate < today) {
-              errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): Contract หมดอายุแล้ว (SOF "${task.sofName}") — ไม่สามารถเพิ่ม task ได้`);
+              errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): Contract expired (SOF "${task.sofName}") — cannot add task`);
               continue;
             }
           }
         }
 
-        // ===== Prepare payload ตาม database schema (tasks.sql) =====
+        // ===== Prepare payload according to database schema (tasks.sql) =====
         // engineers → JSON: [{"id":"9","name":"Chainarin","lastName":"Phosai"}]
         const engineersArray = task.Eng_ids ? task.Eng_ids.map((e: Engineer) => ({
           id: String(e.id),
@@ -1550,11 +1550,11 @@ export default function ScheduleManagement() {
           lastName: e.lastName || ''
         })) : [];
         
-        // assets → JSON array with full device data (เหมือนกับข้อมูลที่มีอยู่แล้ว)
-        // ใช้ข้อมูล devices ที่ดึงมาจาก fetchDevicesBySiteSOFLocation
+        // assets → JSON array with full device data (same as existing data)
+        // use devices data fetched from fetchDevicesBySiteSOFLocation
         let assetsArray: any[] = [];
         if (task.devices && task.devices.length > 0) {
-          // ใช้ข้อมูล devices ที่มีอยู่แล้ว (มีข้อมูลครบจาก API)
+          // use existing devices data (full data from API)
           assetsArray = task.devices.map((device: any) => ({
             id: device.Did,
             name: device.CI_Name || `Device ${device.Did}`,
@@ -1572,7 +1572,7 @@ export default function ScheduleManagement() {
             model: device.model || null,
           }));
         } else if (task.deviceIds && task.deviceIds.length > 0) {
-          // Fallback: ถ้าไม่มี devices แต่มี deviceIds ให้ดึงข้อมูล device ทั้งหมดจาก API
+          // Fallback: if no devices but has deviceIds, fetch all device details from API
           console.warn(`⚠️ Task "${task.siteName}" has deviceIds but no devices array. Fetching device details...`);
           try {
             const devicePromises = task.deviceIds.map(async (did: number) => {
@@ -1601,7 +1601,7 @@ export default function ScheduleManagement() {
               } catch (err) {
                 console.error(`Error fetching device ${did}:`, err);
               }
-              return { id: did }; // Fallback ถ้าดึงไม่ได้
+              return { id: did }; // Fallback if fetching fails
             });
             assetsArray = await Promise.all(devicePromises);
           } catch (error) {
@@ -1611,7 +1611,7 @@ export default function ScheduleManagement() {
           }
         }
         
-        // contract_id from sof_name lookup (ถ้ายังไม่มี ให้ค้นหาอีกครั้ง)
+        // contract_id from sof_name lookup (if still not found, search again)
         let contractId = task.contractId ? Number(task.contractId) : null;
         if (!contractId && task.sofName) {
           const contract = availableContracts.find(c => 
@@ -1731,13 +1731,13 @@ export default function ScheduleManagement() {
       });
       const json = await res.json();
       if (!json.success) {
-        throw new Error(json.message || 'อัพเดทไม่สำเร็จ');
+        throw new Error(json.message || 'Update status failed');
       }
-      toastSuccess('อัปเดตสถานะสำเร็จ');
+      toastSuccess('Update status successfully');
       // Don't reload from API to avoid date changes - local state is already updated
     } catch (error) {
       console.error('handleTaskUpdate error', error);
-      toastError('อัปเดตสถานะไม่สำเร็จ');
+      toastError('Update status failed');
       // Only reload on error to get correct state
       await loadTasksFromApi();
     }
@@ -1764,13 +1764,13 @@ export default function ScheduleManagement() {
                 onClick={() => setIsImportModalOpen(true)}
                 className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
               >
-                <Download size={16} /> Import Tasks
+                <Download size={16} /> Import Plans
               </button>
               <button
                 onClick={() => setIsModalOpen(true)}
                 className="flex items-center gap-2 bg-blue-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-blue-600 transition-colors"
               >
-                <Plus size={16} /> Add Plan PM
+                <Plus size={16} /> Add Plan
               </button>
             </div>
           </div>
@@ -2707,9 +2707,9 @@ export default function ScheduleManagement() {
               <div className="flex items-center gap-3">
                 <FileSpreadsheet size={24} className="text-green-600" />
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Import Tasks from Excel/CSV</h3>
+                  <h3 className="text-lg font-bold text-slate-800">Import Plans from Excel/CSV</h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Upload a file to create multiple tasks according to database schema
+                    Upload a file to create multiple plans according to database schema
                   </p>
                 </div>
               </div>
@@ -2735,7 +2735,7 @@ export default function ScheduleManagement() {
                   accept=".xlsx,.xls,.csv"
                   onChange={handleFileUpload}
                   className="sr-only"
-                  aria-label="เลือกไฟล์ Excel หรือ CSV"
+                  aria-label="Select Excel or CSV file"
                   id="excel-file-input"
                 />
                 <label
