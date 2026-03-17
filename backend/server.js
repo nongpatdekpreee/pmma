@@ -59,5 +59,4 @@ app.get('/', (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server กำลังทำงานที่ port ${PORT}`);
-  console.log(`📡 http://localhost:${PORT}`);
 });
