@@ -892,10 +892,13 @@ export default function ReportPage() {
           </div>
 
           <div className="bg-amber-50/70 border border-amber-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
+            <h3 className="font-bold text-slate-700 mb-1 flex items-center gap-2 text-sm">
               <AlertTriangle size={16} className="text-amber-500" />
               Watch List
             </h3>
+            <p className="text-xs text-amber-800/80 mb-3">
+              Items requiring monitoring due to frequent MA visits.
+            </p>
             <ul className="space-y-2.5 text-sm text-slate-600">
               {equipmentRanking.slice(0, 3).map((e, i) => (
                 <li key={i} className="flex items-start gap-2">
@@ -911,8 +914,7 @@ export default function ReportPage() {
           </div>
 
           <div className="bg-emerald-50/70 border border-emerald-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
-              <CheckCircle2 size={16} className="text-emerald-500" />
+            <h3 className="font-bold text-slate-700 mb-4 text-sm">
               Recommendations
             </h3>
             <ul className="space-y-2.5 text-sm text-slate-600">
@@ -1736,8 +1738,10 @@ export default function ReportPage() {
                   <div key={s.site} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/70 hover:bg-slate-50 transition-colors">
                     <RankBadge rank={i + 1} />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-semibold text-sm text-slate-700 truncate">{s.site}</span>
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <span className="font-semibold text-sm text-slate-700 leading-snug whitespace-normal break-words max-w-[85%]">
+                          {s.site}
+                        </span>
                         <span className="text-sm font-bold text-slate-600">{s.total} <span className="text-xs font-normal text-slate-400">tasks</span></span>
                       </div>
                       <ProgressBar value={s.total} max={maxSiteTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-teal-300'} />
