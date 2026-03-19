@@ -411,7 +411,7 @@ export default function DashboardPage() {
                   <CircleAlert size={18} className="text-amber-500" />
                   Missing Events
                 </h3>
-                <Link href="/schedule_management?view=table" className="text-amber-600 text-xs hover:underline">View all</Link>
+                <Link href="/calendar?status=overdue" className="text-amber-600 text-xs hover:underline">View all</Link>
               </div>
               <p className="text-[11px] text-slate-500 mb-3">Overdue tasks</p>
               {loadingEvents ? (

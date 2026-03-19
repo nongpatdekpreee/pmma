@@ -11,7 +11,7 @@ export default function DashboardHeader() {
             />
           </div> */}
           <div className="flex items-center gap-4 p-6">
-            <div className="p-2 bg-white rounded-full shadow-sm cursor-pointer relative">
+            {/* <div className="p-2 bg-white rounded-full shadow-sm cursor-pointer relative">
               <Bell size={20} className="text-gray-600" />
               <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
             </div>
@@ -19,7 +19,7 @@ export default function DashboardHeader() {
               <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Piyapat" className="w-8 h-8 rounded-full bg-orange-100" />
               <span className="text-sm font-bold text-gray-700 uppercase">Piyapat</span>
               <ChevronDown size={14} className="text-gray-400" />
-            </div>
+            </div> */}
           </div>
         </header>
   );

@@ -108,6 +108,18 @@ export default function CalendarPage() {
     return v ? v : null;
   }, [searchParams]);
 
+  const statusQuery = useMemo(() => {
+    const raw = searchParams.get('status');
+    return (raw ? String(raw).trim().toLowerCase() : '') || null;
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!statusQuery) return;
+    const allowed = new Set(['all', 'done', 'in-progress', 'pending', 'overdue']);
+    if (!allowed.has(statusQuery)) return;
+    setSelectedStatusFilter(statusQuery as 'all' | 'done' | 'in-progress' | 'pending' | 'overdue');
+  }, [statusQuery]);
+
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
     const end = task.endDate || task.end_date || start;
