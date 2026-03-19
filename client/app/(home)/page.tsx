@@ -333,7 +333,7 @@ export default function DashboardPage() {
             <div className="bg-white p-6 rounded-[2rem] shadow-sm">
               <div className="flex justify-between mb-4">
                 <h3 className="font-bold text-slate-700">In Coming Events</h3>
-                <Link href="/schedule_management" className="text-blue-500 text-xs hover:underline">View all</Link>
+                <Link href="/schedule_management?view=table" className="text-blue-500 text-xs hover:underline">View all</Link>
               </div>
               {loadingEvents ? (
                 <div className="text-sm text-slate-400 py-6 text-center">กำลังโหลด...</div>
@@ -411,7 +411,7 @@ export default function DashboardPage() {
                   <CircleAlert size={18} className="text-amber-500" />
                   Missing Events
                 </h3>
-                <Link href="/schedule_management" className="text-amber-600 text-xs hover:underline">View all</Link>
+                <Link href="/schedule_management?view=table" className="text-amber-600 text-xs hover:underline">View all</Link>
               </div>
               <p className="text-[11px] text-slate-500 mb-3">Overdue tasks</p>
               {loadingEvents ? (

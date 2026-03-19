@@ -1,12 +1,4 @@
-# =============================================
-# Build (default = frontend):  docker build -t pmma-plan .
-# Backend only:               docker build --target backend -t pmma-plan .
-# Frontend only:              docker build --target frontend -t pmma-plan .
-# =============================================
 
-# -----------------------------------------------------------------------------
-# Backend (Node 18 slim = smaller image)
-# -----------------------------------------------------------------------------
 FROM node:18-slim AS backend
 WORKDIR /app
 COPY backend/package*.json ./

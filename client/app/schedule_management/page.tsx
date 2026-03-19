@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
+import { useSearchParams } from 'next/navigation';
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import {
@@ -81,6 +82,7 @@ interface CalendarEvent {
 }
 
 export default function ScheduleManagement() {
+  const searchParams = useSearchParams();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -104,6 +106,7 @@ export default function ScheduleManagement() {
   } | null>(null);
   const [hoveredEvent, setHoveredEvent] = useState<CalendarEvent | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
   
   /* ===== Excel/CSV Import ===== */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -118,6 +121,51 @@ export default function ScheduleManagement() {
     sid?: number; // Sid from sites table
     lid?: number; // lid from location table
   }>>([]);
+
+  // Force initial view mode via query param: /schedule_management?view=table|calendar
+  useEffect(() => {
+    const v = (searchParams?.get('view') || '').trim().toLowerCase();
+    if (v === 'table') setCalendarViewMode('table');
+    if (v === 'calendar') setCalendarViewMode('calendar');
+  }, [searchParams]);
+
+  // Deep link from dashboard: /schedule_management?task=<id>
+  useEffect(() => {
+    const taskId = (searchParams?.get('task') || '').trim();
+    if (!taskId) return;
+
+    const ev = calendarEvents.find((e) => String(e.id) === taskId);
+    if (!ev) return;
+
+    // Jump calendar to the task's month/year
+    if (ev.year && ev.month) {
+      const target = new Date(ev.year, Math.max(0, Number(ev.month) - 1), 1);
+      if (!Number.isNaN(target.getTime())) {
+        const curY = currentDate.getFullYear();
+        const curM = currentDate.getMonth();
+        if (curY !== target.getFullYear() || curM !== target.getMonth()) {
+          setCurrentDate(target);
+        }
+      }
+    }
+
+    // Open detail and highlight
+    setSelectedTask(ev);
+    setIsDetailModalOpen(true);
+    setHighlightTaskId(String(ev.id));
+
+    // Scroll into view after DOM paints
+    const to = window.setTimeout(() => {
+      const el = document.querySelector(`[data-task-id="${CSS.escape(String(ev.id))}"]`) as HTMLElement | null;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }, 150);
+
+    const clear = window.setTimeout(() => setHighlightTaskId(null), 2500);
+    return () => {
+      window.clearTimeout(to);
+      window.clearTimeout(clear);
+    };
+  }, [searchParams, calendarEvents, currentDate]);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [availableContracts, setAvailableContracts] = useState<Array<{contract_id: number; sof_name: string; contract_name?: string; site_id?: number; end_date?: string}>>([]);
   const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string[]>([]);
@@ -125,7 +173,7 @@ export default function ScheduleManagement() {
   const [showEngineerFilterDropdown, setShowEngineerFilterDropdown] = useState(false);
   const engineerFilterRef = useRef<HTMLDivElement>(null);
   const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'in-progress' | 'pending'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'in-progress' | 'pending' | 'overdue'>('all');
   const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -539,7 +587,35 @@ export default function ScheduleManagement() {
     if (selectedStatusFilter !== 'all') {
       if (selectedStatusFilter === 'done') list = list.filter(e => e.status === 'done');
       else if (selectedStatusFilter === 'in-progress') list = list.filter(e => e.status === 'working');
-      else if (selectedStatusFilter === 'pending') list = list.filter(e => e.status === 'not-started' || e.status === 'stuck');
+      else if (selectedStatusFilter === 'pending') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        list = list.filter((e) => {
+          const status = e.status;
+          const isPendingStatus = status === 'not-started' || status === 'stuck';
+          if (!isPendingStatus) return false;
+          const endDateStr = e.endDate || e.startDate || '';
+          if (!endDateStr) return true; // no date -> keep in pending
+          const endDate = new Date(endDateStr);
+          if (Number.isNaN(endDate.getTime())) return true; // unparseable -> keep in pending
+          endDate.setHours(0, 0, 0, 0);
+          const isOverdue = endDate < today;
+          return !isOverdue;
+        });
+      }
+      else if (selectedStatusFilter === 'overdue') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        list = list.filter((e) => {
+          if (e.status === 'done') return false;
+          const endDateStr = e.endDate || e.startDate || '';
+          if (!endDateStr) return false;
+          const endDate = new Date(endDateStr);
+          if (Number.isNaN(endDate.getTime())) return false;
+          endDate.setHours(0, 0, 0, 0);
+          return endDate < today;
+        });
+      }
     }
     return list;
   }, [calendarEventsWithoutDoneReported, selectedEngineerFilter, selectedTaskTypeFilter, selectedStatusFilter]);
@@ -1870,11 +1946,12 @@ export default function ScheduleManagement() {
               <select
                 id="status-filter-schedule"
                 value={selectedStatusFilter}
-                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'in-progress' | 'pending')}
+                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'in-progress' | 'pending' | 'overdue')}
                 className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
               >
                 <option value="all">All</option>
                 <option value="done">Done</option>
+                <option value="overdue">Overdue</option>
                 <option value="in-progress">In Progress</option>
                 <option value="pending">Pending</option>
               </select>
@@ -2132,6 +2209,7 @@ export default function ScheduleManagement() {
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
+                                    data-task-id={String(ev.id)}
                                     draggable={!isDone}
                                     onDragStart={() => !isDone && setDraggedEvent(ev)}
                                     onDragEnd={handleDragEnd}
@@ -2154,7 +2232,7 @@ export default function ScheduleManagement() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
+                                    className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'} ${highlightTaskId === String(ev.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                                   >
                                     <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
@@ -2225,6 +2303,7 @@ export default function ScheduleManagement() {
                     return (
                       <div
                         key={event.id}
+                        data-task-id={String(event.id)}
                         style={{
                           gridColumn: `${colStart + 1} / ${colEnd + 2}`,
                           position: 'absolute',
@@ -2255,7 +2334,7 @@ export default function ScheduleManagement() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20 ${highlightTaskId === String(event.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                       >
                         <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}

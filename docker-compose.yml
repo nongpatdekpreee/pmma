@@ -2,7 +2,7 @@ services:
 
   backend:
     volumes:
-      - /data/pmm/uploads:/app/backend/uploads
+      - /data/pmm/uploads:/app/uploads
     image: 10.4.102.212:8080/pmma-backend:latest
     container_name: pmma-backend
     restart: unless-stopped

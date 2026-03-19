@@ -95,7 +95,7 @@ export default function CalendarPage() {
   const [reportedPMTaskIds, setReportedPMTaskIds] = useState<Set<number>>(new Set());
   const [reportedMATaskIds, setReportedMATaskIds] = useState<Set<number>>(new Set());
   const [selectedTaskTypeFilter, setSelectedTaskTypeFilter] = useState<'all' | 'PM' | 'MA'>('all');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'not-done'>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | 'done' | 'in-progress' | 'pending' | 'overdue'>('all');
   const [holidays, setHolidays] = useState<HolidayItem[]>([]);
   const [calendarViewMode, setCalendarViewMode] = useState<'calendar' | 'table'>('calendar');
   const TABLE_PAGE_SIZE = 15;
@@ -362,12 +362,37 @@ export default function CalendarPage() {
     if (selectedTaskTypeFilter !== 'all') {
       list = list.filter(e => (e.taskType || 'PM') === selectedTaskTypeFilter);
     }
-    // Status filter (เสร็จแล้ว / ยังไม่เสร็จ)
+    // Status filter (match Schedule Management)
     if (selectedStatusFilter !== 'all') {
-      if (selectedStatusFilter === 'done') {
-        list = list.filter(e => e.status === 'done');
-      } else {
-        list = list.filter(e => e.status !== 'done');
+      if (selectedStatusFilter === 'done') list = list.filter(e => e.status === 'done');
+      if (selectedStatusFilter === 'pending') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        list = list.filter((e) => {
+          const status = (e.status || 'not-started');
+          if (status !== 'not-started') return false;
+          const endDateStr = e.endDate || e.startDate || '';
+          if (!endDateStr) return true; // no date -> keep in pending
+          const endDate = new Date(endDateStr);
+          if (Number.isNaN(endDate.getTime())) return true; // unparseable -> keep in pending
+          endDate.setHours(0, 0, 0, 0);
+          const isOverdue = endDate < today;
+          return !isOverdue;
+        });
+      }
+      if (selectedStatusFilter === 'in-progress') list = list.filter(e => (e.status || 'not-started') === 'working' || (e.status || 'not-started') === 'stuck');
+      if (selectedStatusFilter === 'overdue') {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        list = list.filter((e) => {
+          if (e.status === 'done') return false;
+          const endDateStr = e.endDate || e.startDate || '';
+          if (!endDateStr) return false;
+          const endDate = new Date(endDateStr);
+          if (Number.isNaN(endDate.getTime())) return false;
+          endDate.setHours(0, 0, 0, 0);
+          return endDate < today;
+        });
       }
     }
     return list;
@@ -899,12 +924,14 @@ export default function CalendarPage() {
               <select
                 id="status-filter-calendar"
                 value={selectedStatusFilter}
-                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'not-done')}
+                onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'in-progress' | 'pending' | 'overdue')}
                 className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
               >
                 <option value="all">All</option>
                 <option value="done">Done</option>
-                <option value="not-done">Not done</option>
+                <option value="overdue">Overdue</option>
+                <option value="in-progress">In Progress</option>
+                <option value="pending">Pending</option>
               </select>
             </div>
           </div>
@@ -912,8 +939,9 @@ export default function CalendarPage() {
 
         <div className="bg-white p-6 rounded-[2.5rem] shadow-sm">
           {/* Calendar Header */}
-          <div className="flex items-center gap-4 mb-6">
-            <div className="flex-1 flex items-center justify-center gap-8">
+          <div className="grid grid-cols-3 items-center gap-4 mb-6">
+            <div />
+            <div className="flex items-center justify-center gap-8">
               <button 
                 onClick={goToPreviousMonth}
                 className="text-blue-500 hover:text-blue-700 transition-colors"
@@ -930,7 +958,7 @@ export default function CalendarPage() {
                 <ChevronRight size={24} />
               </button>
             </div>
-            <div className="flex-shrink-0">
+            <div className="flex justify-end">
               <div className="flex rounded-xl border border-slate-200 p-0.5 bg-slate-50">
                 <button
                   type="button"
