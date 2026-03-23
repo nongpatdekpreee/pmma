@@ -29,14 +29,6 @@ ENV NODE_ENV=production
 ARG NEXT_PUBLIC_API_URL=
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
-# หน้า login บน host (พอร์ต 80) — ถ้ายังไม่มี currentUser ใน localStorage จะ redirect ไปที่นี่ก่อนเข้า :9000
-ARG NEXT_PUBLIC_LOGIN_URL=http://10.4.102.212/
-ENV NEXT_PUBLIC_LOGIN_URL=${NEXT_PUBLIC_LOGIN_URL}
-
-# ตั้งเป็น true ถ้า dev บนเครื่องแล้วไม่ต้องการบังคับไป login
-ARG NEXT_PUBLIC_AUTH_DISABLED=false
-ENV NEXT_PUBLIC_AUTH_DISABLED=${NEXT_PUBLIC_AUTH_DISABLED}
-
 RUN npm run build
 
 # ----- Stage 4: Final runner -----

@@ -39,18 +39,20 @@ export function Sidebar() {
   // เมื่อ collapsed และ hover ให้แสดง expanded
   const isExpanded = !isCollapsed || isHovered;
 
-  const handleLogout = () => {
+  const performLogout = () => {
     // Logout is a client-only action: clear local user info then redirect to the login system
-    const currentUser = (() => {
-      try {
-        return localStorage.getItem('currentUser');
-      } catch {
-        return null;
-      }
-    })();
+    let currentUser: string | null = null;
+    let authToken: string | null = null;
+    try {
+      currentUser = localStorage.getItem('currentUser');
+      authToken = localStorage.getItem('authToken');
+    } catch {
+      // ignore
+    }
 
     try {
       localStorage.removeItem('currentUser');
+      localStorage.removeItem('authToken');
     } catch {
       // ignore
     }
@@ -60,11 +62,23 @@ export function Sidebar() {
     const baseUrl = (process.env.NEXT_PUBLIC_LOGIN_URL || 'http://10.4.102.212')
       .trim()
       .replace(/\/$/, '');
-    const redirectUrl = currentUser
-      ? `${baseUrl}?currentUser=${encodeURIComponent(currentUser)}`
-      : baseUrl;
+    const qs = new URLSearchParams();
+    if (currentUser) qs.set('currentUser', currentUser);
+    if (authToken) qs.set('authToken', authToken);
+    const redirectUrl = qs.toString() ? `${baseUrl}?${qs.toString()}` : baseUrl;
 
     window.location.href = redirectUrl;
+  };
+
+  const handleLogout = () => {
+    if (
+      !window.confirm(
+        'ต้องการออกจากระบบจริงหรือไม่?\n\nถ้ายืนยัน คุณจะถูกพาไปหน้าเข้าสู่ระบบ'
+      )
+    ) {
+      return;
+    }
+    performLogout();
   };
 
   return (

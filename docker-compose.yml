@@ -4,8 +4,6 @@ services:
     image: 10.4.102.212:8080/pmma:latest
     container_name: pmma
     restart: unless-stopped
-    # พอร์ตบน host: เลี่ยงชนกับ tccstock_nginx (ใช้ 80) และ docker-registry (ใช้ 8080->5000)
-    # เข้าแอป: http://<host>:9000
     ports:
       - "9000:80"
     volumes:
