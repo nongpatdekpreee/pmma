@@ -38,7 +38,7 @@ import {
   Shield,
   ChevronDown,
 } from 'lucide-react';
-import { getMaDashboard, getPmDashboard, getDeviceRoles, getDeviceTypes, getSitesLocation } from '@/lib/api';
+import { getMaDashboard, getPmDashboard, getDeviceRoles, getSitesLocation } from '@/lib/api';
 import { OverdueTasksModal,CompletedTasksModal,InprocessTasksModal,PendingTasksModal  } from '@/components/ui/OverdueTasksModal';
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['data']>;
@@ -89,6 +89,13 @@ function ProgressBar({ value, max, color = 'bg-slate-300' }: { value: number; ma
 
 type ReportType = 'ma' | 'pm';
 
+/** Model column label for equipment ranking rows (fallback to deviceName when model is empty). */
+function equipmentRowModelLabel(e: { model?: string | null; deviceName?: string | null }) {
+  const m = (e.model ?? '').trim();
+  if (m) return m;
+  return (e.deviceName ?? '').trim();
+}
+
 export default function ReportPage() {
   const router = useRouter();
   const [reportType, setReportType] = useState<ReportType>('ma');
@@ -114,7 +121,6 @@ export default function ReportPage() {
   const siteDropdownRef = useRef<HTMLDivElement>(null);
   const [equipmentOrderBy, setEquipmentOrderBy] = useState<'total' | 'vendor'>('total');
   const [deviceRolesList, setDeviceRolesList] = useState<{ DeRoleid: number; name: string }[]>([]);
-  const [deviceModelsList, setDeviceModelsList] = useState<{ Dtypeid: number; model: string }[]>([]);
   const [sitesList, setSitesList] = useState<{ SLid: number; Sid: number; lid: number; SiteName: string; Location2: string }[]>([]);
   const [overdueModalOpen, setOverdueModalOpen] = useState(false);
   const [maTrendView, setMaTrendView] = useState<'summary' | 'top-model'>('summary');
@@ -135,13 +141,6 @@ export default function ReportPage() {
     let cancelled = false;
     getDeviceRoles().then((res) => {
       if (!cancelled && res?.success && Array.isArray(res.data)) setDeviceRolesList(res.data);
-    });
-    return () => { cancelled = true; };
-  }, []);
-  useEffect(() => {
-    let cancelled = false;
-    getDeviceTypes().then((res) => {
-      if (!cancelled && res?.success && Array.isArray(res.data)) setDeviceModelsList(res.data);
     });
     return () => { cancelled = true; };
   }, []);
@@ -558,12 +557,33 @@ export default function ReportPage() {
         { name: 'Overdue', value: summary.totalOverdue },
       ].filter(d => d.value > 0);
 
-  /** รายการ Role จาก DB (device_role) สำหรับ dropdown */
-  const equipmentRoles = useMemo(() => deviceRolesList.map((r) => r.name).filter(Boolean), [deviceRolesList]);
-  /** รายการ Model จาก DB (device_type) สำหรับ dropdown */
-  const equipmentModels = useMemo(() => deviceModelsList.map((m) => m.model).filter(Boolean), [deviceModelsList]);
-  /** รายการ Site จาก DB (sites/locations) - distinct SiteName */
-  const equipmentSites = useMemo(() => [...new Set(sitesList.map((s) => s.SiteName))].filter(Boolean).sort((a, b) => a.localeCompare(b)), [sitesList]);
+  /** Equipment tab filters: options only from current Top 15 (equipmentRanking), not full DB lists */
+  const equipmentModels = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of equipmentRanking) {
+      const label = equipmentRowModelLabel(e);
+      if (label) set.add(label);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [equipmentRanking]);
+
+  const equipmentRoles = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of equipmentRanking) {
+      const r = (e.role ?? '').trim();
+      if (r) set.add(r);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [equipmentRanking]);
+
+  const equipmentSites = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of equipmentRanking) {
+      const s = (e.site ?? '').trim();
+      if (s) set.add(s);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [equipmentRanking]);
 
   const filteredEquipmentRanking = useMemo(() => {
     let list = equipmentRanking;
@@ -573,7 +593,7 @@ export default function ReportPage() {
     }
     if (equipmentModelFilter) {
       const want = equipmentModelFilter.toLowerCase();
-      list = list.filter((e) => (e.model ?? '').toLowerCase() === want);
+      list = list.filter((e) => equipmentRowModelLabel(e).toLowerCase() === want);
     }
     if (equipmentSiteFilter) {
       const want = equipmentSiteFilter.toLowerCase();
@@ -588,6 +608,29 @@ export default function ReportPage() {
       return cmp !== 0 ? cmp : b.total - a.total;
     });
   }, [equipmentRanking, equipmentRoleFilter, equipmentModelFilter, equipmentSiteFilter, equipmentOrderBy]);
+
+  useEffect(() => {
+    const models = new Set(equipmentModels.map((m) => m.toLowerCase()));
+    if (equipmentModelFilter && !models.has(equipmentModelFilter.toLowerCase())) {
+      setEquipmentModelFilter(null);
+    }
+    const roles = new Set(equipmentRoles.map((r) => r.toLowerCase()));
+    if (equipmentRoleFilter && !roles.has(equipmentRoleFilter.toLowerCase())) {
+      setEquipmentRoleFilter(null);
+    }
+    const sites = new Set(equipmentSites.map((s) => s.toLowerCase()));
+    if (equipmentSiteFilter && !sites.has(equipmentSiteFilter.toLowerCase())) {
+      setEquipmentSiteFilter(null);
+    }
+  }, [
+    equipmentRanking,
+    equipmentModels,
+    equipmentRoles,
+    equipmentSites,
+    equipmentModelFilter,
+    equipmentRoleFilter,
+    equipmentSiteFilter,
+  ]);
 
   const maxVendorTotal = vendorRanking.length > 0 ? vendorRanking[0].total : 1;
   const maxSiteTotal = siteRanking.length > 0 ? siteRanking[0].total : 1;
@@ -688,12 +731,12 @@ export default function ReportPage() {
     if (!isMa) {
       row(['Rank', 'Model', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Pass']);
       exportEquipment.forEach((e, i) => {
-        row([String(i + 1), e.model || '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.reportPass)]);
+        row([String(i + 1), equipmentRowModelLabel(e) || '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.reportPass)]);
       });
     } else {
       row(['Rank', 'Model', 'Role', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Inprocess', 'Pending']);
       exportEquipment.forEach((e, i) => {
-        row([String(i + 1), e.model || '-', e.role ?? '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.inprocess), String(e.pending)]);
+        row([String(i + 1), equipmentRowModelLabel(e) || '-', e.role ?? '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.inprocess), String(e.pending)]);
       });
     }
     nl();
@@ -1669,7 +1712,7 @@ export default function ReportPage() {
                   {filteredEquipmentRanking.slice(0, 15).map((e, i) => (
                     <tr key={e.deviceId + i} className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors ${i < 3 ? 'bg-red-50/30' : ''}`}>
                       <td className="py-3 px-3 w-14 text-center"><RankBadge rank={i + 1} /></td>
-                      <td className="py-3 px-3 text-sm text-slate-400 whitespace-nowrap text-center" title={e.model || undefined}>{e.model || '-'}</td>
+                      <td className="py-3 px-3 text-sm text-slate-400 whitespace-nowrap text-center" title={equipmentRowModelLabel(e) || undefined}>{equipmentRowModelLabel(e) || '-'}</td>
                       <td className="py-3 px-3 text-center">
                         <span className="text-sm text-slate-600 capitalize">{e.role ?? '-'}</span>
                       </td>
