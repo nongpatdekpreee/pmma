@@ -1,17 +1,21 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  LayoutDashboard, 
-  Calendar, 
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  LayoutDashboard,
+  Calendar,
   CalendarCog,
-  Users, 
-  MessageSquare, 
-  LogOut, 
+  Users,
+  MessageSquare,
+  LogOut,
   Menu,
   BarChart3,
   Monitor,
   FileText,
+  X,
+  AlertTriangle,
 } from 'lucide-react';
 import { useSidebar } from './SidebarContext';
 import { LucideIcon } from 'lucide-react';
@@ -35,9 +39,28 @@ const menuItems: MenuItem[] = [
 export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, isMobileOpen, isHovered, setIsHovered, closeMobile } = useSidebar();
+  const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   // เมื่อ collapsed และ hover ให้แสดง expanded
   const isExpanded = !isCollapsed || isHovered;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!logoutModalOpen) return;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLogoutModalOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [logoutModalOpen]);
 
   const performLogout = () => {
     // Logout is a client-only action: clear local user info then redirect to the login system
@@ -70,19 +93,79 @@ export function Sidebar() {
     window.location.href = redirectUrl;
   };
 
-  const handleLogout = () => {
-    if (
-      !window.confirm(
-        'ต้องการออกจากระบบจริงหรือไม่?\n\nถ้ายืนยัน คุณจะถูกพาไปหน้าเข้าสู่ระบบ'
-      )
-    ) {
-      return;
-    }
+  const openLogoutModal = () => setLogoutModalOpen(true);
+  const closeLogoutModal = () => setLogoutModalOpen(false);
+  const confirmLogout = () => {
+    setLogoutModalOpen(false);
     performLogout();
   };
 
+  const logoutModal =
+    mounted &&
+    logoutModalOpen &&
+    createPortal(
+      <div
+        className="fixed inset-0 z-[300] flex items-center justify-center bg-black/45 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="logout-modal-title"
+        onClick={closeLogoutModal}
+      >
+        <div
+          className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+            <h2 id="logout-modal-title" className="text-base font-bold text-slate-900">
+              Confirm Logout
+            </h2>
+            <button
+              type="button"
+              onClick={closeLogoutModal}
+              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Close"
+            >
+              <X size={20} strokeWidth={2} />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="flex gap-4 px-5 py-5">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-50">
+              <AlertTriangle className="text-amber-500" size={26} strokeWidth={2} aria-hidden />
+            </div>
+            <p className="text-sm leading-relaxed text-slate-600 pt-0.5">
+              Are you sure you want to logout? You will need to login again to access the system.
+            </p>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
+            <button
+              type="button"
+              onClick={closeLogoutModal}
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmLogout}
+              className="inline-flex items-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-600"
+            >
+              <LogOut size={18} className="shrink-0" strokeWidth={2} />
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+
   return (
     <>
+      {logoutModal}
       {/* Mobile Overlay */}
       {isMobileOpen && (
         <div 
@@ -219,7 +302,7 @@ export function Sidebar() {
           <div className="shrink-0 px-2 py-1.5 border-t border-slate-200/80">
             <button
               type="button"
-              onClick={handleLogout}
+              onClick={openLogoutModal}
               className={`
                 flex items-center gap-2 px-2 py-1.5 rounded-lg
                 text-slate-500 hover:text-red-500 hover:bg-red-50
