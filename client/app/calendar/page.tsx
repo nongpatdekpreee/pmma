@@ -1,9 +1,14 @@
 'use client';
 
+// Prevent Next.js from prerendering this route.
+// `useSearchParams()` requires a Suspense boundary during static prerender,
+// so we force dynamic rendering to avoid the build-time bailout error.
+export const dynamic = 'force-dynamic';
+
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { ChevronLeft, ChevronRight, X, FileCheck, FileX2, LayoutGrid, List } from 'lucide-react';
-import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
+import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -66,6 +71,14 @@ interface CalendarEvent {
 }
 
 export default function CalendarPage() {
+  return (
+    <Suspense fallback={null}>
+      <CalendarPageContent />
+    </Suspense>
+  );
+}
+
+function CalendarPageContent() {
   const searchParams = useSearchParams();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);

@@ -1,17 +1,19 @@
-services:
 
-  backend:
-    volumes:
-      - /data/pmm/uploads:/app/uploads
-    image: 10.4.102.212:8080/pmma-backend:latest
-    container_name: pmma-backend
+services:
+  pmma:
+    image: 10.4.102.212:8080/pmma:latest
+    container_name: pmma
     restart: unless-stopped
+    # พอร์ตบน host: เลี่ยงชนกับ tccstock_nginx (ใช้ 80) และ docker-registry (ใช้ 8080->5000)
+    # เข้าแอป: http://<host>:9000
     ports:
-      - "5000:5000"
+      - "9000:80"
+    volumes:
+      # Must match backend: path.join(__dirname, 'uploads') => /app/backend/uploads
+      - /data/pmm/uploads:/app/backend/uploads
     environment:
       NODE_ENV: production
       PORT: 5000
-
       DB_HOST: tccstock_mysql
       DB_PORT: 3306
       DB_USER: app_user
@@ -20,20 +22,8 @@ services:
     networks:
       - app-net
 
-  frontend:
-    image: 10.4.102.212:8080/pmma-client:latest
-    container_name: pmma-client
-    restart: unless-stopped
-    ports:
-      - "9000:9000"
-    environment:
-      NODE_ENV: development
-      PORT: 9000
-      HOSTNAME: "0.0.0.0"
-      NEXT_PUBLIC_API_BASE_URL: http://10.4.102.212:5000/api
-    networks:
-      - app-net
-
 networks:
   app-net:
     external: true
+# ถ้า DB_HOST=tccstock_mysql resolve ไม่ได้: ให้คอนเทนเนอร์ mysql join network เดียวกัน เช่น
+#   docker network connect app-net tccstock_mysql

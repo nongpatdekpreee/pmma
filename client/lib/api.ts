@@ -1,8 +1,11 @@
-const API_BASE = typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_URL
-  ? process.env.NEXT_PUBLIC_API_URL
-  //: 'http://localhost:5000';
-   : 'http://10.4.102.212:5000';
-
+/** Same-origin /api when NEXT_PUBLIC_API_URL is "" (e.g. combined nginx image). */
+function getApiBase(): string {
+  if (typeof process === 'undefined') return 'http://10.4.102.212:5000';
+  const v = process.env.NEXT_PUBLIC_API_URL;
+  if (v !== undefined && v !== null) return v;
+  return 'http://10.4.102.212:5000';
+}
+const API_BASE = getApiBase();
 
 
 export function apiUrl(path: string): string {

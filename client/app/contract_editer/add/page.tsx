@@ -1031,8 +1031,16 @@ function AddContractPageContent() {
                             list="sof-list-renew"
                             value={selectedSOF}
                             onChange={(e) => {
-                              const value = e.target.value;
-                              if (value === '' || /^\d+$/.test(value)) {
+                              const raw = e.target.value;
+                              const value = raw.trim();
+                              if (value === '') {
+                                setSelectedSOF('');
+                                setSofName('');
+                                return;
+                              }
+                              // Allow if value comes from dropdown list,
+                              // otherwise enforce digits-only for manual input.
+                              if (referSOFList.includes(value) || /^\d+$/.test(value)) {
                                 setSelectedSOF(value);
                                 setSofName(value);
                               }
@@ -1112,8 +1120,16 @@ function AddContractPageContent() {
                       list="sof-list"
                       value={selectedSOF}
                       onChange={(e) => {
-                        const value = e.target.value;
-                        if (value === '' || /^\d+$/.test(value)) {
+                        const raw = e.target.value;
+                        const value = raw.trim();
+                        if (value === '') {
+                          setSelectedSOF('');
+                          setSofName('');
+                          return;
+                        }
+                        // Allow if value comes from dropdown list,
+                        // otherwise enforce digits-only for manual input.
+                        if (referSOFList.includes(value) || /^\d+$/.test(value)) {
                           setSelectedSOF(value);
                           setSofName(value);
                         }

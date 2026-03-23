@@ -39,6 +39,34 @@ export function Sidebar() {
   // เมื่อ collapsed และ hover ให้แสดง expanded
   const isExpanded = !isCollapsed || isHovered;
 
+  const handleLogout = () => {
+    // Logout is a client-only action: clear local user info then redirect to the login system
+    const currentUser = (() => {
+      try {
+        return localStorage.getItem('currentUser');
+      } catch {
+        return null;
+      }
+    })();
+
+    try {
+      localStorage.removeItem('currentUser');
+    } catch {
+      // ignore
+    }
+
+    closeMobile();
+
+    const baseUrl = (process.env.NEXT_PUBLIC_LOGIN_URL || 'http://10.4.102.212')
+      .trim()
+      .replace(/\/$/, '');
+    const redirectUrl = currentUser
+      ? `${baseUrl}?currentUser=${encodeURIComponent(currentUser)}`
+      : baseUrl;
+
+    window.location.href = redirectUrl;
+  };
+
   return (
     <>
       {/* Mobile Overlay */}
@@ -176,6 +204,8 @@ export function Sidebar() {
           {/* Logout Button */}
           <div className="shrink-0 px-2 py-1.5 border-t border-slate-200/80">
             <button
+              type="button"
+              onClick={handleLogout}
               className={`
                 flex items-center gap-2 px-2 py-1.5 rounded-lg
                 text-slate-500 hover:text-red-500 hover:bg-red-50

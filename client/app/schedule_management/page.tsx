@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect, useRef, Fragment } from 'react';
+import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useSearchParams } from 'next/navigation';
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
@@ -82,6 +82,14 @@ interface CalendarEvent {
 }
 
 export default function ScheduleManagement() {
+  return (
+    <Suspense fallback={null}>
+      <ScheduleManagementContent />
+    </Suspense>
+  );
+}
+
+function ScheduleManagementContent() {
   const searchParams = useSearchParams();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
