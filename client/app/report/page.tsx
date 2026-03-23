@@ -912,7 +912,7 @@ export default function ReportPage() {
           </div>
           </div>
             {/* Bottom Insights */}
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-blue-50/70 border border-blue-100 p-6 rounded-[2rem] shadow-sm">
             <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
               <TrendingUp size={16} className="text-blue-500" />
@@ -953,26 +953,6 @@ export default function ReportPage() {
                 </li>
               ))}
               {equipmentRanking.length === 0 && <li className="text-slate-400">No data available</li>}
-            </ul>
-          </div>
-
-          <div className="bg-emerald-50/70 border border-emerald-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-4 text-sm">
-              Recommendations
-            </h3>
-            <ul className="space-y-2.5 text-sm text-slate-600">
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
-                <span>Review equipment with more than 3 MA occurrences for replacement</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
-                <span>{isMa ? 'Follow up MA tasks that remain in Inprocess or Pending for too long' : 'Follow up with vendors that have high fail rates to improve SLA'}</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <ChevronRight size={14} className="text-emerald-500 mt-0.5 shrink-0" />
-                <span>Plan preventive PM for sites with high MA volume</span>
-              </li>
             </ul>
           </div>
         </div>
