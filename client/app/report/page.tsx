@@ -1169,8 +1169,8 @@ export default function ReportPage() {
         />
 
         {/* Row 2: Monthly Trend + Pie */}
-        <div className="grid grid-cols-3 gap-6">
-          <div className="col-span-2 min-w-0 overflow-hidden bg-white p-6 rounded-[2rem] shadow-sm">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 min-w-0 overflow-hidden bg-white p-6 rounded-[2rem] shadow-sm">
             <div className="flex items-center justify-between mb-3 min-w-0">
               <div className="flex items-center gap-3 min-w-0 flex-1">
                 <h3 className="font-bold text-slate-600 text-lg flex items-center gap-2">
@@ -1349,8 +1349,8 @@ export default function ReportPage() {
                 </div>
               </div>
             )}
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-72 w-full min-w-0 min-h-[18rem]">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
                 <BarChart
                   data={
                     isMa && maTrendView === 'top-model'
@@ -1421,13 +1421,13 @@ export default function ReportPage() {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm">
+          <div className="bg-white p-6 rounded-[2rem] shadow-sm min-w-0">
             <h3 className="font-bold text-slate-600 text-lg mb-4 flex items-center gap-2">
               <Shield size={18} className="text-slate-400" />
               {taskLabel} Result Breakdown
             </h3>
-            <div className="h-52">
-              <ResponsiveContainer width="100%" height="100%">
+            <div className="h-52 w-full min-w-0 min-h-[13rem]">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
                 <PieChart>
                   <Pie
                     data={pieData}
@@ -1493,14 +1493,14 @@ export default function ReportPage() {
 
         {/* Vendor Tab */}
         {activeTab === 'vendor' && (
-          <div className="grid grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm min-w-0">
               <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
                 <BarChart3 size={18} className="text-slate-400" />
                 MA Tasks by Vendor
               </h3>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="h-80 w-full min-w-0 min-h-[20rem]">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
                   <BarChart data={vendorRanking} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                     <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#b0b8c4' }} />
@@ -1728,14 +1728,14 @@ export default function ReportPage() {
 
         {/* Site Tab */}
         {activeTab === 'site' && (
-          <div className="grid grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-[2rem] shadow-sm min-w-0">
               <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
                 <BarChart3 size={18} className="text-slate-400" />
                 {taskLabel} Tasks by Site
               </h3>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="h-80 w-full min-w-0 min-h-[20rem]">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
                   <BarChart data={siteRanking} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                     <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#b0b8c4' }} />

@@ -148,7 +148,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const endDatePickerRef = useRef<HTMLInputElement>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [loadingEngineers, setLoadingEngineers] = useState(false);
-  const { toasts, removeToast, warning: showWarning } = useToast();
+  const { toasts, removeToast, warning: showWarning, error: toastError } = useToast();
 
   const resetForm = () => {
     setTaskType('PM');
@@ -1303,11 +1303,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   const handleSave = async () => {
     if (!Sname || !startDate || selectedEngineers.length === 0) {
-      alert('Please fill required fields');
+      showWarning('Please fill required fields');
       return;
     }
     if (editingEvent?.status !== 'done' && !(endDate || startDate)) {
-      alert('Please select an end date');
+      showWarning('Please select an end date');
       return;
     }
 
@@ -1326,36 +1326,36 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   // MA-specific validation (เหมือน PM)
   if (taskType === 'MA') {
       if (!vendorName || !startDate) {
-        alert('Please fill required MA fields: Third Party Vendor name and Start Date');
+        showWarning('Please fill required MA fields: Third Party Vendor name and Start Date');
         return;
       }
       // Guard against bots: minimum 5 characters for key text fields
       if (vendorName && vendorName.trim().length < 5) {
-        alert('Third Party Vendor name must be at least 5 characters');
+        showWarning('Third Party Vendor name must be at least 5 characters');
         return;
       }
       if (reporterName && reporterName.trim().length < 5) {
-        alert('Reporter name must be at least 5 characters');
+        showWarning('Reporter name must be at least 5 characters');
         return;
       }
       // Validate Contract Phone number: if provided, must be 4-10 digits
       if (vendorTel && (vendorTel.length < 4 || vendorTel.length > 10)) {
-        alert('Phone number must be between 4 and 10 digits');
+        showWarning('Phone number must be between 4 and 10 digits');
         return;
       }
       // Validate Client Phone number: if provided, must be 4-10 digits
       if (reporterTel && (reporterTel.length < 4 || reporterTel.length > 10)) {
-        alert('Phone number must be between 4 and 10 digits');
+        showWarning('Phone number must be between 4 and 10 digits');
         return;
       }
       // Contract is required for MA because broken devices must come from contract
       if (!selectedContractId) {
-        alert('Please select a contract before (broken devices must be from contract)');
+        showWarning('Please select a contract before (broken devices must be from contract)');
         return;
       }
       // Validate broken device pairs (new way) or legacy selectedDevices
       if (brokenDevicePairs.length === 0 && selectedDevices.length === 0) {
-        alert('Please add at least one broken device');
+        showWarning('Please add at least one broken device');
         return;
       }
     }
@@ -1418,7 +1418,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       onClose();
     } catch (error) {
       console.error('save task error', error);
-      alert('Failed to save data.');
+      toastError('Failed to save data.');
     } finally {
       setIsSubmitting(false);
     }

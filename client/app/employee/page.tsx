@@ -5,7 +5,9 @@ import * as XLSX from "xlsx";
 import { LucideIcon, UserCheck, UserRoundCog, Wrench, Search, UserPlus, X, FileUp, Edit, Trash2, Download } from "lucide-react";
 import { apiUrl, getEmployees, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
 import DashboardHeader from "@/components/ui/Header";
-import { SidebarLayout } from "@/components/sidebar/SidebarLayout";   
+import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
+import { useToast, ToastContainer } from "@/components/ui/Toast";
+import { useAlertModal } from "@/components/ui/useAlertModal";   
 
 /* ================= summary ================= */
 interface SummaryEM {
@@ -69,6 +71,8 @@ const EmployeeManagement = () => {
   const [addFormErrors, setAddFormErrors] = useState<{ name: string; gmail: string; tel: string }>({ name: "", gmail: "", tel: "" });
   const [editFormErrors, setEditFormErrors] = useState<{ name: string; gmail: string; tel: string }>({ name: "", gmail: "", tel: "" });
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
+  const { showConfirm, alertModal } = useAlertModal();
 
   const fetchEmployees = async () => {
     try {
@@ -111,7 +115,7 @@ const EmployeeManagement = () => {
   const handleEditPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) {
-      if (file) alert("Please select an image file (jpg, png, gif, webp)");
+      if (file) toastWarning("Please select an image file (jpg, png, gif, webp)");
       return;
     }
     setEditPhotoUploading(true);
@@ -120,35 +124,46 @@ const EmployeeManagement = () => {
       if (uploadRes.success && uploadRes.path) {
         setEditForm((f) => ({ ...f, photo: uploadRes.path ?? null }));
       } else {
-        alert(uploadRes.message || "Upload image failed");
+        toastError(uploadRes.message || "Upload image failed");
       }
     } catch (err) {
       console.error(err);
-      alert("Upload image failed");
+      toastError("Upload image failed");
     } finally {
       setEditPhotoUploading(false);
     }
   };
 
-  const handleDeleteEmployee = async () => {
+  const handleDeleteEmployee = () => {
     if (!editingEmployee) return;
-    if (!confirm(`Delete "${editingEmployee.name}" from the employee list?`)) return;
-    setDeleteLoading(true);
-    try {
-      const res = await deleteEmployee(editingEmployee.id);
-      if (res.success) {
-        setEditingEmployee(null);
-        await fetchEmployees();
-        alert("Employee deleted successfully");
-      } else {
-        alert(res.message || "Delete failed");
+    const emp = editingEmployee;
+    showConfirm(
+      `Delete "${emp.name}" from the employee list?`,
+      async () => {
+        setDeleteLoading(true);
+        try {
+          const res = await deleteEmployee(emp.id);
+          if (res.success) {
+            setEditingEmployee(null);
+            await fetchEmployees();
+            toastSuccess("Employee deleted successfully");
+          } else {
+            toastError(res.message || "Delete failed");
+          }
+        } catch (err) {
+          console.error(err);
+          toastError("An error occurred");
+        } finally {
+          setDeleteLoading(false);
+        }
+      },
+      {
+        title: "Delete employee",
+        confirmText: "Delete",
+        cancelText: "Cancel",
+        dangerConfirm: true,
       }
-    } catch (err) {
-      console.error(err);
-      alert("An error occurred");
-    } finally {
-      setDeleteLoading(false);
-    }
+    );
   };
 
   const handleEditSubmit = async (e: React.FormEvent) => {
@@ -177,13 +192,13 @@ const EmployeeManagement = () => {
       if (res.success) {
         setEditingEmployee(null);
         await fetchEmployees();
-        alert("Employee updated successfully");
+        toastSuccess("Employee updated successfully");
       } else {
-        alert(res.message || "Employee update failed");
+        toastError(res.message || "Employee update failed");
       }
     } catch (err) {
       console.error(err);
-      alert("Error updating employee");
+      toastError("Error updating employee");
     } finally {
       setEditSaving(false);
     }
@@ -192,7 +207,7 @@ const EmployeeManagement = () => {
   const handleAddPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) {
-      if (file) alert("Please select an image file (jpg, png, gif, webp)");
+      if (file) toastWarning("Please select an image file (jpg, png, gif, webp)");
       return;
     }
     setAddPhotoUploading(true);
@@ -202,11 +217,11 @@ const EmployeeManagement = () => {
         setAddForm((f) => ({ ...f, photo: uploadRes.path ?? null }));
         setAddPhotoFile(file);
       } else {
-        alert(uploadRes.message || "Upload image failed");
+        toastError(uploadRes.message || "Upload image failed");
       }
     } catch (err) {
       console.error(err);
-      alert("Upload image failed");
+      toastError("Upload image failed");
     } finally {
       setAddPhotoUploading(false);
     }
@@ -267,13 +282,13 @@ const EmployeeManagement = () => {
         setAddFormErrors({ name: "", gmail: "", tel: "" });
         setAddPhotoFile(null);
         await fetchEmployees();
-        alert("Employee added successfully");
+        toastSuccess("Employee added successfully");
       } else {
-        alert(res.message || "Employee add failed");
+        toastError(res.message || "Employee add failed");
       }
     } catch (err) {
       console.error(err);
-      alert("Error adding employee");
+      toastError("Error adding employee");
     } finally {
       setAddSaving(false);
     }
@@ -383,7 +398,7 @@ const EmployeeManagement = () => {
     if (!file) return;
     const validExt = file.name.endsWith(".csv") || file.name.endsWith(".xlsx") || file.name.endsWith(".xls");
     if (!validExt) {
-      alert("Please select a CSV or Excel file (.csv, .xlsx, .xls)");
+      toastWarning("Please select a CSV or Excel file (.csv, .xlsx, .xls)");
       return;
     }
     setImportFile(file);
@@ -394,7 +409,7 @@ const EmployeeManagement = () => {
       setImportRows(rows);
     } catch (err) {
       console.error(err);
-      alert("Failed to parse file. Check format (columns: Name, Email, Phone_Number, Position_Type, Employment_Type).");
+      toastError("Failed to parse file. Check format (columns: Name, Email, Phone_Number, Position_Type, Employment_Type).");
     } finally {
       setImportParsing(false);
     }
@@ -449,17 +464,17 @@ const EmployeeManagement = () => {
 
   const handleImportSubmit = async () => {
     if (importRows.length === 0) {
-      alert("No data to import, please select an Excel or CSV file");
+      toastWarning("No data to import, please select an Excel or CSV file");
       return;
     }
     const validation = validateImportRows(importRows);
     if (validation.errors.length > 0) {
-      alert("Data is not valid:\n\n" + validation.errors.join("\n"));
+      toastError("Data is not valid:\n\n" + validation.errors.join("\n"), 8000);
       return;
     }
     const valid = importRows.filter((r) => r.name.trim() && r.gmail.trim() && r.tel.trim());
     if (valid.length === 0) {
-      alert("No row with name, gmail, tel");
+      toastWarning("No row with name, gmail, tel");
       return;
     }
     setImportSaving(true);
@@ -483,13 +498,13 @@ const EmployeeManagement = () => {
         const errors = res.data.errors && res.data.errors.length > 0
           ? "\n\nFailed rows:\n" + res.data.errors.map((e: { row: number; message: string }) => `Row ${e.row}: ${e.message}`).join("\n")
           : "";
-        alert(msg + errors);
+        toastSuccess(msg + errors, 8000);
       } else {
-        alert(res.message || "Import failed");
+        toastError(res.message || "Import failed");
       }
     } catch (err) {
       console.error(err);
-      alert("Error importing employees");
+      toastError("Error importing employees");
     } finally {
       setImportSaving(false);
     }
@@ -1186,6 +1201,8 @@ const EmployeeManagement = () => {
             </div>
           )}
         </main>
+      {alertModal}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
 };

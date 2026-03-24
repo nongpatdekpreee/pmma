@@ -92,7 +92,7 @@ export default function MAPage() {
                 <h3 className="font-bold text-slate-700 mb-6">
                   MA Contracts by Vendor
                 </h3>
-                <div className="h-64">
+                <div className="h-64 w-full min-w-0 min-h-[16rem]">
                   {loading ? (
                     <div className="flex items-center justify-center h-full">
                       <p className="text-slate-500">Loading...</p>
@@ -102,7 +102,7 @@ export default function MAPage() {
                       <p className="text-slate-500">No vendor data available</p>
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                       <BarChart data={vendorData}>
                         <XAxis
                           dataKey="name"
@@ -132,7 +132,7 @@ export default function MAPage() {
                 <h3 className="font-bold text-slate-700 mb-6">
                   MA Distribution by Vendor (Sites)
                 </h3>
-                <div className="h-64">
+                <div className="h-64 w-full min-w-0 min-h-[16rem]">
                   {loading ? (
                     <div className="flex items-center justify-center h-full">
                       <p className="text-slate-500">Loading...</p>
@@ -142,7 +142,7 @@ export default function MAPage() {
                       <p className="text-slate-500">No vendor data available</p>
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                       <BarChart data={vendorData}>
                         <XAxis 
                           dataKey="name" 

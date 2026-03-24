@@ -635,13 +635,13 @@ const getOverdueTasks = async (req, res) => {
     if (taskType !== 'MA' && taskType !== 'PM') {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ task_type เป็น MA หรือ PM',
+        message: 'Please specify task_type as MA or PM',
       });
     }
     if ((sid != null && Number.isNaN(sid)) || (lid != null && Number.isNaN(lid))) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
+        message: 'Please specify sid/lid as a number',
       });
     }
     const [rows] = await db.execute(
@@ -679,13 +679,13 @@ const getCompletedTasks = async (req, res) => {
     if (taskType !== 'MA' && taskType !== 'PM') {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ task_type เป็น MA หรือ PM',
+        message: 'Please specify task_type as MA or PM',
       });
     }
     if ((sid != null && Number.isNaN(sid)) || (lid != null && Number.isNaN(lid))) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
+        message: 'Please specify sid/lid as a number',
       });
     }
     const [rows] = await db.execute(
@@ -771,13 +771,13 @@ const getPendingTasks = async (req, res) => {
     if (taskType !== 'MA' && taskType !== 'PM') {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ task_type เป็น MA หรือ PM',
+        message: 'Please specify task_type as MA or PM',
       });
     }
     if ((sid != null && Number.isNaN(sid)) || (lid != null && Number.isNaN(lid))) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
+        message: 'Please specify sid/lid as a number',
       });
     }
     const [rows] = await db.execute(

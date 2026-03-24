@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { useAlertModal } from '@/components/ui/useAlertModal';
 import { apiUrl, getSitesLocation } from '@/lib/api';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
@@ -204,6 +205,7 @@ function ContractEditorPageContent() {
   });
 
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
+  const { showConfirm, alertModal } = useAlertModal();
 
   // Show success toast from redirect (add/edit save) then clear URL — run once to avoid update loop
   const didHandleToastRef = useRef(false);
@@ -617,9 +619,13 @@ function ContractEditorPageContent() {
   };
 
   const removeEquipment = (index: number) => {
-    if (confirm('Do you want to delete this equipment?')) {
-      setCurrentEquipmentList(currentEquipmentList.filter((_, i) => i !== index));
-    }
+    showConfirm(
+      'Do you want to delete this equipment?',
+      () => {
+        setCurrentEquipmentList((list) => list.filter((_, i) => i !== index));
+      },
+      { title: 'Remove equipment', confirmText: 'Delete', cancelText: 'Cancel', dangerConfirm: true }
+    );
   };
 
   const handleAddContract = (e: React.FormEvent) => {
@@ -3471,6 +3477,7 @@ function ContractEditorPageContent() {
         </Modal>
       )}
 
+      {alertModal}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );

@@ -48,7 +48,7 @@ const submitPmReport = async (req, res) => {
     if (!taskId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาเลือก Task (taskId) ก่อนส่ง Report',
+        message: 'Please select Task (taskId) before submitting Report',
       });
     }
 
@@ -96,7 +96,7 @@ const submitPmReport = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'บันทึกข้อมูล PM Checklist Report สำเร็จ',
+      message: 'PM Checklist Report saved successfully',
       data: reportData,
       list: checklistItems,
     });
@@ -104,7 +104,7 @@ const submitPmReport = async (req, res) => {
     console.error('[submitPmReport] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการส่ง Report',
+      message: 'Error submitting Report',
       error: error.message,
     });
   }
@@ -170,7 +170,7 @@ const getPmReports = async (req, res) => {
     console.error('[getPmReports] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Reports',
+      message: 'Error getting reports',
       error: error.message,
     });
   }

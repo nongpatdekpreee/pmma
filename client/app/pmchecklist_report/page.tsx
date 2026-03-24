@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { getPmReports, getMaReports, getTasks, apiUrl } from '@/lib/api';
 import JSZip from 'jszip';
 import {
@@ -99,6 +100,7 @@ const DOWNLOAD_MODAL_PAGE_SIZE = 8;
 function ReportPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toasts, removeToast, error: toastError, warning: toastWarning } = useToast();
   const tabFromUrl = searchParams.get('tab') as ReportTab | null;
   const [tab, setTab] = useState<ReportTab>(tabFromUrl === 'ma' ? 'ma' : 'pm');
 
@@ -434,7 +436,7 @@ function ReportPageContent() {
   const handleCreatePM = () => {
     setShowCreateMenu(false);
     if (remainingPMTasks.length === 0) {
-      alert('No PM tasks available to create a report.');
+      toastWarning('No PM tasks available to create a report.');
       return;
     }
     router.push('/pmchecklist_report/add');
@@ -443,7 +445,7 @@ function ReportPageContent() {
   const handleCreateMA = () => {
     setShowCreateMenu(false);
     if (remainingMATasks.length === 0) {
-      alert('No MA tasks available to create a report.');
+      toastWarning('No MA tasks available to create a report.');
       return;
     }
     router.push('/machecklist_report/add');
@@ -703,7 +705,7 @@ function ReportPageContent() {
     );
     const bySite = buildFilesBySiteMap(sofReports);
     if (bySite.size === 0) {
-      alert(`No files (images/PDFs) for SOF: ${sofName}`);
+      toastWarning(`No files (images/PDFs) for SOF: ${sofName}`);
       return;
     }
     const taskLabel = tab === 'pm' ? 'PM' : 'MA';
@@ -770,9 +772,11 @@ function ReportPageContent() {
     );
     const allFiles = getFilesFromReports(siteReports);
     if (allFiles.length === 0) {
-      alert(locationFilter
-        ? `No files (images/PDFs) for Site: ${siteName} / Location: ${locationFilter}`
-        : `No files (images/PDFs) for Site: ${siteName}`);
+      toastWarning(
+        locationFilter
+          ? `No files (images/PDFs) for Site: ${siteName} / Location: ${locationFilter}`
+          : `No files (images/PDFs) for Site: ${siteName}`
+      );
       return;
     }
     const taskLabel = tab === 'pm' ? 'PM' : 'MA';
@@ -819,7 +823,7 @@ function ReportPageContent() {
     sourceReports: (PMReport | MAReport)[]
   ) => {
     if (selections.length === 0) {
-      alert('No locations selected for download');
+      toastWarning('No locations selected for download');
       return;
     }
 
@@ -866,7 +870,7 @@ function ReportPageContent() {
     }
 
     if (addedFiles === 0) {
-      alert('No files found for selected locations');
+      toastWarning('No files found for selected locations');
       return;
     }
 
@@ -887,7 +891,7 @@ function ReportPageContent() {
       await downloadZipForSOF(sofName, downloadSourceReports);
     } catch (e) {
       console.error(e);
-      alert('Error downloading images');
+      toastError('Error downloading images');
     } finally {
       setDownloadingImages(false);
     }
@@ -901,7 +905,7 @@ function ReportPageContent() {
       await downloadZipForSite(siteName, downloadSourceReports);
     } catch (e) {
       console.error(e);
-      alert('Error downloading images');
+      toastError('Error downloading images');
     } finally {
       setDownloadingImages(false);
     }
@@ -1112,7 +1116,7 @@ function ReportPageContent() {
       ? selectedInFilter
       : downloadModalSites;
     if (toDownload.length === 0) {
-      alert('No sites or locations to download for current filter');
+      toastWarning('No sites or locations to download for current filter');
       return;
     }
     setDownloadingImages(true);
@@ -1124,7 +1128,7 @@ function ReportPageContent() {
       );
     } catch (e) {
       console.error(e);
-      alert('Error downloading images');
+      toastError('Error downloading images');
     } finally {
       setDownloadingImages(false);
     }
@@ -1188,7 +1192,7 @@ function ReportPageContent() {
       triggerBlobDownload(zipBlob, `${taskLabel}_${year}_SOF_All_Site_All_รายการทั้งหมด.zip`);
     } catch (e) {
       console.error(e);
-      alert('Error downloading images');
+      toastError('Error downloading images');
     } finally {
       setDownloadingImages(false);
     }
@@ -2227,6 +2231,7 @@ function ReportPageContent() {
           document.body
         )}
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
 }

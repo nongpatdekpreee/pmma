@@ -4,18 +4,16 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, postMaReport, getTasks, getMaReports, getMaReportedTaskIds, getContractById, uploadMaReportFile } from '@/lib/api';
 import { 
   Upload, 
   X, 
-  CheckCircle2, 
-  AlertCircle, 
-  XCircle,
+  CheckCircle2,
+  AlertCircle,
   FileText,
   Image as ImageIcon,
   Save,
-  Plus,
-  Trash2,
   ArrowLeft,
   Calendar,
   User,
@@ -25,13 +23,6 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
-
-interface ChecklistItem {
-  id: string;
-  task: string;
-  status: 'pending' | 'pass'| 'fail';
-  notes?: string;
-}
 
 interface UploadedFile {
   id: string;
@@ -65,16 +56,15 @@ interface Device {
 
 export default function AddMAReportPage() {
   const router = useRouter();
+  const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [loadingDevices, setLoadingDevices] = useState(false);
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const maResult: 'pass' = 'pass';
   const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
   const [maDate, setMaDate] = useState(new Date().toISOString().split('T')[0]);
-  const [newChecklistTask, setNewChecklistTask] = useState('');
   const [saving, setSaving] = useState(false);
   const [hasDoneMATasks, setHasDoneMATasks] = useState(false);
   const [doneMATasks, setDoneMATasks] = useState<any[]>([]);
@@ -256,35 +246,6 @@ export default function AddMAReportPage() {
     return Number.isNaN(n) ? 70 : n;
   }, [availableMATasks, selectedTaskId, contractSlaMap]);
 
-  // Add new checklist item
-  const addChecklistItem = () => {
-    if (newChecklistTask.trim()) {
-      setChecklistItems([
-        ...checklistItems,
-        {
-          id: `item-${Date.now()}`,
-          task: newChecklistTask.trim(),
-          status: 'pending' as const,
-        },
-      ]);
-      setNewChecklistTask('');
-    }
-  };
-
-  // Remove checklist item
-  const removeChecklistItem = (id: string) => {
-    setChecklistItems(items => items.filter(item => item.id !== id));
-  };
-
-  // Update checklist item status
-  const updateChecklistStatus = (id: string, status: 'pending' | 'pass' | 'fail') => {
-    setChecklistItems(items =>
-      items.map(item =>
-        item.id === id ? { ...item, status } : item
-      )
-    );
-  };
-
   // Handle file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -321,11 +282,11 @@ export default function AddMAReportPage() {
   // Handle save - อัปโหลดไฟล์ก่อน แล้วส่ง report
   const handleSave = async () => {
     if (!selectedTaskId) {
-      alert('Please select a task before submitting the report.');
+      toastWarning('Please select a task before submitting the report.');
       return;
     }
     if (!selectedDeviceId) {
-      alert('Please select a device.');
+      toastWarning('Please select a device.');
       return;
     }
     const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
@@ -358,7 +319,7 @@ export default function AddMAReportPage() {
         taskId: selectedTaskId,
         deviceId: selectedDeviceId,
         device: selectedDevice,
-        checklistItems,
+        checklistItems: [],
         uploadedFiles: filesWithPath,
         maResult,
         comment,
@@ -369,34 +330,16 @@ export default function AddMAReportPage() {
 
       const res = await postMaReport(reportData);
       if (res.success) {
-        alert('MA Checklist Report saved successfully.\n\nItems sent: ' + (res.list?.length ?? checklistItems.length));
-        // Redirect กลับไปหน้า list
-        router.push('/machecklist_report');
+        toastSuccess(res.message || 'MA report saved successfully', 3200);
+        window.setTimeout(() => router.push('/machecklist_report'), 1200);
       } else {
-        alert(res.message || 'Failed to submit report.');
+        toastError(res.message || 'Failed to submit report.');
       }
     } catch (e) {
       console.error(e);
-      alert('Error submitting report.');
+      toastError('Error submitting report.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pass': return 'bg-green-500';
-      case 'warning': return 'bg-amber-400';
-      case 'fail': return 'bg-red-500';
-      default: return 'bg-slate-300';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'pass': return <CheckCircle2 size={18} className="text-white" />;
-      case 'fail': return <XCircle size={18} className="text-white" />;
-      default: return null;
     }
   };
 
@@ -410,6 +353,7 @@ export default function AddMAReportPage() {
             <p className="text-sm text-slate-400">Please wait</p>
           </div>
         </div>
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
       </SidebarLayout>
     );
   }
@@ -441,6 +385,7 @@ export default function AddMAReportPage() {
             </button>
           </div>
         </div>
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
       </SidebarLayout>
     );
   }
@@ -928,6 +873,7 @@ export default function AddMAReportPage() {
           </div>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
 }
