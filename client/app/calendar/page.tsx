@@ -856,7 +856,7 @@ function CalendarPageContent() {
           </h1>
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
-              <label htmlFor="engineer-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              <label htmlFor="engineer-filter-input-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
                 Engineer:
               </label>
               <div

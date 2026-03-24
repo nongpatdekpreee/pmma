@@ -62,7 +62,7 @@ const generateNextContractId = async () => {
 const uploadContractFile = (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'ไม่พบไฟล์' });
+      return res.status(400).json({ success: false, message: 'File not found' });
     }
     const path = `/uploads/contracts/${req.file.filename}`;
     res.status(200).json({ success: true, path });
@@ -124,7 +124,7 @@ const createContract = async (req, res) => {
     if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณากรอกรูปแบบ Email ให้ถูกต้อง (เช่น example@domain.com)'
+        message: 'Please provide a valid email address (e.g. example@domain.com)'
       });
     }
     const telVal = tel_acc != null ? String(tel_acc).trim() : '';
@@ -133,7 +133,7 @@ const createContract = async (req, res) => {
       if (digitsOnly.length < 9 || digitsOnly.length > 15) {
         return res.status(400).json({
           success: false,
-          message: 'กรุณากรอกหมายเลขโทรศัพท์ให้ถูกต้อง (อย่างน้อย 9 หลัก)'
+          message: 'Please provide a valid phone number (at least 9 digits)'
         });
       }
     }
@@ -156,7 +156,7 @@ const createContract = async (req, res) => {
       if (pairs.length === 0 && contractStatus !== 'draft') {
         return res.status(400).json({
           success: false,
-          message: 'กรุณาเลือก Site และ Device อย่างน้อย 1 รายการในแต่ละ Site (site_id และ device_ids ต้องไม่ว่าง)',
+          message: 'Please select at least one site and device in each site (site_id and device_ids must not be empty)',
         });
       }
       deviceIdList = [...new Set(pairs.flatMap((p) => p.device_ids))];
@@ -199,7 +199,7 @@ const createContract = async (req, res) => {
       if (alreadyInContract.length > 0) {
         return res.status(400).json({
           success: false,
-          message: 'อุปกรณ์บางรายการผูกกับสัญญาอื่นแล้ว กรุณาเลือกเฉพาะอุปกรณ์ที่ยังไม่มีสัญญา',
+          message: 'Some devices are already associated with other contracts, please select only devices that are not already associated',
           device_ids: alreadyInContract,
         });
       }
@@ -245,7 +245,7 @@ const createContract = async (req, res) => {
       finalContractId = await generateNextContractId();
       const [retryExisting] = await db.execute(checkSql, [finalContractId]);
       if (retryExisting.length > 0) {
-        throw new Error('ไม่สามารถสร้าง contract_id ที่ไม่ซ้ำได้ กรุณาลองใหม่อีกครั้ง');
+        throw new Error('Cannot create contract_id that does not exist, please try again');
       }
     }
 
@@ -307,7 +307,7 @@ const createContract = async (req, res) => {
           await conn.rollback();
           return res.status(404).json({
             success: false,
-            message: 'ไม่พบสัญญาเก่าที่ต้องการต่ออายุ'
+            message: 'Old contract not found'
           });
         }
 
@@ -390,7 +390,7 @@ const createContract = async (req, res) => {
           await conn.rollback();
           return res.status(400).json({
             success: false,
-            message: 'ไม่มีข้อมูลที่จะอัพเดท'
+            message: 'No data to update'
           });
         }
 
@@ -521,7 +521,7 @@ const createContract = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: oldContractIdVal ? 'ต่อสัญญาสำเร็จ' : 'สร้าง Contract สำเร็จ',
+      message: oldContractIdVal ? 'Contract renewed successfully' : 'Contract created successfully',
       data: { contract_id: contractId }
     });
   } catch (error) {
@@ -541,7 +541,7 @@ const createContract = async (req, res) => {
       } else if (errMsg.includes('coverage_scope')) {
         message = 'coverage_scope column does not exist, please run: ALTER TABLE contract ADD COLUMN coverage_scope TEXT DEFAULT NULL;';
       } else {
-        message = `คอลัมน์ในตารางไม่ตรงกับที่ระบบใช้: ${errMsg}`;
+        message = `Column in the table does not match the system used: ${errMsg}`;
       }
     }
 
@@ -732,7 +732,7 @@ const getAvailableDevices = async (req, res) => {
     console.error('Error getting available devices:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices ที่ไม่มี Contract',
+      message: 'Error getting available devices',
       error: error.message
     });
   }
@@ -745,7 +745,7 @@ const getSitesByContract = async (req, res) => {
     if (!contractId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ contract_id'
+        message: 'Please provide contract_id'
       });
     }
 
@@ -753,7 +753,7 @@ const getSitesByContract = async (req, res) => {
     if (isNaN(cid)) {
       return res.status(400).json({
         success: false,
-        message: 'contract_id ไม่ถูกต้อง'
+        message: 'contract_id is not valid'
       });
     }
 
@@ -778,7 +778,7 @@ const getSitesByContract = async (req, res) => {
     console.error('Error getting sites by contract:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Sites ตามสัญญา',
+      message: 'Error getting sites by contract',
       error: error.message
     });
   }
@@ -794,7 +794,7 @@ const getDevicesByContract = async (req, res) => {
     if (!contractId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ contract_id'
+        message: 'Please provide contract_id'
       });
     }
 
@@ -843,7 +843,7 @@ const getDevicesByContract = async (req, res) => {
     console.error('Error getting devices by contract:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Contract',
+      message: 'Error getting devices by contract',
       error: error.message
     });
   }
@@ -856,7 +856,7 @@ const getContractHistory = async (req, res) => {
     if (!contractId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ contract_id'
+        message: 'Please provide contract_id'
       });
     }
 
@@ -884,7 +884,7 @@ const getContractHistory = async (req, res) => {
     console.error('Error getting contract history:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงประวัติการต่อสัญญา',
+      message: 'Error getting contract history',
       error: error.message
     });
   }
@@ -925,7 +925,7 @@ const getVendorStatistics = async (req, res) => {
     console.error('Error getting vendor statistics:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Vendor Statistics',
+      message: 'Error getting vendor statistics',
       error: error.message
     });
   }
@@ -938,7 +938,7 @@ const getContractById = async (req, res) => {
     if (!contractId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ contract_id'
+        message: 'Please provide contract_id'
       });
     }
 
@@ -946,7 +946,7 @@ const getContractById = async (req, res) => {
     if (isNaN(cid)) {
       return res.status(400).json({
         success: false,
-        message: 'contract_id ไม่ถูกต้อง'
+        message: 'contract_id is not valid'
       });
     }
 
@@ -1007,7 +1007,7 @@ const getContractById = async (req, res) => {
     if (contractRows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบสัญญา'
+        message: 'Contract not found'
       });
     }
 
@@ -1092,7 +1092,7 @@ const getContractById = async (req, res) => {
     console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลสัญญา',
+      message: 'Error getting contract by id',
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
@@ -1111,7 +1111,7 @@ const updateContract = async (req, res) => {
       await conn.rollback();
       return res.status(400).json({
         success: false,
-        message: 'contract_id ไม่ถูกต้อง'
+        message: 'contract_id is not valid'
       });
     }
 
@@ -1145,7 +1145,7 @@ const updateContract = async (req, res) => {
       await conn.rollback();
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบสัญญา'
+        message: 'Contract not found'
       });
     }
 
@@ -1158,7 +1158,7 @@ const updateContract = async (req, res) => {
         await conn.rollback();
         return res.status(400).json({
           success: false,
-          message: 'Please enter sla_term (required)'
+          message: 'Please provide sla_term (required)'
         });
       }
       if (slaTermStr) {
@@ -1180,7 +1180,7 @@ const updateContract = async (req, res) => {
         await conn.rollback();
         return res.status(400).json({
           success: false,
-          message: 'กรุณากรอกรูปแบบ Email ให้ถูกต้อง (เช่น example@domain.com)'
+          message: 'Please provide a valid email address (e.g. example@domain.com)'
         });
       }
     }
@@ -1192,7 +1192,7 @@ const updateContract = async (req, res) => {
           await conn.rollback();
           return res.status(400).json({
             success: false,
-            message: 'กรุณากรอกหมายเลขโทรศัพท์ให้ถูกต้อง (อย่างน้อย 9 หลัก)'
+            message: 'Please provide a valid phone number (at least 9 digits)'
           });
         }
       }
@@ -1360,13 +1360,13 @@ const updateContract = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'อัปเดตสัญญาสำเร็จ',
+      message: 'Contract updated successfully',
       data: { contract_id: cid }
     });
   } catch (error) {
     await conn.rollback();
     console.error('Error updating contract:', error);
-    let message = 'เกิดข้อผิดพลาดในการอัปเดตสัญญา';
+    let message = 'Error updating contract';
     const errMsg = String(error.message || '');
     if (errMsg.includes('file_paths') || errMsg.includes('image_paths')) {
       message = 'file_paths or image_paths column does not exist';

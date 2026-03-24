@@ -9,7 +9,7 @@ const createDeviceType = async (req, res) => {
     if (!model || !slug || u_height === undefined || !Mid) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (model, slug, u_height, Mid)'
+        message: 'Please provide complete data (model, slug, u_height, Mid)'
       });
     }
 
@@ -19,7 +19,7 @@ const createDeviceType = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'สร้าง device_type สำเร็จ',
+      message: 'Device type created successfully',
       data: {
         id: result.insertId,
         model,
@@ -32,7 +32,7 @@ const createDeviceType = async (req, res) => {
     console.error('Error creating device type:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการสร้าง device_type',
+      message: 'Error creating device type',
       error: error.message
     });
   }
@@ -81,7 +81,7 @@ const getDeviceTypes = async (req, res) => {
     console.error('Error getting device types:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล device_type',
+      message: 'Error getting device types',
       error: error.message
     });
   }
@@ -97,7 +97,7 @@ const updateDeviceType = async (req, res) => {
     if (!model && !slug && u_height === undefined && !Mid) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุข้อมูลที่ต้องการแก้ไข (model, slug, u_height หรือ Mid)'
+        message: 'Please provide data to update (model, slug, u_height or Mid)'
       });
     }
 
@@ -108,7 +108,7 @@ const updateDeviceType = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล device_type ที่ต้องการแก้ไข'
+        message: 'Device type not found'
       });
     }
 
@@ -157,14 +157,14 @@ const updateDeviceType = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'แก้ไขข้อมูล device_type สำเร็จ',
+      message: 'Device type updated successfully',
       data: formattedData[0]
     });
   } catch (error) {
     console.error('Error updating device type:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการแก้ไข device_type',
+      message: 'Error updating device type',
       error: error.message
     });
   }
@@ -182,7 +182,7 @@ const deleteDeviceType = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล device_type ที่ต้องการลบ'
+        message: 'Device type not found'
       });
     }
 
@@ -192,7 +192,7 @@ const deleteDeviceType = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'ลบ device_type สำเร็จ',
+      message: 'Device type deleted successfully',
       data: {
         id: existing[0].Dtypeid,
         model: existing[0].model
@@ -202,7 +202,7 @@ const deleteDeviceType = async (req, res) => {
     console.error('Error deleting device type:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการลบ device_type',
+      message: 'Error deleting device type',
       error: error.message
     });
   }

@@ -13,6 +13,40 @@ export function apiUrl(path: string): string {
   return `${API_BASE}${p}`;
 }
 
+/**
+ * Read fetch body as JSON. Returns null if body is HTML (e.g. nginx/404 page), empty, or invalid JSON.
+ * Prevents Uncaught SyntaxError from res.json() when the API base URL / proxy is wrong.
+ */
+export async function responseJsonSafe<T = unknown>(res: Response): Promise<T | null> {
+  const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.startsWith('<')) return null;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Like res.json() but throws a clear Error if the server returned HTML instead of JSON.
+ */
+export async function responseJsonOrThrow<T = unknown>(res: Response, hint?: string): Promise<T> {
+  const text = await res.text();
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.startsWith('<')) {
+    throw new Error(
+      hint ||
+        `Invalid response (${res.status}): server returned HTML instead of JSON. Set NEXT_PUBLIC_API_URL to your API base (e.g. http://10.4.102.212:9000).`
+    );
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new Error(hint || 'Invalid JSON from server');
+  }
+}
+
 /** Parse response as JSON; if server returns HTML (e.g. 404 page), return a safe error object instead of throwing */
 async function parseJsonResponse<T>(res: Response, fallback: T): Promise<T> {
   const text = await res.text();
@@ -712,7 +746,7 @@ export async function importEmployees(employees: Array<{
   return res.json();
 }
 
-// --- Holidays (stored via Next.js API route, same origin) ---
+// --- Holidays (Express /api/holidays when NEXT_PUBLIC_API_URL is set; same as other APIs) ---
 
 export interface HolidayItem {
   id: string;
@@ -721,11 +755,12 @@ export interface HolidayItem {
   source?: 'custom' | 'official';
 }
 
-/** GET /api/holidays - list holidays (same-origin Next API) */
+/** GET /api/holidays - list holidays (backend API via apiUrl) */
 export async function getHolidays(year?: number): Promise<{ success: boolean; data?: HolidayItem[] }> {
-  const url = typeof year === 'number' ? `/api/holidays?year=${year}` : '/api/holidays';
-  const res = await fetch(url);
-  return res.json();
+  const path =
+    typeof year === 'number' ? `/api/holidays?year=${encodeURIComponent(String(year))}` : '/api/holidays';
+  const res = await fetch(apiUrl(path));
+  return parseJsonResponse(res, { success: false, data: [] });
 }
 
 /** POST /api/holidays - add holiday. Body: { date: "YYYY-MM-DD", name: string } */
@@ -744,18 +779,18 @@ export async function addHoliday(body: { date: string; name: string }): Promise<
 
 /** DELETE /api/holidays/[id] */
 export async function deleteHoliday(id: string): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch(`/api/holidays/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  return res.json();
+  const res = await fetch(apiUrl(`/api/holidays/${encodeURIComponent(id)}`), { method: 'DELETE' });
+  return parseJsonResponse(res, { success: false, message: 'Invalid response' });
 }
 
 /** POST /api/holidays/restore-official - clear hidden official holiday overrides */
 export async function restoreOfficialHolidays(): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch('/api/holidays/restore-official', { method: 'POST' });
-  return res.json();
+  const res = await fetch(apiUrl('/api/holidays/restore-official'), { method: 'POST' });
+  return parseJsonResponse(res, { success: false, message: 'Invalid response' });
 }
 
 /** POST /api/holidays/clear-custom - delete all custom holidays */
 export async function clearCustomHolidays(): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch('/api/holidays/clear-custom', { method: 'POST' });
-  return res.json();
+  const res = await fetch(apiUrl('/api/holidays/clear-custom'), { method: 'POST' });
+  return parseJsonResponse(res, { success: false, message: 'Invalid response' });
 }

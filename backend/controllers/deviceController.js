@@ -14,7 +14,7 @@ const createDevice = async (req, res) => {
     if (devices.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาส่งข้อมูล Device'
+        message: 'Please provide device data'
       });
     }
 
@@ -23,7 +23,7 @@ const createDevice = async (req, res) => {
       if (!devices[i].Dtypeid) {
         return res.status(400).json({
           success: false,
-          message: `กรุณากรอกข้อมูล Dtypeid (จำเป็น) - Device ที่ ${i + 1}`
+          message: `Please provide Dtypeid (required) - Device ${i + 1}`
         });
       }
     }
@@ -273,7 +273,7 @@ const createDevice = async (req, res) => {
     if (errors.length > 0 && insertedDevices.length === 0 && updatedDevices.length === 0) {
       return res.status(500).json({
         success: false,
-        message: 'เกิดข้อผิดพลาดในการสร้าง/อัพเดท Devices ทั้งหมด',
+        message: 'Error creating/updating devices',
         errors: errors
       });
     }
@@ -289,7 +289,7 @@ const createDevice = async (req, res) => {
       // ส่งหลาย devices
       res.status(201).json({
         success: true,
-        message: `ประมวลผล Devices สำเร็จ ${allResults.length} รายการ (สร้างใหม่ ${insertedDevices.length} รายการ, อัพเดท ${updatedDevices.length} รายการ)${errors.length > 0 ? ` (มีข้อผิดพลาด ${errors.length} รายการ)` : ''}`,
+        message: `Processed devices successfully ${allResults.length} records (created ${insertedDevices.length} records, updated ${updatedDevices.length} records)${errors.length > 0 ? ` (errors ${errors.length} records)` : ''}`,
         count: allResults.length,
         inserted: insertedDevices.length,
         updated: updatedDevices.length,
@@ -300,7 +300,7 @@ const createDevice = async (req, res) => {
       // ส่ง device เดียว
       res.status(201).json({
         success: true,
-        message: allResults[0].action === 'updated' ? 'อัพเดท Device สำเร็จ' : 'สร้าง Device สำเร็จ',
+        message: allResults[0].action === 'updated' ? 'Device updated successfully' : 'Device created successfully',
         data: allResults[0]
       });
     }
@@ -308,7 +308,7 @@ const createDevice = async (req, res) => {
     console.error('Error creating device:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการสร้าง Device',
+      message: 'Error creating device',
       error: error.message
     });
   }
@@ -402,7 +402,7 @@ const getDevices = async (req, res) => {
     console.error('Error getting devices:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Device',
+      message: 'Error getting devices',
       error: error.message
     });
   }
@@ -498,7 +498,7 @@ const getDevicesExcludeInStore = async (req, res) => {
     console.error('Error getting devices exclude In Store:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Device',
+      message: 'Error getting devices exclude In Store',
       error: error.message
     });
   }
@@ -594,7 +594,7 @@ const getDevicesExcludeOutStore = async (req, res) => {
     console.error('Error getting devices exclude Out Store:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Device',
+      message: 'Error getting devices exclude Out Store',
       error: error.message
     });
   }
@@ -624,7 +624,7 @@ const getDeviceById = async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Device'
+        message: 'Device not found'
       });
     }
 
@@ -636,7 +636,7 @@ const getDeviceById = async (req, res) => {
     console.error('Error getting device by id:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Device',
+      message: 'Error getting device by id',
       error: error.message
     });
   }
@@ -653,7 +653,7 @@ const updateAssetState = async (req, res) => {
     if (updates.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาส่งข้อมูล Device ที่ต้องการอัพเดท'
+        message: 'Please provide device data to update'
       });
     }
 
@@ -662,13 +662,13 @@ const updateAssetState = async (req, res) => {
       if (!updates[i].Did) {
         return res.status(400).json({
           success: false,
-          message: `กรุณากรอกข้อมูล Did (จำเป็น) - Record ที่ ${i + 1}`
+          message: `Please provide Did (required) - Record ${i + 1}`
         });
       }
       if (updates[i].Asset_State === undefined || updates[i].Asset_State === null) {
         return res.status(400).json({
           success: false,
-          message: `กรุณากรอกข้อมูล Asset_State (จำเป็น) - Record ที่ ${i + 1}`
+          message: `Please provide Asset_State (required) - Record ${i + 1}`
         });
       }
     }
@@ -692,7 +692,7 @@ const updateAssetState = async (req, res) => {
     if (notFoundIds.length > 0) {
       return res.status(404).json({
         success: false,
-        message: `ไม่พบข้อมูล Device: ${notFoundIds.join(', ')}`
+        message: `Device not found: ${notFoundIds.join(', ')}`
       });
     }
 
@@ -750,7 +750,7 @@ const updateAssetState = async (req, res) => {
     if (errors.length > 0 && updatedDevices.length === 0) {
       return res.status(500).json({
         success: false,
-        message: 'เกิดข้อผิดพลาดในการอัพเดท Asset_State ทั้งหมด',
+        message: 'Error updating asset state',
         errors: errors
       });
     }
@@ -763,7 +763,7 @@ const updateAssetState = async (req, res) => {
 
       res.status(200).json({
         success: true,
-        message: `อัพเดท Asset_State สำเร็จ ${updatedCount} รายการ${noChangesCount > 0 ? ` (ไม่มีการเปลี่ยนแปลง ${noChangesCount} รายการ)` : ''}${errors.length > 0 ? ` (มีข้อผิดพลาด ${errors.length} รายการ)` : ''}`,
+        message: `Updated asset state successfully ${updatedCount} records${noChangesCount > 0 ? ` (no changes ${noChangesCount} records)` : ''}${errors.length > 0 ? ` (errors ${errors.length} records)` : ''}`,
         count: updatedDevices.length,
         updated: updatedCount,
         noChanges: noChangesCount,
@@ -774,7 +774,7 @@ const updateAssetState = async (req, res) => {
       // ส่ง device เดียว
       res.status(200).json({
         success: true,
-        message: updatedDevices[0].action === 'updated' ? 'อัพเดท Asset_State สำเร็จ' : 'Asset_State ไม่มีการเปลี่ยนแปลง',
+        message: updatedDevices[0].action === 'updated' ? 'Asset state updated successfully' : 'Asset state no changes',
         data: updatedDevices[0]
       });
     }
@@ -782,7 +782,7 @@ const updateAssetState = async (req, res) => {
     console.error('Error updating asset state:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการอัพเดท Asset_State',
+      message: 'Error updating asset state',
       error: error.message
     });
   }
@@ -827,7 +827,7 @@ const updateDevice = async (req, res) => {
     if (!hasUpdate) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุข้อมูลที่ต้องการแก้ไข'
+        message: 'Please provide data to update'
       });
     }
 
@@ -838,7 +838,7 @@ const updateDevice = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Device ที่ต้องการแก้ไข'
+        message: 'Device not found'
       });
     }
 
@@ -968,14 +968,14 @@ const updateDevice = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'แก้ไขข้อมูล Device สำเร็จ',
+      message: 'Device updated successfully',
       data: updated[0]
     });
   } catch (error) {
     console.error('Error updating device:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการแก้ไข Device',
+      message: 'Error updating device',
       error: error.message
     });
   }
@@ -993,7 +993,7 @@ const deleteDevice = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Device ที่ต้องการลบ'
+        message: 'Device not found'
       });
     }
 
@@ -1003,7 +1003,7 @@ const deleteDevice = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'ลบ Device สำเร็จ',
+      message: 'Device deleted successfully',
       data: {
         id: existing[0].Did,
         CI_Name: existing[0].CI_Name
@@ -1013,7 +1013,7 @@ const deleteDevice = async (req, res) => {
     console.error('Error deleting device:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการลบ Device',
+    message: 'Error deleting device',
       error: error.message
     });
   }
@@ -1085,7 +1085,7 @@ const getDashboard = async (req, res) => {
     console.error('Error getting dashboard:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Dashboard',
+      message: 'Error getting dashboard',
       error: error.message
     });
   }
@@ -1145,7 +1145,7 @@ const getDevicesByModel = async (req, res) => {
     console.error('Error getting devices by model:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Devices แยกตาม Model',
+      message: 'Error getting devices by model',
       error: error.message
     });
   }
@@ -1174,7 +1174,7 @@ const getVendors = async (req, res) => {
     console.error('Error getting vendors:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงรายการ Vendor',
+      message: 'Error getting vendors',
       error: error.message
     });
   }
@@ -1204,7 +1204,7 @@ const getReferSOFList = async (req, res) => {
     console.error('Error getting Refer_SOF list:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงรายการ Refer_SOF',
+      message: 'Error getting Refer_SOF list',
       error: error.message
     });
   }
@@ -1227,7 +1227,7 @@ const getAssignedServicesList = async (req, res) => {
     console.error('Error getting Assigned_Service list:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงรายการ Assigned_Service',
+      message: 'Error getting Assigned_Service list',
       error: error.message
     });
   }
@@ -1242,14 +1242,14 @@ const getDevicesBySOFAndSite = async (req, res) => {
     if (!referSOF) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ refer_sof'
+        message: 'Please provide refer_sof'
       });
     }
     
     if (!siteId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ site_id (SLid)'
+        message: 'Please provide site_id (SLid)'
       });
     }
     // รองรับ SOF ทั้งแบบมีและไม่มี 0 นำหน้า (เช่น 0987 กับ 987)
@@ -1272,7 +1272,7 @@ const getDevicesBySOFAndSite = async (req, res) => {
     console.error('Error getting devices by SOF and site:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Refer_SOF และ Site',
+      message: 'Error getting devices by SOF and site',
       error: error.message
     });
   }
@@ -1288,7 +1288,7 @@ const getDevicesByContractAndSite = async (req, res) => {
     if (!contractId || !slid) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ contract_id และ slid (site_id)'
+        message: 'Please provide contract_id and slid (site_id)'
       });
     }
 
@@ -1311,7 +1311,7 @@ const getDevicesByContractAndSite = async (req, res) => {
     console.error('Error getting devices by contract and site:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices จาก contract_device',
+      message: 'Error getting devices by contract and site',
       error: error.message
     });
   }
@@ -1334,7 +1334,7 @@ const getDevicesBySerials = async (req, res) => {
     console.error('Error getting devices by serials:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Serial',
+      message: 'Error getting devices by serials',
       error: error.message
     });
   }
@@ -1386,7 +1386,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
     console.error('Error getting devices (no SOF):', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices ที่ยังไม่มี SOF',
+      message: 'Error getting devices (no SOF)',
       error: error.message
     });
   }
@@ -1437,7 +1437,7 @@ const getDevicesNoSofInStore = async (req, res) => {
     console.error('Error getting devices (no SOF, In Store):', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices ที่ไม่มี SOF และสถานะ In Store',
+      message: 'Error getting devices (no SOF, In Store)',
       error: error.message
     });
   }
@@ -1449,7 +1449,7 @@ const getDevicesBySite = async (req, res) => {
     if (!siteId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ site'
+        message: 'Please provide site'
       });
     }
     // TccStock: devices.SLid -> sites_location.SLid
@@ -1465,7 +1465,7 @@ const getDevicesBySite = async (req, res) => {
     console.error('Error getting devices by site:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Site',
+      message: 'Error getting devices by site',
       error: error.message
     });
   }
@@ -1484,7 +1484,7 @@ const getDevicesByAssetState = async (req, res) => {
     if (states.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ states อย่างน้อย 1 ค่า'
+        message: 'Please provide states (at least 1 value)'
       });
     }
 
@@ -1517,7 +1517,7 @@ const getDevicesByAssetState = async (req, res) => {
     console.error('Error getting devices by asset state:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Devices ตาม Asset_State',
+      message: 'Error getting devices by asset state',
       error: error.message,
       sqlState: error.sqlState,
       errno: error.errno
@@ -1533,7 +1533,7 @@ const getReplacementDevices = async (req, res) => {
     if (!dtypeid || !deroleid) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ dtypeid และ deroleid'
+        message: 'Please provide dtypeid and deroleid'
       });
     }
 
@@ -1569,7 +1569,7 @@ const getReplacementDevices = async (req, res) => {
     console.error('Error getting replacement devices:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง Replacement Devices',
+      message: 'Error getting replacement devices',
       error: error.message
     });
   }
@@ -1706,7 +1706,7 @@ const viewDeviceHistory = async (req, res) => {
     console.error('Error viewing device history:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดูประวัติ Device',
+      message: 'Error viewing device history',
       error: error.message
     });
   }
@@ -1725,7 +1725,7 @@ const getDeviceHistory = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Device'
+        message: 'Device not found'
       });
     }
 
@@ -1769,7 +1769,7 @@ const getDeviceHistory = async (req, res) => {
     console.error('Error getting device history:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงประวัติ Device',
+      message: 'Error getting device history',
       error: error.message
     });
   }
@@ -2099,7 +2099,7 @@ const getDevicesWithPM = async (req, res) => {
     console.error('[getDevicesWithPM] Error stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Devices พร้อม PM',
+      message: 'Error getting devices with PM',
       error: error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
