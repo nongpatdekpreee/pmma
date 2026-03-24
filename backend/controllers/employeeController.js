@@ -106,7 +106,7 @@ const getEmployees = async (req, res) => {
     const message = error && typeof error.message === 'string' ? error.message : 'Unknown error';
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Employees',
+      message: 'Error getting employees',
       error: message,
     });
   }
@@ -133,7 +133,7 @@ const getEmployeeById = async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Employee',
+        message: 'Employee not found',
       });
     }
 
@@ -156,7 +156,7 @@ const getEmployeeById = async (req, res) => {
     console.error('Error fetching employee:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Employee',
+      message: 'Error getting employee',
       error: error.message,
     });
   }
@@ -166,7 +166,7 @@ const getEmployeeById = async (req, res) => {
 const uploadEmployeePhoto = (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'ไม่พบไฟล์' });
+      return res.status(400).json({ success: false, message: 'File not found' });
     }
     const photoPath = `/uploads/employees/${req.file.filename}`;
     res.status(200).json({ success: true, path: photoPath });
@@ -189,7 +189,7 @@ const createEmployee = async (req, res) => {
     if (!name || !gmail || !tel) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (name, gmail, tel)',
+        message: 'Please provide complete data (name, gmail, tel)',
       });
     }
 
@@ -205,7 +205,7 @@ const createEmployee = async (req, res) => {
       newUserId = await generateNextUserId();
       const [retryExisting] = await db.execute(checkSql, [newUserId]);
       if (retryExisting.length > 0) {
-        throw new Error('ไม่สามารถสร้าง user_id ที่ไม่ซ้ำได้ กรุณาลองใหม่อีกครั้ง');
+        throw new Error('Cannot create user_id that does not exist, please try again');
       }
     }
 
@@ -268,14 +268,14 @@ const createEmployee = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'สร้าง Employee สำเร็จ',
+      message: 'Employee created successfully',
       data: employee,
     });
   } catch (error) {
     console.error('Error creating employee:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการสร้าง Employee',
+      message: 'Error creating employee',
       error: error.message,
     });
   }
@@ -288,7 +288,7 @@ const importEmployees = async (req, res) => {
     if (!Array.isArray(list) || list.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาส่ง employees เป็น array',
+        message: 'Please send employees as an array',
       });
     }
 
@@ -302,7 +302,7 @@ const importEmployees = async (req, res) => {
 
       if (!name || !gmail || !tel) {
         results.failed++;
-        results.errors.push({ row: i + 1, message: 'name, gmail, tel ต้องไม่ว่าง' });
+        results.errors.push({ row: i + 1, message: 'name, gmail, tel must not be empty' });
         continue;
       }
 
@@ -332,14 +332,14 @@ const importEmployees = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Import เสร็จ: สร้าง ${results.created} คน, ล้มเหลว ${results.failed}`,
+      message: `Import completed: created ${results.created} employees, failed ${results.failed}`,
       data: results,
     });
   } catch (error) {
     console.error('Error importing employees:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการ Import',
+      message: 'Error importing employees',
       error: error.message,
     });
   }
@@ -354,7 +354,7 @@ const updateEmployee = async (req, res) => {
     if (!name || !gmail || !tel) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (name, gmail, tel)',
+        message: 'Please provide complete data (name, gmail, tel)',
       });
     }
 
@@ -391,7 +391,7 @@ const updateEmployee = async (req, res) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Employee',
+        message: 'Employee not found',
       });
     }
 
@@ -410,14 +410,14 @@ const updateEmployee = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'แก้ไข Employee สำเร็จ',
+      message: 'Employee updated successfully',
       data: employee,
     });
   } catch (error) {
     console.error('Error updating employee:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการแก้ไข Employee',
+      message: 'Error updating employee',
       error: error.message,
     });
   }
@@ -434,19 +434,19 @@ const deleteEmployee = async (req, res) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Employee',
+        message: 'Employee not found',
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'ลบ Employee สำเร็จ',
+      message: 'Employee deleted successfully',
     });
   } catch (error) {
     console.error('Error deleting employee:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการลบ Employee',
+      message: 'Error deleting employee',
       error: error.message,
     });
   }

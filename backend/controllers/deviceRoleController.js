@@ -9,7 +9,7 @@ const createDeviceRole = async (req, res) => {
     if (!name || !slug || !color) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (name, slug, color)'
+        message: 'Please provide complete data (name, slug, color)'
       });
     }
 
@@ -19,7 +19,7 @@ const createDeviceRole = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'สร้าง device_role สำเร็จ',
+      message: 'Device role created successfully',
       data: {
         id: result.insertId,
         name,
@@ -31,7 +31,7 @@ const createDeviceRole = async (req, res) => {
     console.error('Error creating device role:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการสร้าง device_role',
+      message: 'Error creating device role',
       error: error.message
     });
   }
@@ -65,7 +65,7 @@ const getDeviceRoles = async (req, res) => {
     console.error('Error getting device roles:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล device_role',
+      message: 'Error getting device roles',
       error: error.message
     });
   }
@@ -81,7 +81,7 @@ const updateDeviceRole = async (req, res) => {
     if (!name && !slug && !color) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุข้อมูลที่ต้องการแก้ไข (name, slug หรือ color)'
+        message: 'Please provide data to update (name, slug or color)'
       });
     }
 
@@ -92,7 +92,7 @@ const updateDeviceRole = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล device_role ที่ต้องการแก้ไข'
+        message: 'Device role not found'
       });
     }
 
@@ -123,14 +123,14 @@ const updateDeviceRole = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'แก้ไขข้อมูล device_role สำเร็จ',
+      message: 'Device role updated successfully',
       data: updated[0]
     });
   } catch (error) {
     console.error('Error updating device role:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการแก้ไข device_role',
+      message: 'Error updating device role',
       error: error.message
     });
   }
@@ -148,7 +148,7 @@ const deleteDeviceRole = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล device_role ที่ต้องการลบ'
+        message: 'Device role not found'
       });
     }
 
@@ -158,7 +158,7 @@ const deleteDeviceRole = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'ลบ device_role สำเร็จ',
+      message: 'Device role deleted successfully',
       data: {
         id: existing[0].DeRoleid,
         name: existing[0].name
@@ -168,7 +168,7 @@ const deleteDeviceRole = async (req, res) => {
     console.error('Error deleting device role:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการลบ device_role',
+      message: 'Error deleting device role',
       error: error.message
     });
   }

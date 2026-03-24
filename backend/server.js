@@ -49,6 +49,9 @@ app.use('/api/ma-reports', reportRoutes);
 const analyticsRoutes = require('./routes/analyticsRoutes');
 app.use('/api/analytics', analyticsRoutes);
 
+const holidayRoutes = require('./routes/holidayRoutes');
+app.use('/api/holidays', holidayRoutes);
+
 app.get('/', (req, res) => {
   res.json({
     message: 'MA/PM Plan API',
@@ -58,5 +61,5 @@ app.get('/', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 Server กำลังทำงานที่ port ${PORT}`);
+  console.log(`🚀 Server is running on port ${PORT}`);
 });

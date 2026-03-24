@@ -962,12 +962,22 @@ function ContractEditorPageContent() {
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
 
     if (isExcel) {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/import-contract-excel', { method: 'POST', body: formData });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || 'Failed to parse Excel');
-      const sheets = json.sheets || [];
+      // Parse in-browser (same logic as app/api/import-contract-excel) so we never hit
+      // /api on nginx→Express and get HTML 404 instead of JSON.
+      const raw = new Uint8Array(await file.arrayBuffer());
+      let workbook: XLSX.WorkBook;
+      try {
+        workbook = XLSX.read(raw, { type: 'array', cellDates: true });
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Failed to parse Excel';
+        throw new Error(msg);
+      }
+      const sheets: { name: string; data: any[][] }[] = [];
+      workbook.SheetNames.forEach((sheetName) => {
+        const sheet = workbook.Sheets[sheetName];
+        const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+        sheets.push({ name: sheetName, data: data || [] });
+      });
       if (!sheets[0] || !sheets[0].data || sheets[0].data.length < 2) {
         throw new Error('File must have header and at least one data row');
       }

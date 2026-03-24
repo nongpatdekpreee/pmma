@@ -53,7 +53,7 @@ function parseJsonField(val, fallback = []) {
 const uploadReportFile = (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'ไม่พบไฟล์' });
+      return res.status(400).json({ success: false, message: 'File not found' });
     }
     const filePath = `/uploads/reports/${req.file.filename}`;
     res.status(200).json({ success: true, path: filePath, name: req.file.originalname });
@@ -88,7 +88,7 @@ const submitReport = async (req, res) => {
     if (!taskId) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาเลือก Task (taskId) ก่อนส่ง Report',
+        message: 'Please select Task (taskId) before submitting Report',
       });
     }
 
@@ -174,7 +174,7 @@ const submitReport = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: reportType === 'PM' ? 'บันทึกข้อมูล PM Checklist Report สำเร็จ' : 'บันทึกข้อมูล MA Checklist Report สำเร็จ',
+      message: reportType === 'PM' ? 'PM Checklist Report saved successfully' : 'MA Checklist Report saved successfully',
       data: reportData,
       list: checklistItems,
     });
@@ -182,7 +182,7 @@ const submitReport = async (req, res) => {
     console.error('[submitReport] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการส่ง Report',
+      message: 'Error submitting Report',
       error: error.message,
     });
   }
@@ -312,7 +312,7 @@ const getReports = async (req, res) => {
     console.error('[getReports] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Reports',
+      message: 'Error getting reports',
       error: error.message,
     });
   }
@@ -346,7 +346,7 @@ const getReportedTaskIds = async (req, res) => {
     console.error('[getReportedTaskIds] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง task IDs ที่มี report แล้ว',
+      message: 'Error getting reported task IDs',
       error: error.message,
     });
   }

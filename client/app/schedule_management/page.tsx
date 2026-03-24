@@ -21,7 +21,7 @@ import {
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
 import * as XLSX from 'xlsx';
 
 
@@ -287,7 +287,10 @@ function ScheduleManagementContent() {
     setLoadError(null);
     try {
       const res = await fetch(apiUrl('/api/tasks'));
-      const json = await res.json();
+      const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown[] }>(
+        res,
+        'Cannot load tasks: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
+      );
       if (!json.success) throw new Error(json.message || 'Cannot load tasks');
       setCalendarEvents((json.data || []).map(mapTaskToEvent));
     } catch (error: any) {
@@ -770,7 +773,10 @@ function ScheduleManagementContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = await res.json();
+      const json = await responseJsonOrThrow<{ success?: boolean; message?: string }>(
+        res,
+        'Update task dates failed: server returned non-JSON (check API URL).'
+      );
       if (!res.ok) {
         throw new Error(json.message || 'Update task dates failed');
       }
@@ -963,7 +969,10 @@ function ScheduleManagementContent() {
           body: JSON.stringify(payload),
         }
       );
-      const json = await res.json();
+      const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown }>(
+        res,
+        'Save task failed: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
+      );
       if (!json.success) throw new Error(json.message || 'Save task failed');
 
       const mapped = mapTaskToEvent(json.data);
@@ -985,7 +994,10 @@ function ScheduleManagementContent() {
   const handleDeleteTask = async (taskId: string) => {
     try {
       const res = await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
-      const json = await res.json();
+      const json = await responseJsonOrThrow<{ success: boolean; message?: string }>(
+        res,
+        'Delete task failed: server returned non-JSON (check API URL).'
+      );
       if (!json.success) throw new Error(json.message || 'Delete task failed');
       setCalendarEvents((prev) => prev.filter((e) => e.id !== taskId));
       setIsDetailModalOpen(false);
@@ -1025,14 +1037,14 @@ function ScheduleManagementContent() {
     const doFetchByContract = async () => {
       if (!contractId) return [];
       const res = await fetch(apiUrl(`/api/devices/by-contract-and-site?contract_id=${contractId}&slid=${siteId}`));
-      const json = await res.json();
-      if (!json.success || !json.data) return [];
+      const json = await responseJsonSafe<{ success?: boolean; data?: unknown[] }>(res);
+      if (!json || !json.success || !json.data) return [];
       return json.data;
     };
     const doFetchBySof = async (sof: string) => {
       const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sof)}&site_id=${siteId}`));
-      const json = await res.json();
-      if (!json.success || !json.data) return [];
+      const json = await responseJsonSafe<{ success?: boolean; data?: unknown[] }>(res);
+      if (!json || !json.success || !json.data) return [];
       return json.data;
     };
 
@@ -1662,8 +1674,8 @@ function ScheduleManagementContent() {
             const devicePromises = task.deviceIds.map(async (did: number) => {
               try {
                 const res = await fetch(apiUrl(`/api/devices/${did}`));
-                const json = await res.json();
-                if (json.success && json.data) {
+                const json = await responseJsonSafe<{ success?: boolean; data?: Record<string, unknown> }>(res);
+                if (json?.success && json.data) {
                   const d = json.data;
                   return {
                     id: d.Did,
@@ -1738,8 +1750,11 @@ function ScheduleManagementContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        
-        const json = await res.json();
+
+        const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown }>(
+          res,
+          `Failed to create task (row ${idx + 2}): server returned HTML or invalid JSON — check NEXT_PUBLIC_API_URL matches your API (e.g. port 9000).`
+        );
         if (!json.success) {
           throw new Error(json.message || 'Failed to create task');
         }
@@ -1813,7 +1828,10 @@ function ScheduleManagementContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const json = await res.json();
+      const json = await responseJsonOrThrow<{ success: boolean; message?: string }>(
+        res,
+        'Update status failed: server returned non-JSON (check API URL).'
+      );
       if (!json.success) {
         throw new Error(json.message || 'Update status failed');
       }
@@ -1861,7 +1879,7 @@ function ScheduleManagementContent() {
           {/* Filters: Engineer (multi), Type (PM/MA), Status (Done/Not done) */}
           <div className="flex flex-wrap items-center gap-3 justify-end">
             <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
-              <label htmlFor="engineer-filter" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              <label htmlFor="engineer-filter-input" className="text-sm font-medium text-slate-600 whitespace-nowrap">
                 Engineer:
               </label>
               <div

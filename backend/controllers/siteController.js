@@ -7,7 +7,7 @@ const createSite = async (req, res) => {
     if (!name || !slug || !status) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (Name, Slug, Status)'
+        message: 'Please provide complete data (Name, Slug, Status)'
       });
     }
     // SQL Query
@@ -16,7 +16,7 @@ const createSite = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'สร้าง Site สำเร็จ',
+      message: 'Site created successfully',
       data: {
         id: result.insertId,
         name,
@@ -28,7 +28,7 @@ const createSite = async (req, res) => {
     console.error('Error creating site:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการสร้าง Site',
+      message: 'Error creating site',
       error: error.message
     });
   }
@@ -50,7 +50,7 @@ const getSitesLocation = async (req, res) => {
     console.error('Error getting sites-location:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง sites_Location',
+      message: 'Error getting sites-location',
       error: error.message
     });
   }
@@ -63,7 +63,7 @@ const getSitesLocationBySOF = async (req, res) => {
     if (!referSOF) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ refer_sof'
+        message: 'Please provide refer_sof'
       });
     }
     const sql = `
@@ -82,7 +82,7 @@ const getSitesLocationBySOF = async (req, res) => {
     console.error('Error getting sites-location by SOF:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึง sites_Location ตาม SOF',
+      message: 'Error getting sites-location by SOF',
       error: error.message
     });
   }
@@ -130,7 +130,7 @@ const getSitesLocationWithContracts = async (req, res) => {
       return res.status(200).json({
         success: true,
         data: [],
-        message: 'ไม่มี sites ที่มี contract ที่ยังไม่หมดอายุ'
+        message: 'No sites with contracts that are not expired'
       });
     }
 
@@ -150,7 +150,7 @@ const getSitesLocationWithContracts = async (req, res) => {
     res.status(200).json({
       success: true,
       data: [],
-      message: 'เกิดข้อผิดพลาดในการดึง sites ที่มี contract',
+      message: 'Error getting sites with contracts',
       error: error.message
     });
   }
@@ -184,7 +184,7 @@ const getSites = async (req, res) => {
     console.error('Error getting sites:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล Site',
+      message: 'Error getting sites',
       error: error.message
     });
   }
@@ -200,7 +200,7 @@ const updateSite = async (req, res) => {
     if (!Name && !Slug && !Status) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุข้อมูลที่ต้องการแก้ไข'
+        message: 'Please provide data to update'
       });
     }
 
@@ -211,7 +211,7 @@ const updateSite = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Site ที่ต้องการแก้ไข'
+        message: 'Site not found'
       });
     }
 
@@ -242,14 +242,14 @@ const updateSite = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'แก้ไขข้อมูล Site สำเร็จ',
+            message: 'Site updated successfully',
       data: updated[0]
     });
   } catch (error) {
     console.error('Error updating site:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการแก้ไข Site',
+      message: 'Error updating site',
       error: error.message
     });
   }
@@ -267,7 +267,7 @@ const deleteSite = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล Site ที่ต้องการลบ'
+        message: 'Site not found'
       });
     }
 
@@ -277,7 +277,7 @@ const deleteSite = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'ลบ Site สำเร็จ',
+      message: 'Site deleted successfully',
       data: {
         id: existing[0].Sid,
         Name: existing[0].Name
@@ -287,7 +287,7 @@ const deleteSite = async (req, res) => {
     console.error('Error deleting site:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการลบ Site',
+      message: 'Error deleting site',
       error: error.message
     });
   }

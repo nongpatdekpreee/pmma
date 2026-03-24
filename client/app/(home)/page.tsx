@@ -310,13 +310,13 @@ export default function DashboardPage() {
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
               </div>
-              <div className="h-64 bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="h-64 w-full min-w-0 min-h-[16rem] bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
                 {loadingMa ? (
                   <div className="h-full flex items-center justify-center text-slate-400">กำลังโหลด...</div>
                 ) : vendorBars.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-slate-400">ยังไม่มีข้อมูล</div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                     <BarChart data={vendorBars} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
                       <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
                       <Tooltip />

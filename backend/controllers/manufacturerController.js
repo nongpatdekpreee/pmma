@@ -9,7 +9,7 @@ const createManufacturer = async (req, res) => {
     if (!name || !slug) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณากรอกข้อมูลให้ครบถ้วน (name, slug)'
+        message: 'Please provide complete data (name, slug)'
       });
     }
 
@@ -19,7 +19,7 @@ const createManufacturer = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'สร้าง manufacturer สำเร็จ',
+      message: 'Manufacturer created successfully',
       data: {
         id: result.insertId,
         name,
@@ -30,7 +30,7 @@ const createManufacturer = async (req, res) => {
     console.error('Error creating manufacturer:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการสร้าง manufacturer',
+      message: 'Error creating manufacturer',
       error: error.message
     });
   }
@@ -65,7 +65,7 @@ const getManufacturers = async (req, res) => {
     console.error('Error getting manufacturers:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการดึงข้อมูล manufacturer',
+      message: 'Error getting manufacturers',
       error: error.message
     });
   }
@@ -81,7 +81,7 @@ const updateManufacturer = async (req, res) => {
     if (!name && !slug) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุข้อมูลที่ต้องการแก้ไข (name หรือ slug)'
+        message: 'Please provide data to update (name or slug)'
       });
     }
 
@@ -92,7 +92,7 @@ const updateManufacturer = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล manufacturer ที่ต้องการแก้ไข'
+        message: 'Manufacturer not found'
       });
     }
 
@@ -119,14 +119,14 @@ const updateManufacturer = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'แก้ไขข้อมูล manufacturer สำเร็จ',
+      message: 'Manufacturer updated successfully',
       data: updated[0]
     });
   } catch (error) {
     console.error('Error updating manufacturer:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการแก้ไข manufacturer',
+      message: 'Error updating manufacturer',
       error: error.message
     });
   }
@@ -144,7 +144,7 @@ const deleteManufacturer = async (req, res) => {
     if (existing.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'ไม่พบข้อมูล manufacturer ที่ต้องการลบ'
+        message: 'Manufacturer not found'
       });
     }
 
@@ -154,7 +154,7 @@ const deleteManufacturer = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'ลบ manufacturer สำเร็จ',
+      message: 'Manufacturer deleted successfully',
       data: {
         id: existing[0].Mid,
         name: existing[0].name
@@ -164,7 +164,7 @@ const deleteManufacturer = async (req, res) => {
     console.error('Error deleting manufacturer:', error);
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการลบ manufacturer',
+      message: 'Error deleting manufacturer',
       error: error.message
     });
   }
