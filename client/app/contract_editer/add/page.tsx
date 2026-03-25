@@ -93,7 +93,9 @@ function AddContractPageContent() {
       const months = parseInt(d, 10);
       if (!isNaN(months) && months > 0) {
         const end = new Date(start);
-        end.setMonth(end.getMonth() + months);
+        // Inclusive: count the first day, so endDate = addMonths(start, months) - 1 day
+        end.setUTCMonth(end.getUTCMonth() + months);
+        end.setUTCDate(end.getUTCDate() - 1);
         setEndDate(end.toISOString().split('T')[0]);
       }
     }
@@ -103,7 +105,28 @@ function AddContractPageContent() {
   const calcMonthsBetween = (startStr: string, endStr: string): number => {
     const start = new Date(startStr);
     const end = new Date(endStr);
-    return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+    if (end < start) return 0;
+
+    // Inclusive inverse:
+    // We want the largest `m` such that inclusiveEnd(start, m) <= end,
+    // where inclusiveEnd = addMonths(start, m) - 1 day.
+    const maxMonths = 120; // safety upper-bound
+    let best = 0;
+
+    for (let m = 1; m <= maxMonths; m++) {
+      const candidateEnd = new Date(start);
+      candidateEnd.setUTCMonth(candidateEnd.getUTCMonth() + m);
+      candidateEnd.setUTCDate(candidateEnd.getUTCDate() - 1);
+
+      if (candidateEnd <= end) {
+        best = m;
+      } else {
+        break; // monotonic in practice for month increments
+      }
+    }
+
+    return best;
   };
 
   // โหลด Refer SOF list จาก devices
@@ -709,20 +732,16 @@ function AddContractPageContent() {
         toastError(msg);
         return;
       }
-      if (!slaTerm.trim()) {
-        const msg = 'Please enter SLA Term';
-        setSaveError(msg);
-        toastError(msg);
-        return;
-      }
-      
-      // Validate SLA Term เป็นตัวเลข 0-100
-      const slaTermNum = parseFloat(slaTerm.trim());
-      if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
-        const msg = 'SLA Term must be a number between 0 and 100';
-        setSaveError(msg);
-        toastError(msg);
-        return;
+
+      // SLA Term is optional. Validate only when provided.
+      if (slaTerm.trim()) {
+        const slaTermNum = parseFloat(slaTerm.trim());
+        if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
+          const msg = 'SLA Term must be a number between 0 and 100';
+          setSaveError(msg);
+          toastError(msg);
+          return;
+        }
       }
       
       if (!selectedSOF?.trim()) {
@@ -747,7 +766,7 @@ function AddContractPageContent() {
     const telTrim = telAcc.trim();
     if (telTrim) {
       const digitsOnly = telTrim.replace(/\D/g, '');
-      if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+      if (digitsOnly.length < 9 || digitsOnly.length > 10) {
         const msg = 'Please enter the correct phone number.';
         setSaveError(msg);
         toastError(msg);
@@ -899,7 +918,7 @@ function AddContractPageContent() {
         end_date: endDate || null,
         sof_name: selectedSOF.trim() || null,
         assigned_service: assignedService.trim() || null,
-        sla_term: slaTerm.trim(),
+        sla_term: slaTerm.trim() ? slaTerm.trim() : null,
         sale_account: saleAccount.trim() || null,
         email_acc: emailAcc.trim() || null,
         tel_acc: telAcc.trim() || null,
@@ -1238,7 +1257,6 @@ function AddContractPageContent() {
                     max="100"
                     step="0.01"
                     className={`${inputBase} pr-9`}
-                    required
                   />
                   {slaTerm && (
                     <button
@@ -1303,10 +1321,11 @@ function AddContractPageContent() {
                     inputMode="numeric"
                     value={telAcc}
                     onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, '');
+                      const v = e.target.value.replace(/\D/g, '').slice(0, 10);
                       setTelAcc(v);
                     }}
                     placeholder="Sale account telephone"
+                    maxLength={10}
                     className={`${inputBase} pr-9`}
                   />
                   {telAcc && (
