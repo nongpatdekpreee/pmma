@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import {
@@ -90,6 +90,7 @@ export default function ScheduleManagement() {
 }
 
 function ScheduleManagementContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
@@ -960,6 +961,7 @@ function ScheduleManagementContent() {
       throw new Error('Please specify taskType, startDate, endDate');
     }
 
+    const wasEditingExisting = !!editingEvent;
     try {
       const res = await fetch(
         apiUrl(editingEvent ? `/api/tasks/${editingEvent.id}` : '/api/tasks'),
@@ -984,6 +986,9 @@ function ScheduleManagementContent() {
       setEditingEvent(null);
       setIsModalOpen(false);
       toastSuccess('Plan success');
+      if (wasEditingExisting) {
+        router.push('/calendar');
+      }
     } catch (error: any) {
       console.error('handleSaveFromModal error', error);
       toastError(error.message || 'Save task failed');
@@ -1836,7 +1841,9 @@ function ScheduleManagementContent() {
         throw new Error(json.message || 'Update status failed');
       }
       toastSuccess('Update status successfully');
-      // Don't reload from API to avoid date changes - local state is already updated
+      setIsDetailModalOpen(false);
+      setSelectedTask(null);
+      router.push('/calendar');
     } catch (error) {
       console.error('handleTaskUpdate error', error);
       toastError('Update status failed');

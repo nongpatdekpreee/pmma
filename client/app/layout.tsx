@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PM/MA Plan",
-  description: "PM/MA Plan",
+  title: "Plan Schedule",
+  description: "Plan Schedule",
   icons: { icon: "/date.svg" },
 };
 

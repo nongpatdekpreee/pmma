@@ -936,6 +936,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     );
   };
 
+  const engineerDisplayName = (eng: Engineer): string => {
+    const combined = `${eng.name || ''}${eng.lastName ? ' ' + eng.lastName : ''}`.trim();
+    if (combined) return combined;
+    const fromRoster = availableEngineers.find((e) => String(e.id) === String(eng.id));
+    if (fromRoster) {
+      const r = `${fromRoster.name || ''}${fromRoster.lastName ? ' ' + fromRoster.lastName : ''}`.trim();
+      if (r) return r;
+    }
+    return 'Engineer';
+  };
+
   // Filter engineers based on input
   const filteredEngineers = availableEngineers.filter(
     (eng) =>
@@ -995,7 +1006,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     // เช็ค conflict - แจ้งเตือนแต่ยังเพิ่มได้
     const conflictCheck = await checkSingleEngineerConflict(engineer);
     if (conflictCheck.hasConflict) {
-      const engineerName = `${engineer.name}${engineer.lastName ? ' ' + engineer.lastName : ''}`;
+      const engineerName = engineerDisplayName(engineer);
       const taskInfo = conflictCheck.conflictingTask?.siteName || conflictCheck.conflictingTask?.Sname || 'Unknown Task';
       const taskDate = conflictCheck.conflictingTask?.startDate 
         ? new Date(conflictCheck.conflictingTask.startDate).toLocaleDateString('en-US', {
@@ -1262,7 +1273,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       // เช็คแต่ละ engineer ที่เลือก
       for (const engineer of selectedEngineers) {
         const engineerId = String(engineer.id);
-        const engineerName = `${engineer.name}${engineer.lastName ? ' ' + engineer.lastName : ''}`;
+        const engineerName = engineerDisplayName(engineer);
 
         // หา tasks ที่ engineer คนนี้มีอยู่แล้ว
         const engineerTasks = existingTasks.filter((task: any) => {
@@ -2372,7 +2383,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     key={eng.id}
                     className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-none text-xs font-medium"
                   >
-                    {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
+                    {engineerDisplayName(eng)}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -2416,9 +2427,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       className="px-3 py-2 hover:bg-blue-50 cursor-pointer transition"
                     >
                       <p className="text-sm font-medium text-slate-700">
-                        {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
+                        {engineerDisplayName(eng)}
                       </p>
-                      <p className="text-xs text-slate-400">{eng.id}</p>
                     </div>
                   ))}
                 </div>

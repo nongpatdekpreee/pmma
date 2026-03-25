@@ -1,4 +1,5 @@
 import { Calendar } from 'lucide-react';
+import Link from 'next/link';
 
 interface Props {
   id: string;
@@ -6,23 +7,56 @@ interface Props {
   date: string;
   serial: string;
   count: number;
-  CI_Name : string;
+  CI_Name: string;
   assignees: string[];
+  href?: string;
+  status?: string;
 }
 
-export function MaintenanceCard({ id, location, date, serial, count, assignees }: Props) {
-  return (
-    <div className="flex items-center justify-between gap-4 p-5 bg-white rounded-[2rem] shadow-sm border border-gray-50 mb-3 hover:shadow-md transition-all min-w-0">
+function statusBadge(status?: string) {
+  const s = (status || 'not-started').toLowerCase();
+  if (s === 'done') return { label: 'Done', className: 'bg-green-100 text-green-800' };
+  if (s === 'working') return { label: 'In progress', className: 'bg-orange-100 text-orange-800' };
+  if (s === 'stuck') return { label: 'Stuck', className: 'bg-red-100 text-red-800' };
+  return { label: 'Not started', className: 'bg-slate-100 text-slate-700' };
+}
+
+export function MaintenanceCard({
+  id,
+  location,
+  date,
+  serial,
+  count,
+  assignees,
+  href,
+  status,
+}: Props) {
+  const badge = statusBadge(status);
+
+  const inner = (
+    <>
       <div className="flex items-center gap-4 min-w-0 flex-1">
         <div className="w-12 h-12 flex-shrink-0 bg-slate-100 rounded-2xl flex items-center justify-center">
-          <span className="text-blue-600 font-bold text-base">{location[0]}</span>
+          <span className="text-blue-600 font-bold text-base">{location[0] ?? '—'}</span>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] text-slate-400 font-bold uppercase truncate">{id}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[10px] text-slate-400 font-bold uppercase truncate">{id}</p>
+            <span
+              className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${badge.className}`}
+            >
+              {badge.label}
+            </span>
+          </div>
           <h4 className="font-extrabold text-slate-800 text-base truncate">{location}</h4>
+          {serial && serial !== '—' && (
+            <p className="text-[11px] text-slate-500 truncate mt-0.5" title={serial}>
+              S/N: {serial}
+            </p>
+          )}
           <div className="flex items-center gap-1 text-xs text-slate-400 mt-0.5">
             <Calendar size={12} className="flex-shrink-0" />
-            <span className="truncate">Created {date}</span>
+            <span className="truncate">Start date {date}</span>
           </div>
         </div>
       </div>
@@ -52,6 +86,20 @@ export function MaintenanceCard({ id, location, date, serial, count, assignees }
           ))}
         </div>
       </div>
-    </div>
+    </>
   );
+
+  const className = `flex items-center justify-between gap-4 p-5 bg-white rounded-[2rem] shadow-sm border border-gray-50 mb-3 hover:shadow-md transition-all min-w-0 ${
+    href ? 'cursor-pointer hover:border-blue-100' : ''
+  }`;
+
+  if (href) {
+    return (
+      <Link href={href} className={className}>
+        {inner}
+      </Link>
+    );
+  }
+
+  return <div className={className}>{inner}</div>;
 }

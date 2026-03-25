@@ -216,7 +216,7 @@ export function Sidebar() {
           </div>
 
           {/* Navigation Menu - ซ่อนแถบเลื่อน ระยะกระชับ */}
-          <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-1.5 pb-2 space-y-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-2 pb-3 space-y-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {menuItems.map((item, index) => {
               // Handle section headers
               if (item.type === 'section') {
@@ -257,7 +257,7 @@ export function Sidebar() {
                 >
                   <div
                     className={`
-                      flex items-center gap-2 px-2 py-1.5 rounded-lg
+                      flex items-center gap-2 px-2 py-2.5 min-h-3 rounded-lg
                       cursor-pointer transition-all duration-200
                       group relative
                       ${isActive
@@ -287,10 +287,10 @@ export function Sidebar() {
                       {item.label}
                     </span>
                     {isActive && isExpanded && (
-                      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-blue-600 rounded-l-full" />
+                      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0.5 h-8 bg-blue-600 rounded-l-full" />
                     )}
                     {isActive && !isExpanded && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 bg-blue-600 rounded-r-full" />
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-8 bg-blue-600 rounded-r-full" />
                     )}
                   </div>
                 </Link>
@@ -299,12 +299,12 @@ export function Sidebar() {
           </nav>
 
           {/* Logout Button */}
-          <div className="shrink-0 px-2 py-1.5 border-t border-slate-200/80">
+          <div className="shrink-0 px-2 py-2 border-t border-slate-200/80">
             <button
               type="button"
               onClick={openLogoutModal}
               className={`
-                flex items-center gap-2 px-2 py-1.5 rounded-lg
+                flex items-center gap-2 px-2 py-2 min-h-11 rounded-lg
                 text-slate-500 hover:text-red-500 hover:bg-red-50
                 transition-all duration-200 w-full
                 ${!isExpanded ? 'justify-center' : ''}

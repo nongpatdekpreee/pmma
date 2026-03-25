@@ -21,8 +21,8 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
   // คำนวณ width ที่แท้จริงของ sidebar (รวม hover state)
   const isExpanded = !isCollapsed || isHovered;
-  // คำนวณ margin-left: 64 = 256px (w-64), 20 = 80px (w-20)
-  const marginLeft = isExpanded ? 256 : 80; // px
+  // ตรงกับ Sidebar: w-56 (224px) เมื่อขยาย, w-16 (64px) เมื่อย่อ
+  const marginLeft = isExpanded ? 224 : 64;
 
   return (
     <div className="flex min-h-screen bg-[#f8faf9]">
