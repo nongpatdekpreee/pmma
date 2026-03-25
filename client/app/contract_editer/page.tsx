@@ -10,7 +10,7 @@ import { apiUrl, getSitesLocation } from '@/lib/api';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { 
-  FileText, Calendar, DollarSign, Building2, Cpu, MapPin, 
+  FileText, Calendar, DollarSign, Building2, Cpu, MapPin, Hash,
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
   ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight 
 } from 'lucide-react';
@@ -31,6 +31,8 @@ interface Equipment {
 interface Contract {
   id: string;
   name: string;
+  /** เลขอ้างอิง SOF จากระบบ (contract.sof_name) */
+  sofName?: string | null;
   partner: string;
   siteName?: string;
   siteLocation?: string;
@@ -239,6 +241,7 @@ function ContractEditorPageContent() {
           start_date?: string | null;
           end_date?: string | null;
           sale_account?: string | null;
+          sof_name?: string | null;
           site_name?: string | null;
           site_location?: string | null;
           device_count?: number | null;
@@ -249,6 +252,7 @@ function ContractEditorPageContent() {
           return {
             id: String(c.contract_id),
             name: c.contract_name || '—',
+            sofName: c.sof_name ?? null,
             partner: c.sale_account || c.site_name || '—',
             siteName: c.site_name ?? undefined,
             siteLocation: c.site_location ?? undefined,
@@ -297,6 +301,7 @@ function ContractEditorPageContent() {
       const matchText =
         contract.id.toLowerCase().includes(searchLower) ||
         contract.name.toLowerCase().includes(searchLower) ||
+        (contract.sofName ?? '').toLowerCase().includes(searchLower) ||
         contract.partner.toLowerCase().includes(searchLower) ||
         (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
         (contract.siteLocation ?? '').toLowerCase().includes(searchLower);
@@ -410,8 +415,16 @@ function ContractEditorPageContent() {
     }
     setIsExportingContracts(true);
     try {
-      // Sheet 1: Contracts — หนึ่งแถวต่อ (contract, site): Contract Name | Site | Location | Start Date | End Date | Device Count
-      const contractSiteRows: { 'Contract Name': string; 'Site': string; 'Location': string; 'Start Date': string; 'End Date': string; 'Device Count': number }[] = [];
+      // Sheet 1: Contracts — หนึ่งแถวต่อ (contract, site): Contract Name | SOF | Device Count | Site | Location | Start Date | End Date
+      const contractSiteRows: {
+        'Contract Name': string;
+        SOF: string;
+        'Device Count': number;
+        Site: string;
+        Location: string;
+        'Start Date': string;
+        'End Date': string;
+      }[] = [];
       // Sheets 2..N: 1 sheet ต่อ 1 contract (device name ใช้ serial)
       const sheetsPerContract: Array<{ sheetName: string; rows: any[][] }> = [];
 
@@ -456,12 +469,29 @@ function ContractEditorPageContent() {
         const siteOrder = [...bySite.keys()].sort((a, b) => a - b);
         const startDate = formatDateForExport(c.startDate);
         const endDate = formatDateForExport(c.endDate);
+        const sofLabel = (c.sofName && String(c.sofName).trim()) ? String(c.sofName).trim() : '—';
         if (siteOrder.length === 0) {
-          contractSiteRows.push({ 'Contract Name': c.name, 'Site': '—', 'Location': '—', 'Start Date': startDate, 'End Date': endDate, 'Device Count': 0 });
+          contractSiteRows.push({
+            'Contract Name': c.name,
+            SOF: sofLabel,
+            'Device Count': 0,
+            Site: '—',
+            Location: '—',
+            'Start Date': startDate,
+            'End Date': endDate,
+          });
         } else {
           for (const sLid of siteOrder) {
             const s = bySite.get(sLid)!;
-            contractSiteRows.push({ 'Contract Name': c.name, 'Site': s.siteName, 'Location': s.location, 'Start Date': startDate, 'End Date': endDate, 'Device Count': s.devices.length });
+            contractSiteRows.push({
+              'Contract Name': c.name,
+              SOF: sofLabel,
+              'Device Count': s.devices.length,
+              Site: s.siteName,
+              Location: s.location,
+              'Start Date': startDate,
+              'End Date': endDate,
+            });
           }
         }
 
@@ -493,7 +523,10 @@ function ContractEditorPageContent() {
         const sheetName = makeSheetName(c.name, `Contract-${c.id}`);
         sheetsPerContract.push({ sheetName, rows: sheetRows });
       }
-      const wsContracts = contractSiteRows.length > 0 ? XLSX.utils.json_to_sheet(contractSiteRows) : XLSX.utils.aoa_to_sheet([['Contract Name', 'Site', 'Location', 'Start Date', 'End Date', 'Device Count']]);
+      const wsContracts =
+        contractSiteRows.length > 0
+          ? XLSX.utils.json_to_sheet(contractSiteRows)
+          : XLSX.utils.aoa_to_sheet([['Contract Name', 'SOF', 'Device Count', 'Site', 'Location', 'Start Date', 'End Date']]);
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, wsContracts, 'Contracts');
@@ -1236,6 +1269,7 @@ function ContractEditorPageContent() {
         const list = (json.data as any[]).map((c: any) => ({
           id: String(c.contract_id),
           name: c.contract_name || '—',
+          sofName: c.sof_name ?? null,
           partner: c.sale_account || c.site_name || '—',
           siteName: c.site_name ?? undefined,
           siteLocation: c.site_location ?? undefined,
@@ -1461,6 +1495,20 @@ function ContractEditorPageContent() {
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.name}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Hash size={18} /></span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">SOF:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
+                </span>
+              </div>
+              <div className="mb-3 flex items-start gap-3 text-sm">
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Wrench size={18} /></span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Device:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.deviceCount || 0} items
+                </span>
+              </div>
+              <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Site:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
@@ -1481,13 +1529,6 @@ function ContractEditorPageContent() {
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><DollarSign size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Value:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>฿{contract.formattedValue}</span>
-              </div>
-              <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Wrench size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Device:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.deviceCount || 0} items
-                </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><CheckCircle2 size={18} /></span>
@@ -1572,10 +1613,10 @@ function ContractEditorPageContent() {
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Contract Name</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">SOF</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Site</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Start Date</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">End Date</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Device</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Status</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Actions</th>
                 </tr>
@@ -1584,10 +1625,12 @@ function ContractEditorPageContent() {
                 {paginatedContracts.map((contract) => (
                   <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                     <td className="py-4 px-4 text-sm font-medium text-slate-800">{contract.name}</td>
+                    <td className="py-4 px-4 text-sm text-slate-600 whitespace-nowrap">
+                      {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
+                    </td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.siteName ?? contract.partner ?? '—'}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedStartDate}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedEndDate}</td>
-                    <td className="py-4 px-4 text-sm text-slate-600">{contract.deviceCount || 0} items</td>
                     <td className="py-4 px-4">
                       <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
                         {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
@@ -3153,11 +3196,11 @@ function ContractEditorPageContent() {
                           />
                         </th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Contract Name</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">SOF</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Site</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Location</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Start Date</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">End Date</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Device</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3172,11 +3215,13 @@ function ContractEditorPageContent() {
                             />
                           </td>
                           <td className="px-3 py-2 font-medium text-slate-800">{c.name}</td>
+                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                            {c.sofName && String(c.sofName).trim() ? c.sofName : '—'}
+                          </td>
                           <td className="px-3 py-2 text-slate-600">{c.siteName ?? '—'}</td>
                           <td className="px-3 py-2 text-slate-600">{c.siteLocation ?? '—'}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateForExport(c.startDate)}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateForExport(c.endDate)}</td>
-                          <td className="px-3 py-2 text-slate-600">{c.deviceCount ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>

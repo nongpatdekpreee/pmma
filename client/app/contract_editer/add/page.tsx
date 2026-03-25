@@ -1156,7 +1156,9 @@ function AddContractPageContent() {
                     ))}
                   </datalist>
                   {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
-                  {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
+                  {selectedSOF.trim() &&
+                    !referSOFList.includes(selectedSOF.trim()) &&
+                    !editContractId && (
                     <p className="mt-1 text-xs text-amber-600">New SOF</p>
                   )}
                 </FormField>

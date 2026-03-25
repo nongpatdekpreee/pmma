@@ -49,6 +49,7 @@ interface Engineer {
   id: string;
   name: string;
   lastName?: string;
+  photo?: string | null;
 }
 
 interface SiteOption {
@@ -70,6 +71,34 @@ interface ContractOption {
 
 /* ================= available engineers ================= */
 // จะดึงข้อมูลจาก API ใน component แทน
+
+function EngineerAvatar({
+  photoUrl,
+  displayName,
+  size = 'sm',
+}: {
+  photoUrl: string | null;
+  displayName: string;
+  size?: 'sm' | 'md';
+}) {
+  const dim = size === 'md' ? 'h-8 w-8' : 'h-5 w-5';
+  const initial = (displayName.replace(/\s/g, '')?.[0] || '?').toUpperCase();
+  return (
+    <span
+      className={`flex ${dim} shrink-0 rounded-full overflow-hidden border border-slate-200/80 bg-slate-100 items-center justify-center`}
+    >
+      {photoUrl ? (
+        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" />
+      ) : (
+        <span
+          className={`font-semibold text-slate-500 leading-none ${size === 'md' ? 'text-xs' : 'text-[10px]'}`}
+        >
+          {initial}
+        </span>
+      )}
+    </span>
+  );
+}
 
 export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   /* ================= state (ตามที่กำหนด) ================= */
@@ -605,6 +634,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               id: emp.id,
               name: nameParts[0] || emp.name || '',
               lastName: nameParts.slice(1).join(' ') || '',
+              photo: emp.photo ?? null,
             };
           });
         setAvailableEngineers(engineers);
@@ -945,6 +975,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       if (r) return r;
     }
     return 'Engineer';
+  };
+
+  const engineerPhotoSrc = (eng: Engineer): string | null => {
+    const raw = eng.photo ?? availableEngineers.find((e) => String(e.id) === String(eng.id))?.photo ?? null;
+    if (!raw) return null;
+    return raw.startsWith('http') ? raw : apiUrl(raw);
   };
 
   // Filter engineers based on input
@@ -2381,8 +2417,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 {selectedEngineers.map((eng) => (
                   <span
                     key={eng.id}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-none text-xs font-medium"
+                    className="inline-flex items-center gap-1.5 pl-1 pr-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium border border-blue-200/40"
                   >
+                    <EngineerAvatar
+                      photoUrl={engineerPhotoSrc(eng)}
+                      displayName={engineerDisplayName(eng)}
+                      size="sm"
+                    />
                     {engineerDisplayName(eng)}
                     <button
                       type="button"
@@ -2424,8 +2465,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <div
                       key={eng.id}
                       onClick={async () => await addEngineer(eng)}
-                      className="px-3 py-2 hover:bg-blue-50 cursor-pointer transition"
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-blue-50 cursor-pointer transition"
                     >
+                      <EngineerAvatar
+                        photoUrl={engineerPhotoSrc(eng)}
+                        displayName={engineerDisplayName(eng)}
+                        size="md"
+                      />
                       <p className="text-sm font-medium text-slate-700">
                         {engineerDisplayName(eng)}
                       </p>

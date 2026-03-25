@@ -12,6 +12,7 @@ export interface Employee {
   tel: string;
   positionType: string;
   employmentType: string;
+  photo?: string | null;
 }
 
 // Function สำหรับดึงข้อมูล Employee จาก API (ไม่มี mock data)
@@ -46,6 +47,7 @@ export async function fetchEmployeesFromAPI(): Promise<Employee[]> {
         tel: emp.tel || emp.phone || '',
         positionType: emp.positionType || emp.type || 'Technical',
         employmentType: emp.employmentType || emp.employment || 'Full-Time',
+        photo: emp.photo ?? null,
       };
     });
   } catch (error) {
