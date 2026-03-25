@@ -1,7 +1,7 @@
 'use client';
 
 import { X, AlertCircle, CheckCircle2, Info, XCircle } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 export type AlertType = 'success' | 'error' | 'info' | 'warning';
 
@@ -12,6 +12,11 @@ interface AlertModalProps {
   message: string;
   type?: AlertType;
   confirmText?: string;
+  /** When set, shows a second button and calls this on primary (then closes). */
+  onConfirm?: () => void | Promise<void>;
+  cancelText?: string;
+  /** Use red primary button for destructive confirm. */
+  dangerConfirm?: boolean;
 }
 
 export function AlertModal({
@@ -21,10 +26,14 @@ export function AlertModal({
   message,
   type = 'info',
   confirmText = 'OK',
+  onConfirm,
+  cancelText = 'Cancel',
+  dangerConfirm = false,
 }: AlertModalProps) {
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
-      // Prevent body scroll when modal is open
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = 'unset';
@@ -35,14 +44,18 @@ export function AlertModal({
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isOpen) setBusy(false);
+  }, [isOpen]);
+
+  useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
+      if (e.key === 'Escape' && isOpen && !busy) {
         onClose();
       }
     };
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, busy]);
 
   if (!isOpen) return null;
 
@@ -67,16 +80,33 @@ export function AlertModal({
     warning: 'คำเตือน',
   };
 
+  const primaryClass = dangerConfirm
+    ? 'bg-red-500 hover:bg-red-600 text-white'
+    : buttonColors[type];
+
+  const handlePrimary = async () => {
+    if (onConfirm) {
+      setBusy(true);
+      try {
+        await onConfirm();
+      } finally {
+        setBusy(false);
+      }
+    }
+    onClose();
+  };
+
+  const isConfirm = Boolean(onConfirm);
+
   return (
     <div
       className="fixed inset-0 z-[20000] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose}
+      onClick={() => !busy && onClose()}
     >
       <div
         className="bg-white rounded-2xl shadow-2xl max-w-md w-full transform transition-all"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div className="flex items-center gap-3">
             <div className="flex-shrink-0">{icons[type]}</div>
@@ -85,27 +115,39 @@ export function AlertModal({
             </h3>
           </div>
           <button
+            type="button"
+            disabled={busy}
             onClick={onClose}
-            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
           >
             <X size={20} className="text-slate-500" />
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-6">
           <p className="text-slate-700 whitespace-pre-line leading-relaxed">
             {message}
           </p>
         </div>
 
-        {/* Footer */}
         <div className="flex justify-end gap-3 p-6 border-t border-slate-200">
+          {isConfirm && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClose}
+              className="px-6 py-2.5 rounded-lg font-semibold transition-all border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {cancelText}
+            </button>
+          )}
           <button
-            onClick={onClose}
-            className={`px-6 py-2.5 rounded-lg font-semibold transition-all ${buttonColors[type]}`}
+            type="button"
+            disabled={busy}
+            onClick={handlePrimary}
+            className={`px-6 py-2.5 rounded-lg font-semibold transition-all disabled:opacity-60 ${primaryClass}`}
           >
-            {confirmText}
+            {busy ? '…' : confirmText}
           </button>
         </div>
       </div>

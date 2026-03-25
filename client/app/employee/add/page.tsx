@@ -6,9 +6,11 @@ import { ArrowLeft, UserPlus, Trash2 } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { apiUrl, createEmployee, uploadEmployeePhoto } from "@/lib/api";
+import { useToast, ToastContainer } from "@/components/ui/Toast";
 
 const AddEmployeePage = () => {
   const router = useRouter();
+  const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [gmail, setGmail] = useState("");
@@ -89,14 +91,14 @@ const AddEmployeePage = () => {
         photo: photo || undefined,
       });
       if (res.success) {
-        alert("Employee added successfully");
+        toastSuccess("Employee added successfully");
         router.push("/employee");
       } else {
-        alert(res.message || "Employee add failed");
+        toastError(res.message || "Employee add failed");
       }
     } catch (err) {
       console.error(err);
-      alert("Error adding employee");
+      toastError("Error adding employee");
     } finally {
       setSaving(false);
     }
@@ -142,16 +144,16 @@ const AddEmployeePage = () => {
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
                       if (!file || !file.type.startsWith("image/")) {
-                        if (file) alert("Please select an image file");
+                        if (file) toastWarning("Please select an image file");
                         return;
                       }
                       setPhotoUploading(true);
                       try {
                         const uploadRes = await uploadEmployeePhoto(file);
                         if (uploadRes.success && uploadRes.path) setPhoto(uploadRes.path);
-                        else alert(uploadRes.message || "Upload image failed");
+                        else toastError(uploadRes.message || "Upload image failed");
                       } catch (err) {
-                        alert("Upload image failed");
+                        toastError("Upload image failed");
                       } finally {
                         setPhotoUploading(false);
                       }
@@ -275,6 +277,7 @@ const AddEmployeePage = () => {
           </form>
         </div>
       </main>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
 };

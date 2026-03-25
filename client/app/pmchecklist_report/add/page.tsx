@@ -4,18 +4,15 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
+import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, postPmReport, getTasks, getPmReportedTaskIds, getContractById, uploadReportFile } from '@/lib/api';
 import { 
   Upload, 
   X, 
-  CheckCircle2, 
-  AlertCircle, 
-  XCircle,
+  AlertCircle,
   FileText,
   Image as ImageIcon,
   Save,
-  Plus,
-  Trash2,
   ArrowLeft,
   Calendar,
   User,
@@ -65,16 +62,15 @@ interface Device {
 
 export default function AddPMReportPage() {
   const router = useRouter();
+  const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [loadingDevices, setLoadingDevices] = useState(false);
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [slaResult, setSlaResult] = useState<string>('');
   const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
   const [pmDate, setPmDate] = useState(new Date().toISOString().split('T')[0]);
-  const [newChecklistTask, setNewChecklistTask] = useState('');
   const [saving, setSaving] = useState(false);
   const [hasDonePMTasks, setHasDonePMTasks] = useState(false);
   const [donePMTasks, setDonePMTasks] = useState<any[]>([]);
@@ -358,35 +354,6 @@ export default function AddPMReportPage() {
     if (eng) setTechnicianName(`${eng.name || eng.id || ''} ${eng.lastName || ''}`.trim());
   };
 
-  // Add new checklist item
-  const addChecklistItem = () => {
-    if (newChecklistTask.trim()) {
-      setChecklistItems([
-        ...checklistItems,
-        {
-          id: `item-${Date.now()}`,
-          task: newChecklistTask.trim(),
-          status: 'pending' as const,
-        },
-      ]);
-      setNewChecklistTask('');
-    }
-  };
-
-  // Remove checklist item
-  const removeChecklistItem = (id: string) => {
-    setChecklistItems(items => items.filter(item => item.id !== id));
-  };
-
-  // Update checklist item status
-  const updateChecklistStatus = (id: string, status: 'pending' | 'pass' | 'warning' | 'fail') => {
-    setChecklistItems(items =>
-      items.map(item =>
-        item.id === id ? { ...item, status } : item
-      )
-    );
-  };
-
   // Handle file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -423,11 +390,11 @@ export default function AddPMReportPage() {
   // Handle save - อัปโหลดไฟล์ก่อน แล้วส่ง report
   const handleSave = async () => {
     if (!selectedTaskId) {
-      alert('Please select a task before submitting the report.');
+      toastWarning('Please select a task before submitting the report.');
       return;
     }
     if (!selectedDeviceId) {
-      alert('Please select a device.');
+      toastWarning('Please select a device.');
       return;
     }
 
@@ -462,7 +429,7 @@ export default function AddPMReportPage() {
         taskId: selectedTaskId,
         deviceId: selectedDeviceId,
         device: selectedDevice ?? undefined,
-        checklistItems,
+        checklistItems: [],
         uploadedFiles: filesWithPath,
         comment,
         technicianName,
@@ -472,35 +439,16 @@ export default function AddPMReportPage() {
 
       const res = await postPmReport(reportData);
       if (res.success) {
-        alert('Report successful\n\nSent: ' + (res.list?.length ?? checklistItems.length) + ' items');
-        // Redirect back to list
-        router.push('/pmchecklist_report');
+        toastSuccess(res.message || 'PM report saved successfully', 3200);
+        window.setTimeout(() => router.push('/pmchecklist_report'), 1200);
       } else {
-        alert(res.message || 'Failed to submit report');
+        toastError(res.message || 'Failed to submit report');
       }
     } catch (e) {
       console.error(e);
-      alert('Error submitting report.');
+      toastError('Error submitting report.');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pass': return 'bg-green-500';
-      case 'warning': return 'bg-amber-400';
-      case 'fail': return 'bg-red-500';
-      default: return 'bg-slate-300';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'pass': return <CheckCircle2 size={18} className="text-white" />;
-      case 'warning': return <AlertCircle size={18} className="text-white" />;
-      case 'fail': return <XCircle size={18} className="text-white" />;
-      default: return null;
     }
   };
 
@@ -514,6 +462,7 @@ export default function AddPMReportPage() {
             <p className="text-sm text-slate-400">Please wait</p>
           </div>
         </div>
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
       </SidebarLayout>
     );
   }
@@ -545,6 +494,7 @@ export default function AddPMReportPage() {
             </button>
           </div>
         </div>
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
       </SidebarLayout>
     );
   }
@@ -875,6 +825,7 @@ export default function AddPMReportPage() {
           </div>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
   );
 }

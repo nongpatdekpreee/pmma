@@ -4,6 +4,7 @@ import { X, CheckCircle2, XCircle, Trash2, FileText, Download } from 'lucide-rea
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
+import { useAlertModal } from '@/components/ui/useAlertModal';
 import ExcelJS from 'exceljs';
 
 interface Device {
@@ -81,6 +82,7 @@ interface Props {
 }
 
 export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete, reportLink, createReportLink }: Props) {
+  const { showConfirm, alertModal } = useAlertModal();
   const [status, setStatus] = useState<'done' | 'working' | 'stuck' | 'not-started'>(task?.status || 'not-started');
   const [assetDetailsMap, setAssetDetailsMap] = useState<Record<string, Device>>({});
   const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, Device>>({});
@@ -185,7 +187,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
     return () => { cancelled = true; };
   }, [isOpen, task?.id, task?.taskType, task?.replacementDeviceId, task?.assets]);
 
-  if (!isOpen || !task) return null;
+  if (!isOpen || !task) {
+    return <>{alertModal}</>;
+  }
   const hasReport = !!reportLink;
   const totalAssets = task.assets?.length || 0;
   const totalAssetPages = Math.max(1, Math.ceil(totalAssets / assetsPerPage));
@@ -317,7 +321,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+    <>
+      {alertModal}
+      <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-4xl max-h-[90vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
@@ -688,9 +694,17 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             {onDelete && task && (
               <button
                 onClick={() => {
-                  if (task && onDelete && confirm('Are you sure you want to delete this task?')) {
-                    onDelete(task.id);
-                  }
+                  if (!task || !onDelete) return;
+                  showConfirm(
+                    'Are you sure you want to delete this task?',
+                    () => onDelete(task.id),
+                    {
+                      title: 'Delete task',
+                      confirmText: 'Delete',
+                      cancelText: 'Cancel',
+                      dangerConfirm: true,
+                    }
+                  );
                 }}
                 className="px-6 py-2.5 bg-red-500 text-white rounded-xl font-semibold text-sm hover:bg-red-600 transition-colors shadow-md flex items-center gap-2"
               >
@@ -737,5 +751,6 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
         </div>
       </div>
     </div>
+    </>
   );
 }
