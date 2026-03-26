@@ -451,7 +451,18 @@ function ReportPageContent() {
     router.push('/machecklist_report/add');
   };
 
-  const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  // CSV helpers — quote only when needed (match sample exports)
+  const csvCell = (v: unknown) => {
+    const s = String(v ?? '');
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const formatExportDate = (v: unknown) => {
+    if (!v) return '';
+    const d = new Date(String(v));
+    if (Number.isNaN(d.getTime())) return String(v);
+    return d.toLocaleDateString('en-US'); // M/D/YYYY
+  };
   // Export CSV — ใช้กับทั้ง PM และ MA ตาม tab ปัจจุบัน
   const handleExport = async () => {
     const taskLabel = tab === 'pm' ? 'PM' : 'MA';
@@ -498,33 +509,31 @@ function ReportPageContent() {
     if (sourceReports.length === 0) return;
 
     const lines: string[] = [];
-    const nl = () => lines.push('');
-    const row = (arr: string[]) => lines.push(arr.map(escape).join(','));
+    const row = (arr: unknown[]) => lines.push(arr.map(csvCell).join(','));
     const gen = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    lines.push(escape(`${taskLabel} Checklist Report - Export (Generated: ${gen})`));
-    nl();
-    const pmHeaders = ['Report ID', 'Total devices', 'Asset Number', 'Site', 'Location', 'Technician', 'PM Date', 'Status', 'Comment'];
-    const maHeaders = ['Report ID', 'Serial', 'Asset Number', 'Site', 'Location', 'Technician', 'MA Date', 'Result', 'Replace Device', 'New Site', 'New Location', 'Third Party Vendor name', 'Third Party Vendor phone', 'Reporter name', 'Reporter phone', 'Ticket', 'Comment'];
+    const pmHeaders = ['Total devices', 'Site', 'Location', 'Technician', 'PM Date', 'Status', 'Report status', 'Comment'];
+    const maHeaders = ['Serial', 'Site', 'Location', 'Technician', 'MA Date', 'Replace Device', 'New Site', 'New Location', 'Third Party Vendor name', 'Third Party Vendor phone', 'Reporter name', 'Reporter phone', 'Ticket', 'Status', 'Report status', 'comment'];
     const headers = tab === 'ma' ? maHeaders : pmHeaders;
+    row([`${taskLabel} Checklist Report - Export (Generated: ${gen})`, ...Array(headers.length - 1).fill('')]);
+    row(Array(headers.length).fill(''));
     row(headers);
     sourceReports.forEach((r: PMReport | MAReport) => {
       const dateVal = r[dateKey as keyof typeof r];
-      const resultVal = tab === 'pm' ? 'Done' : r[resultKey as keyof typeof r];
       const dev = r.device as Record<string, unknown> | undefined;
       const site = dev?.Sitename != null ? String(dev.Sitename) : '-';
       const location = dev?.Location2 != null ? String(dev.Location2) : '-';
+      const reportStatus = (r.uploadedFiles || []).length > 0 ? 'Reported' : 'Not yet';
       if (tab === 'pm') {
         const assets = Array.isArray((r as any).assets) ? (r as any).assets : [];
         const totalDevicesThisReport = assets.length > 0 ? assets.length : 1;
         row([
-          r.id,
           String(totalDevicesThisReport),
-          r.device?.Asset_Number || '-',
           site,
           location,
           getEngineerDisplay(r),
-          String(dateVal ?? '-'),
-          String(resultVal ?? '-'),
+          formatExportDate(dateVal),
+          'Done',
+          reportStatus,
           (r.comment || '').replace(/\n/g, ' '),
         ]);
         return;
@@ -565,24 +574,22 @@ function ReportPageContent() {
       const replaceDeviceStr = repNames.length > 0 ? repNames.join('; ') : '-';
       const newSiteStr = newSites.length > 0 ? newSites.join('; ') : '-';
       const newLocationStr = newLocations.length > 0 ? newLocations.join('; ') : '-';
-      const ma = r as MAReport;
       row([
-        r.id,
         serialStr,
-        assetStr,
         site,
         location,
         getEngineerDisplay(r),
-        String(dateVal ?? '-'),
-        String(resultVal ?? '-'),
+        formatExportDate(dateVal),
         replaceDeviceStr,
         newSiteStr,
         newLocationStr,
-        ma.vendorName ?? '',
-        ma.vendorTel ?? '',
-        ma.reporterName ?? '',
-        ma.reporterTel ?? '',
-        ma.ticket ?? '',
+        (r as MAReport).vendorName ?? '',
+        (r as MAReport).vendorTel ?? '',
+        (r as MAReport).reporterName ?? '',
+        (r as MAReport).reporterTel ?? '',
+        (r as MAReport).ticket ?? '',
+        'Done',
+        reportStatus,
         (r.comment || '').replace(/\n/g, ' '),
       ]);
     });
