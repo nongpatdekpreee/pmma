@@ -190,14 +190,18 @@ export function Sidebar() {
       >
         <div className="flex flex-col h-full">
           {/* Header - กระชับตอนย่อ */}
-          <div className={`flex items-center justify-between border-b border-slate-200/80 shrink-0 ${isExpanded ? 'p-4' : 'px-3 py-3'}`}>
+          <div className={`flex items-center border-b border-slate-200/80 shrink-0 ${isExpanded ? 'p-4' : 'px-3 py-3'}`}>
             <Link 
               href="/" 
-              className="flex items-center gap-2 text-blue-600 cursor-pointer group"
+              className={`flex items-center gap-2 text-blue-600 cursor-pointer group ${!isExpanded ? 'justify-center w-full' : ''}`}
               onClick={closeMobile}
             >
-              <div className="p-2 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg text-white shadow-md shadow-blue-500/20 group-hover:shadow-blue-500/40 transition-all flex-shrink-0">
-                <LayoutDashboard size={18} />
+              <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-white-600 to-white-700 p-2 text-white shadow-md shadow-grey-500/20 group-hover:shadow-blue-500/40 transition-all flex-shrink-0 flex items-center justify-center">
+                <img
+                  src="/date.svg"
+                  alt="date"
+                  className="h-[18px] w-[18px] object-contain"
+                />
               </div>
               <span 
                 className={`

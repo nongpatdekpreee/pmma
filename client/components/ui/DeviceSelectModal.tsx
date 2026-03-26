@@ -100,8 +100,24 @@ export function DeviceSelectModal({
   // For manufacturers, use data from API (database) instead of devices
   const uniqueRoles = Array.from(new Set(devices.map(d => d.role).filter(Boolean))).sort();
   const uniqueModels = Array.from(new Set(devices.map(d => d.type).filter(Boolean))).sort();
-  // Use manufacturers from API (database) - sorted by name
-  const uniqueManufacturers = manufacturers.map(m => m.name).sort();
+
+  // Manufacturer options should only include values that can yield results,
+  // based on current text search + role/model filters (but not manufacturer itself).
+  const devicesForManufacturerOptions = textFilteredDevices.filter((d) => {
+    if (selectedRole && d.role !== selectedRole) return false;
+    if (selectedModel && d.type !== selectedModel) return false;
+    return true;
+  });
+  const manufacturerSet = new Set(
+    devicesForManufacturerOptions
+      .map((d) => (d.manufacturer || '').trim())
+      .filter(Boolean)
+  );
+  // Use manufacturers from API (database), but only those present in current device list
+  const uniqueManufacturers = manufacturers
+    .map((m) => m.name)
+    .filter((name) => manufacturerSet.has(String(name).trim()))
+    .sort();
 
   // Reset selected filters if they're no longer available in the full devices list
   useEffect(() => {
@@ -111,6 +127,7 @@ export function DeviceSelectModal({
     if (selectedModel && !uniqueModels.includes(selectedModel)) {
       setSelectedModel('');
     }
+    // If manufacturer is no longer selectable (would yield 0 devices), reset it.
     if (selectedManufacturer && !uniqueManufacturers.includes(selectedManufacturer)) {
       setSelectedManufacturer('');
     }

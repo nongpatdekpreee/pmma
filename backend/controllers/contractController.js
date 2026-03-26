@@ -11,7 +11,6 @@ const generateNextContractId = async () => {
       // ถ้ายังไม่มีข้อมูลเลย ให้เริ่มที่ 1
       return 1;
     }
-    
     // แปลง contract_id ทั้งหมดเป็นตัวเลขและเก็บไว้ใน array
     const numericIds = [];
     for (const row of rows) {
@@ -108,17 +107,6 @@ const createContract = async (req, res) => {
     } = req.body;
 
     const contractStatus = (status === 'draft' || status === 'official') ? status : 'official';
-
-    // ถ้าไม่ใช่ draft ต้องกรอก sla_term เสมอ
-    if (contractStatus !== 'draft') {
-      if (!sla_term || !String(sla_term).trim()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please enter sla_term (required)'
-        });
-      }
-    }
-
     // ดักรูปแบบ Email และ Telephone
     const emailVal = email_acc != null ? String(email_acc).trim() : '';
     if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {

@@ -234,7 +234,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
     }
     const validPairs = siteEntries.filter((e) => e.siteId && e.devices.length > 0);
     if (validPairs.length === 0) {
-      setSaveError('กรุณาเลือก Site และ Device อย่างน้อย 1 รายการ (เลือก Site แล้วกดเลือก Device)');
+      setSaveError('กรุณาเลือก Site และ Device อย่างน้อย 1 รายการ');
       return;
     }
     if (!slaTerm.trim()) {

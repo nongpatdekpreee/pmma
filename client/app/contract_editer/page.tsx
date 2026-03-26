@@ -415,13 +415,13 @@ function ContractEditorPageContent() {
     }
     setIsExportingContracts(true);
     try {
-      // Sheet 1: Contracts — หนึ่งแถวต่อ (contract, site): Contract Name | SOF | Device Count | Site | Location | Start Date | End Date
+      // Sheet 1: Contracts — หนึ่งแถวต่อ (contract, site): Contract Name | Site | Location | SOF | Device Count | Start Date | End Date
       const contractSiteRows: {
         'Contract Name': string;
-        SOF: string;
-        'Device Count': number;
         Site: string;
         Location: string;
+        SOF: string;
+        'Device Count': number;
         'Start Date': string;
         'End Date': string;
       }[] = [];
@@ -473,10 +473,10 @@ function ContractEditorPageContent() {
         if (siteOrder.length === 0) {
           contractSiteRows.push({
             'Contract Name': c.name,
-            SOF: sofLabel,
-            'Device Count': 0,
             Site: '—',
             Location: '—',
+            SOF: sofLabel,
+            'Device Count': 0,
             'Start Date': startDate,
             'End Date': endDate,
           });
@@ -485,10 +485,10 @@ function ContractEditorPageContent() {
             const s = bySite.get(sLid)!;
             contractSiteRows.push({
               'Contract Name': c.name,
-              SOF: sofLabel,
-              'Device Count': s.devices.length,
               Site: s.siteName,
               Location: s.location,
+              SOF: sofLabel,
+              'Device Count': s.devices.length,
               'Start Date': startDate,
               'End Date': endDate,
             });
@@ -526,7 +526,7 @@ function ContractEditorPageContent() {
       const wsContracts =
         contractSiteRows.length > 0
           ? XLSX.utils.json_to_sheet(contractSiteRows)
-          : XLSX.utils.aoa_to_sheet([['Contract Name', 'SOF', 'Device Count', 'Site', 'Location', 'Start Date', 'End Date']]);
+          : XLSX.utils.aoa_to_sheet([['Contract Name', 'Site', 'Location', 'SOF', 'Device Count', 'Start Date', 'End Date']]);
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, wsContracts, 'Contracts');
@@ -1483,29 +1483,10 @@ function ContractEditorPageContent() {
   group-hover:scale-y-100" />
               <div className="flex justify-between items-start mb-5 gap-3">
                 <div className="text-xl font-bold text-slate-800 flex-1 min-w-0 flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.name}
+                  {contract.siteName ?? contract.partner ?? '—'}
                 </div>
                 <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
                   {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
-                </span>
-              </div>
-              <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><FileText size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Contract Name:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.name}</span>
-              </div>
-              <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Hash size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">SOF:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
-                </span>
-              </div>
-              <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Wrench size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Device:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.deviceCount || 0} items
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
@@ -1513,6 +1494,20 @@ function ContractEditorPageContent() {
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Site:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                   {contract.siteName ?? contract.partner ?? '—'}
+                </span>
+              </div>
+              <div className="mb-3 flex items-start gap-3 text-sm">
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><MapPin size={18} /></span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Location:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.siteLocation ?? '—'}
+                </span>
+              </div>
+              <div className="mb-3 flex items-start gap-3 text-sm">
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Hash size={18} /></span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">SOF:</span>
+                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
@@ -1612,9 +1607,9 @@ function ContractEditorPageContent() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Contract Name</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">SOF</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Site</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Location</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">SOF</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Start Date</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">End Date</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Status</th>
@@ -1624,11 +1619,11 @@ function ContractEditorPageContent() {
               <tbody>
                 {paginatedContracts.map((contract) => (
                   <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
-                    <td className="py-4 px-4 text-sm font-medium text-slate-800">{contract.name}</td>
+                    <td className="py-4 px-4 text-sm font-medium text-slate-800">{contract.siteName ?? contract.partner ?? '—'}</td>
+                    <td className="py-4 px-4 text-sm text-slate-600">{contract.siteLocation ?? '—'}</td>
                     <td className="py-4 px-4 text-sm text-slate-600 whitespace-nowrap">
                       {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
                     </td>
-                    <td className="py-4 px-4 text-sm text-slate-600">{contract.siteName ?? contract.partner ?? '—'}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedStartDate}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedEndDate}</td>
                     <td className="py-4 px-4">
@@ -3196,9 +3191,9 @@ function ContractEditorPageContent() {
                           />
                         </th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Contract Name</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">SOF</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Site</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Location</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">SOF</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Start Date</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-slate-700">End Date</th>
                       </tr>
@@ -3215,11 +3210,11 @@ function ContractEditorPageContent() {
                             />
                           </td>
                           <td className="px-3 py-2 font-medium text-slate-800">{c.name}</td>
+                          <td className="px-3 py-2 text-slate-600">{c.siteName ?? '—'}</td>
+                          <td className="px-3 py-2 text-slate-600">{c.siteLocation ?? '—'}</td>
                           <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
                             {c.sofName && String(c.sofName).trim() ? c.sofName : '—'}
                           </td>
-                          <td className="px-3 py-2 text-slate-600">{c.siteName ?? '—'}</td>
-                          <td className="px-3 py-2 text-slate-600">{c.siteLocation ?? '—'}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateForExport(c.startDate)}</td>
                           <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateForExport(c.endDate)}</td>
                         </tr>
