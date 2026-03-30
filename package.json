@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
-
+  },
   "dependencies": {
     "date-holidays": "^3.26.8"
   },

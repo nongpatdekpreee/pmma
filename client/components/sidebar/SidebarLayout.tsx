@@ -25,7 +25,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const marginLeft = isExpanded ? 224 : 64;
 
   return (
-    <div className="flex min-h-screen bg-[#f8faf9]">
+    <div className="flex min-h-screen bg-gradient-to-br from-slate-50 via-[#f6f9fb] to-sky-50/35">
       {/* Mobile Menu Button */}
       <SidebarToggle />
 

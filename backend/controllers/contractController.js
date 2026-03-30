@@ -1,7 +1,8 @@
 const db = require('../config/database');
-
-/** คลัง default — สอดคล้องกับ deviceController (sites_location.Sid แทน devices.SLid = 2 แถวเดียว) */
-const DEFAULT_IN_STORE_SITE_SID = 2;
+const {
+  DEFAULT_IN_STORE_SITE_SID,
+  DEFAULT_IN_STORE_SITE_NAME,
+} = require('../config/inStoreSite');
 
 // Helper function - สร้าง contract_id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
 const generateNextContractId = async () => {
@@ -678,9 +679,10 @@ const getAvailableDevices = async (req, res) => {
     
     let whereCondition = `WHERE d.Did NOT IN (${excludeContractCondition})`;
 
-    // ตอน edit contract: เฉพาะ device ที่ยังไม่มี SOF และอยู่ใต้ Sid คลัง default (join sites_location)
+    // ตอน edit contract: เฉพาะ device ที่ยังไม่มี SOF และอยู่ใต้ Sid+ชื่อคลัง (กัน Sid=2 ชี้ผิดบริษัท)
     if (contractId) {
-      whereCondition += ` AND (d.Refer_SOF IS NULL OR d.Refer_SOF = '') AND sl.Sid = ${DEFAULT_IN_STORE_SITE_SID}`;
+      whereCondition += ` AND (d.Refer_SOF IS NULL OR d.Refer_SOF = '') AND sl.Sid = ? AND TRIM(COALESCE(s.Name, '')) = ?`;
+      params.push(DEFAULT_IN_STORE_SITE_SID, DEFAULT_IN_STORE_SITE_NAME);
     } else if (siteId) {
       const sid = parseInt(siteId, 10);
       if (!isNaN(sid)) {

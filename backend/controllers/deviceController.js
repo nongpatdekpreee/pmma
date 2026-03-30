@@ -1,7 +1,8 @@
 const db = require('../config/database');
-
-/** คลัง/In-store default: ทุก SLid ใน sites_location ที่ Sid นี้ (แทนการ fix แค่ devices.SLid = 2 แถวเดียว) */
-const DEFAULT_IN_STORE_SITE_SID = 2;
+const {
+  DEFAULT_IN_STORE_SITE_SID,
+  DEFAULT_IN_STORE_SITE_NAME,
+} = require('../config/inStoreSite');
 
 //
 // devices_history is populated by DB triggers (trg_devices_insert, trg_devices_update)
@@ -1420,12 +1421,14 @@ const getDevicesBySiteNoSOF = async (req, res) => {
              LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
              LEFT JOIN manufacturer m ON dt.Mid = m.Mid
              INNER JOIN sites_location sl ON d.SLid = sl.SLid
-             WHERE sl.Sid = ${DEFAULT_IN_STORE_SITE_SID}
-               AND ${inStore}
+             INNER JOIN sites s_instore ON sl.Sid = s_instore.Sid
+               AND s_instore.Sid = ?
+               AND TRIM(s_instore.Name) = ?
+             WHERE ${inStore}
                AND ${noSofCondition}
                AND (${notInContract})
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
-      params = [];
+      params = [DEFAULT_IN_STORE_SITE_SID, DEFAULT_IN_STORE_SITE_NAME];
     }
     
     const [rows] = await db.execute(sql, params);
@@ -1451,9 +1454,8 @@ const getDevicesNoSofInStore = async (req, res) => {
                              OR LOWER(TRIM(d.Refer_SOF)) = 'n/a'
                              OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
     const inStoreCondition = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
-    const storeSiteCondition = `sl.Sid = ${DEFAULT_IN_STORE_SITE_SID}`;
     let contractExclusionCondition = '';
-    const params = [];
+    const params = [DEFAULT_IN_STORE_SITE_SID, DEFAULT_IN_STORE_SITE_NAME];
     if (contractId) {
       const cid = parseInt(contractId, 10);
       if (!isNaN(cid)) {
@@ -1475,9 +1477,11 @@ const getDevicesNoSofInStore = async (req, res) => {
                  LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
                  LEFT JOIN manufacturer m ON dt.Mid = m.Mid
                  INNER JOIN sites_location sl ON d.SLid = sl.SLid
+                 INNER JOIN sites s_instore ON sl.Sid = s_instore.Sid
+                   AND s_instore.Sid = ?
+                   AND TRIM(s_instore.Name) = ?
                  WHERE ${noSofCondition}
                    AND ${inStoreCondition}
-                   AND ${storeSiteCondition}
                    ${contractExclusionCondition}
                  ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
     const [rows] = await db.execute(sql, params);
@@ -1598,17 +1602,21 @@ const getReplacementDevices = async (req, res) => {
         d.SLid,
         s.Name AS SiteName
       FROM devices d
-      LEFT JOIN sites_location sl ON d.SLid = sl.SLid
-      LEFT JOIN sites s ON sl.Sid = s.Sid
+      INNER JOIN sites_location sl ON d.SLid = sl.SLid
+      INNER JOIN sites s ON sl.Sid = s.Sid AND s.Sid = ? AND TRIM(s.Name) = ?
       WHERE (LOWER(TRIM(COALESCE(d.Asset_State, ''))) = 'in store')
-        AND (sl.Sid = ${DEFAULT_IN_STORE_SITE_SID})
         AND d.Dtypeid = ?
         AND d.DeRoleid = ?
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC
       LIMIT 100
     `;
 
-    const [rows] = await db.execute(sql, [parseInt(dtypeid, 10), parseInt(deroleid, 10)]);
+    const [rows] = await db.execute(sql, [
+      DEFAULT_IN_STORE_SITE_SID,
+      DEFAULT_IN_STORE_SITE_NAME,
+      parseInt(dtypeid, 10),
+      parseInt(deroleid, 10),
+    ]);
 
     res.status(200).json({
       success: true,

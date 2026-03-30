@@ -17,7 +17,7 @@ import { useToast, ToastContainer } from '@/components/ui/Toast';
 import type { SiteLocation, DeviceItem } from './types';
 
 const inputBase =
-  'w-full rounded-xl border border-slate-200 bg-slate-50/80 p-3 text-sm outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100';
+  'w-full rounded-xl border border-slate-200/90 bg-white p-3 text-sm text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
 
 type SiteEntry = {
   id: string;
@@ -1183,18 +1183,20 @@ function AddContractPageContent() {
       <DashboardHeader />
       <div className="flex flex-col gap-6 p-6 pt-0">
         {/* Page Header */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-6 shadow-sm">
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIwLjUiIG9wYWNpdHk9IjAuMDMiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-20" />
+        <div className="relative overflow-hidden rounded-2xl border border-slate-200/50 bg-gradient-to-br from-white via-sky-50/40 to-indigo-50/50 p-6 shadow-md shadow-slate-900/[0.04] ring-1 ring-white/80">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-sky-200/25 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 -left-10 h-40 w-40 rounded-full bg-violet-200/20 blur-3xl" />
+          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIwLjUiIG9wYWNpdHk9IjAuMDMiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-[0.35]" />
           <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
               <Link
                 href="/contract_editer"
-                className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/80 text-slate-600 shadow-sm backdrop-blur-sm transition-all hover:scale-105 hover:bg-white hover:shadow-md"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/60 bg-white/90 text-slate-600 shadow-sm shadow-slate-900/5 backdrop-blur-sm transition-all hover:border-sky-200 hover:bg-white hover:text-sky-700 hover:shadow-md"
               >
                 <ArrowLeft size={20} />
               </Link>
               <div>
-                <h1 className="flex items-center gap-2 text-2xl font-bold text-slate-800 sm:text-3xl">
+                <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-800 sm:text-3xl">
                   <span className="text-3xl">{editContractId ? '✏️' : '📝'}</span>
                   <span>{editContractId ? 'Edit Contract' : 'Add New Contract'}</span>
                 </h1>
@@ -1638,14 +1640,14 @@ function AddContractPageContent() {
             gradient="from-emerald-50 to-teal-50"
           >
             {!selectedSOF?.trim() ? (
-              <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 py-10 text-center text-sm text-slate-500">
+              <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/50 py-10 text-center text-sm text-slate-500 shadow-inner shadow-slate-900/[0.02]">
                 <span>Please select or enter SOF</span>
                 
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Site and Device *
                   </span>
                   <div className="flex items-center gap-2">
@@ -1658,7 +1660,7 @@ function AddContractPageContent() {
                           ? 'Maximum rows reached (one row per location).'
                           : undefined
                       }
-                      className="flex items-center gap-1.5 rounded-xl bg-green-500 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-3 py-1.5 text-sm font-semibold text-white shadow-md shadow-emerald-900/15 transition-all hover:from-emerald-600 hover:to-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Plus size={16} />
                       Add Site
@@ -1673,10 +1675,10 @@ function AddContractPageContent() {
                     <button
                       type="button"
                       onClick={() => setSelectedViewSiteId(null)}
-                      className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                      className={`rounded-xl px-4 py-2 text-sm font-medium shadow-sm transition-all ${
                         selectedViewSiteId === null
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-sky-900/20 ring-1 ring-sky-500/30'
+                          : 'border border-slate-200/80 bg-white/80 text-slate-700 hover:border-sky-200 hover:bg-sky-50/50'
                       }`}
                     >
                       All sites
@@ -1688,10 +1690,10 @@ function AddContractPageContent() {
                           key={siteId}
                           type="button"
                           onClick={() => setSelectedViewSiteId(siteId)}
-                          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                          className={`rounded-xl px-4 py-2 text-sm font-medium shadow-sm transition-all ${
                             isSelected
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                              ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-sky-900/20 ring-1 ring-sky-500/30'
+                              : 'border border-slate-200/80 bg-white/80 text-slate-700 hover:border-sky-200 hover:bg-sky-50/50'
                           }`}
                         >
                           📍 {siteLabel}
@@ -1705,7 +1707,7 @@ function AddContractPageContent() {
                   {entriesToShow.map((entry) => (
                     <div
                       key={entry.id}
-                      className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-3"
+                      className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 backdrop-blur-sm"
                     >
                       <div className="flex flex-wrap items-end gap-2">
                         {uniqueSites.length > 0 ? (
@@ -1794,7 +1796,7 @@ function AddContractPageContent() {
                             (sofExistsInDb ? !entryHasSiteScope(entry, sitesLocation) : false) ||
                             devicesLoading
                           }
-                          className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-xl bg-gradient-to-r from-sky-500 to-cyan-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-sky-900/15 transition-all hover:from-sky-600 hover:to-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {devicesLoading && activeSiteEntryId === entry.id
                             ? 'Loading...'
@@ -1841,10 +1843,10 @@ function AddContractPageContent() {
                               Remove all
                             </button>
                           </div>
-                          <div className="overflow-x-auto rounded-xl border border-slate-200">
+                          <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-white/50 shadow-inner shadow-slate-900/[0.02]">
                             <table className="w-full min-w-[280px] text-sm">
                               <thead>
-                                <tr className="border-b border-slate-200 bg-slate-50/80">
+                                <tr className="border-b border-slate-200/80 bg-gradient-to-r from-slate-50/90 to-sky-50/30">
                                   <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">#</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">Device</th>
                                   <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">Role</th>
@@ -2032,10 +2034,10 @@ function AddContractPageContent() {
           </FormSection>
 
           {/* Actions */}
-          <div className="flex flex-col-reverse gap-3 border-t border-slate-200 pt-6 sm:flex-row sm:justify-end">
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-200/80 pt-6 sm:flex-row sm:justify-end">
             <Link
               href="/contract_editer"
-              className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 font-semibold text-slate-700 shadow-sm transition-all hover:scale-105 hover:bg-slate-50 hover:shadow-md"
+              className="flex items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-6 py-3 font-semibold text-slate-700 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 transition-all hover:border-slate-300 hover:bg-slate-50/90 hover:shadow-md"
             >
               <ArrowLeft size={18} />
               <span>Back</span>
@@ -2045,7 +2047,7 @@ function AddContractPageContent() {
                 type="button"
                 onClick={(e) => handleSubmit(e, true)}
                 disabled={saveLoading}
-                className="flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-slate-100 px-6 py-3 font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-70"
+                className="flex items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50/90 px-6 py-3 font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {saveLoading ? (
                   <>
@@ -2062,7 +2064,7 @@ function AddContractPageContent() {
               <button
                 type="submit"
                 disabled={saveLoading}
-                className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3 font-semibold text-white shadow-lg shadow-blue-200/50 transition-all hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl hover:shadow-blue-300/50 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
+                className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 px-8 py-3 font-semibold text-white shadow-lg shadow-sky-900/20 ring-1 ring-sky-400/30 transition-all hover:from-sky-700 hover:via-blue-700 hover:to-indigo-700 hover:shadow-xl hover:shadow-sky-900/25 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
               >
                 {saveLoading ? (
                   <>
@@ -2090,8 +2092,8 @@ export default function AddContractPage() {
     <Suspense fallback={
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="text-sm text-gray-600">กำลังโหลด...</span>
+          <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+          <span className="text-sm text-slate-600">กำลังโหลด...</span>
         </div>
       </div>
     }>
