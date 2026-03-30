@@ -14,5 +14,6 @@ export interface DeviceItem {
     model?: string | null;
     roleName?: string | null;
     manufacturername?: string | null;
+    SLid?: number | null;
 }
 

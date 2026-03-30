@@ -2,6 +2,7 @@
 import { X, Loader2, Paperclip, ImageIcon, Plus, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { apiUrl } from '@/lib/api';
+import { MAX_VISIBLE_SELECTED_DEVICES_PER_ENTRY } from '@/lib/contractLimits';
 import { randomUUID } from '@/lib/utils';
 import { DeviceSelectModal } from '@/components/ui/DeviceSelectModal';
 
@@ -60,6 +61,18 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [expandedSelectedDeviceEntries, setExpandedSelectedDeviceEntries] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  const toggleSelectedDevicesExpanded = (entryId: string) => {
+    setExpandedSelectedDeviceEntries((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (startDate && duration) {
@@ -94,6 +107,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setEndDate('');
       setFetchError('');
       setSaveError('');
+      setExpandedSelectedDeviceEntries(new Set());
       return;
     }
     const loadReferSOF = async () => {
@@ -445,25 +459,56 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                         </button>
                       )}
                     </div>
-                    {entry.devices.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {entry.devices.map((d) => (
-                          <span
-                            key={d.id}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
-                          >
-                            {d.label}
+                    {entry.devices.length > 0 && (() => {
+                      const listExpanded = expandedSelectedDeviceEntries.has(entry.id);
+                      const total = entry.devices.length;
+                      const limit = MAX_VISIBLE_SELECTED_DEVICES_PER_ENTRY;
+                      const visible =
+                        listExpanded || total <= limit
+                          ? entry.devices
+                          : entry.devices.slice(0, limit);
+                      const truncated = total > limit;
+                      const moreCount = total - limit;
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {visible.map((d) => (
+                              <span
+                                key={d.id}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
+                              >
+                                {d.label}
+                                <button
+                                  type="button"
+                                  onClick={() => removeDeviceFromEntry(entry.id, d.id)}
+                                  className="hover:text-blue-900 focus:outline-none"
+                                >
+                                  <X size={10} />
+                                </button>
+                              </span>
+                            ))}
+                            {truncated && !listExpanded && (
+                              <button
+                                type="button"
+                                onClick={() => toggleSelectedDevicesExpanded(entry.id)}
+                                className="rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                              >
+                                +{moreCount} more
+                              </button>
+                            )}
+                          </div>
+                          {truncated && listExpanded && (
                             <button
                               type="button"
-                              onClick={() => removeDeviceFromEntry(entry.id, d.id)}
-                              className="hover:text-blue-900 focus:outline-none"
+                              onClick={() => toggleSelectedDevicesExpanded(entry.id)}
+                              className="text-xs font-semibold text-blue-600 hover:underline"
                             >
-                              <X size={10} />
+                              Show less
                             </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
