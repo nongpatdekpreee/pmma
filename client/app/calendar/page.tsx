@@ -844,7 +844,7 @@ function CalendarPageContent() {
     <SidebarLayout>
       <DashboardHeader />
 
-      <main className="flex-1 mx-auto w-full max-w-6xl px-8">
+      <main className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-4 pb-6 sm:px-6 lg:px-8 xl:px-10 2xl:px-12">
         {loadError && (
           <div className="mb-3 rounded-xl bg-red-50 px-4 py-2 text-sm text-red-600 border border-red-100">
             {loadError}
@@ -962,9 +962,15 @@ function CalendarPageContent() {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-[2.5rem] shadow-sm">
+        <div
+          className={`rounded-[2.5rem] bg-white p-6 shadow-sm ${
+            calendarViewMode === 'calendar'
+              ? 'flex min-h-0 flex-1 flex-col xl:min-h-[calc(100dvh-9rem)]'
+              : ''
+          }`}
+        >
           {/* Calendar Header */}
-          <div className="grid grid-cols-3 items-center gap-4 mb-6">
+          <div className="mb-6 grid shrink-0 grid-cols-3 items-center gap-4">
             <div />
             <div className="flex items-center justify-center gap-8">
               <button 
@@ -1046,7 +1052,7 @@ function CalendarPageContent() {
                                 ? ev.startDate || `${ev.startDay}/${currentMonth + 1}/${currentYear}`
                                 : `${ev.startDate || ''} – ${ev.endDate || ''}`}
                             </td>
-                            <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate" title={ev.title}>{ev.title}</td>
+                            <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
                             <td className="py-2.5 px-4">
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${isMA ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {ev.taskType || 'PM'}
@@ -1104,13 +1110,13 @@ function CalendarPageContent() {
               )}
             </div>
           ) : (
-          <div className="bg-gray-100 rounded-xl overflow-hidden border border-gray-100">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-gray-100 xl:min-h-[calc(100dvh-15.5rem)]">
             {/* Calendar Grid header row */}
-            <div className="grid grid-cols-7 gap-px">
+            <div className="grid shrink-0 grid-cols-7 gap-px">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
                 <div 
                   key={day} 
-                  className={`bg-slate-50 p-3 text-center text-xs font-bold uppercase ${
+                  className={`bg-slate-50 p-3 text-center text-xs font-bold uppercase xl:py-4 ${
                     index === 0 || index === 6 
                       ? 'bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent' 
                       : 'bg-gradient-to-r from-slate-500 to-slate-600 bg-clip-text text-transparent'
@@ -1121,7 +1127,8 @@ function CalendarPageContent() {
               ))}
             </div>
             
-            {/* Calendar weeks */}
+            {/* Calendar weeks — แบ่งความสูงเท่าๆ กันเมื่อจอใหญ่ */}
+            <div className="flex min-h-[min(360px,calc(100dvh-18rem))] flex-1 flex-col gap-px xl:min-h-0">
             {calendarWeeks.map((week, weekIndex) => {
               const multiDaySpans = getMultiDaySpansForWeek(week);
               const multiDaySpansWithRow = assignRowsToMultiDaySpans(multiDaySpans);
@@ -1132,7 +1139,7 @@ function CalendarPageContent() {
               const multiDayAreaHeight = (rows: number) =>
                 MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
               return (
-                <div key={weekIndex} className="relative grid grid-cols-7 gap-px">
+                <div key={weekIndex} className="relative grid min-h-[5rem] flex-1 grid-cols-7 gap-px xl:min-h-[7rem]">
                   {week.map((day, dayIndex) => {
                     const dayEvents = getEventsForDay(day);
                     // กรองงานหลายวันออกจาก pills ในวันแรก (เพราะจะแสดงเป็นแถบต่อกันแล้ว)
@@ -1143,17 +1150,19 @@ function CalendarPageContent() {
                     const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
                     const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
                     const holidayForDay = getHolidayForDay(day);
+                    const cellMinH =
+                      multiDayRowCount > 0 ? multiDayAreaHeight(multiDayRowCount) + 44 : 100;
                     return (
                       <div
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => handleDragOver(e, day)}
-                        className={`p-2 relative border-t border-l border-gray-50 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
+                        className={`relative h-full min-h-[100px] border-l border-t border-gray-50 p-2 xl:min-h-0 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
                           } ${day !== null && dragOverDay === day && draggedEvent
-                            ? 'bg-blue-50 border-2 border-blue-300'
+                            ? 'border-2 border-blue-300 bg-blue-50'
                             : ''
                           }`}
-                        style={{ minHeight: multiDayRowCount > 0 ? multiDayAreaHeight(multiDayRowCount) + 44 : 100 }}
+                        style={{ minHeight: cellMinH }}
                       >
                         {day !== null && (
                           <>
@@ -1359,6 +1368,7 @@ function CalendarPageContent() {
                 </div>
               );
             })}
+            </div>
           </div>
           )}
         </div>

@@ -1302,13 +1302,14 @@ function AddContractPageContent() {
             </FormSection>
           )}
 
-          {/* Section 1: ข้อมูลพื้นฐาน */}
+          {/* Section 1: ข้อมูลพื้นฐาน — ยก z เมื่อเปิด Service dropdown กัน section ถัดไปทับ */}
           <FormSection
             title="Basic Information"
             description="Contract name and service information"
             icon={FileText}
             emoji="📋"
             gradient="from-blue-50 to-cyan-50"
+            className={serviceDropdownOpen ? 'z-[100]' : ''}
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Contract Name" required>
@@ -1416,7 +1417,7 @@ function AddContractPageContent() {
                   )}
                   {serviceDropdownOpen && (
                     <ul
-                      className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                      className="absolute z-[110] mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
                       onMouseDown={(e) => e.preventDefault()}
                     >
                       {assignedServiceOptions

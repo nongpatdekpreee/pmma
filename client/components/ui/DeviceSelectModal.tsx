@@ -169,19 +169,27 @@ export function DeviceSelectModal({
           <div className="flex items-center gap-2">
             {(() => {
               const allSelected = filteredDevices.length > 0 && filteredDevices.every((d) => selectedIds.includes(d.id));
+              const anySelectedInFilter = filteredDevices.some((d) => selectedIds.includes(d.id));
               // Get selected filter name for display
               const selectedFilterName = selectedRole || selectedModel || selectedManufacturer || '';
               const selectAllText = selectedFilterName 
                 ? `Select All of ${selectedFilterName}` 
                 : 'Select All';
+              // โทนกลางเมื่อมีรายการแต่ยังไม่เลือก; สีฟ้าเมื่อเลือกบางส่วน; กด Select All จนครบ = ฟ้าเข้ม + ✓
+              const bluePartial = filteredDevices.length > 0 && anySelectedInFilter && !allSelected;
+              const blueAllDone = allSelected;
               
               return (
                 <button
+                  type="button"
                   onClick={onSelectAll}
+                  disabled={filteredDevices.length === 0}
                   className={`flex items-center justify-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold shadow-sm transition-all ${
-                    allSelected
-                      ? 'bg-slate-200 text-slate-600 hover:bg-slate-300 hover:shadow-sm'
-                      : 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-md shadow-sky-900/15 hover:from-sky-600 hover:to-cyan-700 hover:shadow-md'
+                    blueAllDone
+                      ? 'bg-gradient-to-r from-sky-600 to-cyan-700 text-white shadow-md shadow-sky-900/20 hover:from-sky-700 hover:to-cyan-800 hover:shadow-md'
+                      : bluePartial
+                        ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-md shadow-sky-900/15 hover:from-sky-600 hover:to-cyan-700 hover:shadow-md'
+                        : 'border border-slate-200/80 bg-white/80 text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50'
                   }`}
                 >
                   <span>{allSelected ? '✓' : '✅'}</span>
@@ -190,6 +198,7 @@ export function DeviceSelectModal({
               );
             })()}
             <button
+              type="button"
               onClick={onClearAll}
               className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/80 px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50"
             >

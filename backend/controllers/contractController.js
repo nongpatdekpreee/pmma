@@ -613,8 +613,8 @@ const getContractsBySite = async (req, res) => {
       FROM contract c
       LEFT JOIN (
         SELECT contract_id,
-          GROUP_CONCAT(site_name ORDER BY slid SEPARATOR '; ') AS site_name,
-          GROUP_CONCAT(site_location ORDER BY slid SEPARATOR '; ') AS site_location
+          GROUP_CONCAT(site_name ORDER BY slid SEPARATOR ', ') AS site_name,
+          GROUP_CONCAT(site_location ORDER BY slid SEPARATOR ', ') AS site_location
         FROM (
           SELECT DISTINCT cd.contract_id, sl.SLid AS slid, s.Name AS site_name, IFNULL(l.Location2, '') AS site_location
           FROM contract_device cd

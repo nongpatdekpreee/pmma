@@ -34,12 +34,12 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content Area */}
       <main
-        className="flex-1 flex flex-col transition-all duration-300 ease-in-out w-full min-w-0"
+        className="flex min-h-screen min-w-0 flex-1 flex-col transition-all duration-300 ease-in-out"
         style={{
           marginLeft: isDesktop ? `${marginLeft}px` : '0'
         }}
       >
-        <div className="w-full max-w-full overflow-x-hidden">
+        <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden">
           {children}
         </div>
       </main>

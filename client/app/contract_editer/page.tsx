@@ -1303,7 +1303,7 @@ function ContractEditorPageContent() {
   return (
     <SidebarLayout>
       <DashboardHeader />
-      <div className="flex flex-col p-6 pt-0 gap-6">
+      <div className="flex min-w-0 w-full max-w-full flex-col gap-6 p-4 pt-0 sm:p-6">
         {/* Hero Section */}
         <div>
           <h1 className="text-3xl font-bold text-slate-800">
@@ -1327,7 +1327,8 @@ function ContractEditorPageContent() {
             { filter: 'Draft' as const, number: String(draft), label: 'Draft Contracts' },
           ];
           return (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-8 p-10 bg-white rounded-[2rem] border border-slate-200 shadow-sm">
+        <div className="@container min-w-0 w-full max-w-full">
+        <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-white p-4 shadow-sm rounded-2xl border border-slate-200 @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-5 @[56rem]:gap-8 @[56rem]:p-10">
           {stats.map((stat, idx) => {
             const isSelected = activeFilter === stat.filter;
             return (
@@ -1335,20 +1336,21 @@ function ContractEditorPageContent() {
               key={stat.filter}
               type="button"
               onClick={() => setActiveFilter(stat.filter)}
-              className={`text-center relative w-full rounded-xl p-2 -m-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 ${
+              className={`relative w-full min-w-0 max-w-full rounded-xl px-1 py-2 text-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 @[36rem]:-m-2 @[36rem]:px-2 ${
                 isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : 'hover:bg-slate-50'
               }`}
             >
               {idx < 4 && (
-                <div className="absolute -right-4 top-1/2 -translate-y-1/2 w-px h-[60%] bg-slate-200 hidden lg:block pointer-events-none" />
+                <div className="pointer-events-none absolute right-0 top-1/2 hidden h-[60%] w-px -translate-y-1/2 bg-slate-200 @[56rem]:block" />
               )}
-              <span className={`text-[2.5rem] font-bold block mb-2 ${isSelected ? 'text-blue-600' : 'text-blue-600'}`}>
+              <span className="mb-1 block text-2xl font-bold text-blue-600 @[36rem]:mb-2 @[36rem]:text-3xl @[56rem]:text-[2.5rem]">
                 {stat.number}
               </span>
-              <span className={`text-sm font-medium ${isSelected ? 'text-blue-700' : 'text-slate-500'}`}>{stat.label}</span>
+              <span className={`block hyphens-auto break-words text-xs font-medium leading-snug @[36rem]:text-sm ${isSelected ? 'text-blue-700' : 'text-slate-500'}`}>{stat.label}</span>
             </button>
           );
           })}
+        </div>
         </div>
           );
         })()}
