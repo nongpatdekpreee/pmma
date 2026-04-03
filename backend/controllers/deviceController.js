@@ -1,8 +1,5 @@
 const db = require('../config/database');
-const {
-  DEFAULT_IN_STORE_SITE_SID,
-  DEFAULT_IN_STORE_SITE_NAME,
-} = require('../config/inStoreSite');
+const { DEFAULT_IN_STORE_SITE_NAME } = require('../config/inStoreSite');
 
 //
 // devices_history is populated by DB triggers (trg_devices_insert, trg_devices_update)
@@ -1369,7 +1366,7 @@ const getDevicesBySerials = async (req, res) => {
 };
 
 // GET - ดึง Devices ที่ยังไม่มี SOF (Refer_SOF เป็น NULL, '' หรือ 'Not Assigned') และยังไม่มี contract
-// รองรับ sid (sites.Sid) หรือ site_id (SLid); ถ้าไม่มี query = ทุก SLid ที่ sl.Sid = DEFAULT_IN_STORE_SITE_SID (คลัง) — เฉพาะ In Store (ใช้ตอน SOF ใหม่ในหน้า contract)
+// รองรับ sid (sites.Sid) หรือ site_id (SLid); ถ้าไม่มี query = คลังตามชื่อ DEFAULT_IN_STORE_SITE_NAME — เฉพาะ In Store (SOF ใหม่ในหน้า contract)
 const getDevicesBySiteNoSOF = async (req, res) => {
   try {
     const siteId = req.query.site_id;
@@ -1422,13 +1419,12 @@ const getDevicesBySiteNoSOF = async (req, res) => {
              LEFT JOIN manufacturer m ON dt.Mid = m.Mid
              INNER JOIN sites_location sl ON d.SLid = sl.SLid
              INNER JOIN sites s_instore ON sl.Sid = s_instore.Sid
-               AND s_instore.Sid = ?
-               AND TRIM(s_instore.Name) = ?
+               AND LOWER(TRIM(s_instore.Name)) = LOWER(TRIM(?))
              WHERE ${inStore}
                AND ${noSofCondition}
                AND (${notInContract})
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
-      params = [DEFAULT_IN_STORE_SITE_SID, DEFAULT_IN_STORE_SITE_NAME];
+      params = [DEFAULT_IN_STORE_SITE_NAME];
     }
     
     const [rows] = await db.execute(sql, params);
@@ -1443,7 +1439,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
   }
 };
 
-// GET - ดึง Devices ที่ยังไม่มี SOF และสถานะ In Store ภายใต้ sites_location ที่ Sid = DEFAULT_IN_STORE_SITE_SID (คลัง)
+// GET - ดึง Devices ที่ยังไม่มี SOF และสถานะ In Store ภายใต้คลัง (sites.Name ตรง DEFAULT_IN_STORE_SITE_NAME)
 // รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญาอื่น (ทั้ง contract.device_id และ contract_device)
 const getDevicesNoSofInStore = async (req, res) => {
   try {
@@ -1455,7 +1451,7 @@ const getDevicesNoSofInStore = async (req, res) => {
                              OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
     const inStoreCondition = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
     let contractExclusionCondition = '';
-    const params = [DEFAULT_IN_STORE_SITE_SID, DEFAULT_IN_STORE_SITE_NAME];
+    const params = [DEFAULT_IN_STORE_SITE_NAME];
     if (contractId) {
       const cid = parseInt(contractId, 10);
       if (!isNaN(cid)) {
@@ -1478,8 +1474,7 @@ const getDevicesNoSofInStore = async (req, res) => {
                  LEFT JOIN manufacturer m ON dt.Mid = m.Mid
                  INNER JOIN sites_location sl ON d.SLid = sl.SLid
                  INNER JOIN sites s_instore ON sl.Sid = s_instore.Sid
-                   AND s_instore.Sid = ?
-                   AND TRIM(s_instore.Name) = ?
+                   AND LOWER(TRIM(s_instore.Name)) = LOWER(TRIM(?))
                  WHERE ${noSofCondition}
                    AND ${inStoreCondition}
                    ${contractExclusionCondition}
@@ -1603,7 +1598,7 @@ const getReplacementDevices = async (req, res) => {
         s.Name AS SiteName
       FROM devices d
       INNER JOIN sites_location sl ON d.SLid = sl.SLid
-      INNER JOIN sites s ON sl.Sid = s.Sid AND s.Sid = ? AND TRIM(s.Name) = ?
+      INNER JOIN sites s ON sl.Sid = s.Sid AND LOWER(TRIM(s.Name)) = LOWER(TRIM(?))
       WHERE (LOWER(TRIM(COALESCE(d.Asset_State, ''))) = 'in store')
         AND d.Dtypeid = ?
         AND d.DeRoleid = ?
@@ -1612,7 +1607,6 @@ const getReplacementDevices = async (req, res) => {
     `;
 
     const [rows] = await db.execute(sql, [
-      DEFAULT_IN_STORE_SITE_SID,
       DEFAULT_IN_STORE_SITE_NAME,
       parseInt(dtypeid, 10),
       parseInt(deroleid, 10),

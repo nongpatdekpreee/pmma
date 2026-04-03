@@ -648,7 +648,7 @@ function AddContractPageContent() {
   ): Promise<DeviceItem[]> => {
     if (!selectedSOF?.trim()) return [];
     const { sid, slid } = scope;
-    // SOF ใหม่: ดึงจากคลัง sites_location.Sid = 2 ไม่ต้องมี site ใน form; SOF มีใน DB ต้องมี sid/slid
+    // SOF ใหม่: ดึงจากคลังตามชื่อบริษัท (backend inStoreSite) ไม่ต้องมี site ใน form; SOF มีใน DB ต้องมี sid/slid
     if (!sid && !slid && sofExistsInDb) return [];
 
     const siteQs = sid
