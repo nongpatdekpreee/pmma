@@ -1,7 +1,18 @@
 'use client';
 
-import { ArrowLeft, FileText, Calendar, Cpu, Paperclip, Loader2, Plus, Trash2, X } from 'lucide-react';
-import { useState, useEffect, Suspense } from 'react';
+import {
+  ArrowLeft,
+  FileText,
+  Calendar,
+  Cpu,
+  Paperclip,
+  Loader2,
+  Plus,
+  Trash2,
+  X,
+  ChevronDown,
+} from 'lucide-react';
+import { useState, useEffect, useMemo, useRef, Suspense, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiUrl, getAssignedServices } from '@/lib/api';
@@ -18,6 +29,176 @@ import type { SiteLocation, DeviceItem } from './types';
 
 const inputBase =
   'w-full rounded-xl border border-slate-200/90 bg-white p-3 text-sm text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
+
+/** เปลือก control แบบ Refer SOF — ใช้ร่วมกับ combobox / native select ในหน้านี้ */
+const contractDropdownShellClass =
+  'relative flex min-h-[42px] w-full min-w-0 items-center rounded-xl border border-slate-200 bg-white shadow-sm transition-colors hover:border-sky-300 has-[:disabled]:opacity-50';
+
+const contractDropdownTextButtonClass =
+  'flex min-h-[42px] min-w-0 flex-1 items-center px-3 py-2.5 text-left text-sm font-medium text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:pointer-events-none rounded-l-xl';
+
+const contractDropdownNativeSelectClass =
+  'min-h-[42px] min-w-0 flex-1 cursor-pointer appearance-none rounded-l-xl border-0 bg-transparent px-3 py-2.5 text-left text-sm font-medium text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:pointer-events-none disabled:cursor-not-allowed';
+
+const contractDropdownComboboxInputClass =
+  'min-h-[42px] min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm font-medium text-slate-800 outline-none placeholder:font-normal placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 rounded-l-xl';
+
+function contractDropdownTrailingClass(showDivider: boolean) {
+  return showDivider
+    ? 'flex shrink-0 items-center gap-0.5 border-l border-slate-100 py-1 pl-1 pr-1.5'
+    : 'flex shrink-0 items-center gap-0.5 py-1 pl-0.5 pr-1.5';
+}
+
+const contractDropdownClearBtnClass =
+  'flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600';
+
+const contractDropdownChevronBtnClass =
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:pointer-events-none';
+
+function NativeSelectDropdownShell({ children }: { children: ReactNode }) {
+  return (
+    <div className={contractDropdownShellClass}>
+      {children}
+      <div className="pointer-events-none flex shrink-0 items-center border-l border-slate-100 py-1 pl-1 pr-2 text-slate-500">
+        <ChevronDown size={18} aria-hidden />
+      </div>
+    </div>
+  );
+}
+
+type ContractSearchListItem = { value: string; label: string };
+
+/** Dropdown ค้นหา + รายการ — โครงเดียวกับ Refer SOF; ปุ่มทริกเกอร์เต็มความกว้าง (คลิกที่ไหนก็เปิด) */
+function ContractSearchListDropdown({
+  rootId,
+  disabled,
+  open,
+  onToggle,
+  displayText,
+  emptyPlaceholder,
+  panelTitle,
+  filter,
+  onFilterChange,
+  items,
+  selectedValue,
+  onPick,
+  searchPlaceholder = 'Search...',
+  emptyText = 'No matches',
+  showClearOption,
+  onClear,
+}: {
+  rootId: string;
+  disabled?: boolean;
+  open: boolean;
+  onToggle: () => void;
+  displayText: string;
+  emptyPlaceholder: string;
+  panelTitle: string;
+  filter: string;
+  onFilterChange: (v: string) => void;
+  items: ContractSearchListItem[];
+  selectedValue: string;
+  onPick: (value: string) => void;
+  searchPlaceholder?: string;
+  emptyText?: string;
+  showClearOption?: boolean;
+  onClear?: () => void;
+}) {
+  const q = filter.trim().toLowerCase();
+  const filtered = items.filter(
+    (i) =>
+      i.label.toLowerCase().includes(q) ||
+      i.value.toLowerCase().includes(q)
+  );
+  return (
+    <div
+      id={rootId}
+      className={`relative block w-full min-w-0 align-bottom ${open ? 'z-[200]' : ''}`}
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => {
+          if (disabled) return;
+          onToggle();
+        }}
+        className={`${contractDropdownShellClass} flex w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none transition-colors hover:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50`}
+      >
+        <span
+          className={`min-w-0 flex-1 truncate px-3 py-2.5 text-left text-sm font-medium ${
+            displayText ? 'text-slate-900' : 'text-slate-500'
+          }`}
+        >
+          {displayText || emptyPlaceholder}
+        </span>
+        <span className="flex shrink-0 items-center border-l border-slate-100 py-1 pl-1 pr-2 text-slate-500">
+          <ChevronDown
+            size={18}
+            className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </span>
+      </button>
+      {open && !disabled && (
+        <div className="absolute left-0 right-0 top-full z-[300] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+          <p className="shrink-0 border-b border-slate-100 bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+            {panelTitle}
+          </p>
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => onFilterChange(e.target.value)}
+            placeholder={searchPlaceholder}
+            className="w-full min-w-0 shrink-0 border-b border-slate-100 px-3 py-2 text-sm outline-none focus:bg-slate-50"
+            autoFocus
+          />
+          <div className="min-h-0 max-h-[11rem] min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-1">
+            {showClearOption && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClear?.();
+                }}
+                className="flex w-full px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-50"
+              >
+                — Clear —
+              </button>
+            )}
+            {filtered.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs text-slate-500">{emptyText}</p>
+            ) : (
+              filtered.map((item) => {
+                const selected = selectedValue === item.value;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => onPick(item.value)}
+                    className={`flex w-full min-w-0 items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-sky-50 ${
+                      selected ? 'bg-sky-50/90' : ''
+                    }`}
+                  >
+                    <span
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
+                        selected
+                          ? 'border-sky-600 bg-sky-600'
+                          : 'border-slate-300 bg-white'
+                      }`}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 break-words text-left text-slate-800">{item.label}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 type SiteEntry = {
   id: string;
@@ -172,11 +353,23 @@ function sitePairsFromEntries(entries: SiteEntry[]): SiteDevicePair[] {
   }));
 }
 
+/** SLid จากแถวแรกที่เลือก Site/Location — บันทึกเป็น contract.site_id */
+function primaryContractSiteIdFromEntries(entries: SiteEntry[]): number | null {
+  for (const e of entries) {
+    const raw = e.siteId?.trim();
+    if (!raw) continue;
+    const n = parseInt(raw, 10);
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
+}
+
 function AddContractPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const renewContractId = searchParams?.get('renew');
   const editContractId = searchParams?.get('edit');
+  const isNewContractFlow = !renewContractId && !editContractId;
 
   // Form state
   const [contractName, setContractName] = useState('');
@@ -184,6 +377,13 @@ function AddContractPageContent() {
   const [assignedService, setAssignedService] = useState('');
   const [slaTerm, setSlaTerm] = useState('');
   const [selectedSOF, setSelectedSOF] = useState('');
+  /** สร้างสัญญาใหม่: เลือกจาก dropdown ได้เพียง 1 Refer_SOF */
+  const [sourceSofs, setSourceSofs] = useState<string[]>([]);
+  const [sourceSofDropdownOpen, setSourceSofDropdownOpen] = useState(false);
+  const [sofDropdownFilter, setSofDropdownFilter] = useState('');
+  const [manualSofInput, setManualSofInput] = useState('');
+  /** ใน dropdown: ติ๊กเพื่อเปิดช่องพิมพ์ SOF เอง */
+  const [referSofManualRowEnabled, setReferSofManualRowEnabled] = useState(false);
   const [saleAccount, setSaleAccount] = useState('');
   const [emailAcc, setEmailAcc] = useState('');
   const [telAcc, setTelAcc] = useState('');
@@ -219,6 +419,11 @@ function AddContractPageContent() {
   const [expandedSelectedDeviceEntries, setExpandedSelectedDeviceEntries] = useState<Set<string>>(
     () => new Set()
   );
+  /** Site / Location / แถวรวม: dropdown แบบค้นหา (โครงเดียวกับ Refer SOF) */
+  const [siteLocationPicker, setSiteLocationPicker] = useState<
+    null | { entryId: string; variant: 'site' | 'location' | 'flat' }
+  >(null);
+  const [siteLocationFilter, setSiteLocationFilter] = useState('');
 
   const toggleSelectedDevicesExpanded = (entryId: string) => {
     setExpandedSelectedDeviceEntries((prev) => {
@@ -242,6 +447,109 @@ function AddContractPageContent() {
   const [fetchError, setFetchError] = useState('');
   const [saveError, setSaveError] = useState('');
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
+
+  const sourceSofKeysAll = useMemo(() => {
+    if (!isNewContractFlow) {
+      const t = selectedSOF.trim();
+      return t ? [t] : [];
+    }
+    return [...new Set(sourceSofs.map((s) => s.trim()).filter(Boolean))];
+  }, [isNewContractFlow, selectedSOF, sourceSofs]);
+
+  const referSofsInDb = useMemo(
+    () => sourceSofKeysAll.filter((s) => referSOFList.includes(s)),
+    [sourceSofKeysAll, referSOFList]
+  );
+
+  const sofExistsInDb = referSofsInDb.length > 0;
+
+  const showSiteDeviceSection = isNewContractFlow
+    ? sourceSofs.length > 0
+    : Boolean(selectedSOF?.trim());
+
+  /** SOF ที่ส่งไปบันทึกสัญญา (สร้างใหม่) — ใช้ตัวแรกในรายการที่เลือก (ลำดับการเลือก) */
+  const getEffectiveNewContractSof = () => {
+    if (sourceSofs.length === 0) return '';
+    return sourceSofs[0].trim();
+  };
+
+  /** เลือกจากรายการ: ได้ทีละ 1 — กดรายการเดิมอีกครั้งเพื่อยกเลิก */
+  const pickReferSofFromList = (sof: string) => {
+    setReferSofManualRowEnabled(false);
+    setManualSofInput('');
+    setSourceSofs((prev) => (prev.length === 1 && prev[0] === sof ? [] : [sof]));
+    setSourceSofDropdownOpen(false);
+  };
+
+  const clearReferSofSelection = () => {
+    setSourceSofs([]);
+    setSourceSofDropdownOpen(false);
+  };
+
+  const prevSourceSofDropdownOpenRef = useRef(false);
+  const manualSofSnapshotRef = useRef('');
+  const referSofManualEnabledSnapshotRef = useRef(false);
+  manualSofSnapshotRef.current = manualSofInput;
+  referSofManualEnabledSnapshotRef.current = referSofManualRowEnabled;
+
+  /** พิมพ์ SOF เอง: อัปเดตเข้า sourceSofs เมื่อปิด dropdown เท่านั้น (ทับตัวที่เลือกจากรายการได้) */
+  useEffect(() => {
+    const wasOpen = prevSourceSofDropdownOpenRef.current;
+    prevSourceSofDropdownOpenRef.current = sourceSofDropdownOpen;
+
+    if (sourceSofDropdownOpen) return;
+
+    if (wasOpen && referSofManualEnabledSnapshotRef.current) {
+      const t = manualSofSnapshotRef.current.trim();
+      if (t) {
+        setSourceSofs([t]);
+      }
+    }
+
+    setSofDropdownFilter('');
+    setManualSofInput('');
+    setReferSofManualRowEnabled(false);
+  }, [sourceSofDropdownOpen]);
+
+  useEffect(() => {
+    if (!sourceSofDropdownOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const root = document.getElementById('source-sof-dropdown-root');
+      if (root && !root.contains(e.target as Node)) setSourceSofDropdownOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [sourceSofDropdownOpen]);
+
+  const closeSiteLocationPicker = () => {
+    setSiteLocationPicker(null);
+    setSiteLocationFilter('');
+  };
+
+  const toggleSiteLocationPicker = (
+    entryId: string,
+    variant: 'site' | 'location' | 'flat'
+  ) => {
+    setSiteLocationPicker((cur) =>
+      cur?.entryId === entryId && cur?.variant === variant ? null : { entryId, variant }
+    );
+    setSiteLocationFilter('');
+  };
+
+  useEffect(() => {
+    if (!siteLocationPicker) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = document.getElementById(
+        `site-pick-${siteLocationPicker.entryId}-${siteLocationPicker.variant}`
+      );
+      if (el && !el.contains(e.target as Node)) {
+        setSiteLocationPicker(null);
+        setSiteLocationFilter('');
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [siteLocationPicker]);
 
   // คำนวณ End Date จาก Start + Duration (เมื่อแก้ Start หรือ Duration)
   const recalcEndFromDuration = (startVal?: string, durVal?: string) => {
@@ -609,23 +917,42 @@ function AddContractPageContent() {
     setupSiteEntries();
   }, [renewContractId, oldContractDevices, sitesLocation]);
 
-  // โหลด Sites เมื่อมีค่า SOF (เลือกหรือพิมพ์ครบแล้ว)
-  // ถ้า SOF มีใน DB → แสดงเฉพาะ site ที่มี SOF นั้น; ถ้า SOF ยังไม่มีใน DB → แสดงทุก site
+  // โหลด Sites: สัญญาใหม่ = Refer SOF เดียว; แก้ไข/ต่อ = ใช้ selectedSOF เดิม
   useEffect(() => {
-    if (!selectedSOF?.trim()) {
-      setSitesLocation([]);
-      setDevicesBySite([]);
-      return;
-    }
-    const sofTrim = selectedSOF.trim();
-    const existsInDb = referSOFList.includes(sofTrim);
     const load = async () => {
+      if (!isNewContractFlow) {
+        // อย่าล้าง sites ตอน selectedSOF ยังว่าง — ช่วงโหลดสัญญาแก้ไข/ต่อ หรือสัญญาไม่มี sof_name
+        // ถ้าล้างจะทำให้ entryHasSiteScope เป็น false และบันทึกไม่ได้
+        if (!selectedSOF?.trim()) {
+          return;
+        }
+      } else if (sourceSofs.length === 0) {
+        setSitesLocation([]);
+        setDevicesBySite([]);
+        return;
+      }
+
       setDataLoading(true);
       setFetchError('');
       try {
-        const url = existsInDb
-          ? apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(sofTrim)}`)
-          : apiUrl('/api/sites/locations');
+        let url: string;
+        if (!isNewContractFlow) {
+          const sofTrim = selectedSOF.trim();
+          const existsInDb = referSOFList.includes(sofTrim);
+          url = existsInDb
+            ? apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(sofTrim)}`)
+            : apiUrl('/api/sites/locations');
+        } else if (referSofsInDb.length === 0) {
+          url = apiUrl('/api/sites/locations');
+        } else if (referSofsInDb.length === 1) {
+          url = apiUrl(
+            `/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(referSofsInDb[0])}`
+          );
+        } else {
+          url = apiUrl(
+            `/api/sites/locations-by-sofs?refer_sofs=${encodeURIComponent(referSofsInDb.join(','))}`
+          );
+        }
         const res = await fetch(url);
         const json = await res.json();
         if (res.ok && json.data) setSitesLocation(json.data);
@@ -637,18 +964,20 @@ function AddContractPageContent() {
       }
     };
     load();
-  }, [selectedSOF, referSOFList]);
-
-  // SOF ตรงใน DB (มีใน referSOFList) = ดึง devices ตาม SOF+site
-  const sofExistsInDb = selectedSOF?.trim() ? referSOFList.includes(selectedSOF.trim()) : false;
+  }, [isNewContractFlow, selectedSOF, sourceSofs, referSofsInDb, referSOFList]);
 
   const loadDevicesForScope = async (
     scope: { sid?: string; slid?: string },
     includeDeviceIds: string[] = []
   ): Promise<DeviceItem[]> => {
-    if (!selectedSOF?.trim()) return [];
+    if (!isNewContractFlow) {
+      if (!selectedSOF?.trim()) return [];
+    } else if (sourceSofs.length === 0) {
+      return [];
+    }
+
     const { sid, slid } = scope;
-    // SOF ใหม่: ดึงจากคลังตามชื่อบริษัท (backend inStoreSite) ไม่ต้องมี site ใน form; SOF มีใน DB ต้องมี sid/slid
+    // SOF มีใน DB: ต้องมี sid/slid ก่อนดึงรายการตาม site
     if (!sid && !slid && sofExistsInDb) return [];
 
     const siteQs = sid
@@ -671,11 +1000,13 @@ function AddContractPageContent() {
 
       // เฉพาะกรณี SOF มีในระบบ: ค่อยดึง devices ตาม SOF+Sid/SLid เพิ่ม
       if (sofExistsInDb) {
-        const res2 = await fetch(
-          apiUrl(
-            `/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedSOF.trim())}&${siteQs}`
-          )
-        );
+        const sofParam =
+          referSofsInDb.length === 1
+            ? `refer_sof=${encodeURIComponent(referSofsInDb[0])}`
+            : `refer_sofs=${encodeURIComponent(referSofsInDb.join(','))}`;
+        const path =
+          referSofsInDb.length === 1 ? '/api/devices/by-sof-and-site' : '/api/devices/by-sofs-and-site';
+        const res2 = await fetch(apiUrl(`${path}?${sofParam}&${siteQs}`));
         const json2 = await res2.json();
         if (res2.ok && json2.data) {
           const existingIds = new Set(allDevices.map((d) => d.Did));
@@ -686,9 +1017,13 @@ function AddContractPageContent() {
         }
       }
     } else if (sofExistsInDb) {
-      const res = await fetch(
-        apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedSOF.trim())}&${siteQs}`)
-      );
+      const sofParam =
+        referSofsInDb.length === 1
+          ? `refer_sof=${encodeURIComponent(referSofsInDb[0])}`
+          : `refer_sofs=${encodeURIComponent(referSofsInDb.join(','))}`;
+      const path =
+        referSofsInDb.length === 1 ? '/api/devices/by-sof-and-site' : '/api/devices/by-sofs-and-site';
+      const res = await fetch(apiUrl(`${path}?${sofParam}&${siteQs}`));
       const json = await res.json();
       if (res.ok && json.data) {
         allDevices.push(...json.data);
@@ -947,8 +1282,16 @@ function AddContractPageContent() {
         }
       }
       
-      if (!selectedSOF?.trim()) {
-          const msg = 'Please select or enter SOF (Refer SOF from Device List)';
+      if (isNewContractFlow) {
+        const effSof = getEffectiveNewContractSof();
+        if (!effSof) {
+          const msg = 'Please select at least one Refer SOF from the dropdown';
+          setSaveError(msg);
+          toastError(msg);
+          return;
+        }
+      } else if (!selectedSOF?.trim()) {
+        const msg = 'Please select or enter SOF (Refer SOF from Device List)';
         setSaveError(msg);
         toastError(msg);
         return;
@@ -1014,12 +1357,15 @@ function AddContractPageContent() {
       if (pairsFromOld.length > 0) {
         setSaveLoading(true);
         try {
-          const body = {
+          const body: Record<string, unknown> = {
             contract_name: contractName.trim() || null,
             start_date: startDate || null,
             end_date: endDate || null,
             site_device_pairs: pairsFromOld,
-            sof_name: selectedSOF.trim() || null,
+            ...(pairsFromOld[0]?.site_id != null
+              ? { site_id: pairsFromOld[0].site_id }
+              : {}),
+            sof_name: (isNewContractFlow ? getEffectiveNewContractSof() : selectedSOF).trim() || null,
             assigned_service: assignedService.trim() || null,
             sla_term: slaTerm.trim(),
             sale_account: saleAccount.trim() || null,
@@ -1115,11 +1461,14 @@ function AddContractPageContent() {
           : [],
       })) : [];
 
+      const primaryContractSlid = primaryContractSiteIdFromEntries(validPairs);
+
       const body: any = {
         contract_name: contractName.trim() || null,
         start_date: startDate || null,
         end_date: endDate || null,
-        sof_name: selectedSOF.trim() || null,
+        ...(primaryContractSlid != null ? { site_id: primaryContractSlid } : {}),
+        sof_name: (isNewContractFlow ? getEffectiveNewContractSof() : selectedSOF).trim() || null,
         assigned_service: assignedService.trim() || null,
         sla_term: slaTerm.trim() ? slaTerm.trim() : null,
         sale_account: saleAccount.trim() || null,
@@ -1309,7 +1658,9 @@ function AddContractPageContent() {
             icon={FileText}
             emoji="📋"
             gradient="from-blue-50 to-cyan-50"
-            className={serviceDropdownOpen ? 'z-[100]' : ''}
+            className={
+              serviceDropdownOpen || sourceSofDropdownOpen ? 'z-[100]' : ''
+            }
           >
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Contract Name" required>
@@ -1319,8 +1670,8 @@ function AddContractPageContent() {
                     value={contractName}
                     onChange={(e) => setContractName(e.target.value)}
                     placeholder="contract name"
-                    className={`${inputBase} pr-9 ${contractName.trim().length > 0 && contractName.trim().length < 4 ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`}
-                    minLength={4}
+                    className={`${inputBase} pr-9 ${contractName.trim().length > 0 && contractName.trim().length < 3 ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`}
+                    minLength={3}
                   />
                   {contractName && (
                     <button
@@ -1333,33 +1684,28 @@ function AddContractPageContent() {
                     </button>
                   )}
                 </div>
-                {contractName.trim().length > 0 && contractName.trim().length < 4 && (
-                  <p className="mt-1 text-xs text-red-600">Contract Name must be at least 4 characters</p>
+                {contractName.trim().length > 0 && contractName.trim().length < 3 && (
+                  <p className="mt-1 text-xs text-red-600">Contract Name must be at least 3 characters</p>
                 )}
               </FormField>
-              {!renewContractId && (
+              {!renewContractId && editContractId && (
                 <FormField label="SOF (Refer SOF from Device)" required>
                   <div className="relative">
                     <input
                       type="text"
-                      list="sof-list"
+                      list="sof-list-edit"
                       value={selectedSOF}
                       onChange={(e) => {
-                        const raw = e.target.value;
-                        const value = raw.trim();
+                        const value = e.target.value.trim();
                         if (value === '') {
                           setSelectedSOF('');
                           setSofName('');
                           return;
                         }
-                        // Allow if value comes from dropdown list,
-                        // otherwise enforce digits-only for manual input.
-                        if (referSOFList.includes(value) || /^\d+$/.test(value)) {
-                          setSelectedSOF(value);
-                          setSofName(value);
-                        }
+                        setSelectedSOF(value);
+                        setSofName(value);
                       }}
-                      placeholder="Select from list or enter SOF"
+                      placeholder="Select from the list or type the new SOF"
                       className={`${inputBase} ${selectedSOF && !referSOFLoading ? 'pr-16' : ''}`}
                       disabled={referSOFLoading}
                       required
@@ -1375,49 +1721,237 @@ function AddContractPageContent() {
                       </button>
                     )}
                   </div>
-                  <datalist id="sof-list">
+                  <datalist id="sof-list-edit">
                     {referSOFList.map((sof) => (
                       <option key={sof} value={sof} />
                     ))}
                   </datalist>
                   {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
-                  {selectedSOF.trim() &&
-                    !referSOFList.includes(selectedSOF.trim()) &&
-                    !editContractId && (
-                    <p className="mt-1 text-xs text-amber-600">New SOF</p>
-                  )}
                 </FormField>
+              )}
+              {!renewContractId && !editContractId && (
+                <>
+                  <FormField label="Refer SOF" required>
+                      <div
+                        id="source-sof-dropdown-root"
+                        className={`relative w-full min-w-0 ${sourceSofDropdownOpen ? 'z-[200]' : ''}`}
+                      >
+                      <div className={contractDropdownShellClass}>
+                        <button
+                          type="button"
+                          onClick={() => setSourceSofDropdownOpen((o) => !o)}
+                          disabled={referSOFLoading}
+                          aria-expanded={sourceSofDropdownOpen}
+                          aria-haspopup="listbox"
+                          className={contractDropdownTextButtonClass}
+                        >
+                          <span
+                            className={`min-w-0 flex-1 truncate ${sourceSofs[0] ? 'font-mono text-slate-900' : 'text-slate-500'}`}
+                          >
+                            {referSOFLoading
+                              ? 'Loading SOF...'
+                              : sourceSofs[0]
+                                ? sourceSofs[0]
+                                : 'Select from the list...'}
+                          </span>
+                        </button>
+                        <div
+                          className={contractDropdownTrailingClass(
+                            Boolean(sourceSofs[0] && !referSOFLoading)
+                          )}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {sourceSofs[0] && !referSOFLoading && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                clearReferSofSelection();
+                              }}
+                              className={contractDropdownClearBtnClass}
+                              title="ล้าง"
+                              aria-label="ล้าง Refer SOF"
+                            >
+                              <X size={16} strokeWidth={2} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            disabled={referSOFLoading}
+                            onClick={() => setSourceSofDropdownOpen((o) => !o)}
+                            className={contractDropdownChevronBtnClass}
+                            aria-hidden
+                          >
+                            <ChevronDown
+                              size={18}
+                              className={`transition-transform ${sourceSofDropdownOpen ? 'rotate-180' : ''}`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                        {sourceSofDropdownOpen && !referSOFLoading && (
+                          <div className="absolute left-0 right-0 top-full z-[300] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
+                          <p className="shrink-0 border-b border-slate-100 bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                            Select from the list (one SOF)
+                          </p>
+                          <input
+                            type="text"
+                            value={sofDropdownFilter}
+                            onChange={(e) => setSofDropdownFilter(e.target.value)}
+                            placeholder="Search SOF..."
+                            className="shrink-0 border-b border-slate-100 px-3 py-2 text-sm outline-none focus:bg-slate-50"
+                            autoFocus
+                          />
+                          <div className="min-h-0 max-h-[11rem] flex-1 overflow-y-auto py-1">
+                            {referSOFList.filter((sof) =>
+                              sof.toLowerCase().includes(sofDropdownFilter.trim().toLowerCase())
+                            ).length === 0 ? (
+                              <p className="px-3 py-4 text-center text-xs text-slate-500">ไม่พบ SOF</p>
+                            ) : (
+                              referSOFList
+                                .filter((sof) =>
+                                  sof.toLowerCase().includes(sofDropdownFilter.trim().toLowerCase())
+                                )
+                                .map((sof) => {
+                                  const selected = sourceSofs[0] === sof;
+                                  return (
+                                    <button
+                                      key={sof}
+                                      type="button"
+                                      onClick={() => pickReferSofFromList(sof)}
+                                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-sky-50 ${
+                                        selected ? 'bg-sky-50/90' : ''
+                                      }`}
+                                    >
+                                      <span
+                                        className={`h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
+                                          selected
+                                            ? 'border-sky-600 bg-sky-600'
+                                            : 'border-slate-300 bg-white'
+                                        }`}
+                                        aria-hidden
+                                      />
+                                      <span className="font-mono text-slate-800">{sof}</span>
+                                    </button>
+                                  );
+                                })
+                            )}
+                          </div>
+                          <div className="shrink-0 border-t border-slate-200 bg-slate-50/95">
+                            <label className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 text-sm hover:bg-sky-50/80">
+                              <input
+                                type="checkbox"
+                                checked={referSofManualRowEnabled}
+                                onChange={(e) => {
+                                  const on = e.target.checked;
+                                  if (!on) {
+                                    setReferSofManualRowEnabled(false);
+                                    setManualSofInput('');
+                                    return;
+                                  }
+                                  setReferSofManualRowEnabled(true);
+                                }}
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <span className="block font-medium text-slate-800">Type the new SOF</span>
+                                <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
+                                  Check and type the new SOF.
+                                </span>
+                                <input
+                                  type="text"
+                                  list="manual-sof-datalist"
+                                  value={manualSofInput}
+                                  onChange={(e) => setManualSofInput(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') e.preventDefault();
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  placeholder="Type the new SOF..."
+                                  disabled={!referSofManualRowEnabled}
+                                  className={`mt-2 w-full rounded-lg border px-2.5 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
+                                    referSofManualRowEnabled
+                                      ? 'border-slate-200 bg-white focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20'
+                                      : 'border-slate-200 bg-slate-100'
+                                  }`}
+                                />
+                                <datalist id="manual-sof-datalist">
+                                  {referSOFList.map((sof) => (
+                                    <option key={sof} value={sof} />
+                                  ))}
+                                </datalist>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+                        )}
+                    </div>
+                    {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
+                  </FormField>
+                </>
               )}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Service ">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={assignedService}
-                    onChange={(e) => {
-                      setAssignedService(e.target.value);
-                      setServiceDropdownOpen(true);
-                    }}
-                    onFocus={() => setServiceDropdownOpen(true)}
-                    onBlur={() => setTimeout(() => setServiceDropdownOpen(false), 180)}
-                    placeholder="Device Network Manage Service"
-                    className={`${inputBase} pr-9`}
-                    autoComplete="off"
-                  />
-                  {assignedService && (
-                    <button
-                      type="button"
-                      onClick={() => { setAssignedService(''); setServiceDropdownOpen(false); }}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ล้าง"
+                <div
+                  id="service-dropdown-root"
+                  className={`relative w-full min-w-0 ${serviceDropdownOpen ? 'z-[200]' : ''}`}
+                >
+                  <div className={contractDropdownShellClass}>
+                    <input
+                      type="text"
+                      value={assignedService}
+                      onChange={(e) => {
+                        setAssignedService(e.target.value);
+                        setServiceDropdownOpen(true);
+                      }}
+                      onFocus={() => setServiceDropdownOpen(true)}
+                      onBlur={() => setTimeout(() => setServiceDropdownOpen(false), 180)}
+                      placeholder="Device Network Manage Service"
+                      className={contractDropdownComboboxInputClass}
+                      autoComplete="off"
+                    />
+                    <div
+                      className={contractDropdownTrailingClass(assignedService.trim().length > 0)}
+                      onMouseDown={(e) => e.preventDefault()}
                     >
-                      <X size={14} />
-                    </button>
-                  )}
+                      {assignedService.trim().length > 0 && (
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setAssignedService('');
+                            setServiceDropdownOpen(false);
+                          }}
+                          className={contractDropdownClearBtnClass}
+                          title="clear"
+                          aria-label="clear Service"
+                        >
+                          <X size={16} strokeWidth={2} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setServiceDropdownOpen((o) => !o);
+                        }}
+                        className={contractDropdownChevronBtnClass}
+                        aria-hidden
+                      >
+                        <ChevronDown
+                          size={18}
+                          className={`transition-transform ${serviceDropdownOpen ? 'rotate-180' : ''}`}
+                        />
+                      </button>
+                    </div>
+                  </div>
                   {serviceDropdownOpen && (
                     <ul
-                      className="absolute z-[110] mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                      className="absolute z-[300] mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
                       onMouseDown={(e) => e.preventDefault()}
                     >
                       {assignedServiceOptions
@@ -1539,7 +2073,7 @@ function AddContractPageContent() {
                       type="button"
                       onClick={() => setTelAcc('')}
                       className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ล้าง"
+                      title="clear"
                     >
                       <X size={14} />
                     </button>
@@ -1558,7 +2092,16 @@ function AddContractPageContent() {
             gradient="from-purple-50 to-pink-50"
           >
             <div className="grid gap-4 sm:grid-cols-4 lg:grid-cols-4">
-              <FormField label="Start Date">
+              <FormField
+                label={
+                  <>
+                    Start Date{' '}
+                    <span className="text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                      (mm/dd/yyyy)
+                    </span>
+                  </>
+                }
+              >
                 <input
                   type="date"
                   value={startDate}
@@ -1571,34 +2114,53 @@ function AddContractPageContent() {
                   className={inputBase}
                 />
               </FormField>
-              <FormField label="Contract Period (months)">
-                <select
-                  value={duration}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setDuration(v);
-                    recalcEndFromDuration(startDate, v);
-                  }}
-                  className={inputBase}
-                >
-                  <option value="">Select</option>
-                  {/* 1-11 months */}
-                  {Array.from({ length: 11 }, (_, i) => i + 1).map((m) => (
-                    <option key={`m-${m}`} value={m}>
-                      {m} {m === 1 ? "month" : "months"}
-                    </option>
-                  ))}
+              <FormField
+                label={
+                  <>
+                    Contract Period{' '}
+                    <span className="text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                      (months)
+                    </span>
+                  </>
+                }
+              >
+                <NativeSelectDropdownShell>
+                  <select
+                    value={duration}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDuration(v);
+                      recalcEndFromDuration(startDate, v);
+                    }}
+                    className={contractDropdownNativeSelectClass}
+                  >
+                    <option value="">Select</option>
+                    {/* 1-11 months */}
+                    {Array.from({ length: 11 }, (_, i) => i + 1).map((m) => (
+                      <option key={`m-${m}`} value={m}>
+                        {m} {m === 1 ? 'month' : 'months'}
+                      </option>
+                    ))}
 
-                  {/* 1-5 years (mapped to months) */}
-                  {Array.from({ length: 5 }, (_, i) => i + 1).map((y) => (
-                    <option key={`y-${y}`} value={y * 12}>
-                      {y} {y ===1 ? "year" : "years"}
-                    </option>
-                  ))}
-                  
-                </select>
+                    {/* 1-5 years (mapped to months) */}
+                    {Array.from({ length: 5 }, (_, i) => i + 1).map((y) => (
+                      <option key={`y-${y}`} value={y * 12}>
+                        {y} {y === 1 ? 'year' : 'years'}
+                      </option>
+                    ))}
+                  </select>
+                </NativeSelectDropdownShell>
               </FormField>
-              <FormField label="End Date">
+              <FormField
+                label={
+                  <>
+                    End Date{' '}
+                    <span className="text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                      (mm/dd/yyyy)
+                    </span>
+                  </>
+                }
+              >
                 <input
                   type="date"
                   value={endDate}
@@ -1614,19 +2176,21 @@ function AddContractPageContent() {
                   className={inputBase}
                 />
               </FormField>
-                <FormField label="PM Time Per Year">
-                <select
-                  value={pmTimePerYear}
-                  onChange={(e) => setPmTimePerYear(e.target.value)}
-                  className={inputBase}
-                >
-                  <option value="">Select</option>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>
-                      {n} times/year
-                    </option>
-                  ))}
-                </select>
+              <FormField label="PM Time Per Year">
+                <NativeSelectDropdownShell>
+                  <select
+                    value={pmTimePerYear}
+                    onChange={(e) => setPmTimePerYear(e.target.value)}
+                    className={contractDropdownNativeSelectClass}
+                  >
+                    <option value="">Select</option>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {n} times/year
+                      </option>
+                    ))}
+                  </select>
+                </NativeSelectDropdownShell>
               </FormField>
 
             </div>
@@ -1635,15 +2199,23 @@ function AddContractPageContent() {
           {/* Section 3: Site & อุปกรณ์ (แสดงเมื่อเลือก SOF แล้ว, หลาย site แต่ละ site หลาย device) */}
           <FormSection
             title="Site and Devices"
-            description="Select SOF first, then select Site and Device"
+            description={
+              isNewContractFlow
+                ? 'Add source SOFs and Contract SOF above, then pick site and devices'
+                : 'Select SOF first, then select Site and Device'
+            }
             icon={Cpu}
             emoji="🏢"
             gradient="from-emerald-50 to-teal-50"
+            className={siteLocationPicker ? 'z-[100]' : ''}
           >
-            {!selectedSOF?.trim() ? (
+            {!showSiteDeviceSection ? (
               <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/50 py-10 text-center text-sm text-slate-500 shadow-inner shadow-slate-900/[0.02]">
-                <span>Please select or enter SOF</span>
-                
+                <span>
+                  {isNewContractFlow
+                    ? 'Select SOF'
+                    : 'Please select or enter SOF'}
+                </span>
               </div>
             ) : (
               <div className="space-y-4">
@@ -1705,7 +2277,67 @@ function AddContractPageContent() {
                   </div>
                 )}
                 <div className="space-y-3">
-                  {entriesToShow.map((entry) => (
+                  {entriesToShow.map((entry) => {
+                    const resolvedSid =
+                      entry.selectedSid?.trim() ||
+                      (() => {
+                        const r = sitesLocation.find((x) => String(x.SLid) === entry.siteId);
+                        return r?.Sid != null ? String(r.Sid) : '';
+                      })();
+                    const siteDisplayName =
+                      resolvedSid && uniqueSites.some((u) => u.sid === resolvedSid)
+                        ? uniqueSites.find((u) => u.sid === resolvedSid)!.name
+                        : '';
+                    const sidForLocationList =
+                      entry.selectedSid?.trim() ||
+                      (() => {
+                        const r = sitesLocation.find((x) => String(x.SLid) === entry.siteId);
+                        return r?.Sid != null ? String(r.Sid) : '';
+                      })();
+                    const locationRow = entry.siteId
+                      ? sitesLocation.find((s) => String(s.SLid) === entry.siteId)
+                      : undefined;
+                    const locationDisplayName = locationRow?.Location2 ?? '';
+                    const combinedFlatLabel =
+                      locationRow != null
+                        ? `${locationRow.SiteName} – ${locationRow.Location2}`
+                        : '';
+                    const siteComboDisabled = dataLoading || !showSiteDeviceSection;
+                    const locationComboDisabled =
+                      siteComboDisabled || !sidForLocationList;
+                    const siteItems = uniqueSiteOptionsForEntry(
+                      entry,
+                      siteEntries,
+                      sitesLocation,
+                      uniqueSites
+                    ).map(({ sid, name }) => ({ value: sid, label: name }));
+                    const locationItems = sidForLocationList
+                      ? locationsForSidForEntry(
+                          entry,
+                          sidForLocationList,
+                          siteEntries,
+                          sitesLocation
+                        ).map((s) => ({ value: String(s.SLid), label: s.Location2 }))
+                      : [];
+                    const flatItems = siteLocationRowsForEntry(
+                      entry,
+                      siteEntries,
+                      sitesLocation
+                    ).map((s) => ({
+                      value: String(s.SLid),
+                      label: `${s.SiteName} – ${s.Location2}`,
+                    }));
+                    const openSite =
+                      siteLocationPicker?.entryId === entry.id &&
+                      siteLocationPicker.variant === 'site';
+                    const openLoc =
+                      siteLocationPicker?.entryId === entry.id &&
+                      siteLocationPicker.variant === 'location';
+                    const openFlat =
+                      siteLocationPicker?.entryId === entry.id &&
+                      siteLocationPicker.variant === 'flat';
+
+                    return (
                     <div
                       key={entry.id}
                       className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 backdrop-blur-sm"
@@ -1713,78 +2345,94 @@ function AddContractPageContent() {
                       <div className="flex flex-wrap items-end gap-2">
                         {uniqueSites.length > 0 ? (
                           <>
-                            <div className="min-w-[160px]">
+                            <div className="min-w-0 flex-1 basis-0 sm:min-w-[12rem]">
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                                 Site 
                               </label>
-                              <select
-                                value={entry.selectedSid ?? (() => {
-                                  const s = sitesLocation.find((x) => String(x.SLid) === entry.siteId);
-                                  return s?.Sid != null ? String(s.Sid) : '';
-                                })()}
-                                onChange={(e) => setEntrySid(entry.id, e.target.value)}
-                                className={inputBase}
-                                disabled={dataLoading || !selectedSOF}
-                              >
-                                <option value="">-- Select Site --</option>
-                                {uniqueSiteOptionsForEntry(
-                                  entry,
-                                  siteEntries,
-                                  sitesLocation,
-                                  uniqueSites
-                                ).map(({ sid, name }) => (
-                                  <option key={sid} value={sid}>
-                                    {name}
-                                  </option>
-                                ))}
-                              </select>
+                              <ContractSearchListDropdown
+                                rootId={`site-pick-${entry.id}-site`}
+                                disabled={siteComboDisabled}
+                                open={openSite}
+                                onToggle={() => toggleSiteLocationPicker(entry.id, 'site')}
+                                displayText={siteDisplayName}
+                                emptyPlaceholder="-- Select Site --"
+                                panelTitle="Select from the list (one site)"
+                                filter={siteLocationFilter}
+                                onFilterChange={setSiteLocationFilter}
+                                items={siteItems}
+                                selectedValue={resolvedSid}
+                                onPick={(value) => {
+                                  setEntrySid(entry.id, value);
+                                  closeSiteLocationPicker();
+                                }}
+                                searchPlaceholder="Search site..."
+                                emptyText="No sites match"
+                                showClearOption={Boolean(resolvedSid)}
+                                onClear={() => {
+                                  setEntrySid(entry.id, '');
+                                  closeSiteLocationPicker();
+                                }}
+                              />
                             </div>
-                            <div className="min-w-[180px] flex-1">
+                            <div className="min-w-0 flex-1 basis-0 sm:min-w-[12rem]">
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                                 Location 
                               </label>
-                              <select
-                                value={entry.siteId}
-                                onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
-                                className={inputBase}
-                                disabled={dataLoading || !selectedSOF || !(entry.selectedSid ?? sitesLocation.find((x) => String(x.SLid) === entry.siteId)?.Sid)}
-                              >
-                                <option value="">-- Select Location --</option>
-                                {locationsForSidForEntry(
-                                  entry,
-                                  entry.selectedSid ??
-                                    (() => {
-                                      const s = sitesLocation.find((x) => String(x.SLid) === entry.siteId);
-                                      return s?.Sid != null ? String(s.Sid) : '';
-                                    })(),
-                                  siteEntries,
-                                  sitesLocation
-                                ).map((s) => (
-                                  <option key={s.SLid} value={String(s.SLid)}>
-                                    {s.Location2}
-                                  </option>
-                                ))}
-                              </select>
+                              <ContractSearchListDropdown
+                                rootId={`site-pick-${entry.id}-location`}
+                                disabled={locationComboDisabled}
+                                open={openLoc}
+                                onToggle={() => toggleSiteLocationPicker(entry.id, 'location')}
+                                displayText={locationDisplayName}
+                                emptyPlaceholder="-- Select Location --"
+                                panelTitle="Select from the list (one location)"
+                                filter={siteLocationFilter}
+                                onFilterChange={setSiteLocationFilter}
+                                items={locationItems}
+                                selectedValue={entry.siteId}
+                                onPick={(value) => {
+                                  updateSiteEntry(entry.id, value);
+                                  closeSiteLocationPicker();
+                                }}
+                                searchPlaceholder="Search location..."
+                                emptyText="No locations match"
+                                showClearOption={Boolean(entry.siteId)}
+                                onClear={() => {
+                                  updateSiteEntry(entry.id, '');
+                                  closeSiteLocationPicker();
+                                }}
+                              />
                             </div>
                           </>
                         ) : (
-                          <div className="min-w-[180px] flex-1">
+                          <div className="min-w-0 flex-1 basis-0 sm:min-w-[14rem]">
                             <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                               Site
                             </label>
-                            <select
-                              value={entry.siteId}
-                              onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
-                              className={inputBase}
-                              disabled={dataLoading || !selectedSOF}
-                            >
-                              <option value="">-- Select Site --</option>
-                              {siteLocationRowsForEntry(entry, siteEntries, sitesLocation).map((s) => (
-                                <option key={s.SLid} value={String(s.SLid)}>
-                                  {s.SiteName} – {s.Location2}
-                                </option>
-                              ))}
-                            </select>
+                            <ContractSearchListDropdown
+                              rootId={`site-pick-${entry.id}-flat`}
+                              disabled={siteComboDisabled}
+                              open={openFlat}
+                              onToggle={() => toggleSiteLocationPicker(entry.id, 'flat')}
+                              displayText={combinedFlatLabel}
+                              emptyPlaceholder="-- Select Site --"
+                              panelTitle="Select from the list (site / location)"
+                              filter={siteLocationFilter}
+                              onFilterChange={setSiteLocationFilter}
+                              items={flatItems}
+                              selectedValue={entry.siteId}
+                              onPick={(value) => {
+                                updateSiteEntry(entry.id, value);
+                                closeSiteLocationPicker();
+                              }}
+                              searchPlaceholder="Search..."
+                              emptyText="No matches"
+                              showClearOption={Boolean(entry.siteId)}
+                              onClear={() => {
+                                updateSiteEntry(entry.id, '');
+                                closeSiteLocationPicker();
+                              }}
+                            />
                           </div>
                         )}
                         <button
@@ -1901,7 +2549,8 @@ function AddContractPageContent() {
                         );
                       })()}
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
               </div>
             )}

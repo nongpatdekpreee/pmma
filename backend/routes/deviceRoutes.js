@@ -13,6 +13,7 @@ const {
   getReferSOFList,
   getAssignedServicesList,
   getDevicesBySOFAndSite,
+  getDevicesBySOFsAndSite,
   getDevicesByContractAndSite,
   getDevicesBySerials,
   getDevicesBySiteNoSOF,
@@ -48,6 +49,8 @@ router.get('/assigned-services', getAssignedServicesList);
 
 // GET - Devices ตาม Refer_SOF และ site_id (สำหรับ Contract)
 router.get('/by-sof-and-site', getDevicesBySOFAndSite);
+
+router.get('/by-sofs-and-site', getDevicesBySOFsAndSite);
 
 // GET - Devices จาก contract_device ตาม contract_id + slid (Site+Location)
 router.get('/by-contract-and-site', getDevicesByContractAndSite);

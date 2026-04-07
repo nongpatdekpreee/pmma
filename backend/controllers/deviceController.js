@@ -1303,6 +1303,89 @@ const getDevicesBySOFAndSite = async (req, res) => {
   }
 };
 
+// GET - ดึง Devices ตามหลาย Refer_SOF (refer_sofs คั่นด้วย comma) + sid หรือ site_id — In Use เท่านั้น
+const getDevicesBySOFsAndSite = async (req, res) => {
+  try {
+    const referSofsRaw = req.query.refer_sofs;
+    const siteId = req.query.site_id;
+    const sid = req.query.sid;
+
+    if (!referSofsRaw) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide refer_sofs (comma-separated)'
+      });
+    }
+    if (!siteId && !sid) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide sid (site id) or site_id (SLid)'
+      });
+    }
+
+    const parts = String(referSofsRaw)
+      .split(/[,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide at least one refer_sof'
+      });
+    }
+
+    const inUse = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in use')`;
+    const sofClauses = [];
+    const sofParams = [];
+    for (const referSOF of parts) {
+      const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
+      sofClauses.push(
+        `(d.Refer_SOF = ? OR TRIM(LEADING '0' FROM COALESCE(d.Refer_SOF, '')) = ?)`
+      );
+      sofParams.push(referSOF, referSOFTrim);
+    }
+    const sofOr = sofClauses.join(' OR ');
+
+    const baseSelect = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
+         FROM devices d
+         LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+         LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+         LEFT JOIN manufacturer m ON dt.Mid = m.Mid
+         LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+         LEFT JOIN location L ON sl.lid = L.lid`;
+
+    let rows;
+    if (sid) {
+      const sidNum = parseInt(sid, 10);
+      if (isNaN(sidNum)) {
+        return res.status(400).json({ success: false, message: 'sid is not valid' });
+      }
+      [rows] = await db.execute(
+        `${baseSelect}
+         WHERE sl.Sid = ? AND ${inUse} AND (${sofOr})
+         ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
+        [sidNum, ...sofParams]
+      );
+    } else {
+      [rows] = await db.execute(
+        `${baseSelect}
+         WHERE d.SLid = ? AND ${inUse} AND (${sofOr})
+         ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
+        [siteId, ...sofParams]
+      );
+    }
+
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices by SOFs and site:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting devices by SOFs and site',
+      error: error.message
+    });
+  }
+};
+
 // GET - ดึง Devices จาก contract_device ตาม contract_id และ SLid (Site+Location)
 // เช็คจาก Site+Location → SLid แล้วดึง devices ใน contract_device ที่ SLid ตรงกัน
 const getDevicesByContractAndSite = async (req, res) => {
@@ -2169,6 +2252,7 @@ module.exports = {
   getReferSOFList,           // GET (unique Refer_SOF values)
   getAssignedServicesList,   // GET (unique Assigned_Service สำหรับ dropdown Service)
   getDevicesBySOFAndSite,    // GET (devices ตาม Refer_SOF และ site_id)
+  getDevicesBySOFsAndSite,   // GET (devices หลาย Refer_SOF + site)
   getDevicesByContractAndSite, // GET (devices จาก contract_device ตาม contract_id + slid)
   getDevicesBySerials,       // GET (devices ตาม serial หลายตัว ?serials=A,B,C)
   getDevicesBySiteNoSOF,     // GET (devices ตาม site_id ที่ยังไม่มี SOF)

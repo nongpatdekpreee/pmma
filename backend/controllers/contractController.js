@@ -165,7 +165,15 @@ const createContract = async (req, res) => {
       }
     }
     const firstDeviceId = deviceIdList.length > 0 ? deviceIdList[0] : null;
-    const siteId = siteIdList.length > 0 ? siteIdList[0] : null;
+    // contract.site_id: ใช้ site_id จาก body (เลือกจากฟอร์ม Site/Location) ก่อน ไม่ใช้แค่ค่าแรกจาก site_device_pairs
+    const primaryFromBody =
+      site_id != null && site_id !== '' ? parseInt(String(site_id), 10) : NaN;
+    const siteId =
+      !Number.isNaN(primaryFromBody) && primaryFromBody > 0
+        ? primaryFromBody
+        : siteIdList.length > 0
+          ? siteIdList[0]
+          : null;
 
     // เช็คว่า device ที่เลือกมี contract อยู่แล้วหรือยัง (contract.device_id หรือ contract_device)
     // แต่ถ้าเป็นการต่อสัญญา (มี old_contract_id) ให้ข้ามการตรวจสอบนี้
@@ -604,9 +612,10 @@ const getContractsBySite = async (req, res) => {
         c.sale_account,
         c.sof_name,
         c.status,
-        agg.site_name,
-        agg.site_location,
-        COALESCE(cnt.device_count, 0) AS device_count
+        agg.site_name AS site_name,
+        agg.site_location AS site_location,
+        COALESCE(cnt.device_count, 0) AS device_count,
+        COALESCE(slim.devices_slid_aligned, 1) AS devices_slid_aligned
       FROM contract c
       LEFT JOIN (
         SELECT contract_id,
@@ -623,6 +632,17 @@ const getContractsBySite = async (req, res) => {
         GROUP BY contract_id
       ) agg ON c.contract_id = agg.contract_id
       LEFT JOIN (SELECT contract_id, COUNT(*) AS device_count FROM contract_device GROUP BY contract_id) cnt ON c.contract_id = cnt.contract_id
+      LEFT JOIN (
+        SELECT cd2.contract_id,
+          CASE
+            WHEN SUM(CASE WHEN d2.SLid IS NULL OR cd2.SLid IS NULL OR d2.SLid <> cd2.SLid THEN 1 ELSE 0 END) = 0 THEN 1
+            ELSE 0
+          END AS devices_slid_aligned
+        FROM contract_device cd2
+        INNER JOIN devices d2 ON cd2.device_id = d2.Did
+        WHERE cd2.device_id IS NOT NULL
+        GROUP BY cd2.contract_id
+      ) slim ON c.contract_id = slim.contract_id
       LEFT JOIN contract_device cd ON c.contract_id = cd.contract_id
       LEFT JOIN devices d ON cd.device_id = d.Did
     `;
@@ -1109,6 +1129,7 @@ const updateContract = async (req, res) => {
       contract_name,
       start_date,
       end_date,
+      site_id,
       site_device_pairs,
       sof_name,
       assigned_service,
@@ -1289,6 +1310,14 @@ const updateContract = async (req, res) => {
     if (status !== undefined && (status === 'draft' || status === 'official')) {
       updateFields.push('status = ?');
       updateValues.push(status);
+    }
+
+    if (site_id !== undefined && site_id !== null && site_id !== '') {
+      const sid = parseInt(String(site_id), 10);
+      if (!Number.isNaN(sid) && sid > 0) {
+        updateFields.push('site_id = ?');
+        updateValues.push(sid);
+      }
     }
 
     // อัปเดต contract

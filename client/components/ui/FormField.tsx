@@ -1,9 +1,11 @@
 'use client';
 
+import type { ReactNode } from 'react';
+
 interface FormFieldProps {
-  label: string;
+  label: ReactNode;
   required?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 }
 
