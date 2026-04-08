@@ -5,7 +5,6 @@ const {
   getSites,
   getSitesLocation,
   getSitesLocationBySOF,
-  getSitesLocationBySOFs,
   getSitesLocationWithContracts,
   updateSite,
   deleteSite
@@ -22,8 +21,6 @@ router.get('/locations', getSitesLocation);
 
 // GET - ดึง Sites_Location เฉพาะที่มี device ที่มี Refer_SOF นี้
 router.get('/locations-by-sof', getSitesLocationBySOF);
-
-router.get('/locations-by-sofs', getSitesLocationBySOFs);
 
 // GET - ดึง Sites_Location เฉพาะที่มี contract
 router.get('/locations-with-contracts', getSitesLocationWithContracts);

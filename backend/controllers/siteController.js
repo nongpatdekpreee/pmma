@@ -88,57 +88,6 @@ const getSitesLocationBySOF = async (req, res) => {
   }
 };
 
-// GET - Sites_Location รวมจากหลาย Refer_SOF (คั่นด้วย comma) — สำหรับสัญญาเดียวที่ดึง device จากหลาย SOF
-const getSitesLocationBySOFs = async (req, res) => {
-  try {
-    const raw = req.query.refer_sofs || req.query.refer_sof;
-    if (!raw) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide refer_sofs (comma-separated)'
-      });
-    }
-    const parts = String(raw)
-      .split(/[,;]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (parts.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide at least one refer_sof'
-      });
-    }
-    const orParts = [];
-    const params = [];
-    for (const referSOF of parts) {
-      const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
-      orParts.push(
-        '(Refer_SOF = ? OR TRIM(LEADING \'0\' FROM COALESCE(Refer_SOF, \'\')) = ?)'
-      );
-      params.push(referSOF, referSOFTrim);
-    }
-    const sql = `
-      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
-      FROM sites_location SL
-      JOIN sites S ON SL.Sid = S.Sid
-      JOIN location L ON SL.lid = L.lid
-      WHERE SL.SLid IN (
-        SELECT DISTINCT SLid FROM devices WHERE SLid IS NOT NULL AND (${orParts.join(' OR ')})
-      )
-      ORDER BY S.Name, L.Location2
-    `;
-    const [rows] = await db.execute(sql, params);
-    res.status(200).json({ success: true, data: rows });
-  } catch (error) {
-    console.error('Error getting sites-location by SOFs:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error getting sites-location by SOFs',
-      error: error.message
-    });
-  }
-};
-
 // GET - ดึง Sites_Location เฉพาะที่มี contract ที่ยังไม่หมดอายุ (end_date >= วันนี้ หรือ end_date เป็น NULL)
 const getSitesLocationWithContracts = async (req, res) => {
   try {
@@ -349,7 +298,6 @@ module.exports = {
   getSites,                      // GET
   getSitesLocation,              // GET /locations
   getSitesLocationBySOF,         // GET /locations-by-sof?refer_sof=XXX
-  getSitesLocationBySOFs,        // GET /locations-by-sofs?refer_sofs=a,b
   getSitesLocationWithContracts, // GET /locations-with-contracts
   updateSite,                    // PUT
   deleteSite                     // DELETE

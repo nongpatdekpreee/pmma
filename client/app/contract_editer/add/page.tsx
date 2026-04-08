@@ -13,7 +13,7 @@ import {
   X,
   ChevronDown,
 } from 'lucide-react';
-import { useState, useEffect, useMemo, useRef, Suspense, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiUrl, getAssignedServices } from '@/lib/api';
@@ -26,6 +26,17 @@ import { FormField } from '../../../components/ui/FormField';
 import { FileUploadBlock } from '../../../components/ui/FileUploadBlock';
 import { DeviceSelectModal } from '@/components/ui/DeviceSelectModal';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import {
+  contractDropdownShellClass,
+  contractDropdownNativeSelectClass,
+  contractDropdownComboboxInputClass,
+  contractDropdownTrailingClass,
+  contractDropdownClearBtnClass,
+  contractDropdownChevronBtnClass,
+  NativeSelectDropdownShell,
+  ContractSimpleSearchListDropdown,
+  ContractShellSearchListDropdown,
+} from '@/components/ui/ContractSearchListDropdown';
 import type { SiteLocation, DeviceItem } from './types';
 
 const inputBase =
@@ -34,176 +45,6 @@ const inputBase =
 /** ความสูงเดียวกับปุ่มเพิ่มผู้ติดต่อ (45px รวม border) */
 const saleContactInputClass =
   'w-full box-border h-[45px] rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm leading-snug text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
-
-/** เปลือก control แบบ Refer SOF — ใช้ร่วมกับ combobox / native select ในหน้านี้ */
-const contractDropdownShellClass =
-  'relative flex min-h-[42px] w-full min-w-0 items-center rounded-xl border border-slate-200 bg-white shadow-sm transition-colors hover:border-sky-300 has-[:disabled]:opacity-50';
-
-const contractDropdownTextButtonClass =
-  'flex min-h-[42px] min-w-0 flex-1 items-center px-3 py-2.5 text-left text-sm font-medium text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:pointer-events-none rounded-l-xl';
-
-const contractDropdownNativeSelectClass =
-  'min-h-[42px] min-w-0 flex-1 cursor-pointer appearance-none rounded-l-xl border-0 bg-transparent px-3 py-2.5 text-left text-sm font-medium text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:pointer-events-none disabled:cursor-not-allowed';
-
-const contractDropdownComboboxInputClass =
-  'min-h-[42px] min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm font-medium text-slate-800 outline-none placeholder:font-normal placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 rounded-l-xl';
-
-function contractDropdownTrailingClass(showDivider: boolean) {
-  return showDivider
-    ? 'flex shrink-0 items-center gap-0.5 border-l border-slate-100 py-1 pl-1 pr-1.5'
-    : 'flex shrink-0 items-center gap-0.5 py-1 pl-0.5 pr-1.5';
-}
-
-const contractDropdownClearBtnClass =
-  'flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600';
-
-const contractDropdownChevronBtnClass =
-  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:pointer-events-none';
-
-function NativeSelectDropdownShell({ children }: { children: ReactNode }) {
-  return (
-    <div className={contractDropdownShellClass}>
-      {children}
-      <div className="pointer-events-none flex shrink-0 items-center border-l border-slate-100 py-1 pl-1 pr-2 text-slate-500">
-        <ChevronDown size={18} aria-hidden />
-      </div>
-    </div>
-  );
-}
-
-type ContractSearchListItem = { value: string; label: string };
-
-/** Dropdown ค้นหา + รายการ — โครงเดียวกับ Refer SOF; ปุ่มทริกเกอร์เต็มความกว้าง (คลิกที่ไหนก็เปิด) */
-function ContractSearchListDropdown({
-  rootId,
-  disabled,
-  open,
-  onToggle,
-  displayText,
-  emptyPlaceholder,
-  panelTitle,
-  filter,
-  onFilterChange,
-  items,
-  selectedValue,
-  onPick,
-  searchPlaceholder = 'Search...',
-  emptyText = 'No matches',
-  showClearOption,
-  onClear,
-}: {
-  rootId: string;
-  disabled?: boolean;
-  open: boolean;
-  onToggle: () => void;
-  displayText: string;
-  emptyPlaceholder: string;
-  panelTitle: string;
-  filter: string;
-  onFilterChange: (v: string) => void;
-  items: ContractSearchListItem[];
-  selectedValue: string;
-  onPick: (value: string) => void;
-  searchPlaceholder?: string;
-  emptyText?: string;
-  showClearOption?: boolean;
-  onClear?: () => void;
-}) {
-  const q = filter.trim().toLowerCase();
-  const filtered = items.filter(
-    (i) =>
-      i.label.toLowerCase().includes(q) ||
-      i.value.toLowerCase().includes(q)
-  );
-  return (
-    <div
-      id={rootId}
-      className={`relative block w-full min-w-0 align-bottom ${open ? 'z-[200]' : ''}`}
-    >
-      <button
-        type="button"
-        disabled={disabled}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        onClick={() => {
-          if (disabled) return;
-          onToggle();
-        }}
-        className={`${contractDropdownShellClass} flex w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none transition-colors hover:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50`}
-      >
-        <span
-          className={`min-w-0 flex-1 truncate px-3 py-2.5 text-left text-sm font-medium ${
-            displayText ? 'text-slate-900' : 'text-slate-500'
-          }`}
-        >
-          {displayText || emptyPlaceholder}
-        </span>
-        <span className="flex shrink-0 items-center border-l border-slate-100 py-1 pl-1 pr-2 text-slate-500">
-          <ChevronDown
-            size={18}
-            className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
-            aria-hidden
-          />
-        </span>
-      </button>
-      {open && !disabled && (
-        <div className="absolute left-0 right-0 top-full z-[300] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-          <p className="shrink-0 border-b border-slate-100 bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-            {panelTitle}
-          </p>
-          <input
-            type="text"
-            value={filter}
-            onChange={(e) => onFilterChange(e.target.value)}
-            placeholder={searchPlaceholder}
-            className="w-full min-w-0 shrink-0 border-b border-slate-100 px-3 py-2 text-sm outline-none focus:bg-slate-50"
-            autoFocus
-          />
-          <div className="min-h-0 max-h-[11rem] min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-1">
-            {showClearOption && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClear?.();
-                }}
-                className="flex w-full px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-50"
-              >
-                — Clear —
-              </button>
-            )}
-            {filtered.length === 0 ? (
-              <p className="px-3 py-4 text-center text-xs text-slate-500">{emptyText}</p>
-            ) : (
-              filtered.map((item) => {
-                const selected = selectedValue === item.value;
-                return (
-                  <button
-                    key={item.value}
-                    type="button"
-                    onClick={() => onPick(item.value)}
-                    className={`flex w-full min-w-0 items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-sky-50 ${
-                      selected ? 'bg-sky-50/90' : ''
-                    }`}
-                  >
-                    <span
-                      className={`h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
-                        selected
-                          ? 'border-sky-600 bg-sky-600'
-                          : 'border-slate-300 bg-white'
-                      }`}
-                      aria-hidden
-                    />
-                    <span className="min-w-0 flex-1 break-words text-left text-slate-800">{item.label}</span>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 type SiteEntry = {
   id: string;
@@ -518,20 +359,20 @@ function AddContractPageContent() {
   const [saveError, setSaveError] = useState('');
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
 
-  const sourceSofKeysAll = useMemo(() => {
+  /** SOF แรกที่เลือกและมีใน DB (ใช้กับ locations-by-sof / by-sof-and-site เท่านั้น) */
+  const referSofInDb = useMemo(() => {
     if (!isNewContractFlow) {
       const t = selectedSOF.trim();
-      return t ? [t] : [];
+      return t && referSOFList.includes(t) ? t : null;
     }
-    return [...new Set(sourceSofs.map((s) => s.trim()).filter(Boolean))];
-  }, [isNewContractFlow, selectedSOF, sourceSofs]);
+    for (const s of sourceSofs) {
+      const t = s.trim();
+      if (t && referSOFList.includes(t)) return t;
+    }
+    return null;
+  }, [isNewContractFlow, selectedSOF, sourceSofs, referSOFList]);
 
-  const referSofsInDb = useMemo(
-    () => sourceSofKeysAll.filter((s) => referSOFList.includes(s)),
-    [sourceSofKeysAll, referSOFList]
-  );
-
-  const sofExistsInDb = referSofsInDb.length > 0;
+  const sofExistsInDb = referSofInDb != null;
 
   const showSiteDeviceSection = isNewContractFlow
     ? sourceSofs.length > 0
@@ -1010,15 +851,11 @@ function AddContractPageContent() {
           url = existsInDb
             ? apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(sofTrim)}`)
             : apiUrl('/api/sites/locations');
-        } else if (referSofsInDb.length === 0) {
+        } else if (!referSofInDb) {
           url = apiUrl('/api/sites/locations');
-        } else if (referSofsInDb.length === 1) {
-          url = apiUrl(
-            `/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(referSofsInDb[0])}`
-          );
         } else {
           url = apiUrl(
-            `/api/sites/locations-by-sofs?refer_sofs=${encodeURIComponent(referSofsInDb.join(','))}`
+            `/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(referSofInDb)}`
           );
         }
         const res = await fetch(url);
@@ -1032,7 +869,7 @@ function AddContractPageContent() {
       }
     };
     load();
-  }, [isNewContractFlow, selectedSOF, sourceSofs, referSofsInDb, referSOFList]);
+  }, [isNewContractFlow, selectedSOF, sourceSofs, referSofInDb, referSOFList]);
 
   const loadDevicesForScope = async (
     scope: { sid?: string; slid?: string },
@@ -1067,14 +904,9 @@ function AddContractPageContent() {
       }
 
       // เฉพาะกรณี SOF มีในระบบ: ค่อยดึง devices ตาม SOF+Sid/SLid เพิ่ม
-      if (sofExistsInDb) {
-        const sofParam =
-          referSofsInDb.length === 1
-            ? `refer_sof=${encodeURIComponent(referSofsInDb[0])}`
-            : `refer_sofs=${encodeURIComponent(referSofsInDb.join(','))}`;
-        const path =
-          referSofsInDb.length === 1 ? '/api/devices/by-sof-and-site' : '/api/devices/by-sofs-and-site';
-        const res2 = await fetch(apiUrl(`${path}?${sofParam}&${siteQs}`));
+      if (sofExistsInDb && referSofInDb) {
+        const sofParam = `refer_sof=${encodeURIComponent(referSofInDb)}`;
+        const res2 = await fetch(apiUrl(`/api/devices/by-sof-and-site?${sofParam}&${siteQs}`));
         const json2 = await res2.json();
         if (res2.ok && json2.data) {
           const existingIds = new Set(allDevices.map((d) => d.Did));
@@ -1084,14 +916,9 @@ function AddContractPageContent() {
           throw new Error(json2.message || 'Load Devices failed');
         }
       }
-    } else if (sofExistsInDb) {
-      const sofParam =
-        referSofsInDb.length === 1
-          ? `refer_sof=${encodeURIComponent(referSofsInDb[0])}`
-          : `refer_sofs=${encodeURIComponent(referSofsInDb.join(','))}`;
-      const path =
-        referSofsInDb.length === 1 ? '/api/devices/by-sof-and-site' : '/api/devices/by-sofs-and-site';
-      const res = await fetch(apiUrl(`${path}?${sofParam}&${siteQs}`));
+    } else if (sofExistsInDb && referSofInDb) {
+      const sofParam = `refer_sof=${encodeURIComponent(referSofInDb)}`;
+      const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?${sofParam}&${siteQs}`));
       const json = await res.json();
       if (res.ok && json.data) {
         allDevices.push(...json.data);
@@ -1802,162 +1629,77 @@ function AddContractPageContent() {
               {!renewContractId && !editContractId && (
                 <>
                   <FormField label="Refer SOF" required>
-                      <div
-                        id="source-sof-dropdown-root"
-                        className={`relative w-full min-w-0 ${sourceSofDropdownOpen ? 'z-[200]' : ''}`}
-                      >
-                      <div className={contractDropdownShellClass}>
-                        <button
-                          type="button"
-                          onClick={() => setSourceSofDropdownOpen((o) => !o)}
-                          disabled={referSOFLoading}
-                          aria-expanded={sourceSofDropdownOpen}
-                          aria-haspopup="listbox"
-                          className={contractDropdownTextButtonClass}
-                        >
-                          <span
-                            className={`min-w-0 flex-1 truncate ${sourceSofs[0] ? 'font-mono text-slate-900' : 'text-slate-500'}`}
-                          >
-                            {referSOFLoading
-                              ? 'Loading SOF...'
-                              : sourceSofs[0]
-                                ? sourceSofs[0]
-                                : 'Select from the list...'}
-                          </span>
-                        </button>
-                        <div
-                          className={contractDropdownTrailingClass(
-                            Boolean(sourceSofs[0] && !referSOFLoading)
-                          )}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {sourceSofs[0] && !referSOFLoading && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                clearReferSofSelection();
+                    <ContractShellSearchListDropdown
+                      rootId="source-sof-dropdown-root"
+                      open={sourceSofDropdownOpen}
+                      onOpenChange={setSourceSofDropdownOpen}
+                      disabled={referSOFLoading}
+                      loading={referSOFLoading}
+                      displayText={sourceSofs[0] ?? ''}
+                      emptyPlaceholder="Select from the list..."
+                      loadingText="Loading SOF..."
+                      panelTitle="Select from the list (one SOF)"
+                      filter={sofDropdownFilter}
+                      onFilterChange={setSofDropdownFilter}
+                      items={referSOFList.map((sof) => ({ value: sof, label: sof }))}
+                      selectedValue={sourceSofs[0] ?? ''}
+                      onPick={pickReferSofFromList}
+                      searchPlaceholder="Search SOF..."
+                      emptyText="SOF not found"
+                      showClearButton
+                      onClear={clearReferSofSelection}
+                      clearAriaLabel="ล้าง Refer SOF"
+                      itemLabelClassName="font-mono"
+                      triggerSelectedClassName="font-mono"
+                      panelFooter={
+                        <div className="shrink-0 border-t border-slate-200 bg-slate-50/95">
+                          <label className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 text-sm hover:bg-sky-50/80">
+                            <input
+                              type="checkbox"
+                              checked={referSofManualRowEnabled}
+                              onChange={(e) => {
+                                const on = e.target.checked;
+                                if (!on) {
+                                  setReferSofManualRowEnabled(false);
+                                  setManualSofInput('');
+                                  return;
+                                }
+                                setReferSofManualRowEnabled(true);
                               }}
-                              className={contractDropdownClearBtnClass}
-                              title="ล้าง"
-                              aria-label="ล้าง Refer SOF"
-                            >
-                              <X size={16} strokeWidth={2} />
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            tabIndex={-1}
-                            disabled={referSOFLoading}
-                            onClick={() => setSourceSofDropdownOpen((o) => !o)}
-                            className={contractDropdownChevronBtnClass}
-                            aria-hidden
-                          >
-                            <ChevronDown
-                              size={18}
-                              className={`transition-transform ${sourceSofDropdownOpen ? 'rotate-180' : ''}`}
+                              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                             />
-                          </button>
-                        </div>
-                      </div>
-                        {sourceSofDropdownOpen && !referSOFLoading && (
-                          <div className="absolute left-0 right-0 top-full z-[300] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                          <p className="shrink-0 border-b border-slate-100 bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                            Select from the list (one SOF)
-                          </p>
-                          <input
-                            type="text"
-                            value={sofDropdownFilter}
-                            onChange={(e) => setSofDropdownFilter(e.target.value)}
-                            placeholder="Search SOF..."
-                            className="shrink-0 border-b border-slate-100 px-3 py-2 text-sm outline-none focus:bg-slate-50"
-                            autoFocus
-                          />
-                          <div className="min-h-0 max-h-[11rem] flex-1 overflow-y-auto py-1">
-                            {referSOFList.filter((sof) =>
-                              sof.toLowerCase().includes(sofDropdownFilter.trim().toLowerCase())
-                            ).length === 0 ? (
-                              <p className="px-3 py-4 text-center text-xs text-slate-500">SOF not found</p>
-                            ) : (
-                              referSOFList
-                                .filter((sof) =>
-                                  sof.toLowerCase().includes(sofDropdownFilter.trim().toLowerCase())
-                                )
-                                .map((sof) => {
-                                  const selected = sourceSofs[0] === sof;
-                                  return (
-                                    <button
-                                      key={sof}
-                                      type="button"
-                                      onClick={() => pickReferSofFromList(sof)}
-                                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-sky-50 ${
-                                        selected ? 'bg-sky-50/90' : ''
-                                      }`}
-                                    >
-                                      <span
-                                        className={`h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
-                                          selected
-                                            ? 'border-sky-600 bg-sky-600'
-                                            : 'border-slate-300 bg-white'
-                                        }`}
-                                        aria-hidden
-                                      />
-                                      <span className="font-mono text-slate-800">{sof}</span>
-                                    </button>
-                                  );
-                                })
-                            )}
-                          </div>
-                          <div className="shrink-0 border-t border-slate-200 bg-slate-50/95">
-                            <label className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 text-sm hover:bg-sky-50/80">
+                            <div className="min-w-0 flex-1">
+                              <span className="block font-medium text-slate-800">Type the new SOF</span>
+                              <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
+                                Check and type the new SOF.
+                              </span>
                               <input
-                                type="checkbox"
-                                checked={referSofManualRowEnabled}
-                                onChange={(e) => {
-                                  const on = e.target.checked;
-                                  if (!on) {
-                                    setReferSofManualRowEnabled(false);
-                                    setManualSofInput('');
-                                    return;
-                                  }
-                                  setReferSofManualRowEnabled(true);
+                                type="text"
+                                list="manual-sof-datalist"
+                                value={manualSofInput}
+                                onChange={(e) => setManualSofInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') e.preventDefault();
                                 }}
-                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                onClick={(e) => e.stopPropagation()}
+                                placeholder="Type the new SOF..."
+                                disabled={!referSofManualRowEnabled}
+                                className={`mt-2 w-full rounded-lg border px-2.5 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
+                                  referSofManualRowEnabled
+                                    ? 'border-slate-200 bg-white focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20'
+                                    : 'border-slate-200 bg-slate-100'
+                                }`}
                               />
-                              <div className="min-w-0 flex-1">
-                                <span className="block font-medium text-slate-800">Type the new SOF</span>
-                                <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
-                                  Check and type the new SOF.
-                                </span>
-                                <input
-                                  type="text"
-                                  list="manual-sof-datalist"
-                                  value={manualSofInput}
-                                  onChange={(e) => setManualSofInput(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') e.preventDefault();
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  placeholder="Type the new SOF..."
-                                  disabled={!referSofManualRowEnabled}
-                                  className={`mt-2 w-full rounded-lg border px-2.5 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
-                                    referSofManualRowEnabled
-                                      ? 'border-slate-200 bg-white focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20'
-                                      : 'border-slate-200 bg-slate-100'
-                                  }`}
-                                />
-                                <datalist id="manual-sof-datalist">
-                                  {referSOFList.map((sof) => (
-                                    <option key={sof} value={sof} />
-                                  ))}
-                                </datalist>
-                              </div>
-                            </label>
-                          </div>
+                              <datalist id="manual-sof-datalist">
+                                {referSOFList.map((sof) => (
+                                  <option key={sof} value={sof} />
+                                ))}
+                              </datalist>
+                            </div>
+                          </label>
                         </div>
-                        )}
-                    </div>
+                      }
+                    />
                     {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
                   </FormField>
                 </>
@@ -2446,10 +2188,13 @@ function AddContractPageContent() {
                       siteLocationPicker?.entryId === entry.id &&
                       siteLocationPicker.variant === 'flat';
 
+                    const rowPickerOpen = openSite || openLoc || openFlat;
                     return (
                     <div
                       key={entry.id}
-                      className="flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 backdrop-blur-sm"
+                      className={`relative flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 backdrop-blur-sm ${
+                        rowPickerOpen ? 'z-[160]' : ''
+                      }`}
                     >
                       <div className="flex flex-wrap items-end gap-2">
                         {uniqueSites.length > 0 ? (
@@ -2458,7 +2203,7 @@ function AddContractPageContent() {
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                                 Site 
                               </label>
-                              <ContractSearchListDropdown
+                              <ContractSimpleSearchListDropdown
                                 rootId={`site-pick-${entry.id}-site`}
                                 disabled={siteComboDisabled}
                                 open={openSite}
@@ -2487,7 +2232,7 @@ function AddContractPageContent() {
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                                 Location 
                               </label>
-                              <ContractSearchListDropdown
+                              <ContractSimpleSearchListDropdown
                                 rootId={`site-pick-${entry.id}-location`}
                                 disabled={locationComboDisabled}
                                 open={openLoc}
@@ -2518,7 +2263,7 @@ function AddContractPageContent() {
                             <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                               Site
                             </label>
-                            <ContractSearchListDropdown
+                            <ContractSimpleSearchListDropdown
                               rootId={`site-pick-${entry.id}-flat`}
                               disabled={siteComboDisabled}
                               open={openFlat}

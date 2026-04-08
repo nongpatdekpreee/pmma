@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
-import { ChevronLeft, ChevronRight, X, FileCheck, FileX2, LayoutGrid, List } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, FileCheck, FileX2, LayoutGrid, List, Users } from 'lucide-react';
+import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
@@ -865,7 +866,10 @@ function CalendarPageContent() {
                 onClick={() => document.getElementById('engineer-filter-input-calendar')?.focus()}
               >
                 {selectedEngineerFilter.length === 0 && !engineerFilterInput && (
-                  <span className="text-slate-400">All Engineers</span>
+                  <span className="inline-flex items-center gap-2 text-slate-400">
+                    <Users size={18} className="shrink-0 text-slate-400" aria-hidden />
+                    All Engineers
+                  </span>
                 )}
                 {selectedEngineerFilter.map((id) => {
                   const eng = availableEngineers.find(e => String(e.id) === id);
@@ -873,8 +877,13 @@ function CalendarPageContent() {
                   return (
                     <span
                       key={id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-blue-100 text-blue-800 text-xs font-medium"
+                      className="inline-flex items-center gap-1.5 pl-1 pr-1.5 py-0.5 rounded-lg bg-blue-100 text-blue-800 text-xs font-medium"
                     >
+                      <EngineerAvatar
+                        photoUrl={eng?.photo}
+                        displayName={label}
+                        size="sm"
+                      />
                       {label}
                       <button
                         type="button"
@@ -902,7 +911,7 @@ function CalendarPageContent() {
                       removeEngineerFilter(selectedEngineerFilter[selectedEngineerFilter.length - 1]);
                     }
                   }}
-                  placeholder={selectedEngineerFilter.length === 0 ? 'Search engineers...' : ''}
+                  placeholder=""
                   className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-slate-700 placeholder:text-slate-400"
                 />
               </div>
@@ -913,16 +922,22 @@ function CalendarPageContent() {
                   ) : filteredEngineersForFilter.length === 0 ? (
                     <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
                   ) : (
-                    filteredEngineersForFilter.map((eng) => (
-                      <button
-                        key={eng.id}
-                        type="button"
-                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-                        onClick={() => addEngineerFilter(eng)}
-                      >
-                        {eng.name} {eng.lastName || ''}
-                      </button>
-                    ))
+                    filteredEngineersForFilter.map((eng) => {
+                      const dn = `${eng.name || ''} ${eng.lastName || ''}`.trim();
+                      return (
+                        <button
+                          key={eng.id}
+                          type="button"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                          onClick={() => addEngineerFilter(eng)}
+                        >
+                          <EngineerAvatar photoUrl={eng.photo} displayName={dn || String(eng.id)} size="md" />
+                          <span className="min-w-0 truncate">
+                            {eng.name} {eng.lastName || ''}
+                          </span>
+                        </button>
+                      );
+                    })
                   )}
                 </div>
               )}

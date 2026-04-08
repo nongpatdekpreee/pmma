@@ -11,13 +11,17 @@ import {
   Search,
   ChevronDown,
 } from 'lucide-react';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getSitesLocationWithContracts, getTasks, checkEngineerConflict } from '@/lib/api';
 import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-
+import {
+  ContractShellSearchListDropdown,
+  ContractSimpleSearchListDropdown,
+} from '@/components/ui/ContractSearchListDropdown';
+import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 
 
 interface Props {
@@ -72,34 +76,6 @@ interface ContractOption {
 /* ================= available engineers ================= */
 // จะดึงข้อมูลจาก API ใน component แทน
 
-function EngineerAvatar({
-  photoUrl,
-  displayName,
-  size = 'sm',
-}: {
-  photoUrl: string | null;
-  displayName: string;
-  size?: 'sm' | 'md';
-}) {
-  const dim = size === 'md' ? 'h-8 w-8' : 'h-5 w-5';
-  const initial = (displayName.replace(/\s/g, '')?.[0] || '?').toUpperCase();
-  return (
-    <span
-      className={`flex ${dim} shrink-0 rounded-full overflow-hidden border border-slate-200/80 bg-slate-100 items-center justify-center`}
-    >
-      {photoUrl ? (
-        <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" />
-      ) : (
-        <span
-          className={`font-semibold text-slate-500 leading-none ${size === 'md' ? 'text-xs' : 'text-[10px]'}`}
-        >
-          {initial}
-        </span>
-      )}
-    </span>
-  );
-}
-
 export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   /* ================= state (ตามที่กำหนด) ================= */
   const [taskType, setTaskType] = useState<'PM' | 'MA'>('PM');
@@ -135,6 +111,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     replacementDevice: Device | null;
     replacementDevices: Device[]; // available replacements for this broken device
     loading: boolean;
+    /** โหลดรายการคลังครั้งหนึ่งแล้ว (กัน useEffect ยิง API ซ้ำเมื่อรายการว่าง) */
+    replacementListFetched?: boolean;
   }
   const [brokenDevicePairs, setBrokenDevicePairs] = useState<BrokenDevicePair[]>([]);
 
@@ -175,6 +153,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const devicesMappedRef = useRef<string>('');
   const startDatePickerRef = useRef<HTMLInputElement>(null);
   const endDatePickerRef = useRef<HTMLInputElement>(null);
+  const replacementWarehouseCacheRef = useRef<Device[] | null>(null);
+  const replacementWarehouseInflightRef = useRef<Promise<Device[]> | null>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [loadingEngineers, setLoadingEngineers] = useState(false);
   const { toasts, removeToast, warning: showWarning, error: toastError } = useToast();
@@ -219,6 +199,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setDeviceModelFilter('');
     setDeviceManufacturerFilter('');
     devicesMappedRef.current = '';
+    replacementWarehouseCacheRef.current = null;
+    replacementWarehouseInflightRef.current = null;
   };
 
   const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => ({
@@ -237,6 +219,36 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     manufacturer: item.manufacturername || '', // Will be set by useEffect
     contract_id: item.contract_id != null ? Number(item.contract_id) : undefined,
   });
+
+  /** In Store ในคลังตาม backend — cache / in-flight เดียวกัน (หลาย MA pair ไม่ยิง API ซ้ำ) */
+  const fetchReplacementWarehousePool = async (): Promise<Device[]> => {
+    if (replacementWarehouseCacheRef.current) {
+      return replacementWarehouseCacheRef.current;
+    }
+    if (!replacementWarehouseInflightRef.current) {
+      replacementWarehouseInflightRef.current = (async () => {
+        try {
+          const res = await fetch(apiUrl('/api/devices/replacement'));
+          const json = await res.json();
+          if (!res.ok || !json.data) {
+            return [];
+          }
+          const raw = (json.data as any[]).map((item: any) => mapDeviceFromApi(item, 'available'));
+          const safeFiltered = raw.filter((d: Device) => {
+            const state = (d.assetState ?? '').toString().trim().toLowerCase();
+            return state === 'in store';
+          });
+          replacementWarehouseCacheRef.current = safeFiltered;
+          return safeFiltered;
+        } catch {
+          return [];
+        } finally {
+          replacementWarehouseInflightRef.current = null;
+        }
+      })();
+    }
+    return replacementWarehouseInflightRef.current;
+  };
 
   const fetchAllSites = async () => {
     try {
@@ -572,15 +584,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             replacementDevice: replacementDetails[index] || null,
             replacementDevices: [],
             loading: false,
+            replacementListFetched: false,
           }));
 
           setBrokenDevicePairs(pairs);
-
-          pairs.forEach((pair) => {
-            if (pair.brokenDevice.Dtypeid && pair.brokenDevice.DeRoleid) {
-              loadReplacementDevicesForPair(pair.id, pair.brokenDevice.Dtypeid, pair.brokenDevice.DeRoleid);
-            }
-          });
         };
 
         initializeBrokenDevicePairs();
@@ -833,10 +840,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   // Load replacement devices for broken device pairs (for MA only)
   useEffect(() => {
     if (taskType === 'MA') {
-      // Load replacement devices for each broken device pair
       brokenDevicePairs.forEach((pair) => {
-        if (pair.brokenDevice.Dtypeid && pair.brokenDevice.DeRoleid && pair.replacementDevices.length === 0 && !pair.loading) {
-          loadReplacementDevicesForPair(pair.id, pair.brokenDevice.Dtypeid, pair.brokenDevice.DeRoleid);
+        if (!pair.replacementListFetched && !pair.loading) {
+          loadReplacementDevicesForPair(pair.id);
         }
       });
     }
@@ -845,37 +851,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   // Legacy: Keep for backward compatibility when not using broken device pairs
   useEffect(() => {
     if (taskType === 'MA' && selectedDevices.length > 0 && brokenDevicePairs.length === 0) {
-      // Use the first selected device's Dtypeid and DeRoleid
-      const firstDevice = selectedDevices[0];
-      if (firstDevice.Dtypeid && firstDevice.DeRoleid) {
-        loadReplacementDevices(firstDevice.Dtypeid, firstDevice.DeRoleid, selectedDevices);
-      } else {
-        setReplacementDevices([]);
-        setSelectedReplacementDevice(null);
-      }
+      void loadReplacementDevices(selectedDevices);
     } else if (taskType === 'MA' && brokenDevicePairs.length === 0) {
       setReplacementDevices([]);
       setSelectedReplacementDevice(null);
     }
   }, [selectedDevices, taskType, brokenDevicePairs.length]);
 
-  const loadReplacementDevices = async (dtypeid: number, deroleid: number, excludeDevices: Device[] = []) => {
+  const loadReplacementDevices = async (excludeDevices: Device[] = []) => {
     setLoadingReplacementDevices(true);
     try {
-      const res = await fetch(apiUrl(`/api/devices/replacement?dtypeid=${dtypeid}&deroleid=${deroleid}`));
-      const json = await res.json();
-      if (res.ok && json.data) {
-        const raw = json.data.map((item: any) => mapDeviceFromApi(item, 'available'));
-        // Safety: replacement device must be SLid=2 and Asset_State='in store' เท่านั้น
-        const safeFiltered = raw.filter((d: Device) => {
-          const state = (d.assetState ?? '').toString().trim().toLowerCase();
-          return d.SLid === 2 && state === 'in store';
-        });
-        const excludeIds = new Set(excludeDevices.map((d: Device) => String(d.id)));
-        setReplacementDevices(safeFiltered.filter((d: Device) => !excludeIds.has(String(d.id))));
-      } else {
-        setReplacementDevices([]);
-      }
+      const pool = await fetchReplacementWarehousePool();
+      const excludeIds = new Set(excludeDevices.map((d: Device) => String(d.id)));
+      setReplacementDevices(pool.filter((d: Device) => !excludeIds.has(String(d.id))));
     } catch (error) {
       console.error('Error loading replacement devices:', error);
       setReplacementDevices([]);
@@ -884,7 +872,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
   };
 
-  const loadReplacementDevicesForPair = async (pairId: string, dtypeid: number, deroleid: number) => {
+  const loadReplacementDevicesForPair = async (pairId: string) => {
     setBrokenDevicePairs((prev) =>
       prev.map((pair) =>
         pair.id === pairId ? { ...pair, loading: true } : pair
@@ -892,40 +880,27 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     );
 
     try {
-      const res = await fetch(apiUrl(`/api/devices/replacement?dtypeid=${dtypeid}&deroleid=${deroleid}`));
-      const json = await res.json();
-      if (res.ok && json.data) {
-        const rawReplacement = json.data.map((item: any) => mapDeviceFromApi(item, 'available'));
-        // Safety: replacement device must be SLid=2 and Asset_State='in store' เท่านั้น
-        const safeReplacement = rawReplacement.filter((d: Device) => {
-          const state = (d.assetState ?? '').toString().trim().toLowerCase();
-          return d.SLid === 2 && state === 'in store';
+      const pool = await fetchReplacementWarehousePool();
+      setBrokenDevicePairs((prev) => {
+        const excludeIds = new Set<string>();
+        prev.forEach((p) => {
+          excludeIds.add(String(p.brokenDevice.id));
+          if (p.replacementDevice) excludeIds.add(String(p.replacementDevice.id));
         });
-        setBrokenDevicePairs((prev) => {
-          const excludeIds = new Set<string>();
-          prev.forEach((p) => {
-            excludeIds.add(String(p.brokenDevice.id));
-            if (p.replacementDevice) excludeIds.add(String(p.replacementDevice.id));
-          });
-          const replacementDevices = safeReplacement.filter((d: Device) => !excludeIds.has(String(d.id)));
-          return prev.map((pair) =>
-            pair.id === pairId
-              ? { ...pair, replacementDevices, loading: false }
-              : pair
-          );
-        });
-      } else {
-        setBrokenDevicePairs((prev) =>
-          prev.map((pair) =>
-            pair.id === pairId ? { ...pair, replacementDevices: [], loading: false } : pair
-          )
+        const replacementDevices = pool.filter((d: Device) => !excludeIds.has(String(d.id)));
+        return prev.map((pair) =>
+          pair.id === pairId
+            ? { ...pair, replacementDevices, loading: false, replacementListFetched: true }
+            : pair
         );
-      }
+      });
     } catch (error) {
       console.error('Error loading replacement devices for pair:', error);
       setBrokenDevicePairs((prev) =>
         prev.map((pair) =>
-          pair.id === pairId ? { ...pair, replacementDevices: [], loading: false } : pair
+          pair.id === pairId
+            ? { ...pair, replacementDevices: [], loading: false, replacementListFetched: true }
+            : pair
         )
       );
     }
@@ -939,6 +914,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       replacementDevice: null,
       replacementDevices: [],
       loading: false,
+      replacementListFetched: false,
     };
     setBrokenDevicePairs((prev) => [...prev, newPair]);
     // Remove device from selectedDevices if it's there
@@ -1105,30 +1081,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setBrokenDevicePairs([]);
     // โหลด devices สำหรับ contract นี้ (จะทำใน useEffect)
   };
-
-  // กรอง sites ตามคำค้นหา
-  const filteredSiteOptions = siteSearch.trim()
-    ? siteOptions.filter((s) => {
-      const searchLower = siteSearch.toLowerCase();
-      return (
-        s.label.toLowerCase().includes(searchLower) ||
-        s.name.toLowerCase().includes(searchLower) ||
-        s.id.toLowerCase().includes(searchLower)
-      );
-    })
-    : siteOptions;
-
-  // กรอง contracts ตามคำค้นหา
-  const filteredContractOptions = contractSearch.trim()
-    ? contractOptions.filter((c) => {
-      const searchLower = contractSearch.toLowerCase();
-      return (
-        (c.contract_name || '').toLowerCase().includes(searchLower) ||
-        String(c.contract_id).toLowerCase().includes(searchLower) ||
-        (c.sof_name || '').toLowerCase().includes(searchLower)
-      );
-    })
-    : contractOptions;
 
   // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices). ถ้ากรองตาม site แล้วไม่เจอ (เช่น fallback มาจากดึงแค่ตาม contract) ให้โชว์ทั้งหมดที่ผูกกับ contract นั้น
   const bySite = Sid ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid) : devices;
@@ -1538,83 +1490,46 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             <div>
               <label className={fieldLabel}>Site Name <span className="text-red-500">*</span></label>
 
-              {/* Custom searchable combobox for sites */}
               <div className="relative" ref={siteDropdownRef}>
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={showSiteDropdown ? siteSearch : (Sid ? siteOptions.find(s => s.id === Sid)?.label || '' : '')}
-                    onChange={(e) => {
-                      setSiteSearch(e.target.value);
-                      setShowSiteDropdown(true);
-                      setShowContractDropdown(false);
-                    }}
-                    onFocus={() => {
-                      setShowSiteDropdown(true);
-                      setShowContractDropdown(false);
-                      if (!siteSearch) {
-                        setSiteSearch(Sid ? siteOptions.find(s => s.id === Sid)?.label || '' : '');
-                      }
-                    }}
-                    placeholder={loadingSites ? 'Loading sites...' : 'Find or select site...'}
-                    disabled={loadingSites}
-                    className={`w-full pl-10 pr-16 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingSites ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
-                  />
-                  {(Sid || siteSearch.trim()) && !loadingSites && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleClearSite();
-                      }}
-                      className="absolute right-9 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                      title="Clear"
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
-                  <ChevronDown
-                    size={16}
-                    className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showSiteDropdown ? 'rotate-180' : ''}`}
-                  />
-                </div>
-
-                {showSiteDropdown && !loadingSites && (
-                  <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
-                    {/* options list */}
-                    <div className="overflow-y-auto max-h-60">
-                      {filteredSiteOptions.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-slate-400 text-center">
-                          {siteSearch.trim() ? 'No sites found' : 'No sites'}
-                        </div>
-                      ) : (
-                        filteredSiteOptions.map((s) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => {
-                              handleSiteChange(s.id);
-                              setShowSiteDropdown(false);
-                              setSiteSearch('');
-                            }}
-                            className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors ${Sid === s.id ? 'bg-blue-100 text-blue-700 font-medium' : 'text-slate-700'}`}
-                          >
-                            {s.label}
-                          </button>
-                        ))
-                      )}
-                    </div>
-
-                    {siteSearch.trim() && filteredSiteOptions.length > 0 && (
-                      <div className="px-3 py-1.5 border-t border-slate-200 text-[10px] text-slate-400 text-center bg-slate-50">
-                        Showing {filteredSiteOptions.length}/{siteOptions.length} sites
-                      </div>
-                    )}
-                  </div>
-                )}
+                <ContractShellSearchListDropdown
+                  rootId="add-task-site-dropdown"
+                  open={showSiteDropdown}
+                  onOpenChange={(next) => {
+                    setShowContractDropdown(false);
+                    if (next) {
+                      setSiteSearch(Sid ? siteOptions.find((s) => s.id === Sid)?.label || '' : '');
+                    }
+                    setShowSiteDropdown(next);
+                  }}
+                  loading={loadingSites}
+                  displayText={Sid ? siteOptions.find((s) => s.id === Sid)?.label || '' : ''}
+                  emptyPlaceholder="Find or select site..."
+                  loadingText="Loading sites..."
+                  panelTitle="Select site"
+                  filter={siteSearch}
+                  onFilterChange={setSiteSearch}
+                  items={siteOptions.map((s) => ({
+                    value: s.id,
+                    label: s.label,
+                    description: s.location,
+                  }))}
+                  selectedValue={Sid}
+                  onPick={(siteId) => {
+                    handleSiteChange(siteId);
+                    setShowSiteDropdown(false);
+                    setSiteSearch('');
+                  }}
+                  searchPlaceholder="Search site..."
+                  emptyText={siteSearch.trim() ? 'No sites found' : 'No sites'}
+                  showClearButton
+                  onClear={handleClearSite}
+                  clearButtonTitle="Clear"
+                  clearAriaLabel="Clear site"
+                  showFilterCountHint
+                  countNoun="sites"
+                />
               </div>
-                {loadingSites && <p className="text-[10px] text-slate-400 mt-1">Loading sites...</p>}
+              {loadingSites && <p className="text-[10px] text-slate-400 mt-1">Loading sites...</p>}
             </div>
 
             {/* Contract Selection - appears after site is selected */}
@@ -1622,93 +1537,67 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               <div>
                 <label className={fieldLabel}>Contract <span className="text-red-500">*</span></label>
 
-                {/* Custom Searchable Combobox for Contracts */}
                 <div className="relative" ref={contractDropdownRef}>
-                  <div className="relative">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={showContractDropdown ? contractSearch : (selectedContractId
-                        ? (() => {
-                          const contract = contractOptions.find(c => String(c.contract_id) === selectedContractId);
-                          return contract
-                            ? `${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`
-                            : '';
-                        })()
-                        : '')}
-                      onChange={(e) => {
-                        setContractSearch(e.target.value);
-                        setShowContractDropdown(true);
-                        setShowSiteDropdown(false);
-                      }}
-                      onFocus={() => {
-                        setShowContractDropdown(true);
-                        setShowSiteDropdown(false);
-                        if (!contractSearch && selectedContractId) {
-                          const contract = contractOptions.find(c => String(c.contract_id) === selectedContractId);
-                          if (contract) {
-                            setContractSearch(`${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`);
-                          }
+                  <ContractShellSearchListDropdown
+                    rootId="add-task-contract-dropdown"
+                    open={showContractDropdown}
+                    onOpenChange={(next) => {
+                      setShowSiteDropdown(false);
+                      if (next && selectedContractId) {
+                        const contract = contractOptions.find(
+                          (c) => String(c.contract_id) === selectedContractId
+                        );
+                        if (contract) {
+                          setContractSearch(
+                            `${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`
+                          );
                         }
-                      }}
-                      placeholder={loadingContracts ? 'Loading contracts...' : 'Find or select contract...'}
-                      disabled={loadingContracts}
-                      className={`w-full pl-10 pr-16 py-2 rounded-lg border border-slate-200 bg-white text-sm ${loadingContracts ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-400 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'} outline-none`}
-                    />
-                    {(selectedContractId || contractSearch.trim()) && !loadingContracts && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleContractChange('');
-                          setContractSearch('');
-                          setShowContractDropdown(false);
-                        }}
-                        className="absolute right-9 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                        title="Clear"
-                      >
-                        <X size={16} />
-                      </button>
-                    )}
-                    <ChevronDown
-                      size={16}
-                      className={`absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none transition-transform ${showContractDropdown ? 'rotate-180' : ''}`}
-                    />
-                  </div>
-
-                  {showContractDropdown && !loadingContracts && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-hidden flex flex-col">
-                      {/* Options List */}
-                      <div className="overflow-y-auto max-h-60">
-                        {filteredContractOptions.length === 0 ? (
-                          <div className="px-3 py-2 text-xs text-slate-400 text-center">
-                            {contractSearch.trim() ? 'No contracts found' : 'No contracts in this site'}
-                          </div>
-                        ) : (
-                          filteredContractOptions.map((contract) => (
-                            <button
-                              key={contract.contract_id}
-                              type="button"
-                              onClick={() => {
-                                handleContractChange(String(contract.contract_id));
-                                setShowContractDropdown(false);
-                                setContractSearch('');
-                              }}
-                              className={`w-full text-left px-3 py-2 text-xs hover:bg-blue-50 transition-colors ${selectedContractId === String(contract.contract_id) ? 'bg-blue-100 text-blue-700 font-medium' : 'text-slate-700'}`}
-                            >
-                              {contract.contract_name || `Contract #${contract.contract_id}`}
-                              {contract.sof_name ? ` - ${contract.sof_name}` : ''}
-                            </button>
-                          ))
-                        )}
-                      </div>
-
-                      {contractSearch.trim() && filteredContractOptions.length > 0 && (
-                        <div className="px-3 py-1.5 border-t border-slate-200 text-[10px] text-slate-400 text-center bg-slate-50">
-                          Showing {filteredContractOptions.length}/{contractOptions.length} contracts
-                        </div>
-                      )}
-                    </div>
-                  )}
+                      }
+                      setShowContractDropdown(next);
+                    }}
+                    loading={loadingContracts}
+                    displayText={
+                      selectedContractId
+                        ? (() => {
+                            const contract = contractOptions.find(
+                              (c) => String(c.contract_id) === selectedContractId
+                            );
+                            return contract
+                              ? `${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`
+                              : '';
+                          })()
+                        : ''
+                    }
+                    emptyPlaceholder="Find or select contract..."
+                    loadingText="Loading contracts..."
+                    panelTitle="Select contract"
+                    filter={contractSearch}
+                    onFilterChange={setContractSearch}
+                    items={contractOptions.map((c) => ({
+                      value: String(c.contract_id),
+                      label: `${c.contract_name || `Contract #${c.contract_id}`}${c.sof_name ? ` - ${c.sof_name}` : ''}`,
+                    }))}
+                    selectedValue={selectedContractId}
+                    onPick={(contractId) => {
+                      handleContractChange(contractId);
+                      setShowContractDropdown(false);
+                      setContractSearch('');
+                    }}
+                    searchPlaceholder="Search contract..."
+                    emptyText={
+                      contractSearch.trim() ? 'No contracts found' : 'No contracts in this site'
+                    }
+                    showClearButton
+                    onClear={() => {
+                      handleContractChange('');
+                      setContractSearch('');
+                      setShowContractDropdown(false);
+                    }}
+                    clearButtonTitle="Clear"
+                    clearAriaLabel="Clear contract"
+                    showFilterCountHint
+                    countNoun="contracts"
+                  />
                 </div>
                 {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">Loading contracts...</p>}
               </div>
@@ -2060,18 +1949,20 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Replacement Device <span className="text-slate-400">(optional)</span>
+                        Replacement Device 
                       </label>
                       {pair.loading ? (
                         <p className="text-xs text-slate-400">Loading...</p>
                       ) : pair.replacementDevices.length === 0 ? (
-                        <p className="text-xs text-slate-400">No devices in store (leave blank)</p>
+                        <p className="text-xs text-slate-400">No devices in store</p>
                       ) : (
                         <SearchableDeviceSelect
                           devices={pair.replacementDevices}
                           value={pair.replacementDevice}
                           placeholder="-- Select Replacement Device --"
                           onSelect={(d) => updateBrokenDeviceReplacement(pair.id, d)}
+                          showTypeRoleFilters
+                          showClearOption
                         />
                       )}
                       {pair.replacementDevice && (
@@ -2082,14 +1973,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         >
                           Clear replacement device
                         </button>
-                      )}
-                      {pair.replacementDevice && (
-                        <div className="mt-2 p-2 bg-green-50 rounded-lg">
-                          <p className="text-xs font-medium text-green-700">
-                            Selected: {pair.replacementDevice.name}
-                            {pair.replacementDevice.assetNumber && ` (${pair.replacementDevice.assetNumber})`}
-                          </p>
-                        </div>
                       )}
                     </div>
                   </div>
@@ -2453,7 +2336,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     setTimeout(() => setShowEngineerDropdown(false), 200);
                   }}
                   onKeyDown={handleEngineerInputKeyDown}
-                  placeholder={selectedEngineers.length === 0 ? 'Type to search engineer...' : ''}
+                  placeholder=""
                   className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5"
                 />
               </div>
@@ -2562,8 +2445,6 @@ const fieldLabel =
 const inputBase =
   'w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none transition focus:ring-2 focus:ring-blue-500 focus:border-blue-400';
 
-const selectBase = inputBase;
-
 const sectionCard =
   'rounded-xl border border-slate-100 bg-white p-3 space-y-3';
 
@@ -2574,7 +2455,10 @@ const assetCard = (active: boolean) =>
     : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
   }`;
 
-/* Searchable dropdown with search inside */
+const deviceFilterSelectClass =
+  'w-full h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs outline-none focus:ring-2 focus:ring-sky-500/20';
+
+/** Device / Replacement — ใช้ ContractSimpleSearchListDropdown (โครงเดียวกับ contract add) */
 function SearchableDeviceSelect({
   devices,
   value,
@@ -2582,6 +2466,8 @@ function SearchableDeviceSelect({
   onSelect,
   disabled,
   className = '',
+  showTypeRoleFilters = false,
+  showClearOption = false,
 }: {
   devices: Device[];
   value: Device | null;
@@ -2589,90 +2475,160 @@ function SearchableDeviceSelect({
   onSelect: (d: Device | null) => void;
   disabled?: boolean;
   className?: string;
+  showTypeRoleFilters?: boolean;
+  showClearOption?: boolean;
 }) {
+  const rootId = useId().replace(/:/g, '');
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [roleFilter, setRoleFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
 
-  const q = search.trim().toLowerCase();
-  const filtered = q
-    ? devices.filter((d) => {
-      const s = [d.name, d.type, d.serialNumber, d.assetNumber, d.site].filter(Boolean).join(' ').toLowerCase();
-      return q.split(/\s+/).filter(Boolean).every((p) => s.includes(p));
-    })
-    : devices;
+  const roleOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of devices) {
+      const r = (d.role ?? '').trim();
+      if (r) set.add(r);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [devices]);
+
+  const typeOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of devices) {
+      const t = (d.type ?? d.model ?? '').trim();
+      if (t) set.add(t);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [devices]);
+
+  const scoped = useMemo(() => {
+    return devices.filter((d) => {
+      if (roleFilter && (d.role ?? '').trim() !== roleFilter) return false;
+      if (typeFilter) {
+        const t = (d.type ?? d.model ?? '').trim();
+        if (t !== typeFilter) return false;
+      }
+      return true;
+    });
+  }, [devices, roleFilter, typeFilter]);
+
+  const items = useMemo(() => {
+    return scoped.map((d) => {
+      const parts: string[] = [];
+      if (d.role) parts.push(`Role: ${d.role}`);
+      if (d.type || d.model) parts.push(`Type: ${d.type || d.model}`);
+      if (d.assetNumber) parts.push(`Asset: ${d.assetNumber}`);
+      if (d.serialNumber) parts.push(`SN: ${d.serialNumber}`);
+      return {
+        value: String(d.id),
+        label: d.name,
+        description: parts.length > 0 ? parts.join(' · ') : undefined,
+      };
+    });
+  }, [scoped]);
+
+  const displayText = value
+    ? `${value.name}${value.assetNumber ? ` (${value.assetNumber})` : ''}${value.serialNumber ? ` - SN: ${value.serialNumber}` : ''}`
+    : '';
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
         setOpen(false);
       }
     };
-    if (open) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
   useEffect(() => {
-    if (!open) setSearch('');
+    if (!open) {
+      setSearch('');
+      setRoleFilter('');
+      setTypeFilter('');
+    }
   }, [open]);
 
+  const filterRowVisible =
+    showTypeRoleFilters && (roleOptions.length > 0 || typeOptions.length > 0);
+
+  const betweenTitleAndSearch =
+    filterRowVisible ? (
+      <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
+        {roleOptions.length > 0 && (
+          <div>
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase text-slate-500">Role</label>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className={deviceFilterSelectClass}
+            >
+              <option value="">All roles</option>
+              {roleOptions.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {typeOptions.length > 0 && (
+          <div>
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase text-slate-500">Type</label>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className={deviceFilterSelectClass}
+            >
+              <option value="">All types</option>
+              {typeOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+    ) : undefined;
+
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
-      <button
-        type="button"
-        onClick={() => !disabled && setOpen((o) => !o)}
+    <div ref={wrapRef} className={`relative ${className}`}>
+      <ContractSimpleSearchListDropdown
+        rootId={rootId}
         disabled={disabled}
-        className={`w-full h-9 px-3 rounded-xl border text-left text-sm flex items-center justify-between ${disabled ? 'bg-slate-100 cursor-not-allowed' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'} focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none`}
-      >
-        <span className={value ? 'text-slate-800' : 'text-slate-400'}>
-          {value ? `${value.name}${value.assetNumber ? ` (${value.assetNumber})` : ''}${value.serialNumber ? ` - SN: ${value.serialNumber}` : ''}` : placeholder}
-        </span>
-        <span className="text-slate-400">{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-xl border border-slate-200 bg-white shadow-lg overflow-hidden">
-          <div className="p-2 border-b border-slate-100">
-            <div className="relative">
-              <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Find device..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
-                autoFocus
-              />
-            </div>
-          </div>
-          <div className="max-h-48 overflow-y-auto">
-            {filtered.length === 0 ? (
-              <p className="py-4 text-center text-sm text-slate-500">No devices found</p>
-            ) : (
-              filtered.map((d) => (
-                <button
-                  key={d.id}
-                  type="button"
-                  onClick={() => {
-                    onSelect(d);
-                    setOpen(false);
-                  }}
-                  className={`w-full px-3 py-2.5 text-left text-sm hover:bg-blue-50 flex flex-col gap-0.5 ${value?.id === d.id ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}`}
-                >
-                  <span className="font-medium">{d.name}</span>
-                  <span className="text-xs text-slate-500">
-                    {d.assetNumber && `Asset: ${d.assetNumber}`}
-                    {d.assetNumber && d.serialNumber && ' • '}
-                    {d.serialNumber && `SN: ${d.serialNumber}`}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+        open={open}
+        onToggle={() => !disabled && setOpen((o) => !o)}
+        displayText={displayText}
+        emptyPlaceholder={placeholder}
+        panelTitle="Select device"
+        filter={search}
+        onFilterChange={setSearch}
+        items={items}
+        selectedValue={value ? String(value.id) : ''}
+        onPick={(id) => {
+          const d =
+            scoped.find((x) => String(x.id) === id) ?? devices.find((x) => String(x.id) === id);
+          if (d) onSelect(d);
+          setOpen(false);
+        }}
+        searchPlaceholder="Find device..."
+        emptyText="No devices found"
+        showClearOption={Boolean(showClearOption && value)}
+        onClear={() => {
+          onSelect(null);
+          setOpen(false);
+        }}
+        betweenTitleAndSearch={betweenTitleAndSearch}
+        listMaxHeightClass="max-h-48"
+        showFilterCountHint
+        countNoun="devices"
+      />
     </div>
   );
 }
