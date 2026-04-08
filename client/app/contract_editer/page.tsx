@@ -36,6 +36,9 @@ interface Contract {
   partner: string;
   siteName?: string;
   siteLocation?: string;
+  /** ชื่อ/ที่ตั้งจาก contract.site_id (sites + location) */
+  contractSiteName?: string;
+  contractSiteLocation?: string;
   maintenanceType?: string;
   startDate: string;
   endDate: string;
@@ -50,6 +53,8 @@ interface Contract {
   contractStatus?: 'draft' | 'official';
   /** device.SLid ตรงกับ contract_device.SLid ทุกเครื่อง (หรือไม่มีเครื่องที่ผูก) */
   devicesSlidAligned?: boolean;
+  /** contract.site_id (sites_location.SLid หลัก) */
+  siteId?: number | null;
 }
 
 interface FullContractDetails {
@@ -60,6 +65,8 @@ interface FullContractDetails {
   site_id?: number | null;
   sla_term?: number | null;
   sale_account?: string | null;
+  email_acc?: string | null;
+  tel_acc?: string | null;
   sof_name?: string | null;
   Assigned_Service?: string | null;
   coverage_scope?: string | null;
@@ -69,6 +76,8 @@ interface FullContractDetails {
   contract_sign_date?: string | null;
   remark?: string | null;
   site_name?: string | null;
+  /** ที่ตั้งจาก contract.site_id (location.Location2) */
+  site_location?: string | null;
   devices?: Array<{
     Did: number;
     CI_Name?: string | null;
@@ -98,6 +107,45 @@ interface FullContractDetails {
   }>;
 }
 
+type ContractSitePillRow = { SLid: number; SiteName?: string | null; Location2?: string | null };
+
+/** รวม site หลักจาก contract.site_id (+ site_name/site_location จากแถว contract) ถ้ายังไม่อยู่ในรายการจาก contract_device */
+function mergeContractPrimarySiteIntoSites(
+  sites: ContractSitePillRow[],
+  details: FullContractDetails | null | undefined,
+): ContractSitePillRow[] {
+  const list = [...sites];
+  const raw = details?.site_id;
+  if (raw == null) return list;
+  const n = Number(raw);
+  if (Number.isNaN(n) || n <= 0) return list;
+  if (list.some((s) => Number(s.SLid) === n)) return list;
+  list.unshift({
+    SLid: n,
+    SiteName: details?.site_name ?? null,
+    Location2: details?.site_location ?? null,
+  });
+  return list;
+}
+
+/** ปุ่มเลือก site: ถ้า SLid ตรง contract.site_id ใช้ site_name / site_location จากตาราง contract (สอดคล้องรายการหลัก) */
+function formatSitePillLabel(
+  site: ContractSitePillRow,
+  details: FullContractDetails | null | undefined,
+): string {
+  const primarySlid = details?.site_id;
+  if (primarySlid != null && Number(site.SLid) === Number(primarySlid)) {
+    const name = details?.site_name?.trim();
+    const loc = details?.site_location?.trim();
+    if (name) return loc ? `${name} – ${loc}` : name;
+    if (loc) return loc;
+  }
+  const n = site.SiteName?.trim();
+  const l = site.Location2?.trim();
+  if (n) return l ? `${n} – ${l}` : n;
+  return `Site ${site.SLid}`;
+}
+
 function formatDateThai(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   const d = new Date(dateStr);
@@ -123,6 +171,9 @@ function mapApiRowToContract(c: {
   end_date?: string | null;
   sale_account?: string | null;
   sof_name?: string | null;
+  site_id?: number | null;
+  contract_site_name?: string | null;
+  contract_site_location?: string | null;
   site_name?: string | null;
   site_location?: string | null;
   device_count?: number | null;
@@ -140,9 +191,15 @@ function mapApiRowToContract(c: {
     id: String(c.contract_id),
     name: c.contract_name || '—',
     sofName: c.sof_name ?? null,
-    partner: c.sale_account || c.site_name || '—',
+    partner:
+      c.sale_account ||
+      (c.contract_site_name && String(c.contract_site_name).trim()) ||
+      c.site_name ||
+      '—',
     siteName: c.site_name ?? undefined,
     siteLocation: c.site_location ?? undefined,
+    contractSiteName: c.contract_site_name?.trim() || undefined,
+    contractSiteLocation: c.contract_site_location?.trim() || undefined,
     startDate: c.start_date || '',
     endDate,
     value: '',
@@ -154,6 +211,7 @@ function mapApiRowToContract(c: {
     deviceCount: c.device_count || 0,
     contractStatus: c.status === 'draft' || c.status === 'official' ? c.status : 'official',
     devicesSlidAligned,
+    siteId: c.site_id != null && !Number.isNaN(Number(c.site_id)) ? Number(c.site_id) : null,
   };
 }
 
@@ -320,7 +378,10 @@ function ContractEditorPageContent() {
         (contract.sofName ?? '').toLowerCase().includes(searchLower) ||
         contract.partner.toLowerCase().includes(searchLower) ||
         (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
-        (contract.siteLocation ?? '').toLowerCase().includes(searchLower);
+        (contract.siteLocation ?? '').toLowerCase().includes(searchLower) ||
+        (contract.contractSiteName ?? '').toLowerCase().includes(searchLower) ||
+        (contract.contractSiteLocation ?? '').toLowerCase().includes(searchLower) ||
+        (contract.siteId != null && String(contract.siteId).includes(searchLower));
       if (!matchText) return false;
     }
 
@@ -363,7 +424,7 @@ function ContractEditorPageContent() {
   const exportModalSiteOptions = (() => {
     const set = new Set<string>();
     filteredContracts.forEach((c) => {
-      const v = (c.siteName ?? '').trim();
+      const v = (c.contractSiteName ?? c.siteName ?? '').trim();
       if (v) set.add(v);
     });
     return ['', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
@@ -371,7 +432,7 @@ function ContractEditorPageContent() {
   const exportModalLocationOptions = (() => {
     const set = new Set<string>();
     filteredContracts.forEach((c) => {
-      const v = (c.siteLocation ?? '').trim();
+      const v = (c.contractSiteLocation ?? c.siteLocation ?? '').trim();
       if (v) set.add(v);
     });
     return ['', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
@@ -388,14 +449,22 @@ function ContractEditorPageContent() {
           c.name.toLowerCase().includes(searchLower) ||
           (c.partner ?? '').toLowerCase().includes(searchLower) ||
           (c.siteName ?? '').toLowerCase().includes(searchLower) ||
-          (c.siteLocation ?? '').toLowerCase().includes(searchLower)
+          (c.siteLocation ?? '').toLowerCase().includes(searchLower) ||
+          (c.contractSiteName ?? '').toLowerCase().includes(searchLower) ||
+          (c.contractSiteLocation ?? '').toLowerCase().includes(searchLower)
         );
       });
     }
     if (!exportModalSiteFilter && !exportModalLocationFilter) return list;
     return list.filter((c) => {
-      const siteOk = !exportModalSiteFilter || (c.siteName ?? '').trim() === exportModalSiteFilter;
-      const locOk = !exportModalLocationFilter || (c.siteLocation ?? '').trim() === exportModalLocationFilter;
+      const siteOk =
+        !exportModalSiteFilter ||
+        (c.contractSiteName ?? '').trim() === exportModalSiteFilter ||
+        (c.siteName ?? '').trim() === exportModalSiteFilter;
+      const locOk =
+        !exportModalLocationFilter ||
+        (c.contractSiteLocation ?? '').trim() === exportModalLocationFilter ||
+        (c.siteLocation ?? '').trim() === exportModalLocationFilter;
       return siteOk && locOk;
     });
   })();
@@ -628,16 +697,21 @@ function ContractEditorPageContent() {
   };
 
   useEffect(() => {
-    if (fullContractDetails?.sites && fullContractDetails.sites.length > 1) {
+    if (!fullContractDetails) {
+      setSelectedDetailSiteSlid(null);
+      return;
+    }
+    const merged = mergeContractPrimarySiteIntoSites(fullContractDetails.sites ?? [], fullContractDetails);
+    if (merged.length > 1) {
       setSelectedDetailSiteSlid((prev) => {
-        const siteSlids = fullContractDetails.sites!.map((s) => s.SLid);
+        const siteSlids = merged.map((s) => Number(s.SLid));
         if (prev === -1) return -1;
-        return prev != null && siteSlids.includes(prev) ? prev : fullContractDetails.sites![0].SLid;
+        return prev != null && siteSlids.includes(Number(prev)) ? prev : merged[0].SLid;
       });
     } else {
       setSelectedDetailSiteSlid(null);
     }
-  }, [fullContractDetails?.sites]);
+  }, [fullContractDetails]);
 
   useEffect(() => {
     setDetailEquipmentPage(0);
@@ -1493,7 +1567,7 @@ function ContractEditorPageContent() {
   group-hover:scale-y-100" />
               <div className="flex justify-between items-start mb-5 gap-3">
                 <div className="text-xl font-bold text-slate-800 flex-1 min-w-0 flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.siteName ?? contract.partner ?? '—'}
+                  {contract.contractSiteName ?? contract.partner ?? '—'}
                 </div>
                 <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
                   {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
@@ -1503,14 +1577,14 @@ function ContractEditorPageContent() {
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Site:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.siteName ?? contract.partner ?? '—'}
+                  {contract.contractSiteName ?? contract.partner ?? '—'}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><MapPin size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Location:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.siteLocation ?? '—'}
+                  {contract.contractSiteLocation ?? '—'}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
@@ -1633,8 +1707,12 @@ function ContractEditorPageContent() {
               <tbody>
                 {paginatedContracts.map((contract) => (
                   <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
-                    <td className="py-4 px-4 text-sm font-medium text-slate-800">{contract.siteName ?? contract.partner ?? '—'}</td>
-                    <td className="py-4 px-4 text-sm text-slate-600">{contract.siteLocation ?? '—'}</td>
+                    <td className="py-4 px-4 text-sm font-medium text-slate-800">
+                      {contract.contractSiteName?.trim() ? contract.contractSiteName : '—'}
+                    </td>
+                    <td className="py-4 px-4 text-sm text-slate-600">
+                      {contract.contractSiteLocation?.trim() ? contract.contractSiteLocation : '—'}
+                    </td>
                     <td className="py-4 px-4 text-sm text-slate-600 whitespace-nowrap">
                       {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
                     </td>
@@ -2173,7 +2251,25 @@ function ContractEditorPageContent() {
                         </div>
                         <div>
                           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Sale Account</span>
-                          <span className="text-base text-slate-700">{fullContractDetails.sale_account || '—'}</span>
+                          <span className="text-base text-slate-700 whitespace-pre-line">
+                            {fullContractDetails.sale_account || '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">
+                            Sale Email
+                          </span>
+                          <span className="text-base text-slate-700 whitespace-pre-line">
+                            {fullContractDetails.email_acc || '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">
+                            Sale Telephone
+                          </span>
+                          <span className="text-base text-slate-700 whitespace-pre-line">
+                            {fullContractDetails.tel_acc || '—'}
+                          </span>
                         </div>
                         <div>
                           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Assigned Service</span>
@@ -2228,12 +2324,15 @@ function ContractEditorPageContent() {
 
                   {/* Sites & Devices */}
                   {fullContractDetails.devices && fullContractDetails.devices.length > 0 && (() => {
-                    const sites = fullContractDetails.sites ?? [];
+                    const sites = mergeContractPrimarySiteIntoSites(
+                      fullContractDetails.sites ?? [],
+                      fullContractDetails,
+                    );
                     const devices = fullContractDetails.devices;
-                    const contractSiteSlids = new Set(sites.map((s) => s.SLid));
+                    const contractSiteSlids = new Set(sites.map((s) => Number(s.SLid)));
 
                     const getDevicesForSite = (slid: number) =>
-                      devices.filter((d) => (d.contract_SLid ?? null) === slid);
+                      devices.filter((d) => Number(d.contract_SLid ?? NaN) === Number(slid));
 
                     const renderDeviceTable = (deviceList: typeof devices) => {
                       const total = deviceList.length;
@@ -2313,9 +2412,10 @@ function ContractEditorPageContent() {
                     };
 
                     if (sites.length <= 1) {
-                      const siteLabel = sites.length === 1
-                        ? (sites[0].SiteName ? `${sites[0].SiteName}${sites[0].Location2 ? ` – ${sites[0].Location2}` : ''}` : `Site ${sites[0].SLid}`)
-                        : 'Equipment in Contract';
+                      const siteLabel =
+                        sites.length === 1
+                          ? formatSitePillLabel(sites[0], fullContractDetails)
+                          : 'Equipment in Contract';
                       return (
                         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                           <div className="px-6 py-4 border-b border-slate-200">
@@ -2341,10 +2441,9 @@ function ContractEditorPageContent() {
                           <div className="flex flex-wrap gap-2">
                             {sites.map((site) => {
                               const count = getDevicesForSite(site.SLid).length;
-                              const isSelected = selectedSlid === site.SLid;
-                              const label = site.SiteName
-                                ? `${site.SiteName}${site.Location2 ? ` – ${site.Location2}` : ''}`
-                                : `Site ${site.SLid}`;
+                              const isSelected =
+                                selectedSlid !== null && Number(selectedSlid) === Number(site.SLid);
+                              const label = formatSitePillLabel(site, fullContractDetails);
                               return (
                                 <button
                                   key={site.SLid}
@@ -2362,7 +2461,11 @@ function ContractEditorPageContent() {
                               );
                             })}
                             {(() => {
-                              const unassigned = devices.filter((d) => !contractSiteSlids.has(d.contract_SLid ?? -1));
+                              const unassigned = devices.filter((d) => {
+                                const cid = d.contract_SLid;
+                                if (cid == null) return true;
+                                return !contractSiteSlids.has(Number(cid));
+                              });
                               if (unassigned.length > 0) {
                                 const isSelected = selectedSlid === -1;
                                 return (
@@ -2381,7 +2484,15 @@ function ContractEditorPageContent() {
                             })()}
                           </div>
                         </div>
-                        {renderDeviceTable(selectedSlid === -1 ? devices.filter((d) => !contractSiteSlids.has(d.contract_SLid ?? -1)) : displayDevices)}
+                        {renderDeviceTable(
+                          selectedSlid === -1
+                            ? devices.filter((d) => {
+                                const cid = d.contract_SLid;
+                                if (cid == null) return true;
+                                return !contractSiteSlids.has(Number(cid));
+                              })
+                            : displayDevices,
+                        )}
                       </div>
                     );
                   })()}
@@ -2697,13 +2808,18 @@ function ContractEditorPageContent() {
                   {(() => {
                     const allDevices = fullContractDetails.devices ?? [];
                     const allContractSites = fullContractDetails.sites ?? [];
-                    const contractSiteSlids = new Set(
-                      allContractSites.map((s: { SLid: number }) => s.SLid)
+                    const sitesForPills = mergeContractPrimarySiteIntoSites(
+                      allContractSites,
+                      fullContractDetails,
                     );
-                    const sitesForPills = allContractSites;
+                    const contractSiteSlids = new Set(sitesForPills.map((s) => Number(s.SLid)));
                     const getDevicesForSite = (slid: number) =>
-                      allDevices.filter((d: { contract_SLid?: number | null }) => (d.contract_SLid ?? null) === slid);
-                    const unassignedDevices = allDevices.filter((d: { contract_SLid?: number | null }) => !contractSiteSlids.has(d.contract_SLid ?? -1));
+                      allDevices.filter((d: { contract_SLid?: number | null }) => Number(d.contract_SLid ?? NaN) === Number(slid));
+                    const unassignedDevices = allDevices.filter((d: { contract_SLid?: number | null }) => {
+                      const cid = d.contract_SLid;
+                      if (cid == null) return true;
+                      return !contractSiteSlids.has(Number(cid));
+                    });
                     const showSitePills = sitesForPills.length >= 1 || unassignedDevices.length > 0;
 
                     let devicesBySiteFilter = allDevices;
@@ -2784,10 +2900,10 @@ function ContractEditorPageContent() {
                       </button>
                       {sitesForPills.map((site: { SLid: number; SiteName?: string | null; Location2?: string | null }) => {
                         const count = getDevicesForSite(site.SLid).length;
-                        const isSelected = assignModalSelectedSiteSlid === site.SLid;
-                        const label = site.SiteName
-                          ? `${site.SiteName}${site.Location2 ? ` – ${site.Location2}` : ''}`.trim()
-                          : `Site ${site.SLid}`;
+                        const isSelected =
+                          assignModalSelectedSiteSlid !== null &&
+                          Number(assignModalSelectedSiteSlid) === Number(site.SLid);
+                        const label = formatSitePillLabel(site, fullContractDetails);
                         return (
                           <button
                             key={site.SLid}
@@ -3018,7 +3134,7 @@ function ContractEditorPageContent() {
                     type="button"
                     onClick={handleAssignSiteConfirm}
                     disabled={assignModalSubmitting || assignDeviceSelected.size === 0}
-                    className="px-5 py-2.5 rounded-xl bg-amber-500 font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    className="flex items-center gap-2 rounded-xl bg-indigo-500 px-5 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {assignModalSubmitting ? (
                       <>
@@ -3181,8 +3297,10 @@ function ContractEditorPageContent() {
                             />
                           </td>
                           <td className="px-3 py-2 font-medium text-slate-800">{c.name}</td>
-                          <td className="px-3 py-2 text-slate-600">{c.siteName ?? '—'}</td>
-                          <td className="px-3 py-2 text-slate-600">{c.siteLocation ?? '—'}</td>
+                          <td className="px-3 py-2 text-slate-600">{c.contractSiteName?.trim() ? c.contractSiteName : '—'}</td>
+                          <td className="px-3 py-2 text-slate-600">
+                            {c.contractSiteLocation?.trim() ? c.contractSiteLocation : '—'}
+                          </td>
                           <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
                             {c.sofName && String(c.sofName).trim() ? c.sofName : '—'}
                           </td>

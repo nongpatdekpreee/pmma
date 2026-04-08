@@ -8,6 +8,7 @@ import {
   Paperclip,
   Loader2,
   Plus,
+  UserPlus,
   Trash2,
   X,
   ChevronDown,
@@ -29,6 +30,10 @@ import type { SiteLocation, DeviceItem } from './types';
 
 const inputBase =
   'w-full rounded-xl border border-slate-200/90 bg-white p-3 text-sm text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
+
+/** ความสูงเดียวกับปุ่มเพิ่มผู้ติดต่อ (45px รวม border) */
+const saleContactInputClass =
+  'w-full box-border h-[45px] rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm leading-snug text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
 
 /** เปลือก control แบบ Refer SOF — ใช้ร่วมกับ combobox / native select ในหน้านี้ */
 const contractDropdownShellClass =
@@ -337,8 +342,16 @@ function locationsForSidForEntry(
 function sitePairsFromEntries(entries: SiteEntry[]): SiteDevicePair[] {
   const map = new Map<number, number[]>();
   for (const e of entries) {
+    const parsedRowSlid = e.siteId?.trim() ? parseInt(e.siteId.trim(), 10) : NaN;
+    const rowSlid = !Number.isNaN(parsedRowSlid) ? parsedRowSlid : null;
     for (const d of e.devices) {
-      const slidRaw = d.slid ?? (e.siteId ? parseInt(e.siteId, 10) : NaN);
+      // บันทึก contract_device.SLid ตาม Site/Location ที่เลือกในแถว ไม่ใช้ devices.SLid เป็นหลัก
+      const slidRaw =
+        rowSlid != null
+          ? rowSlid
+          : d.slid != null && !Number.isNaN(Number(d.slid))
+            ? Number(d.slid)
+            : NaN;
       const slid = typeof slidRaw === 'number' && !Number.isNaN(slidRaw) ? slidRaw : NaN;
       if (Number.isNaN(slid)) continue;
       const did = parseInt(d.id, 10);
@@ -364,6 +377,51 @@ function primaryContractSiteIdFromEntries(entries: SiteEntry[]): number | null {
   return null;
 }
 
+type SaleContactRow = { id: string; name: string; email: string; tel: string };
+
+/** โหลดจาก DB: หลายบรรทัดใน sale_account / email_acc / tel_acc = หลายคน (แถวเดียวกัน) */
+function saleContactsFromDb(
+  sale: string | null | undefined,
+  email: string | null | undefined,
+  tel: string | null | undefined,
+): SaleContactRow[] {
+  const nameLines = String(sale ?? '').split(/\n/);
+  const emailLines = String(email ?? '').split(/\n/);
+  const telLines = String(tel ?? '').split(/\n/);
+  const maxLen = Math.max(nameLines.length, emailLines.length, telLines.length, 1);
+  const rows: SaleContactRow[] = [];
+  for (let i = 0; i < maxLen; i++) {
+    rows.push({
+      id: randomUUID(),
+      name: (nameLines[i] ?? '').trim(),
+      email: (emailLines[i] ?? '').trim(),
+      tel: (telLines[i] ?? '').trim(),
+    });
+  }
+  while (rows.length > 1) {
+    const last = rows[rows.length - 1];
+    if (!last.name && !last.email && !last.tel) rows.pop();
+    else break;
+  }
+  return rows;
+}
+
+function serializeSaleContacts(rows: SaleContactRow[]): {
+  sale_account: string | null;
+  email_acc: string | null;
+  tel_acc: string | null;
+} {
+  const nonempty = rows.filter((r) => r.name.trim() || r.email.trim() || r.tel.trim());
+  if (nonempty.length === 0) {
+    return { sale_account: null, email_acc: null, tel_acc: null };
+  }
+  return {
+    sale_account: nonempty.map((r) => r.name.trim()).join('\n') || null,
+    email_acc: nonempty.map((r) => r.email.trim()).join('\n') || null,
+    tel_acc: nonempty.map((r) => r.tel.trim()).join('\n') || null,
+  };
+}
+
 function AddContractPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -384,9 +442,21 @@ function AddContractPageContent() {
   const [manualSofInput, setManualSofInput] = useState('');
   /** ใน dropdown: ติ๊กเพื่อเปิดช่องพิมพ์ SOF เอง */
   const [referSofManualRowEnabled, setReferSofManualRowEnabled] = useState(false);
-  const [saleAccount, setSaleAccount] = useState('');
-  const [emailAcc, setEmailAcc] = useState('');
-  const [telAcc, setTelAcc] = useState('');
+  const [saleContacts, setSaleContacts] = useState<SaleContactRow[]>(() => [
+    { id: randomUUID(), name: '', email: '', tel: '' },
+  ]);
+  const addSaleContactRow = () => {
+    setSaleContacts((prev) => [...prev, { id: randomUUID(), name: '', email: '', tel: '' }]);
+  };
+  const removeSaleContactRow = (id: string) => {
+    setSaleContacts((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.id !== id)));
+  };
+  const updateSaleContactRow = (
+    id: string,
+    patch: Partial<Pick<SaleContactRow, 'name' | 'email' | 'tel'>>,
+  ) => {
+    setSaleContacts((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
   const [coverageScope, setCoverageScope] = useState('');
   const [remark, setRemark] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -668,9 +738,9 @@ function AddContractPageContent() {
         }
         if (contract.Assigned_Service) setAssignedService(contract.Assigned_Service);
         if (contract.sla_term != null) setSlaTerm(String(contract.sla_term));
-        if (contract.sale_account) setSaleAccount(contract.sale_account);
-        if (contract.email_acc) setEmailAcc(contract.email_acc);
-        if (contract.tel_acc) setTelAcc(contract.tel_acc);
+        setSaleContacts(
+          saleContactsFromDb(contract.sale_account, contract.email_acc, contract.tel_acc),
+        );
         if (contract.coverage_scope) setCoverageScope(contract.coverage_scope);
         if (contract.remark) setRemark(contract.remark);
         if (contract.start_date) setStartDate(String(contract.start_date).split('T')[0]);
@@ -798,11 +868,11 @@ function AddContractPageContent() {
           }
         }
 
-        // ดึงข้อมูลสัญญา
-        const contractRes = await fetch(apiUrl(`/api/contracts?site_id=`));
+        // ดึงข้อมูลสัญญาเต็ม (รวม email_acc / tel_acc สำหรับหลายผู้ติดต่อ)
+        const contractRes = await fetch(apiUrl(`/api/contracts/${renewContractId}`));
         const contractJson = await contractRes.json();
-        const contract = contractJson.data?.find((c: any) => String(c.contract_id) === renewContractId);
-        
+        const contract = contractRes.ok && contractJson.data ? contractJson.data : null;
+
         if (contract) {
           if (contract.sof_name) {
             setOldContractSOF(contract.sof_name);
@@ -810,11 +880,9 @@ function AddContractPageContent() {
           if (contract.contract_name) {
             setContractName(contract.contract_name);
           }
-          if (contract.sale_account) {
-            setSaleAccount(contract.sale_account);
-          }
-          if (contract.email_acc) setEmailAcc(contract.email_acc);
-          if (contract.tel_acc) setTelAcc(contract.tel_acc);
+          setSaleContacts(
+            saleContactsFromDb(contract.sale_account, contract.email_acc, contract.tel_acc),
+          );
           if (contract.coverage_scope) {
             setCoverageScope(contract.coverage_scope);
           }
@@ -1298,27 +1366,29 @@ function AddContractPageContent() {
       }
     }
 
-    // ดักรูปแบบ Email และ Telephone (ถ้ามีการกรอก)
-    const emailTrim = emailAcc.trim();
-    if (emailTrim) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(emailTrim)) {
-        const msg = 'Please enter the correct email address.';
+    // ดักรูปแบบ Email และ Telephone ต่อผู้ติดต่อ (ถ้ามีการกรอก)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const row of saleContacts) {
+      const et = row.email.trim();
+      if (et && !emailRegex.test(et)) {
+        const msg = 'Please enter a valid email for each sale contact row.';
         setSaveError(msg);
         toastError(msg);
         return;
       }
-    }
-    const telTrim = telAcc.trim();
-    if (telTrim) {
-      const digitsOnly = telTrim.replace(/\D/g, '');
-      if (digitsOnly.length < 9 || digitsOnly.length > 10) {
-        const msg = 'Please enter the correct phone number.';
-        setSaveError(msg);
-        toastError(msg);
-        return;
+      const tt = row.tel.trim();
+      if (tt) {
+        const digitsOnly = tt.replace(/\D/g, '');
+        if (digitsOnly.length < 9 || digitsOnly.length > 15) {
+          const msg = 'Please enter a valid phone number (9–15 digits) for each sale contact row.';
+          setSaveError(msg);
+          toastError(msg);
+          return;
+        }
       }
     }
+
+    const saleFields = serializeSaleContacts(saleContacts);
 
     // รวม devices จากสัญญาเก่าที่เลือกไว้
     const oldDeviceIds = Array.from(selectedOldDevices);
@@ -1368,9 +1438,9 @@ function AddContractPageContent() {
             sof_name: (isNewContractFlow ? getEffectiveNewContractSof() : selectedSOF).trim() || null,
             assigned_service: assignedService.trim() || null,
             sla_term: slaTerm.trim(),
-            sale_account: saleAccount.trim() || null,
-            email_acc: emailAcc.trim() || null,
-            tel_acc: telAcc.trim() || null,
+            sale_account: saleFields.sale_account,
+            email_acc: saleFields.email_acc,
+            tel_acc: saleFields.tel_acc,
             coverage_scope: coverageScope.trim() || null,
             remark: remark.trim() || null,
             contract_sign_date: contractSignDate || null,
@@ -1471,9 +1541,9 @@ function AddContractPageContent() {
         sof_name: (isNewContractFlow ? getEffectiveNewContractSof() : selectedSOF).trim() || null,
         assigned_service: assignedService.trim() || null,
         sla_term: slaTerm.trim() ? slaTerm.trim() : null,
-        sale_account: saleAccount.trim() || null,
-        email_acc: emailAcc.trim() || null,
-        tel_acc: telAcc.trim() || null,
+        sale_account: saleFields.sale_account,
+        email_acc: saleFields.email_acc,
+        tel_acc: saleFields.tel_acc,
         coverage_scope: coverageScope.trim() || null,
         remark: remark.trim() || null,
         contract_sign_date: contractSignDate || null,
@@ -1808,7 +1878,7 @@ function AddContractPageContent() {
                             {referSOFList.filter((sof) =>
                               sof.toLowerCase().includes(sofDropdownFilter.trim().toLowerCase())
                             ).length === 0 ? (
-                              <p className="px-3 py-4 text-center text-xs text-slate-500">ไม่พบ SOF</p>
+                              <p className="px-3 py-4 text-center text-xs text-slate-500">SOF not found</p>
                             ) : (
                               referSOFList
                                 .filter((sof) =>
@@ -2011,75 +2081,114 @@ function AddContractPageContent() {
                 </div>
               </FormField>
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <FormField label="Sale Account">
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={saleAccount}
-                    onChange={(e) => setSaleAccount(e.target.value)}
-                    placeholder="Sale Account"
-                    className={`${inputBase} pr-9`}
-                  />
-                  {saleAccount && (
-                    <button
-                      type="button"
-                      onClick={() => setSaleAccount('')}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ล้าง"
-                    >
-                      <X size={14} />
-                    </button>
+            <div className="space-y-4">
+
+              {saleContacts.map((row, index) => (
+                <div key={row.id} className="space-y-3">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                    <FormField label="Sale Account">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={row.name}
+                          onChange={(e) => updateSaleContactRow(row.id, { name: e.target.value })}
+                          placeholder="Name"
+                          className={`${saleContactInputClass} pr-9`}
+                        />
+                        {row.name ? (
+                          <button
+                            type="button"
+                            onClick={() => updateSaleContactRow(row.id, { name: '' })}
+                            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="Clear"
+                          >
+                            <X size={14} />
+                          </button>
+                        ) : null}
+                      </div>
+                    </FormField>
+                    <FormField label="Sale Email">
+                      <div className="relative">
+                        <input
+                          type="email"
+                          value={row.email}
+                          onChange={(e) => updateSaleContactRow(row.id, { email: e.target.value })}
+                          placeholder="name@example.com"
+                          className={`${saleContactInputClass} pr-9`}
+                        />
+                        {row.email ? (
+                          <button
+                            type="button"
+                            onClick={() => updateSaleContactRow(row.id, { email: '' })}
+                            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="Clear"
+                          >
+                            <X size={14} />
+                          </button>
+                        ) : null}
+                      </div>
+                    </FormField>
+                    <FormField label="Sale Telephone">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          inputMode="tel"
+                          value={row.tel}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, '').slice(0, 15);
+                            updateSaleContactRow(row.id, { tel: v });
+                          }}
+                          placeholder="9–15 digits"
+                          className={`${saleContactInputClass} pr-9`}
+                        />
+                        {row.tel ? (
+                          <button
+                            type="button"
+                            onClick={() => updateSaleContactRow(row.id, { tel: '' })}
+                            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="Clear"
+                          >
+                            <X size={14} />
+                          </button>
+                        ) : null}
+                      </div>
+                    </FormField>
+                    <div className="flex flex-col sm:w-[45px] sm:shrink-0">
+                      <span
+                        className="mb-1.5 hidden text-xs font-semibold uppercase tracking-wider text-transparent sm:block"
+                        aria-hidden
+                      >
+                        &nbsp;
+                      </span>
+                      {index === 0 ? (
+                        <button
+                          type="button"
+                          onClick={addSaleContactRow}
+                          title="Add sale contact"
+                          aria-label="Add sale contact"
+                          className="ml-auto flex h-[45px] w-[45px] shrink-0 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-sm transition-colors hover:bg-indigo-600 sm:ml-0"
+                        >
+                          <UserPlus size={22} strokeWidth={2} />
+                        </button>
+                      ) : (
+                        <div className="hidden h-[45px] w-[45px] shrink-0 sm:block" aria-hidden />
+                      )}
+                    </div>
+                  </div>
+                  {saleContacts.length > 1 && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => removeSaleContactRow(row.id)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 hover:underline"
+                      >
+                        <Trash2 size={14} />
+                        Remove this contact
+                      </button>
+                    </div>
                   )}
                 </div>
-              </FormField>
-              <FormField label="Sale Email">
-                <div className="relative">
-                  <input
-                    type="email"
-                    value={emailAcc}
-                    onChange={(e) => setEmailAcc(e.target.value)}
-                    placeholder="Sale_account@example.com"
-                    className={`${inputBase} pr-9`}
-                  />
-                  {emailAcc && (
-                    <button
-                      type="button"
-                      onClick={() => setEmailAcc('')}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="ล้าง"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              </FormField>
-              <FormField label="Sale Telephone">
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={telAcc}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, '').slice(0, 10);
-                      setTelAcc(v);
-                    }}
-                    placeholder="Sale account telephone"
-                    maxLength={10}
-                    className={`${inputBase} pr-9`}
-                  />
-                  {telAcc && (
-                    <button
-                      type="button"
-                      onClick={() => setTelAcc('')}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                      title="clear"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              </FormField>
+              ))}
             </div>
           </FormSection>
 
@@ -2233,7 +2342,7 @@ function AddContractPageContent() {
                           ? 'Maximum rows reached (one row per location).'
                           : undefined
                       }
-                      className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 px-3 py-1.5 text-sm font-semibold text-white shadow-md shadow-emerald-900/15 transition-all hover:from-emerald-600 hover:to-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex items-center gap-2 rounded-xl bg-green-500 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Plus size={16} />
                       Add Site
@@ -2445,7 +2554,7 @@ function AddContractPageContent() {
                             (sofExistsInDb ? !entryHasSiteScope(entry, sitesLocation) : false) ||
                             devicesLoading
                           }
-                          className="rounded-xl bg-gradient-to-r from-sky-500 to-cyan-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-sky-900/15 transition-all hover:from-sky-600 hover:to-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {devicesLoading && activeSiteEntryId === entry.id
                             ? 'Loading...'
@@ -2562,12 +2671,21 @@ function AddContractPageContent() {
               }}
               onConfirm={(confirmedIds) => {
                 if (!activeSiteEntryId) return;
+                const formSlidParsed = activeEntry?.siteId?.trim()
+                  ? parseInt(activeEntry.siteId.trim(), 10)
+                  : NaN;
+                const formSlid = !Number.isNaN(formSlidParsed) ? formSlidParsed : undefined;
                 // Only keep devices that are in the confirmed list
                 const confirmedDevices = confirmedIds.map((id) => {
                   const d = devicesBySite.find((x) => String(x.Did) === id);
                   const label = d ? (d.CI_Name || d.Asset_Number || `Did ${d.Did}`) : id;
                   const role = d?.roleName || undefined;
-                  const slid = d?.SLid != null && !Number.isNaN(Number(d.SLid)) ? Number(d.SLid) : undefined;
+                  const slid =
+                    formSlid != null
+                      ? formSlid
+                      : d?.SLid != null && !Number.isNaN(Number(d.SLid))
+                        ? Number(d.SLid)
+                        : undefined;
                   return { id, label, role, slid };
                 });
                 updateEntryDevices(activeSiteEntryId, confirmedDevices);
@@ -2609,13 +2727,22 @@ function AddContractPageContent() {
               onFilterChange={setDeviceFilter}
               onSelectAll={() => {
                 if (!activeSiteEntryId) return;
+                const formSlidParsed = activeEntry?.siteId?.trim()
+                  ? parseInt(activeEntry.siteId.trim(), 10)
+                  : NaN;
+                const formSlid = !Number.isNaN(formSlidParsed) ? formSlidParsed : undefined;
                 const toAdd = devicesAvailableForCurrentSite
                   .filter((d) => !activeEntryDevices.some((x) => x.id === String(d.Did)))
                   .map((d) => ({
                     id: String(d.Did),
                     label: d.CI_Name || d.Asset_Number || `Did ${d.Did}`,
                     role: d.roleName || undefined,
-                    slid: d.SLid != null && !Number.isNaN(Number(d.SLid)) ? Number(d.SLid) : undefined,
+                    slid:
+                      formSlid != null
+                        ? formSlid
+                        : d.SLid != null && !Number.isNaN(Number(d.SLid))
+                          ? Number(d.SLid)
+                          : undefined,
                   }));
                 updateEntryDevices(activeSiteEntryId, [...activeEntryDevices, ...toAdd]);
               }}
@@ -2628,10 +2755,16 @@ function AddContractPageContent() {
                 const existing = activeEntryDevices.find((x) => x.id === deviceId);
                 const label = d ? (d.CI_Name || d.Asset_Number || `Did ${d.Did}`) : deviceId;
                 const role = d?.roleName || undefined;
+                const formSlidParsed = activeEntry?.siteId?.trim()
+                  ? parseInt(activeEntry.siteId.trim(), 10)
+                  : NaN;
+                const formSlid = !Number.isNaN(formSlidParsed) ? formSlidParsed : undefined;
                 const slid =
-                  d?.SLid != null && !Number.isNaN(Number(d.SLid))
-                    ? Number(d.SLid)
-                    : existing?.slid;
+                  formSlid != null
+                    ? formSlid
+                    : d?.SLid != null && !Number.isNaN(Number(d.SLid))
+                      ? Number(d.SLid)
+                      : existing?.slid;
                 const exists = !!existing;
                 const next = exists
                   ? activeEntryDevices.filter((x) => x.id !== deviceId)
@@ -2714,7 +2847,7 @@ function AddContractPageContent() {
               <button
                 type="submit"
                 disabled={saveLoading}
-                className="group flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-600 px-8 py-3 font-semibold text-white shadow-lg shadow-sky-900/20 ring-1 ring-sky-400/30 transition-all hover:from-sky-700 hover:via-blue-700 hover:to-indigo-700 hover:shadow-xl hover:shadow-sky-900/25 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100"
+                className="group flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-8 py-3 font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {saveLoading ? (
                   <>

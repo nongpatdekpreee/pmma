@@ -98,7 +98,7 @@ function equipmentRowModelLabel(e: { model?: string | null; deviceName?: string 
 
 export default function ReportPage() {
   const router = useRouter();
-  const [reportType, setReportType] = useState<ReportType>('ma');
+  const [reportType, setReportType] = useState<ReportType>('pm');
   const [timeFilter, setTimeFilter] = useState('6 Months');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');

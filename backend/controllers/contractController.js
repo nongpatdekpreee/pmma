@@ -1,6 +1,30 @@
 const db = require('../config/database');
 const { DEFAULT_IN_STORE_SITE_NAME } = require('../config/inStoreSite');
 
+const EMAIL_LINE_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** หลายบรรทัด = หลายผู้ติดต่อ (คั่นด้วย \\n) — บรรทัดว่างข้ามได้ */
+function validateMultilineEmails(emailAcc) {
+  if (emailAcc == null || String(emailAcc).trim() === '') return { ok: true };
+  const lines = String(emailAcc).split(/\n/).map((s) => s.trim());
+  for (const line of lines) {
+    if (!line) continue;
+    if (!EMAIL_LINE_RE.test(line)) return { ok: false };
+  }
+  return { ok: true };
+}
+
+function validateMultilineTels(telAcc) {
+  if (telAcc == null || String(telAcc).trim() === '') return { ok: true };
+  const lines = String(telAcc).split(/\n/).map((s) => s.trim());
+  for (const line of lines) {
+    if (!line) continue;
+    const digitsOnly = line.replace(/\D/g, '');
+    if (digitsOnly.length < 9 || digitsOnly.length > 15) return { ok: false };
+  }
+  return { ok: true };
+}
+
 // Helper function - สร้าง contract_id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
 const generateNextContractId = async () => {
   try {
@@ -108,23 +132,18 @@ const createContract = async (req, res) => {
     } = req.body;
 
     const contractStatus = (status === 'draft' || status === 'official') ? status : 'official';
-    // ดักรูปแบบ Email และ Telephone
-    const emailVal = email_acc != null ? String(email_acc).trim() : '';
-    if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
+    // ดักรูปแบบ Email และ Telephone (รองรับหลายบรรทัด)
+    if (!validateMultilineEmails(email_acc).ok) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide a valid email address (e.g. example@domain.com)'
+        message: 'Please provide valid email address(es); one per line (e.g. example@domain.com)'
       });
     }
-    const telVal = tel_acc != null ? String(tel_acc).trim() : '';
-    if (telVal) {
-      const digitsOnly = telVal.replace(/\D/g, '');
-      if (digitsOnly.length < 9 || digitsOnly.length > 15) {
-        return res.status(400).json({
-          success: false,
-          message: 'Please provide a valid phone number (at least 9 digits)'
-        });
-      }
+    if (!validateMultilineTels(tel_acc).ok) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide valid phone number(s); one per line (9–15 digits each)'
+      });
     }
 
     // site_device_pairs: [{ site_id, device_ids }] - แต่ละ site มี devices แยกกัน
@@ -559,7 +578,7 @@ const getContractsBySite = async (req, res) => {
 
     if (expandSites) {
       // หนึ่งแถวต่อ contract-site: contract_id, contract_name, start_date, end_date, status, site_name, site_location, device_count
-      const notExpired = ' (c.end_date IS NULL OR c.end_date >= CURDATE()) ';
+      // รวมสัญญาที่เลยวันสิ้นสุดแล้ว — หน้า contract ใช้กรอง/แสดงสถานะฝั่ง client
       let sql = `
         SELECT c.contract_id, c.contract_name, c.start_date, c.end_date, c.status,
           s.Name AS site_name, l.Location2 AS site_location,
@@ -569,7 +588,7 @@ const getContractsBySite = async (req, res) => {
         INNER JOIN sites_location sl ON cd.SLid = sl.SLid
         LEFT JOIN sites s ON sl.Sid = s.Sid
         LEFT JOIN location l ON sl.lid = l.lid
-        WHERE ${notExpired}
+        WHERE 1=1
       `;
       const params = [];
       if (siteId) {
@@ -585,8 +604,7 @@ const getContractsBySite = async (req, res) => {
           NULL AS site_name, NULL AS site_location, 0 AS device_count
         FROM contract c
         LEFT JOIN (SELECT DISTINCT contract_id FROM contract_device WHERE SLid IS NOT NULL) cd ON c.contract_id = cd.contract_id
-        WHERE ${notExpired}
-        AND cd.contract_id IS NULL
+        WHERE cd.contract_id IS NULL
       `;
       if (siteId) {
         const siteIdNum = parseInt(siteId, 10);
@@ -612,11 +630,16 @@ const getContractsBySite = async (req, res) => {
         c.sale_account,
         c.sof_name,
         c.status,
+        s_c.Name AS contract_site_name,
+        IFNULL(l_c.Location2, '') AS contract_site_location,
         agg.site_name AS site_name,
         agg.site_location AS site_location,
         COALESCE(cnt.device_count, 0) AS device_count,
         COALESCE(slim.devices_slid_aligned, 1) AS devices_slid_aligned
       FROM contract c
+      LEFT JOIN sites_location sl_c ON c.site_id IS NOT NULL AND sl_c.SLid = c.site_id
+      LEFT JOIN sites s_c ON sl_c.Sid = s_c.Sid
+      LEFT JOIN location l_c ON sl_c.lid = l_c.lid
       LEFT JOIN (
         SELECT contract_id,
           GROUP_CONCAT(site_name ORDER BY slid SEPARATOR ', ') AS site_name,
@@ -649,13 +672,12 @@ const getContractsBySite = async (req, res) => {
     let params = [];
     let sql;
 
-    const notExpiredCondition = ' (c.end_date IS NULL OR c.end_date >= CURDATE()) ';
     if (siteId) {
       const siteIdNum = parseInt(siteId, 10);
-      sql = `${baseSelect} WHERE (c.site_id = ? OR d.SLid = ? OR cd.SLid = ?) AND ${notExpiredCondition} ORDER BY c.contract_id DESC`;
+      sql = `${baseSelect} WHERE (c.site_id = ? OR d.SLid = ? OR cd.SLid = ?) ORDER BY c.contract_id DESC`;
       params = [siteIdNum, siteIdNum, siteIdNum];
     } else {
-      sql = `${baseSelect} WHERE ${notExpiredCondition} ORDER BY c.contract_id DESC`;
+      sql = `${baseSelect} ORDER BY c.contract_id DESC`;
     }
 
     const [rows] = await db.execute(sql, params);
@@ -987,7 +1009,8 @@ const getContractById = async (req, res) => {
       'c.sale_account',
       'c.sof_name',
       'c.Assigned_Service',
-      's.Name AS site_name'
+      's.Name AS site_name',
+      "IFNULL(l_site.Location2, '') AS site_location"
     ];
     
     const hasStatus = await checkColumn('status');
@@ -1009,6 +1032,7 @@ const getContractById = async (req, res) => {
       FROM contract c
       LEFT JOIN sites_location sl ON c.site_id = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN location l_site ON sl.lid = l_site.lid
       WHERE c.contract_id = ?
     `;
 
@@ -1184,29 +1208,20 @@ const updateContract = async (req, res) => {
       }
     }
 
-    // ดักรูปแบบ Email และ Telephone
-    if (email_acc !== undefined && email_acc !== null) {
-      const emailVal = String(email_acc).trim();
-      if (emailVal && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) {
-        await conn.rollback();
-        return res.status(400).json({
-          success: false,
-          message: 'Please provide a valid email address (e.g. example@domain.com)'
-        });
-      }
+    // ดักรูปแบบ Email และ Telephone (รองรับหลายบรรทัด)
+    if (email_acc !== undefined && email_acc !== null && !validateMultilineEmails(email_acc).ok) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide valid email address(es); one per line (e.g. example@domain.com)'
+      });
     }
-    if (tel_acc !== undefined && tel_acc !== null) {
-      const telVal = String(tel_acc).trim();
-      if (telVal) {
-        const digitsOnly = telVal.replace(/\D/g, '');
-        if (digitsOnly.length < 9 || digitsOnly.length > 15) {
-          await conn.rollback();
-          return res.status(400).json({
-            success: false,
-            message: 'Please provide a valid phone number (at least 9 digits)'
-          });
-        }
-      }
+    if (tel_acc !== undefined && tel_acc !== null && !validateMultilineTels(tel_acc).ok) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide valid phone number(s); one per line (9–15 digits each)'
+      });
     }
 
     // จัดการ site_device_pairs
