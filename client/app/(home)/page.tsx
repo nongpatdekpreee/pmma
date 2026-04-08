@@ -312,14 +312,15 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="flex flex-nowrap p-6 pt-4 gap-6 md:mt-0 mt-16 min-w-0 overflow-x-auto">
-        <div className="flex-[2] space-y-6 min-w-0">
-          <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-            <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate">
-              Dashboard
-            </Link>
-          </div>
+      <div className="flex flex-col gap-6 p-6 pt-4 md:mt-0 mt-16 min-w-0">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between shrink-0 min-w-0">
+          <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate">
+            Dashboard
+          </Link>
+        </div>
 
+        <div className="flex flex-nowrap gap-6 min-w-0 overflow-x-auto items-start">
+          <div className="flex-[2] space-y-6 min-w-0">
           <div>
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">Preventive Maintenance</h3>
@@ -383,7 +384,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-gray-50">
+          <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
             </div>
@@ -411,7 +412,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="flex-1 space-y-6 min-w-0">
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm">
+          <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
             <div className="flex justify-between mb-4">
               <h3 className="font-bold text-slate-700">Incoming events</h3>
               <Link href="/schedule_management?view=table" className="text-blue-500 text-xs hover:underline">
@@ -454,10 +455,10 @@ export default function DashboardPage() {
                         setHoveredEvent(null);
                         setTooltipPosition(null);
                       }}
-                      className={`block border-l-4 pl-4 py-2 rounded-r-xl transition-colors ${
+                      className={`block rounded-2xl border border-gray-50 border-l-4 p-4 transition-colors ${
                         ev.taskType === 'MA'
-                          ? 'border-red-400 bg-red-50/30 hover:bg-red-50/50'
-                          : 'border-blue-400 bg-blue-50/30 hover:bg-blue-50/50'
+                          ? 'border-l-red-400 bg-red-50/30 hover:bg-red-50/50'
+                          : 'border-l-blue-400 bg-blue-50/30 hover:bg-blue-50/50'
                       }`}
                     >
                       <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
@@ -503,7 +504,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm">
+          <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
             <div className="flex justify-between mb-4">
               <h3 className="font-bold text-slate-700 flex items-center gap-2">
                 <CircleAlert size={18} className="text-amber-500" />
@@ -550,7 +551,7 @@ export default function DashboardPage() {
                         setHoveredEvent(null);
                         setTooltipPosition(null);
                       }}
-                      className="block border-l-4 border-amber-400 pl-4 py-2 bg-amber-50/30 rounded-r-xl hover:bg-amber-50/50 transition-colors"
+                      className="block rounded-2xl border border-gray-50 border-l-4 border-l-amber-400 p-4 bg-amber-50/30 hover:bg-amber-50/50 transition-colors"
                     >
                       <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
                       <p className="text-[10px] text-amber-600 mt-1">Overdue {ev.dateStr}</p>
@@ -590,6 +591,7 @@ export default function DashboardPage() {
               </>
             )}
           </div>
+        </div>
         </div>
       </div>
 

@@ -1235,7 +1235,8 @@ const getAssignedServicesList = async (req, res) => {
   }
 };
 
-// GET - ดึง Devices ตาม Refer_SOF และ Site — รองรับ sid (sites.Sid) หรือ site_id (SLid); เมื่อ SOF มีในระบบแล้ว = เฉพาะ Asset_State In Use
+// GET - ดึง Devices ตาม Refer_SOF และ Site — รองรับ sid (sites.Sid) หรือ site_id (SLid)
+// ทั้ง sid และ site_id: SOF ตรง + ขอบเขต site/location — ไม่กรอง Asset_State
 const getDevicesBySOFAndSite = async (req, res) => {
   try {
     const referSOF = req.query.refer_sof;
@@ -1257,7 +1258,7 @@ const getDevicesBySOFAndSite = async (req, res) => {
     }
     // รองรับ SOF ทั้งแบบมีและไม่มี 0 นำหน้า (เช่น 0987 กับ 987)
     const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
-    const inUse = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in use')`;
+  
     const sofMatch = `(d.Refer_SOF = ? OR TRIM(LEADING '0' FROM COALESCE(d.Refer_SOF, '')) = ?)`;
     let rows;
     if (sid) {
@@ -1273,7 +1274,7 @@ const getDevicesBySOFAndSite = async (req, res) => {
          LEFT JOIN manufacturer m ON dt.Mid = m.Mid
          LEFT JOIN sites_location sl ON d.SLid = sl.SLid
          LEFT JOIN location L ON sl.lid = L.lid
-         WHERE sl.Sid = ? AND ${inUse} AND ${sofMatch}
+         WHERE sl.Sid = ?  AND ${sofMatch}
          ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
         [sidNum, referSOF, referSOFTrim]
       );
@@ -1286,7 +1287,7 @@ const getDevicesBySOFAndSite = async (req, res) => {
          LEFT JOIN manufacturer m ON dt.Mid = m.Mid
          LEFT JOIN sites_location sl ON d.SLid = sl.SLid
          LEFT JOIN location L ON sl.lid = L.lid
-         WHERE d.SLid = ? AND ${inUse} AND ${sofMatch}
+         WHERE d.SLid = ? AND ${sofMatch}
          ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
         [siteId, referSOF, referSOFTrim]
       );
@@ -1573,18 +1574,9 @@ const getDevicesByAssetState = async (req, res) => {
   }
 };
 
-// GET - ดึง Devices ที่เป็น "In Store" และ filter ตาม Dtypeid และ DeRoleid (สำหรับ Replacement Device)
+// GET - ดึง Devices In Store ในคลังตามชื่อ site (DEFAULT_IN_STORE_SITE_NAME) — ไม่กรอง Dtypeid/DeRoleid
 const getReplacementDevices = async (req, res) => {
   try {
-    const { dtypeid, deroleid } = req.query;
-
-    if (!dtypeid || !deroleid) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide dtypeid and deroleid'
-      });
-    }
-
     const sql = `
       SELECT 
         d.Did,
@@ -1595,22 +1587,20 @@ const getReplacementDevices = async (req, res) => {
         d.Dtypeid,
         d.DeRoleid,
         d.SLid,
-        s.Name AS SiteName
+        s.Name AS SiteName,
+        dt.model,
+        dr.name AS roleName
       FROM devices d
       INNER JOIN sites_location sl ON d.SLid = sl.SLid
       INNER JOIN sites s ON sl.Sid = s.Sid AND LOWER(TRIM(s.Name)) = LOWER(TRIM(?))
+      LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+      LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
       WHERE (LOWER(TRIM(COALESCE(d.Asset_State, ''))) = 'in store')
-        AND d.Dtypeid = ?
-        AND d.DeRoleid = ?
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC
-      LIMIT 100
+      LIMIT 500
     `;
 
-    const [rows] = await db.execute(sql, [
-      DEFAULT_IN_STORE_SITE_NAME,
-      parseInt(dtypeid, 10),
-      parseInt(deroleid, 10),
-    ]);
+    const [rows] = await db.execute(sql, [DEFAULT_IN_STORE_SITE_NAME]);
 
     res.status(200).json({
       success: true,
@@ -2175,7 +2165,7 @@ module.exports = {
   getDevicesNoSofInStore,    // GET (devices ที่ไม่มี SOF + สถานะ In Store สำหรับ Edit Contract SOF ใหม่)
   getDevicesBySite,          // GET (devices ตาม site_id สำหรับ Asset Binding)
   getDevicesByAssetState,    // GET (devices ตาม Asset_State สำหรับ MA)
-  getReplacementDevices,    // GET (devices In Store สำหรับ replacement ตาม Dtypeid และ DeRoleid)
+  getReplacementDevices,    // GET In Store ในคลังตามชื่อ site (ไม่กรอง dtype/role)
   getDevicesWithPM,          // GET (devices with PM information for Asset & Site Database)
   viewDeviceHistory,         // GET (view all device history)
   getDeviceHistory,          // GET (device history by id)

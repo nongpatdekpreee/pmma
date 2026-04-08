@@ -116,6 +116,53 @@ const updateDeviceAssetState = async (deviceId, newState) => {
   }
 };
 
+/** MA task: map Ticket number to devices.Refer_Ticket เฉพาะเครื่องทดแทน (dropdown replacement) */
+const normalizeReferTicket = (ticket) => {
+  if (ticket == null) return null;
+  const s = String(ticket).trim();
+  return s === '' ? null : s;
+};
+
+const extractMaReplacementDeviceIdsFromAssets = (assets) => {
+  if (!Array.isArray(assets) || assets.length === 0) return [];
+  const ids = [];
+  for (const a of assets) {
+    if (a == null || typeof a !== 'object') continue;
+    const raw = a.replacementDeviceId;
+    if (raw == null || raw === '') continue;
+    const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+    if (!Number.isNaN(n) && n > 0) ids.push(n);
+  }
+  return ids;
+};
+
+const parsePositiveDeviceId = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : parseInt(String(value), 10);
+  if (Number.isNaN(n) || n <= 0) return null;
+  return n;
+};
+
+/** Did เครื่องทดแทน: assets[].replacementDeviceId + tasks.replacement_device_id (รองรับข้อมูลเก่า) */
+const collectMaReplacementReferTicketDeviceIds = (assets, taskReplacementDeviceId) => {
+  const fromAssetReplacements = extractMaReplacementDeviceIdsFromAssets(assets);
+  const taskRep = parsePositiveDeviceId(taskReplacementDeviceId);
+  const merged = [...fromAssetReplacements];
+  if (taskRep != null) merged.push(taskRep);
+  return [...new Set(merged)];
+};
+
+const syncMaReferTicketOnDevices = async (assets, ticket, taskReplacementDeviceId) => {
+  const ids = collectMaReplacementReferTicketDeviceIds(assets, taskReplacementDeviceId);
+  if (ids.length === 0) return;
+  const val = normalizeReferTicket(ticket);
+  const placeholders = ids.map(() => '?').join(',');
+  await db.execute(
+    `UPDATE devices SET Refer_Ticket = ? WHERE Did IN (${placeholders})`,
+    [val, ...ids]
+  );
+};
+
 // POST /api/tasks
 const createTask = async (req, res) => {
   try {
@@ -212,6 +259,9 @@ const createTask = async (req, res) => {
     await db.execute(insertSql, insertValues);
 
     // MA: Asset_State และ SLid จะถูกอัปเดตเมื่อกด Done ใน detail เท่านั้น (ไม่ทำที่นี่)
+    if (taskType === 'MA') {
+      await syncMaReferTicketOnDevices(assets, ticket, safeParseInt(replacementDeviceId));
+    }
 
     const [rows] = await db.execute(
       `SELECT t.*, c.sla_term AS contract_sla_term FROM tasks t LEFT JOIN contract c ON t.contract_id = c.contract_id WHERE t.id = ?`,
@@ -379,6 +429,10 @@ const updateTask = async (req, res) => {
     const newAssets = assets !== undefined ? assets : oldAssets;
     const newContractId = contractId !== undefined ? contractId : existing[0].contract_id;
     const currentTaskType = taskType !== undefined ? taskType : existing[0].task_type;
+    const mergedTicket = ticket !== undefined ? (ticket || null) : existing[0].ticket;
+    if (currentTaskType === 'MA') {
+      await syncMaReferTicketOnDevices(newAssets, mergedTicket, newReplacementDeviceId);
+    }
 
     if (newStatus === 'done' && newReplacementDeviceId && newAssets && newAssets.length > 0 && currentTaskType === 'MA') {
       try {

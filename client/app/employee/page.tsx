@@ -17,7 +17,7 @@ interface SummaryEM {
   growth?: string;
 }
 
-const ITEMS_PER_PAGE = 8;
+const ITEMS_PER_PAGE = 16;
 
 interface Employee {
   id: string;
@@ -592,27 +592,28 @@ const EmployeeManagement = () => {
 
   return (
     <SidebarLayout>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <DashboardHeader />
 
-      <main className="mx-auto w-full max-w-6xl space-y-6 px-8 py-6 md:mt-0 mt-16">
+      <main className="flex min-h-0 w-full max-w-full flex-1 flex-col space-y-4 px-4 py-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 md:mt-0 mt-16">
           {/* ================= Summary Cards ================= */}
-          <section className="grid gap-6 md:grid-cols-3">
+          <section className="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
             {SUMMARY_CARDS_EM.map((card) => {
               const Icon = card.icon;
               return (
                 <article
                   key={card.label}
-                  className="flex flex-col items-center justify-between rounded-2xl bg-white px-6 py-5 shadow-md"
+                  className="flex flex-row items-center justify-between rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm shadow-slate-900/[0.04]"
                 >
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500">
-                      <Icon className="h-7 w-7 text-blue-900" />
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500">
+                      <Icon className="h-5 w-5 text-blue-900" />
                     </div>
-                    <div>
-                      <p className="text-xs uppercase text-gray-400">
+                    <div className="min-w-0">
+                      <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-gray-400">
                         {card.label}
                       </p>
-                      <div className="text-3xl font-semibold">
+                      <div className="text-2xl font-semibold tabular-nums">
                         {loading ? "..." : card.value}
                       </div>
                     </div>
@@ -629,35 +630,35 @@ const EmployeeManagement = () => {
           </section>
 
           {/* ================= Table Card ================= */}
-          <div className="rounded-2xl bg-white p-6 shadow-md">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-900/[0.04] sm:p-5">
             {/* Header */}
-            <div className="mb-6 flex flex-nowrap items-center justify-between gap-4 min-w-0 overflow-x-auto pb-1">
+            <div className="mb-4 flex min-w-0 flex-col gap-3 sm:mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <div className="min-w-0 shrink-0">
-                <h2 className="text-lg font-semibold text-gray-900 truncate">
+                <h2 className="truncate text-base font-semibold text-gray-900 sm:text-lg">
                   All Employees
                 </h2>
-                <p className="text-sm text-indigo-500">
+                <p className="text-xs text-indigo-500 sm:text-sm">
                   Active Members
                 </p>
               </div>
 
-              <div className="flex items-center gap-3 shrink-0">
-                <div className="flex h-10 items-center gap-2 rounded-full bg-gray-100 px-4 text-sm text-gray-500">
-                  <Search size={18} className="text-gray-400 flex-shrink-0" />
+              <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:max-w-none sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+                <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full bg-gray-100 px-3 text-sm text-gray-500 sm:min-w-[220px] sm:flex-1 sm:max-w-md lg:max-w-lg">
+                  <Search size={18} className="shrink-0 text-gray-400" />
                   <input
                     value={searchTerm}
                     onChange={(e) => {
                       setSearchTerm(e.target.value);
                       setCurrentPage(1);
                     }}
-                    placeholder="Search"
-                    className="bg-transparent outline-none"
+                    placeholder="Search name, email, phone…"
+                    className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-gray-400"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => { setAddModalOpen(true); setAddModalTab("form"); setImportFile(null); setImportRows([]); setAddFormErrors({ name: "", gmail: "", tel: "" }); }}
-                  className="flex h-10 items-center gap-2 rounded-full bg-indigo-500 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-600"
+                  className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-indigo-500 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-600 sm:justify-start"
                 >
                   <UserPlus size={18} />
                   Add Employee
@@ -666,35 +667,34 @@ const EmployeeManagement = () => {
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto">
+            <div className="max-h-[min(70vh,calc(100vh-15rem))] min-h-[min(50vh,28rem)] min-w-0 flex-1 overflow-x-auto overflow-y-auto rounded-lg border border-slate-100 sm:max-h-[min(75vh,calc(100vh-13rem))]">
               {fetchError && (
                 <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
                   {fetchError}
                 </div>
               )}
               {loading ? (
-                <div className="flex items-center justify-center py-12">
+                <div className="flex items-center justify-center py-16">
                   <div className="text-gray-400">Loading...</div>
                 </div>
               ) : (
-                <table className="min-w-full text-sm">
-                  <thead className="bg-gray-50 text-xs uppercase text-gray-400">
+                <table className="min-w-[720px] w-full text-sm">
+                  <thead className="sticky top-0 z-[1] bg-gray-50 text-xs uppercase text-gray-500 shadow-sm">
                     <tr>
-                      <th className="px-6 py-4 text-center w-14">Picture</th>
-                    
-                      <th className="px-6 py-4 text-center">Username</th>
-                      <th className="px-6 py-4 text-center">Gmail</th>
-                      <th className="px-6 py-4 text-center">Phone</th>
-                      <th className="px-6 py-4 text-center">Type</th>
-                      <th className="px-6 py-4 text-center">Employment</th>
-                      <th className="px-6 py-4 text-center w-24">Actions</th>
+                      <th className="w-12 px-3 py-2.5 text-center">Picture</th>
+                      <th className="min-w-[140px] px-3 py-2.5 text-left">Name</th>
+                      <th className="min-w-[180px] px-3 py-2.5 text-left">Gmail</th>
+                      <th className="w-28 px-3 py-2.5 text-left">Phone</th>
+                      <th className="w-32 px-3 py-2.5 text-center">Type</th>
+                      <th className="w-36 px-3 py-2.5 text-center">Employment</th>
+                      <th className="w-16 px-3 py-2.5 text-center">Actions</th>
                     </tr>
                   </thead>
 
                   <tbody>
                     {paginatedEmployees.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-6 py-8 text-center text-gray-400">
+                        <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
                          No Employee found
                         </td>
                       </tr>
@@ -702,41 +702,43 @@ const EmployeeManagement = () => {
                       paginatedEmployees.map((emp) => (
                         <tr
                           key={emp.id}
-                          className="border-t hover:bg-gray-50"
+                          className="border-b border-slate-100 last:border-0 hover:bg-slate-50/80"
                         >
-                          <td className="px-6 py-4">
-                            <div className="h-10 w-10 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                          <td className="px-3 py-2">
+                            <div className="mx-auto flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gray-100">
                               {emp.photo ? (
                                 <img src={emp.photo.startsWith("http") ? emp.photo : apiUrl(emp.photo)} alt="" className="h-full w-full object-cover" />
                               ) : (
-                                <UserRoundCog className="h-5 w-5 text-gray-400" />
+                                <UserRoundCog className="h-4 w-4 text-gray-400" />
                               )}
                             </div>
                           </td>
-                          <td className="px-6 py-4 font-medium">
+                          <td className="max-w-[220px] truncate px-3 py-2 font-medium text-gray-900" title={emp.name}>
                             {emp.name ?? '-'}
                           </td>
-                          <td className="px-6 py-4">{emp.gmail || '-'}</td>
-                          <td className="px-6 py-4">{emp.tel || '-'}</td>
-                          <td className="px-6 py-4">
+                          <td className="max-w-[240px] truncate px-3 py-2 text-gray-700" title={emp.gmail}>
+                            {emp.gmail || '-'}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-gray-700">{emp.tel || '-'}</td>
+                          <td className="px-3 py-2 text-center">
                             <span
-                              className={`rounded-full px-3 py-1 text-xs ${getPositionTypeColor(
+                              className={`inline-block max-w-full truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium ${getPositionTypeColor(
                                 emp.positionType
                               )}`}
                             >
                               {emp.positionType}
                             </span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-3 py-2 text-center">
                             <span
-                              className={`rounded-full px-3 py-1 text-xs ${getEmploymentTypeColor(
+                              className={`inline-block max-w-full truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium ${getEmploymentTypeColor(
                                 emp.employmentType
                               )}`}
                             >
                               {emp.employmentType}
                             </span>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-3 py-2 text-center">
                             <button
                               type="button"
                               onClick={() => openEditModal(emp)}
@@ -755,7 +757,7 @@ const EmployeeManagement = () => {
             </div>
 
             {/* Pagination */}
-            <div className="mt-4 flex items-center justify-between text-xs text-gray-400">
+            <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-gray-500">
               <span>
                 Showing {startIndex + 1}-
                 {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} of{" "}
@@ -1201,6 +1203,7 @@ const EmployeeManagement = () => {
             </div>
           )}
         </main>
+      </div>
       {alertModal}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>

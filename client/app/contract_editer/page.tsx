@@ -36,6 +36,9 @@ interface Contract {
   partner: string;
   siteName?: string;
   siteLocation?: string;
+  /** ชื่อ/ที่ตั้งจาก contract.site_id (sites + location) */
+  contractSiteName?: string;
+  contractSiteLocation?: string;
   maintenanceType?: string;
   startDate: string;
   endDate: string;
@@ -48,6 +51,10 @@ interface Contract {
   formattedEndDate?: string;
   deviceCount?: number;
   contractStatus?: 'draft' | 'official';
+  /** device.SLid ตรงกับ contract_device.SLid ทุกเครื่อง (หรือไม่มีเครื่องที่ผูก) */
+  devicesSlidAligned?: boolean;
+  /** contract.site_id (sites_location.SLid หลัก) */
+  siteId?: number | null;
 }
 
 interface FullContractDetails {
@@ -58,6 +65,8 @@ interface FullContractDetails {
   site_id?: number | null;
   sla_term?: number | null;
   sale_account?: string | null;
+  email_acc?: string | null;
+  tel_acc?: string | null;
   sof_name?: string | null;
   Assigned_Service?: string | null;
   coverage_scope?: string | null;
@@ -67,6 +76,8 @@ interface FullContractDetails {
   contract_sign_date?: string | null;
   remark?: string | null;
   site_name?: string | null;
+  /** ที่ตั้งจาก contract.site_id (location.Location2) */
+  site_location?: string | null;
   devices?: Array<{
     Did: number;
     CI_Name?: string | null;
@@ -96,6 +107,45 @@ interface FullContractDetails {
   }>;
 }
 
+type ContractSitePillRow = { SLid: number; SiteName?: string | null; Location2?: string | null };
+
+/** รวม site หลักจาก contract.site_id (+ site_name/site_location จากแถว contract) ถ้ายังไม่อยู่ในรายการจาก contract_device */
+function mergeContractPrimarySiteIntoSites(
+  sites: ContractSitePillRow[],
+  details: FullContractDetails | null | undefined,
+): ContractSitePillRow[] {
+  const list = [...sites];
+  const raw = details?.site_id;
+  if (raw == null) return list;
+  const n = Number(raw);
+  if (Number.isNaN(n) || n <= 0) return list;
+  if (list.some((s) => Number(s.SLid) === n)) return list;
+  list.unshift({
+    SLid: n,
+    SiteName: details?.site_name ?? null,
+    Location2: details?.site_location ?? null,
+  });
+  return list;
+}
+
+/** ปุ่มเลือก site: ถ้า SLid ตรง contract.site_id ใช้ site_name / site_location จากตาราง contract (สอดคล้องรายการหลัก) */
+function formatSitePillLabel(
+  site: ContractSitePillRow,
+  details: FullContractDetails | null | undefined,
+): string {
+  const primarySlid = details?.site_id;
+  if (primarySlid != null && Number(site.SLid) === Number(primarySlid)) {
+    const name = details?.site_name?.trim();
+    const loc = details?.site_location?.trim();
+    if (name) return loc ? `${name} – ${loc}` : name;
+    if (loc) return loc;
+  }
+  const n = site.SiteName?.trim();
+  const l = site.Location2?.trim();
+  if (n) return l ? `${n} – ${l}` : n;
+  return `Site ${site.SLid}`;
+}
+
 function formatDateThai(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
   const d = new Date(dateStr);
@@ -112,6 +162,57 @@ function formatDateForExport(dateStr: string | null | undefined): string {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const year = d.getFullYear();
   return `${day}/${month}/${year}`;
+}
+
+function mapApiRowToContract(c: {
+  contract_id: number;
+  contract_name?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  sale_account?: string | null;
+  sof_name?: string | null;
+  site_id?: number | null;
+  contract_site_name?: string | null;
+  contract_site_location?: string | null;
+  site_name?: string | null;
+  site_location?: string | null;
+  device_count?: number | null;
+  status?: string | null;
+  devices_slid_aligned?: number | boolean | null;
+}): Contract {
+  const endDate = c.end_date || '';
+  const status = deriveStatus(endDate);
+  const alignedRaw = c.devices_slid_aligned;
+  const devicesSlidAligned =
+    alignedRaw === 1 ||
+    alignedRaw === true ||
+    Number(alignedRaw) === 1;
+  return {
+    id: String(c.contract_id),
+    name: c.contract_name || '—',
+    sofName: c.sof_name ?? null,
+    partner:
+      c.sale_account ||
+      (c.contract_site_name && String(c.contract_site_name).trim()) ||
+      c.site_name ||
+      '—',
+    siteName: c.site_name ?? undefined,
+    siteLocation: c.site_location ?? undefined,
+    contractSiteName: c.contract_site_name?.trim() || undefined,
+    contractSiteLocation: c.contract_site_location?.trim() || undefined,
+    startDate: c.start_date || '',
+    endDate,
+    value: '',
+    status,
+    formattedValue: '—',
+    formattedStartDate: formatDateThai(c.start_date),
+    formattedEndDate: formatDateThai(c.end_date),
+    equipment: [],
+    deviceCount: c.device_count || 0,
+    contractStatus: c.status === 'draft' || c.status === 'official' ? c.status : 'official',
+    devicesSlidAligned,
+    siteId: c.site_id != null && !Number.isNaN(Number(c.site_id)) ? Number(c.site_id) : null,
+  };
 }
 
 function deriveStatus(endDate: string | null | undefined): 'active' | 'expiring' | 'expired' {
@@ -164,11 +265,14 @@ function ContractEditorPageContent() {
   const [showAssignSiteModal, setShowAssignSiteModal] = useState(false);
   const [assignModalLoading, setAssignModalLoading] = useState(false);
   const [assignModalSubmitting, setAssignModalSubmitting] = useState(false);
-  const [sitesLocation, setSitesLocation] = useState<Array<{ SLid: number; Sid?: number; SiteName?: string; Location2?: string }>>([]);
+  const [sitesLocation, setSitesLocation] = useState<
+    Array<{ SLid: number; Sid?: number; lid?: number; SiteName?: string; Location2?: string }>
+  >([]);
   const [assignDeviceDetails, setAssignDeviceDetails] = useState<Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }>>({});
-  const [deviceTargetSite, setDeviceTargetSite] = useState<Record<string, string>>({});
-  /** เลือก Site แล้วแต่ยังไม่เลือก Location (เก็บ Sid เพื่อแสดงชื่อ + กรอง Location) */
-  const [deviceTargetSid, setDeviceTargetSid] = useState<Record<string, string>>({});
+  /** โมดัล Assign to Site: Site ใช้ input+datalist (พิมพ์ค้นหาได้), Location เป็น select ตาม Sid */
+  const [deviceAssignTargetSid, setDeviceAssignTargetSid] = useState<Record<string, string>>({});
+  const [deviceAssignTargetSlid, setDeviceAssignTargetSlid] = useState<Record<string, string>>({});
+  const [deviceAssignSiteQuery, setDeviceAssignSiteQuery] = useState<Record<string, string>>({});
   const [assignDeviceSelected, setAssignDeviceSelected] = useState<Set<string>>(new Set());
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
   const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
@@ -235,39 +339,9 @@ function ContractEditorPageContent() {
           setContractsError(json.message || 'Failed to load contract list');
           return;
         }
-        const list: Contract[] = json.data.map((c: {
-          contract_id: number;
-          contract_name?: string | null;
-          start_date?: string | null;
-          end_date?: string | null;
-          sale_account?: string | null;
-          sof_name?: string | null;
-          site_name?: string | null;
-          site_location?: string | null;
-          device_count?: number | null;
-          status?: string | null;
-        }) => {
-          const endDate = c.end_date || '';
-          const status = deriveStatus(endDate);
-          return {
-            id: String(c.contract_id),
-            name: c.contract_name || '—',
-            sofName: c.sof_name ?? null,
-            partner: c.sale_account || c.site_name || '—',
-            siteName: c.site_name ?? undefined,
-            siteLocation: c.site_location ?? undefined,
-            startDate: c.start_date || '',
-            endDate,
-            value: '',
-            status,
-            formattedValue: '—',
-            formattedStartDate: formatDateThai(c.start_date),
-            formattedEndDate: formatDateThai(c.end_date),
-            equipment: [],
-            deviceCount: c.device_count || 0,
-            contractStatus: (c.status === 'draft' || c.status === 'official') ? c.status : 'official',
-          };
-        });
+        const list: Contract[] = json.data.map((c: Parameters<typeof mapApiRowToContract>[0]) =>
+          mapApiRowToContract(c)
+        );
         setContracts(list);
       })
       .catch((err) => {
@@ -304,7 +378,10 @@ function ContractEditorPageContent() {
         (contract.sofName ?? '').toLowerCase().includes(searchLower) ||
         contract.partner.toLowerCase().includes(searchLower) ||
         (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
-        (contract.siteLocation ?? '').toLowerCase().includes(searchLower);
+        (contract.siteLocation ?? '').toLowerCase().includes(searchLower) ||
+        (contract.contractSiteName ?? '').toLowerCase().includes(searchLower) ||
+        (contract.contractSiteLocation ?? '').toLowerCase().includes(searchLower) ||
+        (contract.siteId != null && String(contract.siteId).includes(searchLower));
       if (!matchText) return false;
     }
 
@@ -347,7 +424,7 @@ function ContractEditorPageContent() {
   const exportModalSiteOptions = (() => {
     const set = new Set<string>();
     filteredContracts.forEach((c) => {
-      const v = (c.siteName ?? '').trim();
+      const v = (c.contractSiteName ?? c.siteName ?? '').trim();
       if (v) set.add(v);
     });
     return ['', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
@@ -355,7 +432,7 @@ function ContractEditorPageContent() {
   const exportModalLocationOptions = (() => {
     const set = new Set<string>();
     filteredContracts.forEach((c) => {
-      const v = (c.siteLocation ?? '').trim();
+      const v = (c.contractSiteLocation ?? c.siteLocation ?? '').trim();
       if (v) set.add(v);
     });
     return ['', ...Array.from(set).sort((a, b) => a.localeCompare(b))];
@@ -372,14 +449,22 @@ function ContractEditorPageContent() {
           c.name.toLowerCase().includes(searchLower) ||
           (c.partner ?? '').toLowerCase().includes(searchLower) ||
           (c.siteName ?? '').toLowerCase().includes(searchLower) ||
-          (c.siteLocation ?? '').toLowerCase().includes(searchLower)
+          (c.siteLocation ?? '').toLowerCase().includes(searchLower) ||
+          (c.contractSiteName ?? '').toLowerCase().includes(searchLower) ||
+          (c.contractSiteLocation ?? '').toLowerCase().includes(searchLower)
         );
       });
     }
     if (!exportModalSiteFilter && !exportModalLocationFilter) return list;
     return list.filter((c) => {
-      const siteOk = !exportModalSiteFilter || (c.siteName ?? '').trim() === exportModalSiteFilter;
-      const locOk = !exportModalLocationFilter || (c.siteLocation ?? '').trim() === exportModalLocationFilter;
+      const siteOk =
+        !exportModalSiteFilter ||
+        (c.contractSiteName ?? '').trim() === exportModalSiteFilter ||
+        (c.siteName ?? '').trim() === exportModalSiteFilter;
+      const locOk =
+        !exportModalLocationFilter ||
+        (c.contractSiteLocation ?? '').trim() === exportModalLocationFilter ||
+        (c.siteLocation ?? '').trim() === exportModalLocationFilter;
       return siteOk && locOk;
     });
   })();
@@ -612,16 +697,21 @@ function ContractEditorPageContent() {
   };
 
   useEffect(() => {
-    if (fullContractDetails?.sites && fullContractDetails.sites.length > 1) {
+    if (!fullContractDetails) {
+      setSelectedDetailSiteSlid(null);
+      return;
+    }
+    const merged = mergeContractPrimarySiteIntoSites(fullContractDetails.sites ?? [], fullContractDetails);
+    if (merged.length > 1) {
       setSelectedDetailSiteSlid((prev) => {
-        const siteSlids = fullContractDetails.sites!.map((s) => s.SLid);
+        const siteSlids = merged.map((s) => Number(s.SLid));
         if (prev === -1) return -1;
-        return prev != null && siteSlids.includes(prev) ? prev : fullContractDetails.sites![0].SLid;
+        return prev != null && siteSlids.includes(Number(prev)) ? prev : merged[0].SLid;
       });
     } else {
       setSelectedDetailSiteSlid(null);
     }
-  }, [fullContractDetails?.sites]);
+  }, [fullContractDetails]);
 
   useEffect(() => {
     setDetailEquipmentPage(0);
@@ -798,8 +888,9 @@ function ContractEditorPageContent() {
     setFullContractDetails(null);
     setShowAssignSiteModal(true);
     setAssignDeviceDetails({});
-    setDeviceTargetSite({});
-    setDeviceTargetSid({});
+    setDeviceAssignTargetSid({});
+    setDeviceAssignTargetSlid({});
+    setDeviceAssignSiteQuery({});
     setAssignDeviceSelected(new Set());
     setAssignModalSelectedSiteSlid(null);
     try {
@@ -822,7 +913,6 @@ function ContractEditorPageContent() {
       const sitesJson = await sitesRes.json();
       if (sitesRes.ok && sitesJson.data) setSitesLocation(sitesJson.data);
       const deviceDetails: Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }> = {};
-      const targetSite: Record<string, string> = {};
       const results = await Promise.allSettled(
         devices.map(async (d: { Did: number }) => {
           const r = await fetch(apiUrl(`/api/devices/${d.Did}`));
@@ -841,18 +931,15 @@ function ContractEditorPageContent() {
             SiteName: data.Sitename ?? data.SiteName ?? null,
             Location2: data.Location2 ?? data.location2 ?? null,
           };
-          targetSite[String(d.Did)] = String(d.SLid ?? '');
           // Check if device is assigned to site (SLid not null and not 2 which is warehouse)
           const isAssigned = (data.SLid ?? data.slid) != null && (data.SLid ?? data.slid) !== 2;
           assignedStatus[String(d.Did)] = isAssigned;
         } else {
           deviceDetails[String(d.Did)] = {};
-          targetSite[String(d.Did)] = String(d.SLid ?? '');
           assignedStatus[String(d.Did)] = false;
         }
       });
       setAssignDeviceDetails(deviceDetails);
-      setDeviceTargetSite(targetSite);
       setAssignDeviceSelected(new Set(devices.map((d: { Did: number }) => String(d.Did))));
       // Check if any devices are assigned to site
       const hasAssignedDevices = Object.values(assignedStatus).some(status => status);
@@ -867,26 +954,37 @@ function ContractEditorPageContent() {
 
   const handleAssignSiteConfirm = async () => {
     const devices = fullContractDetails?.devices ?? [];
-    const toUpdate = devices.filter((d) => {
-      const id = String(d.Did);
-      const selected = assignDeviceSelected.has(id);
-      const siteId = deviceTargetSite[id];
-      return selected && siteId && siteId.trim() !== '';
-    });
-    if (toUpdate.length === 0) {
-      toastError('Please select at least 1 device and target site');
+    const resolveSlidFromDropdowns = (did: string): number | null => {
+      const sid = deviceAssignTargetSid[did]?.trim();
+      const slidStr = deviceAssignTargetSlid[did]?.trim();
+      if (!sid || !slidStr) return null;
+      const slid = parseInt(slidStr, 10);
+      if (Number.isNaN(slid)) return null;
+      const row = sitesLocation.find((s) => Number(s.SLid) === slid);
+      if (!row || row.Sid == null || String(row.Sid) !== sid) return null;
+      return slid;
+    };
+    const selectedIds = [...assignDeviceSelected];
+    if (selectedIds.length === 0) {
+      toastError('Please select at least 1 device');
       return;
     }
+    const invalid = selectedIds.filter((id) => resolveSlidFromDropdowns(id) == null);
+    if (invalid.length > 0) {
+      toastError('Please select Site and Location for every selected device');
+      return;
+    }
+    const toUpdate = devices.filter((d) => assignDeviceSelected.has(String(d.Did)));
     setAssignModalSubmitting(true);
     try {
       let successCount = 0;
       for (const d of toUpdate) {
-        const siteId = deviceTargetSite[String(d.Did)];
-        if (!siteId) continue;
+        const slid = resolveSlidFromDropdowns(String(d.Did));
+        if (slid == null || Number.isNaN(slid)) continue;
         const res = await fetch(apiUrl(`/api/devices/${d.Did}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ Asset_State: 'In Use', SLid: parseInt(siteId, 10) }),
+          body: JSON.stringify({ Asset_State: 'In Use', SLid: slid }),
         });
         const json = await res.json();
         if (res.ok && json.success) successCount++;
@@ -1266,23 +1364,7 @@ function ContractEditorPageContent() {
       const res = await fetch(apiUrl('/api/contracts'));
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
-        const list = (json.data as any[]).map((c: any) => ({
-          id: String(c.contract_id),
-          name: c.contract_name || '—',
-          sofName: c.sof_name ?? null,
-          partner: c.sale_account || c.site_name || '—',
-          siteName: c.site_name ?? undefined,
-          siteLocation: c.site_location ?? undefined,
-          startDate: c.start_date || '',
-          endDate: c.end_date || '',
-          value: '',
-          formattedValue: '—',
-          formattedStartDate: formatDateThai(c.start_date),
-          formattedEndDate: formatDateThai(c.end_date),
-          status: deriveStatus(c.end_date),
-          deviceCount: c.device_count ?? 0,
-          contractStatus: (c.status === 'draft' || c.status === 'official') ? c.status : 'official',
-        }));
+        const list = (json.data as any[]).map((c: any) => mapApiRowToContract(c));
         setContracts(list);
       }
     } catch (e) {
@@ -1485,7 +1567,7 @@ function ContractEditorPageContent() {
   group-hover:scale-y-100" />
               <div className="flex justify-between items-start mb-5 gap-3">
                 <div className="text-xl font-bold text-slate-800 flex-1 min-w-0 flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.siteName ?? contract.partner ?? '—'}
+                  {contract.contractSiteName ?? contract.partner ?? '—'}
                 </div>
                 <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
                   {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
@@ -1495,14 +1577,14 @@ function ContractEditorPageContent() {
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Site:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.siteName ?? contract.partner ?? '—'}
+                  {contract.contractSiteName ?? contract.partner ?? '—'}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><MapPin size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Location:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.siteLocation ?? '—'}
+                  {contract.contractSiteLocation ?? '—'}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
@@ -1551,8 +1633,12 @@ function ContractEditorPageContent() {
                   </button>
                   <button
                     onClick={() => openAssignSiteForContract(contract)}
-                    className="flex items-center justify-center py-1.5 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-amber-500 text-white hover:bg-amber-600"
-                    title="View Site"
+                    className={`flex items-center justify-center py-1.5 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 text-white ${
+                      contract.devicesSlidAligned
+                        ? 'bg-green-600 hover:bg-green-700'
+                        : 'bg-amber-500 hover:bg-amber-600'
+                    }`}
+                    title="View/Edit Site"
                   >
                     <MapPin size={18} className="text-white" />
                   </button>
@@ -1621,8 +1707,12 @@ function ContractEditorPageContent() {
               <tbody>
                 {paginatedContracts.map((contract) => (
                   <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
-                    <td className="py-4 px-4 text-sm font-medium text-slate-800">{contract.siteName ?? contract.partner ?? '—'}</td>
-                    <td className="py-4 px-4 text-sm text-slate-600">{contract.siteLocation ?? '—'}</td>
+                    <td className="py-4 px-4 text-sm font-medium text-slate-800">
+                      {contract.contractSiteName?.trim() ? contract.contractSiteName : '—'}
+                    </td>
+                    <td className="py-4 px-4 text-sm text-slate-600">
+                      {contract.contractSiteLocation?.trim() ? contract.contractSiteLocation : '—'}
+                    </td>
                     <td className="py-4 px-4 text-sm text-slate-600 whitespace-nowrap">
                       {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
                     </td>
@@ -1645,7 +1735,11 @@ function ContractEditorPageContent() {
                           </button>
                           <button
                             onClick={() => openAssignSiteForContract(contract)}
-                            className="flex items-center justify-center py-1 px-2 rounded-md text-[10px] font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all duration-200"
+                            className={`flex items-center justify-center py-1 px-2 rounded-md text-[10px] font-medium text-white transition-all duration-200 ${
+                              contract.devicesSlidAligned
+                                ? 'bg-green-600 hover:bg-green-700'
+                                : 'bg-amber-500 hover:bg-amber-600'
+                            }`}
                             title="View/Edit Site"
                           >
                             <MapPin size={14} className="text-white" />
@@ -2157,7 +2251,25 @@ function ContractEditorPageContent() {
                         </div>
                         <div>
                           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Sale Account</span>
-                          <span className="text-base text-slate-700">{fullContractDetails.sale_account || '—'}</span>
+                          <span className="text-base text-slate-700 whitespace-pre-line">
+                            {fullContractDetails.sale_account || '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">
+                            Sale Email
+                          </span>
+                          <span className="text-base text-slate-700 whitespace-pre-line">
+                            {fullContractDetails.email_acc || '—'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">
+                            Sale Telephone
+                          </span>
+                          <span className="text-base text-slate-700 whitespace-pre-line">
+                            {fullContractDetails.tel_acc || '—'}
+                          </span>
                         </div>
                         <div>
                           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Assigned Service</span>
@@ -2212,12 +2324,15 @@ function ContractEditorPageContent() {
 
                   {/* Sites & Devices */}
                   {fullContractDetails.devices && fullContractDetails.devices.length > 0 && (() => {
-                    const sites = fullContractDetails.sites ?? [];
+                    const sites = mergeContractPrimarySiteIntoSites(
+                      fullContractDetails.sites ?? [],
+                      fullContractDetails,
+                    );
                     const devices = fullContractDetails.devices;
-                    const contractSiteSlids = new Set(sites.map((s) => s.SLid));
+                    const contractSiteSlids = new Set(sites.map((s) => Number(s.SLid)));
 
                     const getDevicesForSite = (slid: number) =>
-                      devices.filter((d) => (d.contract_SLid ?? null) === slid);
+                      devices.filter((d) => Number(d.contract_SLid ?? NaN) === Number(slid));
 
                     const renderDeviceTable = (deviceList: typeof devices) => {
                       const total = deviceList.length;
@@ -2297,9 +2412,10 @@ function ContractEditorPageContent() {
                     };
 
                     if (sites.length <= 1) {
-                      const siteLabel = sites.length === 1
-                        ? (sites[0].SiteName ? `${sites[0].SiteName}${sites[0].Location2 ? ` – ${sites[0].Location2}` : ''}` : `Site ${sites[0].SLid}`)
-                        : 'Equipment in Contract';
+                      const siteLabel =
+                        sites.length === 1
+                          ? formatSitePillLabel(sites[0], fullContractDetails)
+                          : 'Equipment in Contract';
                       return (
                         <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                           <div className="px-6 py-4 border-b border-slate-200">
@@ -2325,10 +2441,9 @@ function ContractEditorPageContent() {
                           <div className="flex flex-wrap gap-2">
                             {sites.map((site) => {
                               const count = getDevicesForSite(site.SLid).length;
-                              const isSelected = selectedSlid === site.SLid;
-                              const label = site.SiteName
-                                ? `${site.SiteName}${site.Location2 ? ` – ${site.Location2}` : ''}`
-                                : `Site ${site.SLid}`;
+                              const isSelected =
+                                selectedSlid !== null && Number(selectedSlid) === Number(site.SLid);
+                              const label = formatSitePillLabel(site, fullContractDetails);
                               return (
                                 <button
                                   key={site.SLid}
@@ -2346,7 +2461,11 @@ function ContractEditorPageContent() {
                               );
                             })}
                             {(() => {
-                              const unassigned = devices.filter((d) => !contractSiteSlids.has(d.contract_SLid ?? -1));
+                              const unassigned = devices.filter((d) => {
+                                const cid = d.contract_SLid;
+                                if (cid == null) return true;
+                                return !contractSiteSlids.has(Number(cid));
+                              });
                               if (unassigned.length > 0) {
                                 const isSelected = selectedSlid === -1;
                                 return (
@@ -2365,7 +2484,15 @@ function ContractEditorPageContent() {
                             })()}
                           </div>
                         </div>
-                        {renderDeviceTable(selectedSlid === -1 ? devices.filter((d) => !contractSiteSlids.has(d.contract_SLid ?? -1)) : displayDevices)}
+                        {renderDeviceTable(
+                          selectedSlid === -1
+                            ? devices.filter((d) => {
+                                const cid = d.contract_SLid;
+                                if (cid == null) return true;
+                                return !contractSiteSlids.has(Number(cid));
+                              })
+                            : displayDevices,
+                        )}
                       </div>
                     );
                   })()}
@@ -2680,12 +2807,20 @@ function ContractEditorPageContent() {
                   </div>
                   {(() => {
                     const allDevices = fullContractDetails.devices ?? [];
-                    const sites = fullContractDetails.sites ?? [];
-                    const contractSiteSlids = new Set(sites.map((s: { SLid: number }) => s.SLid));
+                    const allContractSites = fullContractDetails.sites ?? [];
+                    const sitesForPills = mergeContractPrimarySiteIntoSites(
+                      allContractSites,
+                      fullContractDetails,
+                    );
+                    const contractSiteSlids = new Set(sitesForPills.map((s) => Number(s.SLid)));
                     const getDevicesForSite = (slid: number) =>
-                      allDevices.filter((d: { contract_SLid?: number | null }) => (d.contract_SLid ?? null) === slid);
-                    const unassignedDevices = allDevices.filter((d: { contract_SLid?: number | null }) => !contractSiteSlids.has(d.contract_SLid ?? -1));
-                    const showSitePills = sites.length >= 1 || unassignedDevices.length > 0;
+                      allDevices.filter((d: { contract_SLid?: number | null }) => Number(d.contract_SLid ?? NaN) === Number(slid));
+                    const unassignedDevices = allDevices.filter((d: { contract_SLid?: number | null }) => {
+                      const cid = d.contract_SLid;
+                      if (cid == null) return true;
+                      return !contractSiteSlids.has(Number(cid));
+                    });
+                    const showSitePills = sitesForPills.length >= 1 || unassignedDevices.length > 0;
 
                     let devicesBySiteFilter = allDevices;
                     if (assignModalSelectedSiteSlid !== null) {
@@ -2729,20 +2864,24 @@ function ContractEditorPageContent() {
                       return nameA.localeCompare(nameB);
                     });
                     const selectedCount = assignDeviceSelected.size;
-                    const firstSelectedId = selectedCount > 0 ? [...assignDeviceSelected][0] : null;
-                    const bulkTargetValue = firstSelectedId != null ? (deviceTargetSite[firstSelectedId] ?? '') : '';
-                    const assignUniqueSites = (() => {
+                    const assignModalUniqueSites = (() => {
                       const seen = new Set<number>();
                       return sitesLocation
                         .filter((s) => s.Sid != null && !seen.has(s.Sid) && (seen.add(s.Sid), true))
                         .map((s) => ({ sid: String(s.Sid), name: s.SiteName ?? `Site ${s.Sid}` }));
                     })();
-                    const assignGetLocationsForSid = (sid: string) =>
-                      sitesLocation.filter((s) => s.Sid != null && String(s.Sid) === sid);
+                    const findSiteByTypedName = (raw: string) => {
+                      const t = raw.trim();
+                      if (!t) return undefined;
+                      return (
+                        assignModalUniqueSites.find((x) => x.name === t) ??
+                        assignModalUniqueSites.find((x) => (x.name || '').toLowerCase() === t.toLowerCase())
+                      );
+                    };
                     return (
                   <>
-                  <datalist id="assign-modal-site-list">
-                    {assignUniqueSites.map(({ sid, name }) => (
+                  <datalist id="assign-modal-site-combo-list">
+                    {assignModalUniqueSites.map(({ sid, name }) => (
                       <option key={sid} value={name} />
                     ))}
                   </datalist>
@@ -2759,12 +2898,12 @@ function ContractEditorPageContent() {
                       >
                         All sites
                       </button>
-                      {sites.map((site: { SLid: number; SiteName?: string | null; Location2?: string | null }) => {
+                      {sitesForPills.map((site: { SLid: number; SiteName?: string | null; Location2?: string | null }) => {
                         const count = getDevicesForSite(site.SLid).length;
-                        const isSelected = assignModalSelectedSiteSlid === site.SLid;
-                        const label = site.SiteName
-                          ? `${site.SiteName}${site.Location2 ? ` – ${site.Location2}` : ''}`.trim()
-                          : `Site ${site.SLid}`;
+                        const isSelected =
+                          assignModalSelectedSiteSlid !== null &&
+                          Number(assignModalSelectedSiteSlid) === Number(site.SLid);
+                        const label = formatSitePillLabel(site, fullContractDetails);
                         return (
                           <button
                             key={site.SLid}
@@ -2856,8 +2995,10 @@ function ContractEditorPageContent() {
                             />
                           </th>
                           <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[180px]">Device</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[180px]">Current Status</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[220px]">Target Site</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[160px]">Current Status</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[260px]">
+                            Target Site
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2865,13 +3006,23 @@ function ContractEditorPageContent() {
                           const detail = assignDeviceDetails[String(device.Did)];
                           const slid = detail?.SLid ?? device.SLid ?? null;
                           const loc2 = detail?.Location2 ?? device.Location2 ?? null;
-                          const contractSiteSlids = new Set((fullContractDetails?.sites ?? []).map((s) => s.SLid));
-                          const isAtValidContractSite = slid != null && contractSiteSlids.has(slid);
+                          const contractSlid = device.contract_SLid ?? null;
+                          const isDeviceSlidMatchesContractDevice =
+                            slid != null &&
+                            contractSlid != null &&
+                            Number(slid) === Number(contractSlid);
                           const statusLabel = slid != null
                             ? (loc2 || (slid === 2 ? 'Warehouse' : null))
                             : null;
                           const deviceLabel = device.CI_Name || device.Asset_Number || `Device ${device.Did}`;
                           const isSelected = assignDeviceSelected.has(String(device.Did));
+                          const didStr = String(device.Did);
+                          const selSid = deviceAssignTargetSid[didStr] ?? '';
+                          const selSlid = deviceAssignTargetSlid[didStr] ?? '';
+                          const locRowsForDevice = selSid
+                            ? sitesLocation.filter((s) => s.Sid != null && String(s.Sid) === selSid)
+                            : [];
+                          const selectRowClass = `min-w-[120px] flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`;
                           return (
                             <tr key={device.Did} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/50 ${!isSelected ? 'opacity-60' : ''}`}>
                               <td className="px-3 py-2">
@@ -2893,7 +3044,7 @@ function ContractEditorPageContent() {
                               <td className="px-3 py-2 font-medium text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{deviceLabel}</td>
                               <td className="px-3 py-2">
                                 {statusLabel ? (
-                                  isAtValidContractSite ? (
+                                  isDeviceSlidMatchesContractDevice ? (
                                     <span className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-2 py-1 text-xs font-medium text-green-700 border border-green-200 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                       <Check size={12} />
                                       {statusLabel}
@@ -2909,114 +3060,48 @@ function ContractEditorPageContent() {
                               </td>
                               <td className="px-3 py-2">
                                 <div className="flex flex-wrap items-center gap-2 min-w-0">
-                                  {(() => {
-                                    const currentSlid = deviceTargetSite[String(device.Did)] ?? '';
-                                    const currentSite = sitesLocation.find((s) => String(s.SLid) === currentSlid);
-                                    const currentSid = currentSite?.Sid != null ? String(currentSite.Sid) : (deviceTargetSid[String(device.Did)] ?? '');
-                                    const locationsForSid = assignGetLocationsForSid(currentSid);
-                                    const siteDisplayName = currentSite?.SiteName ?? (currentSid ? (assignUniqueSites.find((s) => s.sid === currentSid)?.name ?? '') : '');
-                                    const inputBaseClass = `min-w-0 flex-1 rounded-lg border border-slate-200 px-2 py-1.5 pr-7 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`;
-                                    const clearSiteForSelected = () => {
-                                      setDeviceTargetSid((prev) => {
-                                        const next = { ...prev };
-                                        assignDeviceSelected.forEach((id) => { delete next[id]; });
-                                        return next;
-                                      });
-                                      setDeviceTargetSite((prev) => {
-                                        const next = { ...prev };
-                                        assignDeviceSelected.forEach((id) => { next[id] = ''; });
-                                        return next;
-                                      });
-                                    };
-                                    const clearLocationOnlyForSelected = () => {
-                                      setDeviceTargetSite((prev) => {
-                                        const next = { ...prev };
-                                        assignDeviceSelected.forEach((id) => { next[id] = ''; });
-                                        return next;
-                                      });
-                                    };
-                                    return (
-                                      <>
-                                        <datalist id={`assign-modal-loc-${device.Did}`}>
-                                          {locationsForSid.map((s) => (
-                                            <option key={s.SLid} value={s.Location2 ?? ''} />
-                                          ))}
-                                        </datalist>
-                                        <div className="relative min-w-0 flex-1 flex items-center">
-                                          <input
-                                            type="text"
-                                            list="assign-modal-site-list"
-                                            placeholder="-- Select Site --"
-                                            defaultValue={siteDisplayName}
-                                            key={`site-${device.Did}-${currentSlid}-${currentSid}`}
-                                            onInput={(e) => {
-                                              const name = e.currentTarget.value.trim();
-                                              const found = assignUniqueSites.find((x) => x.name === name);
-                                              if (found) {
-                                                setDeviceTargetSid((prev) => {
-                                                  const next = { ...prev };
-                                                  assignDeviceSelected.forEach((id) => { next[id] = found.sid; });
-                                                  return next;
-                                                });
-                                                setDeviceTargetSite((prev) => {
-                                                  const next = { ...prev };
-                                                  assignDeviceSelected.forEach((id) => { next[id] = ''; });
-                                                  return next;
-                                                });
-                                              }
-                                            }}
-                                            disabled={!isSelected}
-                                            className={inputBaseClass}
-                                            title="Site (พิมพ์หรือเลือก)"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={clearSiteForSelected}
-                                            disabled={!isSelected}
-                                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none"
-                                            title="ล้าง Site และ Location"
-                                            aria-label="ล้าง Site และ Location"
-                                          >
-                                            <X size={12} />
-                                          </button>
-                                        </div>
-                                        <div className="relative min-w-0 flex-1 flex items-center">
-                                          <input
-                                            type="text"
-                                            list={`assign-modal-loc-${device.Did}`}
-                                            placeholder="-- Select Location --"
-                                            defaultValue={currentSite?.Location2 ?? ''}
-                                            key={`loc-${device.Did}-${currentSlid}`}
-                                            onInput={(e) => {
-                                              const text = e.currentTarget.value.trim();
-                                              const found = locationsForSid.find((s) => (s.Location2 ?? '') === text);
-                                              if (found) {
-                                                const newSlid = String(found.SLid);
-                                                setDeviceTargetSite((prev) => {
-                                                  const next = { ...prev };
-                                                  assignDeviceSelected.forEach((id) => { next[id] = newSlid; });
-                                                  return next;
-                                                });
-                                              }
-                                            }}
-                                            disabled={!isSelected}
-                                            className={inputBaseClass}
-                                            title="Location (พิมพ์หรือเลือก, กรองตาม Site)"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={clearLocationOnlyForSelected}
-                                            disabled={!isSelected}
-                                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none"
-                                            title="ล้าง Location เท่านั้น (คง Site)"
-                                            aria-label="ล้าง Location"
-                                          >
-                                            <X size={12} />
-                                          </button>
-                                        </div>
-                                      </>
-                                    );
-                                  })()}
+                                  <input
+                                    type="text"
+                                    list="assign-modal-site-combo-list"
+                                    placeholder="-- Select Site --"
+                                    autoComplete="off"
+                                    value={deviceAssignSiteQuery[didStr] ?? ''}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setDeviceAssignSiteQuery((prev) => ({ ...prev, [didStr]: v }));
+                                      const found = findSiteByTypedName(v);
+                                      if (found) {
+                                        setDeviceAssignTargetSid((prev) => ({ ...prev, [didStr]: found.sid }));
+                                        setDeviceAssignTargetSlid((prev) => ({ ...prev, [didStr]: '' }));
+                                      } else {
+                                        setDeviceAssignTargetSid((prev) => ({ ...prev, [didStr]: '' }));
+                                        setDeviceAssignTargetSlid((prev) => ({ ...prev, [didStr]: '' }));
+                                      }
+                                    }}
+                                    disabled={!isSelected}
+                                    className={selectRowClass}
+                                    title="Site (พิมพ์ค้นหาหรือเลือกจากรายการ)"
+                                  />
+                                  <select
+                                    value={selSlid}
+                                    onChange={(e) => {
+                                      setDeviceAssignTargetSlid((prev) => ({
+                                        ...prev,
+                                        [didStr]: e.target.value,
+                                      }));
+                                    }}
+                                    disabled={!isSelected || !selSid}
+                                    className={selectRowClass}
+                                    title="Location (เฉพาะ lid/แถวที่อยู่ภายใต้ Site ที่เลือก)"
+                                  >
+                                    <option value="">-- Select Location --</option>
+                                    {locRowsForDevice.map((row) => (
+                                      <option key={row.SLid} value={String(row.SLid)}>
+                                        {row.Location2 ??
+                                          (row.lid != null ? `lid ${row.lid}` : `SLid ${row.SLid}`)}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </div>
                               </td>
                             </tr>
@@ -3049,7 +3134,7 @@ function ContractEditorPageContent() {
                     type="button"
                     onClick={handleAssignSiteConfirm}
                     disabled={assignModalSubmitting || assignDeviceSelected.size === 0}
-                    className="px-5 py-2.5 rounded-xl bg-amber-500 font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    className="flex items-center gap-2 rounded-xl bg-indigo-500 px-5 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {assignModalSubmitting ? (
                       <>
@@ -3212,8 +3297,10 @@ function ContractEditorPageContent() {
                             />
                           </td>
                           <td className="px-3 py-2 font-medium text-slate-800">{c.name}</td>
-                          <td className="px-3 py-2 text-slate-600">{c.siteName ?? '—'}</td>
-                          <td className="px-3 py-2 text-slate-600">{c.siteLocation ?? '—'}</td>
+                          <td className="px-3 py-2 text-slate-600">{c.contractSiteName?.trim() ? c.contractSiteName : '—'}</td>
+                          <td className="px-3 py-2 text-slate-600">
+                            {c.contractSiteLocation?.trim() ? c.contractSiteLocation : '—'}
+                          </td>
                           <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
                             {c.sofName && String(c.sofName).trim() ? c.sofName : '—'}
                           </td>
