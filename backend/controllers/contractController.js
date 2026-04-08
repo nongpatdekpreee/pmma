@@ -502,25 +502,13 @@ const createContract = async (req, res) => {
         }
       }
 
-      // 4. & 5. อัปเดต devices (Assigned_Service, Refer_SOF) เฉพาะเมื่อไม่ใช่ draft — draft ยังไม่บันทึกลง devices
-      if (contractStatus !== 'draft') {
-        const assignedServiceValue = assigned_service && String(assigned_service).trim() ? assigned_service.trim() : null;
-        if (assignedServiceValue && deviceIdList.length > 0) {
-          const placeholders = deviceIdList.map(() => '?').join(',');
-          await conn.execute(
-            `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
-            [assignedServiceValue, ...deviceIdList]
-          );
-        }
-
-        // SOF: บันทึก Refer_SOF ลง devices ของสัญญานี้เสมอเมื่อไม่ใช่ draft
-        if (sofValue && deviceIdList.length > 0) {
-          const placeholders = deviceIdList.map(() => '?').join(',');
-          await conn.execute(
-            `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
-            [sofValue, ...deviceIdList]
-          );
-        }
+      // อัปเดต devices: Refer_SOF เท่านั้นเมื่อไม่ใช่ draft — Assigned_Service เก็บที่ contract เท่านั้น
+      if (contractStatus !== 'draft' && sofValue && deviceIdList.length > 0) {
+        const placeholders = deviceIdList.map(() => '?').join(',');
+        await conn.execute(
+          `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
+          [sofValue, ...deviceIdList]
+        );
       }
 
       } // end else (สร้างสัญญาใหม่)
@@ -1373,21 +1361,13 @@ const updateContract = async (req, res) => {
       }
     }
 
-    // อัปเดต Assigned_Service และ Refer_SOF ใน devices เฉพาะเมื่อไม่ใช่ draft
-    if (status !== 'draft' && deviceIdList.length > 0) {
+    // อัปเดต Refer_SOF ใน devices เฉพาะเมื่อไม่ใช่ draft — Assigned_Service เก็บที่ contract เท่านั้น
+    if (status !== 'draft' && deviceIdList.length > 0 && sof_name != null && String(sof_name).trim() !== '') {
       const placeholders = deviceIdList.map(() => '?').join(',');
-      if (assigned_service != null && String(assigned_service).trim() !== '') {
-        await conn.execute(
-          `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
-          [assigned_service.trim(), ...deviceIdList]
-        );
-      }
-      if (sof_name != null && String(sof_name).trim() !== '') {
-        await conn.execute(
-          `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
-          [sof_name.trim(), ...deviceIdList]
-        );
-      }
+      await conn.execute(
+        `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
+        [sof_name.trim(), ...deviceIdList]
+      );
     }
 
     await conn.commit();

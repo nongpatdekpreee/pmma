@@ -57,19 +57,29 @@ type SiteEntry = {
 type SiteDevicePair = { site_id: number; device_ids: number[] };
 
 function resolveDeviceScope(entry: SiteEntry, sitesLocation: SiteLocation[]): { sid?: string; slid?: string } {
+  // เลือก Location แล้ว (siteId = SLid) → ดึง device เฉพาะ site+location นั้น (ไม่ใช่ทั้ง Sid)
+  if (entry.siteId?.trim()) {
+    return { slid: entry.siteId.trim() };
+  }
   const ss = entry.selectedSid?.trim();
   if (ss) return { sid: ss };
-  if (entry.siteId) {
-    const row = sitesLocation.find((s) => String(s.SLid) === entry.siteId);
-    if (row?.Sid != null) return { sid: String(row.Sid) };
-    return { slid: entry.siteId };
-  }
   return {};
 }
 
 function entryHasSiteScope(entry: SiteEntry, sitesLocation: SiteLocation[]): boolean {
   const { sid, slid } = resolveDeviceScope(entry, sitesLocation);
   return Boolean(sid || slid);
+}
+
+/** SOF มีใน DB: ต้องเลือก Site + Location (siteId = SLid) ก่อนเปิดเลือก device */
+function entryHasSlidForSofDevicePick(entry: SiteEntry): boolean {
+  return Boolean(entry.siteId?.trim());
+}
+
+function canOpenDevicePicker(entry: SiteEntry | undefined, sofExistsInDb: boolean): boolean {
+  if (!entry) return false;
+  if (!sofExistsInDb) return true;
+  return entryHasSlidForSofDevicePick(entry);
 }
 
 function entryViewKey(entry: SiteEntry): string | null {
@@ -976,6 +986,7 @@ function AddContractPageContent() {
 
   const openDeviceModalForEntry = async (entryId: string) => {
     const entry = siteEntries.find((e) => e.id === entryId);
+    if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
     const scope = entry ? resolveDeviceScope(entry, sitesLocation) : {};
     if (sofExistsInDb && !scope.sid && !scope.slid) return;
 
@@ -1222,11 +1233,14 @@ function AddContractPageContent() {
     
     // รวม devices จาก site entries — ถ้าเป็น draft อนุญาตให้มีแค่ site (ไม่บังคับ device)
     const validPairs = isDraft
-      ? siteEntries.filter((e) => entryHasSiteScope(e, sitesLocation))
+      ? siteEntries.filter(
+          (e) =>
+            entryHasSiteScope(e, sitesLocation) &&
+            (!sofExistsInDb || entryHasSlidForSofDevicePick(e))
+        )
       : siteEntries.filter(
           (e) =>
-            e.devices.length > 0 &&
-            (entryHasSiteScope(e, sitesLocation) || !sofExistsInDb)
+            e.devices.length > 0 && (!sofExistsInDb || entryHasSlidForSofDevicePick(e))
         );
     
     // ถ้าเป็นต่อสัญญาและมี devices จากสัญญาเก่า แต่ไม่มี site entries ให้สร้าง site_device_pairs จาก devices เก่า
@@ -2292,13 +2306,10 @@ function AddContractPageContent() {
                         <button
                           type="button"
                           onClick={() => {
-                            if (sofExistsInDb && !entryHasSiteScope(entry, sitesLocation)) return;
+                            if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
                             void openDeviceModalForEntry(entry.id);
                           }}
-                          disabled={
-                            (sofExistsInDb ? !entryHasSiteScope(entry, sitesLocation) : false) ||
-                            devicesLoading
-                          }
+                          disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
                           className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {devicesLoading && activeSiteEntryId === entry.id

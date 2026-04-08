@@ -1236,8 +1236,7 @@ const getAssignedServicesList = async (req, res) => {
 };
 
 // GET - ดึง Devices ตาม Refer_SOF และ Site — รองรับ sid (sites.Sid) หรือ site_id (SLid)
-// sid: SOF ตรง + ทุก SL ใต้ site (ไม่กรอง Asset_State)
-// site_id (SLid): SOF ตรง + In Store หรือ In Use
+// ทั้ง sid และ site_id: SOF ตรง + ขอบเขต site/location — ไม่กรอง Asset_State
 const getDevicesBySOFAndSite = async (req, res) => {
   try {
     const referSOF = req.query.refer_sof;
@@ -1261,7 +1260,6 @@ const getDevicesBySOFAndSite = async (req, res) => {
     const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
   
     const sofMatch = `(d.Refer_SOF = ? OR TRIM(LEADING '0' FROM COALESCE(d.Refer_SOF, '')) = ?)`;
-    const inStoreOrInUse = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) IN ('in use', 'in store'))`;
     let rows;
     if (sid) {
       const sidNum = parseInt(sid, 10);
@@ -1289,7 +1287,7 @@ const getDevicesBySOFAndSite = async (req, res) => {
          LEFT JOIN manufacturer m ON dt.Mid = m.Mid
          LEFT JOIN sites_location sl ON d.SLid = sl.SLid
          LEFT JOIN location L ON sl.lid = L.lid
-         WHERE d.SLid = ? AND ${inStoreOrInUse} AND ${sofMatch}
+         WHERE d.SLid = ? AND ${sofMatch}
          ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
         [siteId, referSOF, referSOFTrim]
       );
