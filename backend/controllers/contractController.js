@@ -662,8 +662,34 @@ const getContractsBySite = async (req, res) => {
 
     if (siteId) {
       const siteIdNum = parseInt(siteId, 10);
-      sql = `${baseSelect} WHERE (c.site_id = ? OR d.SLid = ? OR cd.SLid = ?) ORDER BY c.contract_id DESC`;
-      params = [siteIdNum, siteIdNum, siteIdNum];
+      // Client ส่ง site_id = SLid (sites_location). สัญญาหลายฉบับอาจผูกคนละ SLid แต่ Sid เดียวกัน — รวมทุกสัญญาใน site นั้น
+      if (!isNaN(siteIdNum)) {
+        sql = `${baseSelect} WHERE (
+          c.site_id IN (
+            SELECT slb.SLid FROM sites_location slb
+            WHERE slb.Sid = (SELECT sl0.Sid FROM sites_location sl0 WHERE sl0.SLid = ? LIMIT 1)
+          )
+          OR c.contract_id IN (
+            SELECT DISTINCT cd4.contract_id FROM contract_device cd4
+            WHERE cd4.SLid IN (
+              SELECT sl1.SLid FROM sites_location sl1
+              WHERE sl1.Sid = (SELECT sl0.Sid FROM sites_location sl0 WHERE sl0.SLid = ? LIMIT 1)
+            )
+          )
+          OR d.SLid IN (
+            SELECT sl1.SLid FROM sites_location sl1
+            WHERE sl1.Sid = (SELECT sl0.Sid FROM sites_location sl0 WHERE sl0.SLid = ? LIMIT 1)
+          )
+          OR (
+            (SELECT sl0.Sid FROM sites_location sl0 WHERE sl0.SLid = ? LIMIT 1) IS NULL
+            AND (c.site_id = ? OR d.SLid = ? OR cd.SLid = ?)
+          )
+        ) ORDER BY c.contract_id DESC`;
+        params = [siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum];
+      } else {
+        sql = `${baseSelect} ORDER BY c.contract_id DESC`;
+        params = [];
+      }
     } else {
       sql = `${baseSelect} ORDER BY c.contract_id DESC`;
     }

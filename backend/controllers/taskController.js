@@ -78,9 +78,11 @@ const toDateOnlyString = (val) => {
 
 const mapTaskRow = (row) => {
   const slaVal = row.contract_sla_term;
+  const sofRaw = row.contract_sof_name != null ? String(row.contract_sof_name).trim() : '';
   return {
   id: row.id,
   contractId: row.contract_id,
+  ...(sofRaw ? { sofName: sofRaw } : {}),
   replacementDeviceId: row.replacement_device_id,
   taskType: row.task_type,
   siteId: row.site_id,
@@ -264,7 +266,8 @@ const createTask = async (req, res) => {
     }
 
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term FROM tasks t LEFT JOIN contract c ON t.contract_id = c.contract_id WHERE t.id = ?`,
+      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
+       FROM tasks t LEFT JOIN contract c ON t.contract_id = c.contract_id WHERE t.id = ?`,
       [finalTaskId]
     );
     return res.status(201).json({
@@ -289,7 +292,7 @@ const createTask = async (req, res) => {
 const getTasks = async (_req, res) => {
   try {
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term
+      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
        FROM tasks t
        LEFT JOIN contract c ON t.contract_id = c.contract_id
        ORDER BY t.start_date DESC, t.id DESC`
@@ -314,7 +317,7 @@ const getTaskById = async (req, res) => {
   try {
     const { id } = req.params;
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term
+      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
        FROM tasks t
        LEFT JOIN contract c ON t.contract_id = c.contract_id
        WHERE t.id = ?`,
@@ -699,7 +702,7 @@ const getOverdueTasks = async (req, res) => {
       });
     }
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term
+      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
        FROM tasks t
        LEFT JOIN contract c ON t.contract_id = c.contract_id
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
@@ -743,7 +746,7 @@ const getCompletedTasks = async (req, res) => {
       });
     }
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term
+      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
        FROM tasks t
        LEFT JOIN contract c ON t.contract_id = c.contract_id
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
@@ -788,7 +791,7 @@ const getInprocessTasks = async (req, res) => {
       });
     }
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term
+      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
        FROM tasks t
        LEFT JOIN contract c ON t.contract_id = c.contract_id
        LEFT JOIN report r ON r.id = t.id
@@ -835,7 +838,7 @@ const getPendingTasks = async (req, res) => {
       });
     }
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term
+      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
        FROM tasks t
        LEFT JOIN contract c ON t.contract_id = c.contract_id
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id

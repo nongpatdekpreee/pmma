@@ -14,6 +14,7 @@ import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
+import { mapEmployeesToEngineerRoster, engineerRosterLabel } from '@/lib/engineerRoster';
 
 interface Device {
   id: string;
@@ -301,20 +302,9 @@ function CalendarPageContent() {
   useEffect(() => {
     const loadEngineers = async () => {
       try {
-        const employeesResult = await getEmployees();
+        const employeesResult = await getEmployees({ limit: 2000 });
         if (employeesResult.success && employeesResult.data) {
-          const engineers: Engineer[] = employeesResult.data
-            .filter((emp: any) => emp.positionType === 'Technical')
-            .map((emp: any) => {
-              const nameParts = (emp.name || emp.displayName || '').split(' ');
-              return {
-                id: emp.id || emp.employee_id || '',
-                name: nameParts[0] || emp.name || emp.displayName || '',
-                lastName: nameParts.slice(1).join(' ') || emp.lastName || '',
-                photo: emp.photo ?? null,
-              };
-            });
-          setAvailableEngineers(engineers);
+          setAvailableEngineers(mapEmployeesToEngineerRoster(employeesResult.data) as Engineer[]);
         }
       } catch (error) {
         console.error('Error loading engineers:', error);
@@ -455,12 +445,22 @@ function CalendarPageContent() {
     setTablePage((p) => (p > totalTablePages ? totalTablePages : p < 1 ? 1 : p));
   }, [totalTablePages]);
 
-  const filteredEngineersForFilter = availableEngineers.filter(
-    eng => !selectedEngineerFilter.includes(String(eng.id)) &&
-      (eng.name?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
-        eng.lastName?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
-        String(eng.id).toLowerCase().includes(engineerFilterInput.toLowerCase()))
-  );
+  const filteredEngineersForFilter = availableEngineers.filter((eng) => {
+    const q = engineerFilterInput.toLowerCase();
+    return (
+      !selectedEngineerFilter.includes(String(eng.id)) &&
+      (String(eng.name || '')
+        .toLowerCase()
+        .includes(q) ||
+        String(eng.lastName || '')
+          .toLowerCase()
+          .includes(q) ||
+        engineerRosterLabel(eng).toLowerCase().includes(q) ||
+        String(eng.id)
+          .toLowerCase()
+          .includes(q))
+    );
+  });
   const addEngineerFilter = (eng: Engineer) => {
     if (!selectedEngineerFilter.includes(String(eng.id))) {
       setSelectedEngineerFilter([...selectedEngineerFilter, String(eng.id)]);
@@ -608,6 +608,23 @@ function CalendarPageContent() {
     } catch {
       return dateString;
     }
+  };
+
+  /** Table / display: mm/dd/yyyy */
+  const formatDateMonthDayYear = (dateStr: string | undefined): string => {
+    if (!dateStr) return '—';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [y, m, d] = dateStr.split('-');
+      return `${m}/${d}/${y}`;
+    }
+    const dateObj = new Date(dateStr);
+    if (!Number.isNaN(dateObj.getTime())) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${m}/${d}/${y}`;
+    }
+    return dateStr;
   };
 
   // Persist task dates to backend
@@ -872,8 +889,8 @@ function CalendarPageContent() {
                   </span>
                 )}
                 {selectedEngineerFilter.map((id) => {
-                  const eng = availableEngineers.find(e => String(e.id) === id);
-                  const label = eng ? `${eng.name || ''} ${eng.lastName || ''}`.trim() || id : id;
+                  const eng = availableEngineers.find((e) => String(e.id) === id);
+                  const label = eng ? engineerRosterLabel(eng) : id;
                   return (
                     <span
                       key={id}
@@ -923,7 +940,7 @@ function CalendarPageContent() {
                     <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
                   ) : (
                     filteredEngineersForFilter.map((eng) => {
-                      const dn = `${eng.name || ''} ${eng.lastName || ''}`.trim();
+                      const dn = engineerRosterLabel(eng);
                       return (
                         <button
                           key={eng.id}
@@ -931,10 +948,8 @@ function CalendarPageContent() {
                           className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
                           onClick={() => addEngineerFilter(eng)}
                         >
-                          <EngineerAvatar photoUrl={eng.photo} displayName={dn || String(eng.id)} size="md" />
-                          <span className="min-w-0 truncate">
-                            {eng.name} {eng.lastName || ''}
-                          </span>
+                          <EngineerAvatar photoUrl={eng.photo} displayName={dn} size="md" />
+                          <span className="min-w-0 truncate">{dn}</span>
                         </button>
                       );
                     })
@@ -1032,7 +1047,10 @@ function CalendarPageContent() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Date</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600">
+                        <span className="block">Date</span>
+                        <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
+                      </th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Engineer</th>
@@ -1064,8 +1082,11 @@ function CalendarPageContent() {
                           >
                             <td className="py-2.5 px-4 text-slate-600 whitespace-nowrap">
                               {ev.startDate === ev.endDate || !ev.endDate
-                                ? ev.startDate || `${ev.startDay}/${currentMonth + 1}/${currentYear}`
-                                : `${ev.startDate || ''} – ${ev.endDate || ''}`}
+                                ? formatDateMonthDayYear(
+                                    ev.startDate ||
+                                      `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(ev.startDay).padStart(2, '0')}`
+                                  )
+                                : `${formatDateMonthDayYear(ev.startDate)} – ${formatDateMonthDayYear(ev.endDate)}`}
                             </td>
                             <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
                             <td className="py-2.5 px-4">
@@ -1125,7 +1146,7 @@ function CalendarPageContent() {
               )}
             </div>
           ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-gray-100 xl:min-h-[calc(100dvh-15.5rem)]">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-gray-100 xl:min-h-[calc(100dvh-14rem)]">
             {/* Calendar Grid header row */}
             <div className="grid shrink-0 grid-cols-7 gap-px">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
@@ -1142,8 +1163,14 @@ function CalendarPageContent() {
               ))}
             </div>
             
-            {/* Calendar weeks — แบ่งความสูงเท่าๆ กันเมื่อจอใหญ่ */}
-            <div className="flex min-h-[min(360px,calc(100dvh-18rem))] flex-1 flex-col gap-px xl:min-h-0">
+            {/* มี task ในเดือนนี้ → ความสูงตามเนื้อหา; ไม่มี → แถวเท่ากันเต็มกรอบ (ขนาดปกติ) */}
+            <div
+              className={
+                tasksInCurrentMonth.length > 0
+                  ? 'flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overflow-x-hidden xl:min-h-0'
+                  : 'flex min-h-0 flex-1 flex-col gap-px overflow-hidden xl:min-h-0'
+              }
+            >
             {calendarWeeks.map((week, weekIndex) => {
               const multiDaySpans = getMultiDaySpansForWeek(week);
               const multiDaySpansWithRow = assignRowsToMultiDaySpans(multiDaySpans);
@@ -1153,26 +1180,80 @@ function CalendarPageContent() {
               const MULTI_DAY_TOP_OFFSET = 32;
               const multiDayAreaHeight = (rows: number) =>
                 MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
+              const PILL_ROW_PX = 36;
+              /** ความสูงขั้นต่ำของช่องวัน = เทียบเท่ามี task วันเดียวกี่แถว (แสดงจริงตาม nPills) */
+              const MIN_VISIBLE_PILL_ROWS = 2;
+              const DAY_HEADER_PX = 28;
+              const HOLIDAY_EXTRA_PX = 20;
+              const CELL_PAD_PX = 16;
+              const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
+              const dayLayouts = week.map((day, dayIndex) => {
+                const dayEvents = getEventsForDay(day);
+                const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
+                const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
+                const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
+                const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
+                const holidayForDay = getHolidayForDay(day);
+                const nPills = singleDayEventsOnly.length;
+                const nPillsForHeight = day === null ? 0 : Math.max(nPills, MIN_VISIBLE_PILL_ROWS);
+                const pillsStackPx = nPillsForHeight * PILL_ROW_PX;
+                const headerPx = DAY_HEADER_PX + (holidayForDay ? HOLIDAY_EXTRA_PX : 0);
+                const pillsMtPx = hasMultiDayBarAbove
+                  ? Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)
+                  : nPillsForHeight > 0
+                    ? 6
+                    : 0;
+                let cellMinH: number;
+                if (day === null) {
+                  cellMinH = 40;
+                } else if (multiDayRowCount > 0) {
+                  const barBlock = multiDayAreaHeight(multiDayRowCount);
+                  cellMinH = Math.ceil(
+                    barBlock + pillsMtPx + pillsStackPx + headerPx + CELL_PAD_PX + 10
+                  );
+                } else {
+                  cellMinH = Math.ceil(
+                    headerPx + pillsMtPx + pillsStackPx + CELL_PAD_PX + 10
+                  );
+                }
+                return {
+                  cellMinH,
+                  singleDayEventsOnly,
+                  hasMultiDayBarAbove,
+                  multiDayRowsThisDay,
+                  holidayForDay,
+                  nPills,
+                  pillsStackPx,
+                };
+              });
+              const weekRowMinH = Math.max(48, ...dayLayouts.map(l => l.cellMinH));
+              const expandCalendarByTasks = tasksInCurrentMonth.length > 0;
               return (
-                <div key={weekIndex} className="relative grid min-h-[5rem] flex-1 grid-cols-7 gap-px xl:min-h-[7rem]">
+                <div
+                  key={weekIndex}
+                  className={
+                    expandCalendarByTasks
+                      ? 'relative grid shrink-0 grid-cols-7 gap-px overflow-hidden'
+                      : 'relative grid min-h-[3.5rem] flex-1 grid-cols-7 grid-rows-[minmax(0,1fr)] gap-px overflow-hidden sm:min-h-[4rem] xl:min-h-[5rem]'
+                  }
+                  style={{ minHeight: weekRowMinH }}
+                >
                   {week.map((day, dayIndex) => {
-                    const dayEvents = getEventsForDay(day);
-                    // กรองงานหลายวันออกจาก pills ในวันแรก (เพราะจะแสดงเป็นแถบต่อกันแล้ว)
-                    const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
-                    const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
-                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ — ใช้เฉพาะจำนวนแถวที่ครอบคลุมวันนี้ เพื่อไม่ให้มีช่องว่างเกิน
-                    const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
-                    const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
-                    const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
-                    const holidayForDay = getHolidayForDay(day);
-                    const cellMinH =
-                      multiDayRowCount > 0 ? multiDayAreaHeight(multiDayRowCount) + 44 : 100;
+                    const {
+                      cellMinH,
+                      singleDayEventsOnly,
+                      hasMultiDayBarAbove,
+                      multiDayRowsThisDay,
+                      holidayForDay,
+                      nPills,
+                      pillsStackPx,
+                    } = dayLayouts[dayIndex];
                     return (
                       <div
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => handleDragOver(e, day)}
-                        className={`relative h-full min-h-[100px] border-l border-t border-gray-50 p-2 xl:min-h-0 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
+                        className={`relative flex h-full min-h-0 flex-col overflow-hidden border-l border-t border-gray-50 p-2 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'border-2 border-blue-300 bg-blue-50'
                             : ''
@@ -1181,24 +1262,32 @@ function CalendarPageContent() {
                       >
                         {day !== null && (
                           <>
-                            <span
-                              className={`text-xs font-bold ${
-                                isToday(day)
-                                  ? 'bg-gradient-to-br from-sky-500 to-pink-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md text-[10px]'
-                                  : 'bg-gradient-to-r from-slate-400 to-slate-500 bg-clip-text text-transparent'
-                              }`}
-                            >
-                              {day}
-                            </span>
-                            {holidayForDay && (
-                              <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
-                                {holidayForDay.name}
+                            <div className="shrink-0">
+                              <span
+                                className={`text-xs font-bold ${
+                                  isToday(day)
+                                    ? 'bg-gradient-to-br from-sky-500 to-pink-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md text-[10px]'
+                                    : 'bg-gradient-to-r from-slate-400 to-slate-500 bg-clip-text text-transparent'
+                                }`}
+                              >
+                                {day}
                               </span>
-                            )}
-                            {/* งานวันเดียว — ให้ pills เริ่มชิดใต้แถบ (หักความสูงพื้นที่วันที่ออก เพราะแถบวัดจากบน cell) */}
+                              {holidayForDay && (
+                                <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
+                                  {holidayForDay.name}
+                                </span>
+                              )}
+                            </div>
                             <div
-                              className={`space-y-0.5 relative z-10 ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
-                              style={hasMultiDayBarAbove ? { marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px` } : undefined}
+                              className={`flex w-full flex-col overflow-x-hidden [scrollbar-width:thin] space-y-0.5 relative z-[5] ${expandCalendarByTasks ? 'flex-none overflow-y-auto' : 'min-h-0 flex-1 overflow-y-hidden'} ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
+                              style={{
+                                ...(hasMultiDayBarAbove
+                                  ? {
+                                      marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px`,
+                                    }
+                                  : {}),
+                                ...(pillsStackPx > 0 ? { minHeight: pillsStackPx } : {}),
+                              }}
                             >
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';

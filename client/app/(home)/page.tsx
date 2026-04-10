@@ -30,6 +30,35 @@ function startOfDay(d: Date): Date {
   return x;
 }
 
+/** จำนวนวันปฏิทินระหว่าง earlier → later (ทั้งคู่ normalize ที่เที่ยงคืน local) */
+function calendarDaysBetween(earlier: Date, later: Date): number {
+  const a = startOfDay(earlier).getTime();
+  const b = startOfDay(later).getTime();
+  return Math.round((b - a) / 86400000);
+}
+
+/** งานที่ยังไม่ถึงวันเริ่ม: อีกกี่วันถึง (เทียบกับวันนี้) */
+function formatThaiDaysUntil(startDateIso: string, todayStart: Date): string | null {
+  const start = startOfDay(new Date(startDateIso));
+  if (Number.isNaN(start.getTime())) return null;
+  const n = calendarDaysBetween(todayStart, start);
+  if (n < 0) return null;
+  if (n === 0) return 'Today';
+  if (n === 1) return 'Tomorrow';
+  return `In ${n} days`;
+}
+
+/** งานเลยกำหนด (เทียบ endDate กับวันนี้) */
+function formatThaiDaysPastDue(endDateIso: string, todayStart: Date): string | null {
+  const end = startOfDay(new Date(endDateIso));
+  if (Number.isNaN(end.getTime())) return null;
+  if (end >= todayStart) return null;
+  const n = calendarDaysBetween(end, todayStart);
+  if (n <= 0) return null;
+  if (n === 1) return 'Overdue';
+  return `Overdue ${n} days`;
+}
+
 function taskStart(t: any): Date | null {
   const s = t.startDate || t.start_date;
   if (!s) return null;
@@ -467,6 +496,19 @@ export default function DashboardPage() {
                       >
                         {ev.dateStr}
                       </p>
+                      {ev.startDate &&
+                        (() => {
+                          const rel = formatThaiDaysUntil(ev.startDate, todayStart);
+                          return rel ? (
+                            <p
+                              className={`text-[10px] mt-0.5 font-medium ${
+                                ev.taskType === 'MA' ? 'text-red-700/90' : 'text-blue-600/90'
+                              }`}
+                            >
+                              {rel}
+                            </p>
+                          ) : null;
+                        })()}
                     </Link>
                   ))}
                 </div>
@@ -555,6 +597,13 @@ export default function DashboardPage() {
                     >
                       <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
                       <p className="text-[10px] text-amber-600 mt-1">Overdue {ev.dateStr}</p>
+                      {ev.endDate &&
+                        (() => {
+                          const overdue = formatThaiDaysPastDue(ev.endDate, todayStart);
+                          return overdue ? (
+                            <p className="text-[10px] text-amber-800 font-semibold mt-0.5">{overdue}</p>
+                          ) : null;
+                        })()}
                     </Link>
                   ))}
                 </div>
