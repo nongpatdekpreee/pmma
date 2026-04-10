@@ -11,7 +11,7 @@ import {
   Search,
   ChevronDown,
 } from 'lucide-react';
-import { useEffect, useState, useRef, useMemo, useId } from 'react';
+import { useEffect, useState, useRef, useMemo, useId, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getSitesLocationWithContracts, getTasks, checkEngineerConflict } from '@/lib/api';
 import { randomUUID } from '@/lib/utils';
@@ -27,7 +27,8 @@ import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  onSave?: (data: any) => Promise<void> | void;
+  /** ส่ง object เดียว หรือ array เมื่อสร้างหลายทาสก์จากหลายสัญญา */
+  onSave?: (data: any | any[]) => Promise<void> | void;
   editingEvent?: any;
 }
 
@@ -54,6 +55,75 @@ interface Engineer {
   name: string;
   lastName?: string;
   photo?: string | null;
+}
+
+/** ดึง id จากรูปแบบ JSON งาน / พนักงาน ที่อาจใช้คีย์ต่างกัน */
+function rawEngineerId(o: Record<string, unknown>): string {
+  const candidates = [o.id, o.Eng_Eid, o.eng_id, o.employee_id, o.Eid, o.user_id];
+  for (const x of candidates) {
+    if (x != null && x !== '') return String(x).trim();
+  }
+  return '';
+}
+
+/** แปลงรายการ engineer จาก API/DB ให้เป็น Engineer — รองรับ id เป็นตัวเลขและชื่อหลายรูปแบบ */
+function coerceEngineerFromRaw(raw: unknown): Engineer | null {
+  if (raw == null) return null;
+  if (typeof raw === 'number' || typeof raw === 'string') {
+    const id = String(raw).trim();
+    return id ? { id, name: '', lastName: undefined, photo: null } : null;
+  }
+  if (typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const id = rawEngineerId(o);
+  const explicitFirst =
+    (typeof o.firstName === 'string' ? o.firstName.trim() : '') ||
+    (typeof o.first_name === 'string' ? o.first_name.trim() : '');
+  const explicitLast =
+    (typeof o.lastName === 'string' ? o.lastName.trim() : '') ||
+    (typeof o.last_name === 'string' ? o.last_name.trim() : '') ||
+    (typeof o.surname === 'string' ? o.surname.trim() : '');
+  const singleName = (typeof o.name === 'string' && o.name.trim()) || '';
+  const displayName = (typeof o.displayName === 'string' && o.displayName.trim()) || '';
+
+  let name = '';
+  let lastName: string | undefined;
+
+  if (explicitFirst || explicitLast) {
+    name = explicitFirst || singleName.split(/\s+/)[0] || '';
+    lastName =
+      explicitLast ||
+      (singleName ? singleName.split(/\s+/).slice(1).join(' ') : undefined) ||
+      undefined;
+  } else if (singleName) {
+    const bits = singleName.split(/\s+/).filter(Boolean);
+    name = bits[0] || '';
+    lastName = bits.length > 1 ? bits.slice(1).join(' ') : undefined;
+  } else if (displayName) {
+    const bits = displayName.split(/\s+/).filter(Boolean);
+    name = bits[0] || '';
+    lastName = bits.length > 1 ? bits.slice(1).join(' ') : undefined;
+  }
+
+  const photo =
+    typeof o.photo === 'string' || o.photo === null ? (o.photo as string | null) : null;
+  if (!id) return null;
+  return {
+    id,
+    name,
+    lastName,
+    photo,
+  };
+}
+
+function parseEngineersFromEvent(engList: unknown): Engineer[] {
+  if (!Array.isArray(engList)) return [];
+  const out: Engineer[] = [];
+  for (const item of engList) {
+    const e = coerceEngineerFromRaw(item);
+    if (e) out.push(e);
+  }
+  return out;
 }
 
 interface SiteOption {
@@ -120,7 +190,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
   const [loadingSites, setLoadingSites] = useState(false);
   const [contractOptions, setContractOptions] = useState<ContractOption[]>([]);
-  const [selectedContractId, setSelectedContractId] = useState<string>('');
+  const [selectedContractIds, setSelectedContractIds] = useState<string[]>([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [deviceError, setDeviceError] = useState<string | null>(null);
@@ -181,7 +251,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setDuration('');
     setAssetBinding('');
     setContractOptions([]);
-    setSelectedContractId('');
+    setSelectedContractIds([]);
     setDevices([]);
     setAvailableNewDevices([]);
     setSelectedDevices([]);
@@ -365,7 +435,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     if (!isOpen || !siteId) {
       setContractOptions([]);
       if (!preserveContractId) {
-        setSelectedContractId('');
+        setSelectedContractIds([]);
       }
       return;
     }
@@ -375,13 +445,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const contracts = await fetchContractsBySite(siteId);
       setContractOptions(contracts);
       if (!preserveContractId) {
-        setSelectedContractId('');
+        setSelectedContractIds([]);
       } else {
         const contractExists = contracts.some((c: ContractOption) => String(c.contract_id) === String(preserveContractId));
         if (contractExists) {
-          setSelectedContractId(String(preserveContractId));
+          setSelectedContractIds([String(preserveContractId)]);
         } else {
-          setSelectedContractId('');
+          setSelectedContractIds([]);
         }
       }
     } catch (error: any) {
@@ -459,19 +529,40 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
   };
 
-  const loadDevicesForSelection = async (contractId: string, currentTaskType: 'PM' | 'MA', preserveSelectedDevices: Device[] = []) => {
+  const loadDevicesForSelection = async (
+    contractIds: string[],
+    currentTaskType: 'PM' | 'MA',
+    preserveSelectedDevices: Device[] = []
+  ) => {
     if (!isOpen) return;
+    if (!contractIds.length) {
+      setDevices([]);
+      setAvailableNewDevices([]);
+      if (!preserveSelectedDevices.length) {
+        setSelectedDevices([]);
+        setBrokenDevicePairs([]);
+      }
+      return;
+    }
     setLoadingDevices(true);
     setDeviceError(null);
     try {
-      // ดึง devices ตาม contract (+ site ถ้าเลือกไว้)
-      let contractList = contractId ? await fetchDevicesByContract(contractId, Sid || null) : [];
-      // ถ้าไม่เจอ (เช่น กรองตาม site แล้วไม่มี) ลองเช็คแค่ว่า contract_id นี้มี device ผูกอยู่ไหนบ้าง (ไม่กรอง site)
-      if (contractId && contractList.length === 0 && Sid) {
-        contractList = await fetchDevicesByContract(contractId, null);
+      const merged: Device[] = [];
+      const seen = new Set<string>();
+      for (const contractId of contractIds) {
+        if (!contractId) continue;
+        let contractList = await fetchDevicesByContract(contractId, Sid || null);
+        if (contractList.length === 0 && Sid) {
+          contractList = await fetchDevicesByContract(contractId, null);
+        }
+        for (const d of contractList) {
+          const k = String(d.id);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          merged.push(d);
+        }
       }
 
-      // Only load available devices for replacement device selection (not for broken device selection)
       if (currentTaskType === 'MA') {
         const availableList = await fetchAvailableDevices();
         setAvailableNewDevices(availableList);
@@ -479,16 +570,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         setAvailableNewDevices([]);
       }
 
-      // For broken device selection: only use contract devices
-      setDevices(contractList);
+      setDevices(merged);
 
-      // If we have preserved devices from editing, keep them (don't filter them out)
       if (preserveSelectedDevices.length > 0) {
-        // Keep preserved devices - they should already be valid from the contract
         setSelectedDevices(preserveSelectedDevices);
       } else {
-        // Normal behavior: keep only selected devices that still exist in the list
-        setSelectedDevices((prev) => prev.filter((d) => contractList.some((c) => String(c.id) === String(d.id))));
+        setSelectedDevices((prev) => prev.filter((d) => merged.some((c) => String(c.id) === String(d.id))));
       }
       setShowAll(false);
     } catch (error: any) {
@@ -509,7 +596,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setTaskType(editingEvent.taskType || 'PM');
       setSid(editingEvent.Sid ? String(editingEvent.Sid) : editingEvent.siteId ? String(editingEvent.siteId) : '');
       setSname(editingEvent.Sname || editingEvent.siteName || '');
-      setSelectedEngineers(editingEvent.Eng_ids || editingEvent.engineers || []);
+      setSelectedEngineers(
+        parseEngineersFromEvent(editingEvent.Eng_ids || editingEvent.engineers || [])
+      );
       const start = editingEvent.startDate || '';
       const end = editingEvent.endDate || '';
       setStartDate(start);
@@ -525,7 +614,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
       setAssetBinding(editingEvent.assetBinding || '');
       const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
-      setSelectedContractId(contractId);
+      setSelectedContractIds(contractId ? [contractId] : []);
       // Store editing assets to preserve them after devices are loaded
       setSelectedDevices(editingAssets);
       // Load replacement device if replacementDeviceId exists
@@ -638,7 +727,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           .map((emp: any) => {
             const nameParts = (emp.name || '').split(' ');
             return {
-              id: emp.id,
+              id: String(emp.id ?? emp.user_id ?? ''),
               name: nameParts[0] || emp.name || '',
               lastName: nameParts.slice(1).join(' ') || '',
               photo: emp.photo ?? null,
@@ -655,6 +744,41 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
     loadEngineers();
   }, [isOpen]);
+
+  /** หลังโหลด roster: เติมชื่อให้ engineer ที่งานเก็บแค่ id หรือ id เป็นตัวเลข */
+  useEffect(() => {
+    if (!isOpen || availableEngineers.length === 0) return;
+    setSelectedEngineers((prev) => {
+      if (prev.length === 0) return prev;
+      let changed = false;
+      const next = prev.map((e) => {
+        const id = String(e.id);
+        const hasName = `${e.name || ''}${e.lastName ? ` ${e.lastName}` : ''}`.trim();
+        if (hasName) {
+          if (e.id !== id) {
+            changed = true;
+            return { ...e, id };
+          }
+          return e;
+        }
+        const m = availableEngineers.find((a) => String(a.id) === id);
+        if (m) {
+          changed = true;
+          return {
+            ...m,
+            id: String(m.id),
+            photo: e.photo ?? m.photo,
+          };
+        }
+        if (e.id !== id) {
+          changed = true;
+          return { ...e, id };
+        }
+        return e;
+      });
+      return changed ? next : prev;
+    });
+  }, [isOpen, availableEngineers]);
 
   // Load manufacturers, device roles, and device types when modal opens
   useEffect(() => {
@@ -718,23 +842,29 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       loadContractsForSite(Sid, preserveContractId ? String(preserveContractId) : undefined);
     } else {
       setContractOptions([]);
-      setSelectedContractId('');
+      setSelectedContractIds([]);
     }
   }, [Sid, isOpen, editingEvent]);
+
+  const selectedContractIdsKey = selectedContractIds.slice().sort().join(',');
 
   useEffect(() => {
     if (!isOpen) return;
     // If editing and we have assets, preserve them when loading devices
     const preserveDevices = editingEvent?.assets || [];
-    // โหลด devices เมื่อเลือก contract (และส่ง Sid เพื่อกรองตาม site ที่เลือก)
-    if (selectedContractId) {
-      loadDevicesForSelection(selectedContractId, taskType, preserveDevices.length > 0 && editingEvent ? preserveDevices : []);
+    // โหลด devices จากทุกสัญญาที่เลือก (รวมรายการ)
+    if (selectedContractIds.length > 0) {
+      loadDevicesForSelection(
+        selectedContractIds,
+        taskType,
+        preserveDevices.length > 0 && editingEvent ? preserveDevices : []
+      );
     } else {
       setDevices([]);
       setSelectedDevices([]);
       setBrokenDevicePairs([]);
     }
-  }, [selectedContractId, taskType, Sid, isOpen, editingEvent]);
+  }, [selectedContractIdsKey, taskType, Sid, isOpen, editingEvent]);
 
   // Re-map devices when deviceRoles and deviceTypes are loaded to include role and manufacturer
   useEffect(() => {
@@ -950,7 +1080,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const r = `${fromRoster.name || ''}${fromRoster.lastName ? ' ' + fromRoster.lastName : ''}`.trim();
       if (r) return r;
     }
-    return 'Engineer';
+    const id = String(eng.id ?? '').trim();
+    return id ? `Engineer #${id}` : 'Engineer';
   };
 
   const engineerPhotoSrc = (eng: Engineer): string | null => {
@@ -1001,24 +1132,25 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   const addEngineer = async (engineer: Engineer) => {
+    const normalized: Engineer = { ...engineer, id: String(engineer.id) };
     // เช็คว่า engineer คนนี้ถูกเลือกแล้วหรือยัง
-    if (selectedEngineers.some((e) => e.id === engineer.id)) {
+    if (selectedEngineers.some((e) => String(e.id) === normalized.id)) {
       return;
     }
 
     // เช็ค conflict ก่อนเพิ่ม (ต้องมี startDate)
     if (!startDate) {
       // ถ้ายังไม่มี startDate ให้เพิ่มได้เลย (จะเช็คตอน save)
-      setSelectedEngineers([...selectedEngineers, engineer]);
+      setSelectedEngineers((prev) => [...prev, normalized]);
       setEngineerInput('');
       setShowEngineerDropdown(false);
       return;
     }
 
     // เช็ค conflict - แจ้งเตือนแต่ยังเพิ่มได้
-    const conflictCheck = await checkSingleEngineerConflict(engineer);
+    const conflictCheck = await checkSingleEngineerConflict(normalized);
     if (conflictCheck.hasConflict) {
-      const engineerName = engineerDisplayName(engineer);
+      const engineerName = engineerDisplayName(normalized);
       const taskInfo = conflictCheck.conflictingTask?.siteName || conflictCheck.conflictingTask?.Sname || 'Unknown Task';
       const taskDate = conflictCheck.conflictingTask?.startDate 
         ? new Date(conflictCheck.conflictingTask.startDate).toLocaleDateString('en-US', {
@@ -1032,13 +1164,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
 
     // เพิ่ม engineer
-    setSelectedEngineers([...selectedEngineers, engineer]);
+    setSelectedEngineers((prev) => [...prev, normalized]);
     setEngineerInput('');
     setShowEngineerDropdown(false);
   };
 
   const removeEngineer = (engineerId: string) => {
-    setSelectedEngineers(selectedEngineers.filter((e) => e.id !== engineerId));
+    setSelectedEngineers((prev) => prev.filter((e) => String(e.id) !== String(engineerId)));
   };
 
   const handleEngineerInputKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -1055,7 +1187,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     const selected = siteOptions.find((s) => s.id === siteId);
     setSname(selected ? selected.label : '');
     // เมื่อเปลี่ยน site ให้เคลียร์ contract และ devices
-    setSelectedContractId('');
+    setSelectedContractIds([]);
     setDevices([]);
     setSelectedDevices([]);
     setBrokenDevicePairs([]);
@@ -1066,21 +1198,54 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setSid('');
     setSname('');
     setSiteSearch('');
-    setSelectedContractId('');
+    setSelectedContractIds([]);
     setDevices([]);
     setSelectedDevices([]);
     setBrokenDevicePairs([]);
     setShowSiteDropdown(false);
   };
 
-  const handleContractChange = (contractId: string) => {
-    setSelectedContractId(contractId);
-    // เมื่อเปลี่ยน contract ให้เคลียร์ devices
-    setDevices([]);
-    setSelectedDevices([]);
-    setBrokenDevicePairs([]);
-    // โหลด devices สำหรับ contract นี้ (จะทำใน useEffect)
+  /** โหมดแก้ไข: เลือกสัญญาเดียว */
+  const handleContractPickSingle = (contractId: string) => {
+    setSelectedContractIds(contractId ? [String(contractId)] : []);
   };
+
+  /** โหมดสร้างใหม่: สลับเลือกหลายสัญญา */
+  const toggleContractSelection = (contractId: string) => {
+    const s = String(contractId);
+    setSelectedContractIds((prev) => {
+      if (prev.includes(s)) return prev.filter((x) => x !== s);
+      return [...prev, s];
+    });
+  };
+
+  const contractTriggerText = useMemo(() => {
+    const sofOrFallback = (c: ContractOption | undefined, idFallback: string) => {
+      if (!c) return idFallback;
+      const sof = (c.sof_name ?? '').trim();
+      if (sof) return sof;
+      return c.contract_name?.trim() || `Contract #${c.contract_id}`;
+    };
+    if (selectedContractIds.length === 0) return '';
+    if (selectedContractIds.length === 1) {
+      const c = contractOptions.find((x) => String(x.contract_id) === selectedContractIds[0]);
+      return sofOrFallback(c, selectedContractIds[0]);
+    }
+    return selectedContractIds
+      .map((id) => {
+        const c = contractOptions.find((x) => String(x.contract_id) === id);
+        return sofOrFallback(c, id);
+      })
+      .join(', ');
+  }, [selectedContractIds, contractOptions]);
+
+  const getPmContractSofLabel = useCallback((contractIdStr: string) => {
+    const c = contractOptions.find((x) => String(x.contract_id) === contractIdStr);
+    if (!c) return contractIdStr;
+    const sof = (c.sof_name ?? '').trim();
+    if (sof) return sof;
+    return c.contract_name?.trim() || `Contract #${c.contract_id}`;
+  }, [contractOptions]);
 
   // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices). ถ้ากรองตาม site แล้วไม่เจอ (เช่น fallback มาจากดึงแค่ตาม contract) ให้โชว์ทั้งหมดที่ผูกกับ contract นั้น
   const bySite = Sid ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid) : devices;
@@ -1167,10 +1332,20 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const endDeviceIndex = startDeviceIndex + devicesPerPage;
   const paginatedDevices = availableDevices.slice(startDeviceIndex, endDeviceIndex);
 
+  const pmMultiSofAssetSections = taskType === 'PM' && selectedContractIds.length > 1;
+
   // Reset to page 1 when search or filters change
   useEffect(() => {
     setDevicePage(1);
-  }, [deviceSearchPm, deviceTypeFilter, deviceSiteFilter, deviceRoleFilter, deviceModelFilter, deviceManufacturerFilter]);
+  }, [
+    deviceSearchPm,
+    deviceTypeFilter,
+    deviceSiteFilter,
+    deviceRoleFilter,
+    deviceModelFilter,
+    deviceManufacturerFilter,
+    selectedContractIdsKey,
+  ]);
 
   // Select All / Deselect All handlers
   const handleSelectAll = () => {
@@ -1322,7 +1497,15 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       // ไม่ return - ให้บันทึกได้
     }
 
-  // MA-specific validation (เหมือน PM)
+    // PM: ต้องเลือกสัญญา (SOF) เพื่อผูก contract_id และโหลด device ตามสัญญา
+    if (taskType === 'PM') {
+      if (selectedContractIds.length === 0) {
+        showWarning('Please select a contract (SOF) for this PM task');
+        return;
+      }
+    }
+
+    // MA-specific validation (เหมือน PM)
   if (taskType === 'MA') {
       if (!vendorName || !startDate) {
         showWarning('Please fill required MA fields: Third Party Vendor name and Start Date');
@@ -1348,7 +1531,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         return;
       }
       // Contract is required for MA because broken devices must come from contract
-      if (!selectedContractId) {
+      if (selectedContractIds.length === 0) {
         showWarning('Please select a contract before (broken devices must be from contract)');
         return;
       }
@@ -1384,21 +1567,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         })()
         : null;
 
-    const payload = {
+    const makePayload = (assets: Device[], contractIdNum: number | null, replacementDeviceId: number | null) => ({
       ...(editingEvent?.id && { id: editingEvent.id }),
       taskType,
-      contractId: selectedContractId ? (isNaN(Number(selectedContractId)) ? null : Number(selectedContractId)) : null,
+      contractId: contractIdNum,
       Sid,
       Sname,
       siteId: Sid ? (isNaN(Number(Sid)) ? null : Number(Sid)) : null,
       siteName: Sname,
       Eng_id: selectedEngineers.map((e) => e.id),
       Eng_ids: selectedEngineers,
-      // Task ที่เป็น Done แล้วไม่ส่ง startDate/endDate เพื่อป้องกันการแก้ไข
       ...(editingEvent?.status !== 'done' && { startDate, endDate: endDate || startDate }),
       coverageScope,
-      assets: maAssets,
-      // MA Contract fields (เหมือน PM)
+      assets,
       vendorName: taskType === 'MA' ? vendorName : null,
       vendorTel: taskType === 'MA' ? vendorTel : null,
       reporterName: taskType === 'MA' ? reporterName : null,
@@ -1407,14 +1588,134 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       rootCause: taskType === 'MA' ? rootCause : null,
       resolution: taskType === 'MA' ? resolution : null,
       assetBinding: taskType === 'MA' ? assetBinding : null,
-      replacementDeviceId: maReplacementDeviceId,
+      replacementDeviceId: replacementDeviceId,
       status: editingEvent?.status || 'not-started',
-    };
+    });
+
+    const allowedContractNums = new Set(
+      selectedContractIds.map((x) => Number(x)).filter((n) => !isNaN(n))
+    );
+
+    const isEditing = Boolean(editingEvent?.id);
 
     try {
       setIsSubmitting(true);
-      await onSave?.(payload);
-      onClose();
+
+      if (isEditing) {
+        const cidStr = selectedContractIds[0];
+        const contractNum =
+          cidStr && !isNaN(Number(cidStr)) ? Number(cidStr) : null;
+        const assetsOut = taskType === 'MA' ? maAssets : selectedDevices;
+        const repOut = taskType === 'MA' ? maReplacementDeviceId : null;
+        await onSave?.(makePayload(assetsOut, contractNum, repOut));
+        onClose();
+        return;
+      }
+
+      // ----- สร้างใหม่ -----
+      if (taskType === 'PM') {
+        if (selectedContractIds.length > 1 && selectedDevices.length === 0) {
+          showWarning('Select at least one device, or choose only one contract.');
+          return;
+        }
+        if (selectedContractIds.length === 1) {
+          const cid = Number(selectedContractIds[0]);
+          await onSave?.(makePayload(selectedDevices, isNaN(cid) ? null : cid, null));
+          onClose();
+          return;
+        }
+        const groups = new Map<number, Device[]>();
+        for (const d of selectedDevices) {
+          const c = d.contract_id != null ? Number(d.contract_id) : NaN;
+          if (!allowedContractNums.has(c)) {
+            showWarning('Each selected device must belong to one of the selected contracts.');
+            return;
+          }
+          if (!groups.has(c)) groups.set(c, []);
+          groups.get(c)!.push(d);
+        }
+        const keys = [...groups.keys()].sort((a, b) => a - b);
+        if (keys.length === 0) {
+          showWarning('No devices match the selected contracts.');
+          return;
+        }
+        if (keys.length === 1) {
+          await onSave?.(makePayload(groups.get(keys[0])!, keys[0], null));
+        } else {
+          await onSave?.(keys.map((cid) => makePayload(groups.get(cid)!, cid, null)));
+        }
+        onClose();
+        return;
+      }
+
+      if (taskType === 'MA') {
+        if (brokenDevicePairs.length > 0) {
+          const grouped = new Map<number, BrokenDevicePair[]>();
+          for (const p of brokenDevicePairs) {
+            const c =
+              p.brokenDevice.contract_id != null ? Number(p.brokenDevice.contract_id) : NaN;
+            if (!allowedContractNums.has(c)) {
+              showWarning('Each broken device must belong to one of the selected contracts.');
+              return;
+            }
+            if (!grouped.has(c)) grouped.set(c, []);
+            grouped.get(c)!.push(p);
+          }
+          const keys = [...grouped.keys()].sort((a, b) => a - b);
+          if (keys.length === 0) {
+            showWarning('No devices match the selected contracts.');
+            return;
+          }
+          const payloads = keys.map((cid) => {
+            const pairs = grouped.get(cid)!;
+            const assets = pairs.map((pair) => ({
+              ...pair.brokenDevice,
+              replacementDeviceId: pair.replacementDevice
+                ? typeof pair.replacementDevice.id === 'number'
+                  ? pair.replacementDevice.id
+                  : parseInt(String(pair.replacementDevice.id), 10)
+                : null,
+            }));
+            const firstRep = pairs[0]?.replacementDevice;
+            const repId = firstRep
+              ? typeof firstRep.id === 'number'
+                ? firstRep.id
+                : parseInt(String(firstRep.id), 10)
+              : null;
+            return makePayload(assets, cid, repId != null && !isNaN(repId) ? repId : null);
+          });
+          await onSave?.(payloads.length === 1 ? payloads[0] : payloads);
+          onClose();
+          return;
+        }
+
+        if (selectedContractIds.length === 1) {
+          const cid = Number(selectedContractIds[0]);
+          await onSave?.(makePayload(maAssets, isNaN(cid) ? null : cid, maReplacementDeviceId));
+          onClose();
+          return;
+        }
+        const groupedDev = new Map<number, Device[]>();
+        for (const d of maAssets) {
+          const c = d.contract_id != null ? Number(d.contract_id) : NaN;
+          if (!allowedContractNums.has(c)) {
+            showWarning('Each device must belong to one of the selected contracts.');
+            return;
+          }
+          if (!groupedDev.has(c)) groupedDev.set(c, []);
+          groupedDev.get(c)!.push(d);
+        }
+        const dKeys = [...groupedDev.keys()].sort((a, b) => a - b);
+        if (dKeys.length === 0) {
+          showWarning('No devices match the selected contracts.');
+          return;
+        }
+        const maPayloads = dKeys.map((cid) =>
+          makePayload(groupedDev.get(cid)!, cid, maReplacementDeviceId)
+        );
+        await onSave?.(maPayloads.length === 1 ? maPayloads[0] : maPayloads);
+        onClose();
+      }
     } catch (error) {
       console.error('save task error', error);
       toastError('Failed to save data.');
@@ -1535,7 +1836,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Contract Selection - appears after site is selected */}
             {Sid && (
               <div>
-                <label className={fieldLabel}>Contract <span className="text-red-500">*</span></label>
+                <label className={fieldLabel}>
+                  Contract / SOF <span className="text-red-500">*</span>
+                </label>
+                <p className="text-[10px] text-slate-500 -mt-0.5 mb-1">
+                  {editingEvent
+                    ? 'Select contract to specify SOF.'
+                    : 'Select one or more contracts (SOF). Devices load from all selected; save creates separate tasks per contract when assets belong to different contracts.'}
+                </p>
 
                 <div className="relative" ref={contractDropdownRef}>
                   <ContractShellSearchListDropdown
@@ -1543,43 +1851,30 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     open={showContractDropdown}
                     onOpenChange={(next) => {
                       setShowSiteDropdown(false);
-                      if (next && selectedContractId) {
-                        const contract = contractOptions.find(
-                          (c) => String(c.contract_id) === selectedContractId
-                        );
-                        if (contract) {
-                          setContractSearch(
-                            `${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`
-                          );
-                        }
+                      if (next) {
+                        // อย่าใส่ข้อความจากสัญญาที่เลือกในช่องค้นหา — มันจะกรองรายการแล้วสัญญาอื่นหาย (โดยเฉพาะหลังกด Done แล้วเปิดใหม่)
+                        setContractSearch('');
                       }
                       setShowContractDropdown(next);
                     }}
                     loading={loadingContracts}
-                    displayText={
-                      selectedContractId
-                        ? (() => {
-                            const contract = contractOptions.find(
-                              (c) => String(c.contract_id) === selectedContractId
-                            );
-                            return contract
-                              ? `${contract.contract_name || `Contract #${contract.contract_id}`}${contract.sof_name ? ` - ${contract.sof_name}` : ''}`
-                              : '';
-                          })()
-                        : ''
-                    }
+                    displayText={contractTriggerText}
                     emptyPlaceholder="Find or select contract..."
                     loadingText="Loading contracts..."
-                    panelTitle="Select contract"
+                    panelTitle={editingEvent ? 'Select contract' : 'Select contracts'}
                     filter={contractSearch}
                     onFilterChange={setContractSearch}
                     items={contractOptions.map((c) => ({
                       value: String(c.contract_id),
                       label: `${c.contract_name || `Contract #${c.contract_id}`}${c.sof_name ? ` - ${c.sof_name}` : ''}`,
                     }))}
-                    selectedValue={selectedContractId}
+                    multiSelect={!editingEvent}
+                    selectedValues={!editingEvent ? selectedContractIds : undefined}
+                    onToggleItem={!editingEvent ? toggleContractSelection : undefined}
+                    selectedValue={editingEvent ? selectedContractIds[0] || '' : ''}
                     onPick={(contractId) => {
-                      handleContractChange(contractId);
+                      if (!editingEvent) return;
+                      handleContractPickSingle(contractId);
                       setShowContractDropdown(false);
                       setContractSearch('');
                     }}
@@ -1589,7 +1884,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     }
                     showClearButton
                     onClear={() => {
-                      handleContractChange('');
+                      setSelectedContractIds([]);
                       setContractSearch('');
                       setShowContractDropdown(false);
                     }}
@@ -1597,6 +1892,21 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     clearAriaLabel="Clear contract"
                     showFilterCountHint
                     countNoun="contracts"
+                    listMaxHeightClass="max-h-[min(20rem,calc(100vh-12rem))]"
+                    panelFooter={
+                      !editingEvent ? (
+                        <button
+                          type="button"
+                          className="w-full border-t border-slate-100 bg-slate-50/80 px-3 py-2.5 text-center text-xs font-semibold text-sky-700 hover:bg-sky-50"
+                          onClick={() => {
+                            setShowContractDropdown(false);
+                            setContractSearch('');
+                          }}
+                        >
+                          Done
+                        </button>
+                      ) : undefined
+                    }
                   />
                 </div>
                 {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">Loading contracts...</p>}
@@ -1606,11 +1916,23 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
           <div className={sectionCard}>
             {taskType === 'PM' && (
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-700">Asset Binding</h3>
-                <span className="text-xs text-slate-400">
-                  {selectedDevices.length} selected
-                </span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-700">Asset Binding</h3>
+                  {selectedContractIds.length === 1 && selectedContractIds[0] ? (
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      เครื่องของ SOF{' '}
+                      <span className="font-semibold text-slate-700">
+                        {getPmContractSofLabel(selectedContractIds[0])}
+                      </span>
+                    </p>
+                  ) : selectedContractIds.length > 1 ? (
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      แยกตาม SOF — เลือกเครื่องในแต่ละกล่องด้านล่าง
+                    </p>
+                  ) : null}
+                </div>
+                <span className="text-xs text-slate-400 shrink-0">{selectedDevices.length} selected</span>
               </div>
             )}
 
@@ -1788,61 +2110,117 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   </div>
                 </div>
 
-                {/* Device List with Pagination */}
-                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                  {paginatedDevices.map((d) => {
-                    const active = selectedDevices.some((x) => x.id === d.id);
-                    return (
-                      <div
-                        key={d.id}
-                        onClick={() => toggleDevice(d)}
-                        className={assetCard(active)}
-                      >
-                        <div>
-                          <p className="text-xs font-medium">{d.name}</p>
-                          <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400">
-                            <span>Type: {d.role || d.type || '-'}</span>
-                            {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
-                            {d.site && <span>| Site: {d.site}</span>}
-                            {d.assetState && <span>| State: {d.assetState}</span>}
+                {/* Device list: แยกตาม SOF เมื่อเลือกหลายสัญญา */}
+                {pmMultiSofAssetSections ? (
+                  <div className="space-y-3">
+                    {selectedContractIds.map((cid) => {
+                      const sofLabel = getPmContractSofLabel(cid);
+                      const groupAvail = availableDevices.filter((d) => String(d.contract_id) === cid);
+                      const groupSelCount = selectedDevices.filter((d) => String(d.contract_id) === cid).length;
+                      return (
+                        <div
+                          key={cid}
+                          className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+                            <h4 className="text-xs font-bold text-slate-800">
+                              Asset Binding — SOF{' '}
+                              <span className="text-sky-800">{sofLabel}</span>
+                            </h4>
+                            <span className="text-[10px] text-slate-500 shrink-0">{groupSelCount} selected</span>
                           </div>
+                          <div className="max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
+                            {groupAvail.map((d) => {
+                              const active = selectedDevices.some((x) => x.id === d.id);
+                              return (
+                                <div
+                                  key={d.id}
+                                  onClick={() => toggleDevice(d)}
+                                  className={assetCard(active)}
+                                >
+                                  <div>
+                                    <p className="text-xs font-medium">{d.name}</p>
+                                    <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400">
+                                      <span>Type: {d.role || d.type || '-'}</span>
+                                      {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
+                                      {d.site && <span>| Site: {d.site}</span>}
+                                      {d.assetState && <span>| State: {d.assetState}</span>}
+                                    </div>
+                                  </div>
+                                  {active && (
+                                    <span className="text-[10px] font-bold text-blue-600">Selected</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {groupAvail.length === 0 && (
+                            <p className="text-[10px] text-slate-400 leading-snug">
+                              No devices in this list (already selected, filtered out, or no assets on this contract for the site).
+                            </p>
+                          )}
                         </div>
-                        {active && (
-                          <span className="text-[10px] font-bold text-blue-600">Selected</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Pagination Controls */}
-                {totalDevicePages > 1 && (
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                    <div className="text-xs text-slate-500">
-                      Showing {startDeviceIndex + 1}-{Math.min(endDeviceIndex, availableDevices.length)} from {availableDevices.length} devices
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setDevicePage(prev => Math.max(1, prev - 1))}
-                        disabled={devicePage === 1}
-                        className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Previous
-                      </button>
-                      <span className="px-2 py-1 text-xs text-slate-600">
-                        Page {devicePage} / {totalDevicePages}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setDevicePage(prev => Math.min(totalDevicePages, prev + 1))}
-                        disabled={devicePage === totalDevicePages}
-                        className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        Next
-                      </button>
-                    </div>
+                      );
+                    })}
                   </div>
+                ) : (
+                  <>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {paginatedDevices.map((d) => {
+                        const active = selectedDevices.some((x) => x.id === d.id);
+                        return (
+                          <div
+                            key={d.id}
+                            onClick={() => toggleDevice(d)}
+                            className={assetCard(active)}
+                          >
+                            <div>
+                              <p className="text-xs font-medium">{d.name}</p>
+                              <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400">
+                                <span>Type: {d.role || d.type || '-'}</span>
+                                {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
+                                {d.site && <span>| Site: {d.site}</span>}
+                                {d.assetState && <span>| State: {d.assetState}</span>}
+                              </div>
+                            </div>
+                            {active && (
+                              <span className="text-[10px] font-bold text-blue-600">Selected</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {totalDevicePages > 1 && (
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                        <div className="text-xs text-slate-500">
+                          Showing {startDeviceIndex + 1}-{Math.min(endDeviceIndex, availableDevices.length)} from{' '}
+                          {availableDevices.length} devices
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setDevicePage((prev) => Math.max(1, prev - 1))}
+                            disabled={devicePage === 1}
+                            className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Previous
+                          </button>
+                          <span className="px-2 py-1 text-xs text-slate-600">
+                            Page {devicePage} / {totalDevicePages}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setDevicePage((prev) => Math.min(totalDevicePages, prev + 1))}
+                            disabled={devicePage === totalDevicePages}
+                            className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {deviceSearchPm && availableDevices.length < devicesToShow.length && (
@@ -1860,6 +2238,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Asset Name</th>
+                        {taskType === 'PM' && selectedContractIds.length > 1 ? (
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200 whitespace-nowrap">
+                            SOF
+                          </th>
+                        ) : null}
                         <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Type</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Serial Number</th>
                         <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Site</th>
@@ -1874,6 +2257,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
                         >
                           <td className="px-3 py-2 text-slate-800">{d.name}</td>
+                          {taskType === 'PM' && selectedContractIds.length > 1 ? (
+                            <td className="px-3 py-2 text-slate-600 font-medium">
+                              {d.contract_id != null
+                                ? getPmContractSofLabel(String(d.contract_id))
+                                : '—'}
+                            </td>
+                          ) : null}
                           <td className="px-3 py-2 text-slate-600">{d.role || '-'}</td>
                           <td className="px-3 py-2 text-slate-600">{d.serialNumber || '-'}</td>
                           <td className="px-3 py-2 text-slate-600">{d.site || '-'}</td>
@@ -1910,7 +2300,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       </label>
                       {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                            {!Sid ? 'Select Site' : !selectedContractId ? 'Select Contract to load devices for this contract' : (Sid ? 'No devices in this contract for the selected site' : 'No devices in this contract')}
+                            {!Sid
+                              ? 'Select Site'
+                              : selectedContractIds.length === 0
+                                ? 'Select contract(s) to load devices'
+                                : Sid
+                                  ? 'No devices for the selected site in these contracts'
+                                  : 'No devices in these contracts'}
                         </p>
                       ) : (
                         <SearchableDeviceSelect
@@ -2286,10 +2682,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
             <div className="relative">
               <label className={fieldLabel}>Assign Engineer <span className="text-red-500">*</span></label>
- 
+              <p className="text-[10px] text-slate-500 -mt-0.5 mb-1">
+                Select engineers from the list
+              </p>
+
               {/* Email-style input container */}
               <div
-                className={`min-h-9 w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap gap-1.5 items-center ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-500 border-blue-400' : ''
+                className={`max-h-36 min-h-9 w-full min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap content-start gap-1.5 items-start [scrollbar-width:thin] ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-500 border-blue-400' : ''
                   }`}
                 onClick={() => {
                   const input = document.getElementById('engineer-input');
@@ -2336,8 +2735,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     setTimeout(() => setShowEngineerDropdown(false), 200);
                   }}
                   onKeyDown={handleEngineerInputKeyDown}
-                  placeholder=""
-                  className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5"
+                  placeholder={
+                    selectedEngineers.length === 0
+                      ? 'Type name to search engineers…'
+                      : 'Add engineer — Type search…'
+                  }
+                  className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5 placeholder:text-slate-400"
                 />
               </div>
  

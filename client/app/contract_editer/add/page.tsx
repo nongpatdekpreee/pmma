@@ -13,7 +13,7 @@ import {
   X,
   ChevronDown,
 } from 'lucide-react';
-import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiUrl, getAssignedServices } from '@/lib/api';
@@ -404,8 +404,33 @@ function AddContractPageContent() {
 
   const clearReferSofSelection = () => {
     setSourceSofs([]);
+    setReferSofManualRowEnabled(false);
+    setManualSofInput('');
     setSourceSofDropdownOpen(false);
   };
+
+  const dismissReferSofManualRow = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setReferSofManualRowEnabled(false);
+    setManualSofInput('');
+  };
+
+  /** ยืนยัน SOF ใหม่จากช่องพิมพ์ แล้วปิด dropdown — คง checkbox + ข้อความเมื่อเปิดรายการอีกครั้ง */
+  const addManualReferSof = useCallback(
+    (raw?: string) => {
+      const t = (raw ?? manualSofInput).trim();
+      if (!t) {
+        toastError('Please enter a SOF number');
+        return;
+      }
+      setSourceSofs([t]);
+      setManualSofInput(t);
+      setReferSofManualRowEnabled(true);
+      setSofDropdownFilter('');
+      setSourceSofDropdownOpen(false);
+    },
+    [manualSofInput, toastError]
+  );
 
   const prevSourceSofDropdownOpenRef = useRef(false);
   const manualSofSnapshotRef = useRef('');
@@ -413,7 +438,7 @@ function AddContractPageContent() {
   manualSofSnapshotRef.current = manualSofInput;
   referSofManualEnabledSnapshotRef.current = referSofManualRowEnabled;
 
-  /** พิมพ์ SOF เอง: อัปเดตเข้า sourceSofs เมื่อปิด dropdown เท่านั้น (ทับตัวที่เลือกจากรายการได้) */
+  /** พิมพ์ SOF เอง: ปิดโดยคลิกนอก — sync เข้า sourceSofs; ไม่ล้าง checkbox/ช่องพิมพ์ */
   useEffect(() => {
     const wasOpen = prevSourceSofDropdownOpenRef.current;
     prevSourceSofDropdownOpenRef.current = sourceSofDropdownOpen;
@@ -428,8 +453,6 @@ function AddContractPageContent() {
     }
 
     setSofDropdownFilter('');
-    setManualSofInput('');
-    setReferSofManualRowEnabled(false);
   }, [sourceSofDropdownOpen]);
 
   useEffect(() => {
@@ -1666,51 +1689,83 @@ function AddContractPageContent() {
                       itemLabelClassName="font-mono"
                       triggerSelectedClassName="font-mono"
                       panelFooter={
-                        <div className="shrink-0 border-t border-slate-200 bg-slate-50/95">
-                          <label className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5 text-sm hover:bg-sky-50/80">
-                            <input
-                              type="checkbox"
-                              checked={referSofManualRowEnabled}
-                              onChange={(e) => {
-                                const on = e.target.checked;
-                                if (!on) {
-                                  setReferSofManualRowEnabled(false);
-                                  setManualSofInput('');
-                                  return;
-                                }
-                                setReferSofManualRowEnabled(true);
-                              }}
-                              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <span className="block font-medium text-slate-800">Type the new SOF</span>
-                              <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
-                                Check and type the new SOF.
-                              </span>
+                        <div className="shrink-0 border-t border-slate-200 bg-slate-50/95 px-3 py-2.5 text-sm">
+                          <div className="flex items-start gap-2.5 rounded-lg hover:bg-sky-50/80">
+                            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5">
                               <input
-                                type="text"
-                                list="manual-sof-datalist"
-                                value={manualSofInput}
-                                onChange={(e) => setManualSofInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') e.preventDefault();
+                                type="checkbox"
+                                checked={referSofManualRowEnabled}
+                                onChange={(e) => {
+                                  const on = e.target.checked;
+                                  if (!on) {
+                                    setReferSofManualRowEnabled(false);
+                                    setManualSofInput('');
+                                    return;
+                                  }
+                                  setReferSofManualRowEnabled(true);
                                 }}
-                                onClick={(e) => e.stopPropagation()}
-                                placeholder="Type the new SOF..."
-                                disabled={!referSofManualRowEnabled}
-                                className={`mt-2 w-full rounded-lg border px-2.5 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
-                                  referSofManualRowEnabled
-                                    ? 'border-slate-200 bg-white focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20'
-                                    : 'border-slate-200 bg-slate-100'
-                                }`}
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
                               />
-                              <datalist id="manual-sof-datalist">
-                                {referSOFList.map((sof) => (
-                                  <option key={sof} value={sof} />
-                                ))}
-                              </datalist>
-                            </div>
-                          </label>
+                              <div className="min-w-0 flex-1">
+                                <span className="block font-medium text-slate-800">Type the new SOF</span>
+                                <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
+                                  Check and type the new SOF, then click Add or press Enter.
+                                </span>
+                              </div>
+                            </label>
+                          </div>
+                          <div className="mt-2 flex min-w-0 items-center gap-2 pl-7 sm:pl-8">
+                            <input
+                              type="text"
+                              list="manual-sof-datalist"
+                              value={manualSofInput}
+                              onChange={(e) => setManualSofInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (referSofManualRowEnabled) {
+                                    addManualReferSof(e.currentTarget.value);
+                                  }
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              placeholder="Type the new SOF..."
+                              disabled={!referSofManualRowEnabled}
+                              className={`min-w-0 flex-1 rounded-lg border px-2.5 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
+                                referSofManualRowEnabled
+                                  ? 'border-slate-200 bg-white focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20'
+                                  : 'border-slate-200 bg-slate-100'
+                              }`}
+                            />
+                            {referSofManualRowEnabled && (
+                              <button
+                                type="button"
+                                title="ปิดการพิมพ์ SOF เอง"
+                                aria-label="ปิดการพิมพ์ SOF เอง"
+                                onClick={dismissReferSofManualRow}
+                                className="flex h-9 w-9 shrink-0 items-center justify-center self-stretch rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 sm:h-[37px]"
+                              >
+                                <X size={16} strokeWidth={2.5} />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={!referSofManualRowEnabled || !manualSofInput.trim()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addManualReferSof();
+                              }}
+                              className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Plus size={16} strokeWidth={2.5} />
+                              Add
+                            </button>
+                          </div>
+                          <datalist id="manual-sof-datalist">
+                            {referSOFList.map((sof) => (
+                              <option key={sof} value={sof} />
+                            ))}
+                          </datalist>
                         </div>
                       }
                     />
