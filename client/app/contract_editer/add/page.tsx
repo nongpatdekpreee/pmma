@@ -1225,6 +1225,13 @@ function AddContractPageContent() {
         toastError(msg);
         return;
       }
+
+      if (!assignedService.trim()) {
+        const msg = 'Please select or enter Service';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
     }
 
     // ดักรูปแบบ Email และ Telephone ต่อผู้ติดต่อ (ถ้ามีการกรอก)
@@ -1685,7 +1692,7 @@ function AddContractPageContent() {
                       emptyText="SOF not found"
                       showClearButton
                       onClear={clearReferSofSelection}
-                      clearAriaLabel="ล้าง Refer SOF"
+                      clearAriaLabel="Clear Refer SOF"
                       itemLabelClassName="font-mono"
                       triggerSelectedClassName="font-mono"
                       panelFooter={
@@ -1740,8 +1747,8 @@ function AddContractPageContent() {
                             {referSofManualRowEnabled && (
                               <button
                                 type="button"
-                                title="ปิดการพิมพ์ SOF เอง"
-                                aria-label="ปิดการพิมพ์ SOF เอง"
+                                title="Close the manual SOF input"
+                                aria-label="Close the manual SOF input"
                                 onClick={dismissReferSofManualRow}
                                 className="flex h-9 w-9 shrink-0 items-center justify-center self-stretch rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 sm:h-[37px]"
                               >
@@ -1775,7 +1782,7 @@ function AddContractPageContent() {
               )}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Service ">
+              <FormField label="Service " required>
                 <div
                   id="service-dropdown-root"
                   className={`relative w-full min-w-0 ${serviceDropdownOpen ? 'z-[200]' : ''}`}
