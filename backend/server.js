@@ -12,8 +12,11 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
-// Serve uploaded files (employee photos, reports, contracts)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Serve uploaded files — ไม่เปิด static โฟลเดอร์ tasks (ใช้ GET /api/tasks/:id/attachment/:index แทน)
+const uploadsRoot = path.join(__dirname, 'uploads');
+app.use('/uploads/contracts', express.static(path.join(uploadsRoot, 'contracts')));
+app.use('/uploads/reports', express.static(path.join(uploadsRoot, 'reports')));
+app.use('/uploads/employees', express.static(path.join(uploadsRoot, 'employees')));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
