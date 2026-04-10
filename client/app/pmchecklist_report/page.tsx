@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { getPmReports, getMaReports, getTasks, apiUrl } from '@/lib/api';
+import { getPmReports, getMaReports, getTasks, apiUrl, taskMaNoticeUrl } from '@/lib/api';
 import JSZip from 'jszip';
 import {
   Plus,
@@ -92,6 +92,8 @@ interface MAReport {
   reporterTel?: string;
   ticket?: string;
   site_name?: string;
+  /** paths สำหรับ Repair notice (export CSV / ZIP) */
+  repairNoticePaths?: string[];
 }
 
 const ITEMS_PER_PAGE = 5;

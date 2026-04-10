@@ -13,6 +13,12 @@ export function apiUrl(path: string): string {
   return `${API_BASE}${p}`;
 }
 
+/** URL เปิดไฟล์ MA repair notice ตาม task + ชื่อไฟล์ (basename) — ต้องสอดคล้อง route backend */
+export function taskMaNoticeUrl(taskId: number | string, fileBasename: string): string {
+  const enc = encodeURIComponent(String(fileBasename).trim());
+  return apiUrl(`/api/tasks/${taskId}/ma-notice/${enc}`);
+}
+
 /**
  * Read fetch body as JSON. Returns null if body is HTML (e.g. nginx/404 page), empty, or invalid JSON.
  * Prevents Uncaught SyntaxError from res.json() when the API base URL / proxy is wrong.
