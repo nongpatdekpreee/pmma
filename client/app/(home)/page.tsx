@@ -1,12 +1,13 @@
 'use client';
 
+import { createPortal } from 'react-dom';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { MaintenanceCard } from '@/components/ui/MaintenanceCard';
-import { CircleAlert, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { CircleAlert, ChevronLeft, ChevronRight, AlertTriangle, Calendar, ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import DashboardHeader from '@/components/ui/Header';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getTasks, getVendorStatistics, getEmployees, apiUrl } from '@/lib/api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getTasks, getVendorStatistics, getEmployees, apiUrl, getPmDashboard } from '@/lib/api';
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from 'recharts';
 
 type EventItem = {
@@ -73,6 +74,8 @@ function taskEnd(t: any): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export default function DashboardPage() {
   const [allTasks, setAllTasks] = useState<any[]>([]);
   const [employeePhotoById, setEmployeePhotoById] = useState<Record<string, string>>({});
@@ -89,6 +92,16 @@ export default function DashboardPage() {
   const [missingEventsPage, setMissingEventsPage] = useState(1);
   const [hoveredEvent, setHoveredEvent] = useState<EventItem | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+
+  const [timeFilter, setTimeFilter] = useState('6 Months');
+  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('all');
+  const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
+  const periodDropdownRef = useRef<HTMLDivElement>(null);
+  const periodMenuRef = useRef<HTMLDivElement>(null);
+  const [periodMenuPos, setPeriodMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [periodRange, setPeriodRange] = useState<{ start: string; endExclusive: string } | null>(null);
+  const [periodMetaLoading, setPeriodMetaLoading] = useState(true);
 
   const PM_CARDS_PAGE_SIZE = 3;
   const NEAREST_EVENTS_PAGE_SIZE = 3;
@@ -321,6 +334,116 @@ export default function DashboardPage() {
     setMissingEventsPage(1);
   }, [missingEvents.length]);
 
+  const months = useMemo(() => {
+    if (timeFilter === '1 Month') return 1;
+    if (timeFilter === '3 Months') return 3;
+    if (timeFilter === '6 Months') return 6;
+    if (timeFilter === '1 Year') return 12;
+    if (timeFilter === '2 Years') return 24;
+    if (timeFilter === '3 Years') return 36;
+    if (timeFilter === '4 Years') return 48;
+    if (timeFilter === '5 Years') return 60;
+    if (timeFilter === 'All Time') return 120;
+    return 6;
+  }, [timeFilter]);
+
+  const yearOptions = useMemo(() => {
+    const current = new Date().getFullYear();
+    const list: { value: string; label: string }[] = [{ value: '', label: ' ' }];
+    for (let y = current + 1; y >= 2020; y--) list.push({ value: String(y), label: String(y) });
+    return list;
+  }, []);
+
+  const dashboardParams = useMemo(() => {
+    if (selectedYear && selectedYear !== '') {
+      const year = parseInt(selectedYear, 10);
+      const month = selectedMonth && selectedMonth !== 'all' ? parseInt(selectedMonth, 10) : undefined;
+      return { year, month };
+    }
+    return null;
+  }, [selectedYear, selectedMonth]);
+
+  useEffect(() => {
+    if (!periodDropdownOpen) return;
+    const close = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inButton = periodDropdownRef.current?.contains(target) ?? false;
+      const inMenu = periodMenuRef.current?.contains(target) ?? false;
+      if (!inButton && !inMenu) setPeriodDropdownOpen(false);
+    };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [periodDropdownOpen]);
+
+  useEffect(() => {
+    if (!periodDropdownOpen) return;
+    const updatePos = () => {
+      const root = periodDropdownRef.current;
+      const btn = root?.querySelector('button');
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      setPeriodMenuPos({ top: rect.bottom + 8, right: Math.max(12, window.innerWidth - rect.right) });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
+  }, [periodDropdownOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setPeriodMetaLoading(true);
+      try {
+        const res = dashboardParams
+          ? await getPmDashboard(dashboardParams)
+          : await getPmDashboard({ months });
+        if (cancelled) return;
+        if (res?.success && res.data?.range) {
+          setPeriodRange(res.data.range);
+        } else {
+          setPeriodRange(null);
+        }
+      } catch {
+        if (!cancelled) setPeriodRange(null);
+      } finally {
+        if (!cancelled) setPeriodMetaLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [months, dashboardParams]);
+
+  const periodLabel = useMemo(() => {
+    if (selectedYear) {
+      const y = selectedYear;
+      if (selectedMonth && selectedMonth !== 'all') {
+        const m = parseInt(selectedMonth, 10);
+        const label = m >= 1 && m <= 12 ? MONTH_LABELS[m - 1] : 'All';
+        return `Custom: ${label} ${y}`;
+      }
+      return `Custom: ${y}`;
+    }
+    return timeFilter;
+  }, [selectedYear, selectedMonth, timeFilter]);
+
+  const rangeLabel = useMemo(() => {
+    if (!periodRange?.start || !periodRange?.endExclusive) return null;
+    const startStr = periodRange.start.split('T')[0];
+    const endStr = periodRange.endExclusive.split('T')[0];
+    const [sy, sm] = startStr.split('-').map(Number);
+    const [ey, em] = endStr.split('-').map(Number);
+    const startDate = new Date(sy, sm - 1, 1);
+    const endDate = new Date(ey, em, 0);
+    const fmt = (d: Date) => `${d.getDate()} ${MONTH_LABELS[d.getMonth()]} ${d.getFullYear()}`;
+    return `${fmt(startDate)} - ${fmt(endDate)}`;
+  }, [periodRange]);
+
   const loadErrors = [tasksError, employeesError, vendorError].filter(Boolean) as string[];
 
   return (
@@ -341,11 +464,156 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-6 p-6 pt-4 md:mt-0 mt-16 min-w-0">
-        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between shrink-0 min-w-0">
-          <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate">
-            Dashboard
-          </Link>
+      <div className="flex flex-col gap-6 p-6 pt-4 md:mt-0 mt-16 min-w-0 bg-slate-50 min-h-screen">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-nowrap items-center justify-between gap-4 min-w-0 overflow-x-auto pb-1">
+            <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate min-w-0">
+              Dashboard
+            </Link>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <div ref={periodDropdownRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodDropdownOpen((v) => !v)}
+                    className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    aria-haspopup="listbox"
+                    aria-expanded={periodDropdownOpen}
+                  >
+                    <Calendar size={16} className="text-slate-400 shrink-0" />
+                    <span className="text-slate-500 hidden sm:inline">Period</span>
+                    <span className="font-semibold text-slate-800">{periodLabel}</span>
+                    <ChevronDown size={16} className="text-slate-400 shrink-0" />
+                  </button>
+
+                  {periodDropdownOpen && periodMenuPos && createPortal(
+                    <div
+                      ref={periodMenuRef}
+                      className="fixed w-[320px] rounded-2xl bg-white shadow-xl border border-slate-100 p-2 z-[9999]"
+                      style={{ top: periodMenuPos.top, right: periodMenuPos.right }}
+                    >
+                      <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                        Period
+                      </div>
+                      <div className="space-y-1">
+                        {['3 Months', '6 Months'].map((label) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setTimeFilter(label);
+                              setSelectedYear('');
+                              setSelectedMonth('all');
+                              setPeriodDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
+                              !selectedYear && timeFilter === label
+                                ? 'bg-slate-50 font-semibold text-slate-800'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="my-2 h-px bg-slate-100" />
+                      <div className="space-y-1">
+                        {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setTimeFilter(label);
+                              setSelectedYear('');
+                              setSelectedMonth('all');
+                              setPeriodDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
+                              !selectedYear && timeFilter === label
+                                ? 'bg-slate-50 font-semibold text-slate-800'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="my-2 h-px bg-slate-100" />
+                      <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                        Custom
+                      </div>
+                      <div className="px-3 pb-3">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1">
+                            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Year</label>
+                            <select
+                              aria-label="Year"
+                              value={selectedYear}
+                              onChange={(e) => {
+                                setSelectedYear(e.target.value);
+                                if (!e.target.value) setSelectedMonth('all');
+                              }}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
+                            >
+                              {yearOptions.map((o) => (
+                                <option key={o.value || 'x'} value={o.value}>
+                                  {o.value ? o.label : 'Select year'}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex-1">
+                            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Month</label>
+                            <select
+                              aria-label="Month"
+                              value={selectedMonth}
+                              onChange={(e) => setSelectedMonth(e.target.value)}
+                              disabled={!selectedYear}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                            >
+                              <option value="all">All months</option>
+                              {MONTH_LABELS.map((label, i) => (
+                                <option key={label} value={String(i + 1)}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedYear('');
+                              setSelectedMonth('all');
+                            }}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                          >
+                            Clear
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPeriodDropdownOpen(false)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      </div>
+                    </div>,
+                    document.body
+                  )}
+                </div>
+                {(rangeLabel || periodMetaLoading) && (
+                  <div className="bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-slate-600 whitespace-nowrap">
+                    {periodMetaLoading ? '…' : rangeLabel}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-nowrap gap-6 min-w-0 overflow-x-auto items-start">

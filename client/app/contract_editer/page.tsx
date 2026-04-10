@@ -9,6 +9,7 @@ import { useAlertModal } from '@/components/ui/useAlertModal';
 import { apiUrl, getSitesLocation } from '@/lib/api';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
+import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearchListDropdown';
 import { 
   FileText, Calendar, DollarSign, Building2, Cpu, MapPin, Hash,
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
@@ -277,9 +278,13 @@ function ContractEditorPageContent() {
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
   const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
   const [selectedDetailSiteSlid, setSelectedDetailSiteSlid] = useState<number | null>(null);
+  const [detailSiteViewDropdownOpen, setDetailSiteViewDropdownOpen] = useState(false);
+  const [detailSiteViewFilter, setDetailSiteViewFilter] = useState('');
   const [detailEquipmentPage, setDetailEquipmentPage] = useState(0);
   // Assign modal: เลือกดูตาม Site จาก contract_device.SLid (เหมือน detail)
   const [assignModalSelectedSiteSlid, setAssignModalSelectedSiteSlid] = useState<number | null>(null);
+  const [assignModalViewSiteDropdownOpen, setAssignModalViewSiteDropdownOpen] = useState(false);
+  const [assignModalViewSiteFilter, setAssignModalViewSiteFilter] = useState('');
 
   // Import Contract (เหมือน Import PM)
   const [isImportContractModalOpen, setIsImportContractModalOpen] = useState(false);
@@ -716,6 +721,46 @@ function ContractEditorPageContent() {
   useEffect(() => {
     setDetailEquipmentPage(0);
   }, [fullContractDetails?.contract_id, selectedDetailSiteSlid]);
+
+  useEffect(() => {
+    if (!showDetailModal) {
+      setDetailSiteViewDropdownOpen(false);
+      setDetailSiteViewFilter('');
+    }
+  }, [showDetailModal]);
+
+  useEffect(() => {
+    if (!detailSiteViewDropdownOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const root = document.getElementById('contract-detail-site-view-dropdown');
+      if (root && !root.contains(e.target as Node)) {
+        setDetailSiteViewDropdownOpen(false);
+        setDetailSiteViewFilter('');
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [detailSiteViewDropdownOpen]);
+
+  useEffect(() => {
+    if (!showAssignSiteModal) {
+      setAssignModalViewSiteDropdownOpen(false);
+      setAssignModalViewSiteFilter('');
+    }
+  }, [showAssignSiteModal]);
+
+  useEffect(() => {
+    if (!assignModalViewSiteDropdownOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const root = document.getElementById('assign-modal-view-site-dropdown');
+      if (root && !root.contains(e.target as Node)) {
+        setAssignModalViewSiteDropdownOpen(false);
+        setAssignModalViewSiteFilter('');
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [assignModalViewSiteDropdownOpen]);
 
   const openEquipmentModal = (index?: number) => {
     if (index !== undefined) {
@@ -2432,66 +2477,68 @@ function ContractEditorPageContent() {
                     const selectedSlid = selectedDetailSiteSlid ?? sites[0]?.SLid ?? null;
                     const displayDevices = selectedSlid != null ? getDevicesForSite(selectedSlid) : devices;
 
+                    const unassignedList = devices.filter((d) => {
+                      const cid = d.contract_SLid;
+                      if (cid == null) return true;
+                      return !contractSiteSlids.has(Number(cid));
+                    });
+                    const detailSitePickItems = [
+                      ...sites.map((site) => {
+                        const count = getDevicesForSite(site.SLid).length;
+                        const label = formatSitePillLabel(site, fullContractDetails);
+                        return { value: String(site.SLid), label: `${label} (${count})` };
+                      }),
+                      ...(unassignedList.length > 0
+                        ? [{ value: '__unassigned__', label: `Unassigned (${unassignedList.length})` }]
+                        : []),
+                    ];
+                    const selectedDetailSiteValueStr =
+                      selectedSlid === -1
+                        ? '__unassigned__'
+                        : selectedSlid != null
+                          ? String(selectedSlid)
+                          : '';
+                    const detailSiteDisplayLabel =
+                      detailSitePickItems.find((i) => i.value === selectedDetailSiteValueStr)?.label ?? '';
+
                     return (
                       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                         <div className="px-6 py-4 border-b border-slate-200">
                           <h3 className="text-lg font-semibold text-slate-800 mb-3">
                             Equipment in Contract
                           </h3>
-                          <div className="flex flex-wrap gap-2">
-                            {sites.map((site) => {
-                              const count = getDevicesForSite(site.SLid).length;
-                              const isSelected =
-                                selectedSlid !== null && Number(selectedSlid) === Number(site.SLid);
-                              const label = formatSitePillLabel(site, fullContractDetails);
-                              return (
-                                <button
-                                  key={site.SLid}
-                                  type="button"
-                                  onClick={() => setSelectedDetailSiteSlid(site.SLid)}
-                                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                    isSelected
-                                      ? 'bg-blue-600 text-white'
-                                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                                  }`}
-                                >
-                                  <MapPin size={14} className="inline-block mr-1 text-slate-500 flex-shrink-0" /> {label}
-                                  <span className="ml-1.5 text-xs opacity-90">({count})</span>
-                                </button>
-                              );
-                            })}
-                            {(() => {
-                              const unassigned = devices.filter((d) => {
-                                const cid = d.contract_SLid;
-                                if (cid == null) return true;
-                                return !contractSiteSlids.has(Number(cid));
-                              });
-                              if (unassigned.length > 0) {
-                                const isSelected = selectedSlid === -1;
-                                return (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedDetailSiteSlid(-1)}
-                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                      isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                                    }`}
-                                  >
-                                    Unassigned ({unassigned.length})
-                                  </button>
-                                );
-                              }
-                              return null;
-                            })()}
+                          <div className="w-full min-w-0">
+                            <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                              View by site
+                            </span>
+                            <ContractSimpleSearchListDropdown
+                              rootId="contract-detail-site-view-dropdown"
+                              className="w-full"
+                              open={detailSiteViewDropdownOpen}
+                              onToggle={() => {
+                                if (detailSiteViewDropdownOpen) setDetailSiteViewFilter('');
+                                setDetailSiteViewDropdownOpen((o) => !o);
+                              }}
+                              displayText={detailSiteDisplayLabel}
+                              emptyPlaceholder="Select site..."
+                              panelTitle="Select from the list (site / location)"
+                              filter={detailSiteViewFilter}
+                              onFilterChange={setDetailSiteViewFilter}
+                              items={detailSitePickItems}
+                              selectedValue={selectedDetailSiteValueStr}
+                              onPick={(value) => {
+                                if (value === '__unassigned__') setSelectedDetailSiteSlid(-1);
+                                else setSelectedDetailSiteSlid(Number(value));
+                                setDetailSiteViewDropdownOpen(false);
+                                setDetailSiteViewFilter('');
+                              }}
+                              searchPlaceholder="Search site..."
+                              emptyText="No matches"
+                            />
                           </div>
                         </div>
                         {renderDeviceTable(
-                          selectedSlid === -1
-                            ? devices.filter((d) => {
-                                const cid = d.contract_SLid;
-                                if (cid == null) return true;
-                                return !contractSiteSlids.has(Number(cid));
-                              })
-                            : displayDevices,
+                          selectedSlid === -1 ? unassignedList : displayDevices,
                         )}
                       </div>
                     );
@@ -2821,6 +2868,27 @@ function ContractEditorPageContent() {
                       return !contractSiteSlids.has(Number(cid));
                     });
                     const showSitePills = sitesForPills.length >= 1 || unassignedDevices.length > 0;
+                    const assignModalSitePickItems = [
+                      { value: '__all__', label: 'All sites' },
+                      ...sitesForPills.map(
+                        (site: { SLid: number; SiteName?: string | null; Location2?: string | null }) => {
+                          const count = getDevicesForSite(site.SLid).length;
+                          const label = formatSitePillLabel(site, fullContractDetails);
+                          return { value: String(site.SLid), label: `${label} (${count})` };
+                        },
+                      ),
+                      ...(unassignedDevices.length > 0
+                        ? [{ value: '__unassigned__', label: `Unassigned (${unassignedDevices.length})` }]
+                        : []),
+                    ];
+                    const assignModalSiteValueStr =
+                      assignModalSelectedSiteSlid === null
+                        ? '__all__'
+                        : assignModalSelectedSiteSlid === -1
+                          ? '__unassigned__'
+                          : String(assignModalSelectedSiteSlid);
+                    const assignModalSiteDisplayLabel =
+                      assignModalSitePickItems.find((i) => i.value === assignModalSiteValueStr)?.label ?? '';
 
                     let devicesBySiteFilter = allDevices;
                     if (assignModalSelectedSiteSlid !== null) {
@@ -2886,62 +2954,46 @@ function ContractEditorPageContent() {
                     ))}
                   </datalist>
                   {showSitePills && (
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      <button
-                        type="button"
-                        onClick={() => setAssignModalSelectedSiteSlid(null)}
-                        className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                          assignModalSelectedSiteSlid === null
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                        }`}
-                      >
-                        All sites
-                      </button>
-                      {sitesForPills.map((site: { SLid: number; SiteName?: string | null; Location2?: string | null }) => {
-                        const count = getDevicesForSite(site.SLid).length;
-                        const isSelected =
-                          assignModalSelectedSiteSlid !== null &&
-                          Number(assignModalSelectedSiteSlid) === Number(site.SLid);
-                        const label = formatSitePillLabel(site, fullContractDetails);
-                        return (
-                          <button
-                            key={site.SLid}
-                            type="button"
-                            onClick={() => {
-                              setAssignModalSelectedSiteSlid(site.SLid);
-                              // ถ้ามีอุปกรณ์แค่ตัวเดียว ให้ติ๊กแค่อันเดียวและล้างการเลือกอื่นๆ
-                              const devicesForSite = getDevicesForSite(site.SLid);
-                              if (devicesForSite.length === 1) {
-                                const singleDeviceId = String(devicesForSite[0].Did);
-                                setAssignDeviceSelected(new Set([singleDeviceId]));
-                              }
-                            }}
-                            className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                              isSelected
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                            }`}
-                          >
-                            <MapPin size={14} className="flex-shrink-0" />
-                            {label}
-                            <span className="ml-1 text-xs opacity-90">({count})</span>
-                          </button>
-                        );
-                      })}
-                      {unassignedDevices.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setAssignModalSelectedSiteSlid(-1)}
-                          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                            assignModalSelectedSiteSlid === -1
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                          }`}
-                        >
-                          Unassigned ({unassignedDevices.length})
-                        </button>
-                      )}
+                    <div className="mb-4 w-full min-w-0">
+                      <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        View by site
+                      </span>
+                      <ContractSimpleSearchListDropdown
+                        rootId="assign-modal-view-site-dropdown"
+                        className="w-full"
+                        open={assignModalViewSiteDropdownOpen}
+                        onToggle={() => {
+                          if (assignModalViewSiteDropdownOpen) setAssignModalViewSiteFilter('');
+                          setAssignModalViewSiteDropdownOpen((o) => !o);
+                        }}
+                        displayText={assignModalSiteDisplayLabel}
+                        emptyPlaceholder="All sites"
+                        panelTitle="Select from the list (site / location)"
+                        filter={assignModalViewSiteFilter}
+                        onFilterChange={setAssignModalViewSiteFilter}
+                        items={assignModalSitePickItems}
+                        selectedValue={assignModalSiteValueStr}
+                        onPick={(value) => {
+                          if (value === '__all__') {
+                            setAssignModalSelectedSiteSlid(null);
+                          } else if (value === '__unassigned__') {
+                            setAssignModalSelectedSiteSlid(-1);
+                          } else {
+                            const siteSlid = Number(value);
+                            setAssignModalSelectedSiteSlid(siteSlid);
+                            const devicesForSite = getDevicesForSite(siteSlid);
+                            if (devicesForSite.length === 1) {
+                              setAssignDeviceSelected(
+                                new Set([String(devicesForSite[0].Did)]),
+                              );
+                            }
+                          }
+                          setAssignModalViewSiteDropdownOpen(false);
+                          setAssignModalViewSiteFilter('');
+                        }}
+                        searchPlaceholder="Search site..."
+                        emptyText="No matches"
+                      />
                     </div>
                   )}
                   <p className="text-sm text-slate-600 mb-2">

@@ -336,6 +336,8 @@ function AddContractPageContent() {
   const [deviceFilter, setDeviceFilter] = useState('');
   // เลือกดูตาม Site (เหมือนหน้า detail: filter ตาม SLid ใน contract_device)
   const [selectedViewSiteId, setSelectedViewSiteId] = useState<string | null>(null);
+  const [viewSiteDropdownOpen, setViewSiteDropdownOpen] = useState(false);
+  const [viewSiteFilter, setViewSiteFilter] = useState('');
   /** Per site entry: show full selected device list (when count > MAX_VISIBLE_SELECTED_DEVICES_PER_ENTRY). */
   const [expandedSelectedDeviceEntries, setExpandedSelectedDeviceEntries] = useState<Set<string>>(
     () => new Set()
@@ -470,6 +472,19 @@ function AddContractPageContent() {
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [sourceSofDropdownOpen]);
+
+  useEffect(() => {
+    if (!viewSiteDropdownOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const root = document.getElementById('contract-add-view-site-dropdown');
+      if (root && !root.contains(e.target as Node)) {
+        setViewSiteDropdownOpen(false);
+        setViewSiteFilter('');
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [viewSiteDropdownOpen]);
 
   const closeSiteLocationPicker = () => {
     setSiteLocationPicker(null);
@@ -2317,36 +2332,59 @@ function AddContractPageContent() {
                   <p className="text-sm text-slate-500">Loading site list...</p>
                 )}
                 {distinctSitesForView.length > 1 && (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedViewSiteId(null)}
-                      className={`rounded-xl px-4 py-2 text-sm font-medium shadow-sm transition-all ${
-                        selectedViewSiteId === null
-                          ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-sky-900/20 ring-1 ring-sky-500/30'
-                          : 'border border-slate-200/80 bg-white/80 text-slate-700 hover:border-sky-200 hover:bg-sky-50/50'
-                      }`}
-                    >
-                      All sites
-                    </button>
-                    {distinctSitesForView.map(({ siteId, siteLabel, deviceCount }) => {
-                      const isSelected = selectedViewSiteId === siteId;
-                      return (
-                        <button
-                          key={siteId}
-                          type="button"
-                          onClick={() => setSelectedViewSiteId(siteId)}
-                          className={`rounded-xl px-4 py-2 text-sm font-medium shadow-sm transition-all ${
-                            isSelected
-                              ? 'bg-gradient-to-r from-sky-600 to-cyan-600 text-white shadow-sky-900/20 ring-1 ring-sky-500/30'
-                              : 'border border-slate-200/80 bg-white/80 text-slate-700 hover:border-sky-200 hover:bg-sky-50/50'
-                          }`}
-                        >
-                          📍 {siteLabel}
-                          <span className="ml-1.5 text-xs opacity-90">({deviceCount})</span>
-                        </button>
-                      );
-                    })}
+                  <div className="flex w-full min-w-0 flex-wrap items-end gap-2">
+                    <div className="flex min-w-0 w-full flex-1 flex-col gap-1">
+                      <span
+                        id="contract-add-view-site-label"
+                        className="text-xs font-semibold uppercase tracking-wider text-slate-500"
+                      >
+                        View site
+                      </span>
+                      <ContractSimpleSearchListDropdown
+                        rootId="contract-add-view-site-dropdown"
+                        className="w-full"
+                        disabled={dataLoading}
+                        open={viewSiteDropdownOpen}
+                        onToggle={() => {
+                          if (viewSiteDropdownOpen) setViewSiteFilter('');
+                          setViewSiteDropdownOpen((o) => !o);
+                        }}
+                        displayText={(() => {
+                          if (!selectedViewSiteId) return '';
+                          const row = distinctSitesForView.find(
+                            (s) => s.siteId === selectedViewSiteId
+                          );
+                          return row
+                            ? `${row.siteLabel} (${row.deviceCount})`
+                            : selectedViewSiteId;
+                        })()}
+                        emptyPlaceholder="All sites"
+                        panelTitle="Select from the list (view by site)"
+                        filter={viewSiteFilter}
+                        onFilterChange={setViewSiteFilter}
+                        items={[
+                          { value: '__all__', label: 'All sites' },
+                          ...distinctSitesForView.map(({ siteId, siteLabel, deviceCount }) => ({
+                            value: siteId,
+                            label: `${siteLabel} (${deviceCount})`,
+                          })),
+                        ]}
+                        selectedValue={selectedViewSiteId ?? '__all__'}
+                        onPick={(value) => {
+                          setSelectedViewSiteId(value === '__all__' ? null : value);
+                          setViewSiteDropdownOpen(false);
+                          setViewSiteFilter('');
+                        }}
+                        searchPlaceholder="Search site..."
+                        emptyText="No sites match"
+                        showClearOption={selectedViewSiteId != null}
+                        onClear={() => {
+                          setSelectedViewSiteId(null);
+                          setViewSiteDropdownOpen(false);
+                          setViewSiteFilter('');
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
                 <div className="space-y-3">
@@ -2501,15 +2539,9 @@ function AddContractPageContent() {
                                           setSiteSidMultiDraft(filteredSitePickItems.map((i) => i.value))
                                         }
                                       >
-                                        Select all shown
+                                        Select all
                                       </button>
-                                      <button
-                                        type="button"
-                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
-                                        onClick={() => setSiteSidMultiDraft([])}
-                                      >
-                                        Clear
-                                      </button>
+
                                       <button
                                         type="button"
                                         className="ml-auto rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:bg-sky-700"
@@ -2603,15 +2635,9 @@ function AddContractPageContent() {
                                           )
                                         }
                                       >
-                                        Select all shown
+                                        Select all
                                       </button>
-                                      <button
-                                        type="button"
-                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
-                                        onClick={() => setLocationSlidMultiDraft([])}
-                                      >
-                                        Clear
-                                      </button>
+
                                       <button
                                         type="button"
                                         className="ml-auto rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:bg-sky-700"
