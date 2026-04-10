@@ -121,7 +121,7 @@ function ReportPageContent() {
   const [downloadSofFilter, setDownloadSofFilter] = useState('');
   const [downloadLocationFilter, setDownloadLocationFilter] = useState('');
   const [downloadModalPage, setDownloadModalPage] = useState(1);
-  const [doneTasks, setDoneTasks] = useState<Array<{ id: number; taskType: string; status: string }>>([]);
+  const [pmMaTasks, setPmMaTasks] = useState<any[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [selectedReport, setSelectedReport] = useState<PMReport | MAReport | null>(null);
   const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, {
@@ -220,26 +220,25 @@ function ReportPageContent() {
     fetchMa();
   }, []);
 
-  // Fetch tasks with status = 'done'
+  // Fetch PM/MA tasks (ทุก status — ใช้ export; ปุ่มสร้าง report ยังใช้เฉพาะ done)
   useEffect(() => {
-    const fetchDoneTasks = async () => {
+    const fetchPmMaTasks = async () => {
       setLoadingTasks(true);
       try {
         const res = await getTasks();
         if (res.success && res.data) {
-          // Filter tasks with status = 'done' and taskType = 'PM' or 'MA'
-          const done = res.data.filter(
-            (task: any) => task.status === 'done' && (task.taskType === 'PM' || task.taskType === 'MA')
+          const list = res.data.filter(
+            (task: any) => task.taskType === 'PM' || task.taskType === 'MA'
           );
-          setDoneTasks(done);
+          setPmMaTasks(list);
         }
       } catch (e) {
-        console.error('Error fetching done tasks:', e);
+        console.error('Error fetching PM/MA tasks:', e);
       } finally {
         setLoadingTasks(false);
       }
     };
-    fetchDoneTasks();
+    fetchPmMaTasks();
   }, []);
 
   const reports = tab === 'pm' ? pmReports : maReports;
@@ -263,6 +262,34 @@ function ReportPageContent() {
       );
     });
   }, [reports, searchTerm, dateKey]);
+
+  /** กรอง PM/MA task (ยังไม่มี report) ตามช่องค้นหา — สอดคล้องกับ filteredReports */
+  const pmMaTaskWithoutReportMatchesSearch = (task: any, term: string) => {
+    const t = term.trim();
+    if (!t) return true;
+    const q = t.toLowerCase();
+    const assets: any[] = Array.isArray(task?.assets) ? task.assets : [];
+    for (const a of assets) {
+      const deviceName = String(a?.CI_Name ?? a?.name ?? a?.Asset_Number ?? a?.serial ?? '').toLowerCase();
+      const deviceId = String(a?.Asset_Number ?? a?.assetNumber ?? a?.Did ?? '').toLowerCase();
+      if (deviceName.includes(q) || deviceId.includes(q)) return true;
+    }
+    const technician = getEngineerDisplay({
+      engineers: task?.engineers,
+      technicianName: task?.technicianName,
+    } as PMReport).toLowerCase();
+    const dateVal = task?.endDate || task?.startDate;
+    const dateStr = typeof dateVal === 'string' ? dateVal.toLowerCase() : '';
+    const siteStr = String(task?.siteName ?? '').toLowerCase();
+    const statusStr = String(task?.status ?? '').toLowerCase();
+    return (
+      technician.includes(q) ||
+      siteStr.includes(q) ||
+      String(task?.id ?? '').includes(q) ||
+      dateStr.includes(q) ||
+      statusStr.includes(q)
+    );
+  };
 
   const totalPages = Math.ceil(filteredReports.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -415,9 +442,6 @@ function ReportPageContent() {
     return [{ CI_Name: `Device ${report.deviceId}`, name: `Device ${report.deviceId}` }];
   };
 
-  const hasDonePMTasks = doneTasks.some((task) => task.taskType === 'PM');
-  const hasDoneMATasks = doneTasks.some((task) => task.taskType === 'MA');
-
   // Tasks without Report (remaining)
   const reportedPMTaskIds = useMemo(
     () => new Set(pmReports.map((r) => Number(r.taskId)).filter((n) => !Number.isNaN(n))),
@@ -427,14 +451,31 @@ function ReportPageContent() {
     () => new Set(maReports.map((r) => Number(r.taskId)).filter((n) => !Number.isNaN(n))),
     [maReports]
   );
+  /** done แล้วแต่ยังไม่มี report — ใช้ปุ่ม Create / เลือกประเภท report */
   const remainingPMTasks = useMemo(
-    () => doneTasks.filter((t) => t.taskType === 'PM' && !reportedPMTaskIds.has(Number(t.id))),
-    [doneTasks, reportedPMTaskIds]
+    () =>
+      pmMaTasks.filter(
+        (t) => t.taskType === 'PM' && t.status === 'done' && !reportedPMTaskIds.has(Number(t.id))
+      ),
+    [pmMaTasks, reportedPMTaskIds]
   );
   const remainingMATasks = useMemo(
-    () => doneTasks.filter((t) => t.taskType === 'MA' && !reportedMATaskIds.has(Number(t.id))),
-    [doneTasks, reportedMATaskIds]
+    () =>
+      pmMaTasks.filter(
+        (t) => t.taskType === 'MA' && t.status === 'done' && !reportedMATaskIds.has(Number(t.id))
+      ),
+    [pmMaTasks, reportedMATaskIds]
   );
+  /** ทุก status ที่ยังไม่มี report — ใช้ต่อท้าย CSV */
+  const remainingPMWithoutReport = useMemo(
+    () => pmMaTasks.filter((t) => t.taskType === 'PM' && !reportedPMTaskIds.has(Number(t.id))),
+    [pmMaTasks, reportedPMTaskIds]
+  );
+  const remainingMAWithoutReport = useMemo(
+    () => pmMaTasks.filter((t) => t.taskType === 'MA' && !reportedMATaskIds.has(Number(t.id))),
+    [pmMaTasks, reportedMATaskIds]
+  );
+  const exportablePendingCount = tab === 'pm' ? remainingPMWithoutReport.length : remainingMAWithoutReport.length;
 
   const handleCreatePM = () => {
     setShowCreateMenu(false);
@@ -459,6 +500,25 @@ function ReportPageContent() {
     const s = String(v ?? '');
     if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
+  };
+
+  /**
+   * แยกคอลัมน์ Site / Location: ข้อความจาก DB/UI มักเป็น "ชื่อไซต์ - สถานที่" รวมในฟิลด์เดียว
+   * ถ้ามี Location จาก device/asset ให้ใช้เป็นคอลัมน์ Location ก่อน (ข้อมูลจากอุปกรณ์)
+   */
+  const exportSiteAndLocation = (siteLabel: unknown, explicitLocation: unknown): { site: string; location: string } => {
+    const raw = String(siteLabel ?? '').trim();
+    const exp = String(explicitLocation ?? '').trim();
+    const m = raw.match(/^(.*?)(\s+[-\u2013\u2014]\s+)(.*)$/);
+    const siteOnly = m ? m[1].trim() : raw;
+    const fromLabel = m ? m[3].trim() : '';
+    if (exp) {
+      return { site: siteOnly || raw || '-', location: exp };
+    }
+    if (fromLabel) {
+      return { site: siteOnly || '-', location: fromLabel };
+    }
+    return { site: raw || '-', location: '-' };
   };
 
   /** สำหรับ Excel/LibreOffice: สูตร HYPERLINK ให้กดเปิด Repair notice ได้ (หลายไฟล์คั่นบรรทัดในเซลล์เดียว) */
@@ -492,23 +552,42 @@ function ReportPageContent() {
     if (Number.isNaN(d.getTime())) return String(v);
     return d.toLocaleDateString('en-US'); // M/D/YYYY
   };
+  const formatTaskStatusForCsv = (status: unknown) => {
+    const s = String(status ?? '').trim().toLowerCase();
+    if (s === 'done') return 'Done';
+    if (s === 'not-started') return 'Not started';
+    if (s === 'working') return 'Working';
+    if (s === 'stuck') return 'Stuck';
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : '-';
+  };
   // Export CSV — ใช้กับทั้ง PM และ MA ตาม tab ปัจจุบัน
   const handleExport = async () => {
     const taskLabel = tab === 'pm' ? 'PM' : 'MA';
+    const isFullExport = selectedReportsArray.length === 0;
+    const sourceReports =
+      selectedReportsArray.length > 0 ? selectedReportsArray : filteredReports;
+    const pendingPool = tab === 'pm' ? remainingPMWithoutReport : remainingMAWithoutReport;
+    const pendingExport = isFullExport
+      ? pendingPool.filter((t) => pmMaTaskWithoutReportMatchesSearch(t, searchTerm))
+      : [];
+    if (sourceReports.length === 0 && pendingExport.length === 0) return;
+
     // สำหรับ MA: ดึง replacement device (serial, location, site) สำหรับ Replace Device, New Site, New Location
     type ReplacementInfo = { serial: string; location: string; site: string };
     let replacementPlaceMap: Record<string, ReplacementInfo> = {};
+    const addReplacementIdsFromRow = (row: any, repIds: Set<string>) => {
+      const assets: any[] = Array.isArray(row?.assets) ? row.assets : [];
+      assets.forEach((a: any) => {
+        const rid = a?.replacementDeviceId ?? a?.replacement_device_id;
+        if (rid != null && String(rid).trim() !== '') repIds.add(String(rid));
+      });
+      const taskRepId = row?.replacementDeviceId ?? row?.replacement_device_id;
+      if (taskRepId != null && String(taskRepId).trim() !== '') repIds.add(String(taskRepId));
+    };
     if (tab === 'ma') {
       const repIds = new Set<string>();
-      filteredReports.forEach((r: PMReport | MAReport) => {
-        const assets: any[] = Array.isArray((r as any).assets) ? (r as any).assets : [];
-        assets.forEach((a: any) => {
-          const rid = a?.replacementDeviceId ?? a?.replacement_device_id;
-          if (rid != null && String(rid).trim() !== '') repIds.add(String(rid));
-        });
-        const taskRepId = (r as any).replacementDeviceId ?? (r as any).replacement_device_id;
-        if (taskRepId != null && String(taskRepId).trim() !== '') repIds.add(String(taskRepId));
-      });
+      sourceReports.forEach((r: PMReport | MAReport) => addReplacementIdsFromRow(r, repIds));
+      pendingExport.forEach((t) => addReplacementIdsFromRow(t, repIds));
       await Promise.all(
         Array.from(repIds).map(async (rid) => {
           try {
@@ -533,9 +612,6 @@ function ReportPageContent() {
         })
       );
     }
-    const sourceReports =
-      selectedReportsArray.length > 0 ? selectedReportsArray : filteredReports;
-    if (sourceReports.length === 0) return;
 
     const lines: string[] = [];
     const row = (arr: unknown[]) => lines.push(arr.map(csvCell).join(','));
@@ -549,8 +625,15 @@ function ReportPageContent() {
     sourceReports.forEach((r: PMReport | MAReport) => {
       const dateVal = r[dateKey as keyof typeof r];
       const dev = r.device as Record<string, unknown> | undefined;
-      const site = dev?.Sitename != null ? String(dev.Sitename) : '-';
-      const location = dev?.Location2 != null ? String(dev.Location2) : '-';
+      const rSite = (r as PMReport).site_name ?? (r as MAReport).site_name;
+      const rawSite =
+        dev?.Sitename != null && String(dev.Sitename).trim() !== ''
+          ? String(dev.Sitename)
+          : rSite != null && String(rSite).trim() !== ''
+            ? String(rSite)
+            : '';
+      const explicitLoc = dev?.Location2 != null ? String(dev.Location2) : '';
+      const { site, location } = exportSiteAndLocation(rawSite, explicitLoc);
       const reportStatus = (r.uploadedFiles || []).length > 0 ? 'Reported' : 'Not yet';
       if (tab === 'pm') {
         const assets = Array.isArray((r as any).assets) ? (r as any).assets : [];
@@ -623,6 +706,96 @@ function ReportPageContent() {
         (r.comment || '').replace(/\n/g, ' '),
       ]);
     });
+
+    pendingExport.forEach((task: any) => {
+      const dateVal = task?.endDate || task?.startDate;
+      const assets: any[] = Array.isArray(task?.assets) ? task.assets : [];
+      const first = assets[0];
+      const rawSiteLabel =
+        task?.siteName != null && String(task.siteName).trim() !== ''
+          ? String(task.siteName)
+          : first?.Sitename != null
+            ? String(first.Sitename)
+            : '';
+      const explicitLocFromAsset =
+        first?.Location2 != null
+          ? String(first.Location2)
+          : first?.location != null
+            ? String(first.location)
+            : '';
+      const { site: siteFromTask, location: locationFromTask } = exportSiteAndLocation(
+        rawSiteLabel,
+        explicitLocFromAsset
+      );
+      const engDisplay = getEngineerDisplay({
+        engineers: task?.engineers,
+        technicianName: task?.technicianName,
+      } as PMReport);
+      if (tab === 'pm') {
+        const totalDevicesThisReport = assets.length > 0 ? assets.length : 1;
+        row([
+          String(totalDevicesThisReport),
+          siteFromTask,
+          locationFromTask,
+          engDisplay,
+          formatExportDate(dateVal),
+          formatTaskStatusForCsv(task?.status),
+          'Not yet',
+          String(task?.notes ?? '')
+            .replace(/\n/g, ' '),
+        ]);
+        return;
+      }
+      const taskRepId = task?.replacementDeviceId ?? task?.replacement_device_id;
+      const origSerials: string[] = [];
+      const repNames: string[] = [];
+      const newSites: string[] = [];
+      const newLocations: string[] = [];
+      assets.forEach((a: any, i: number) => {
+        const origSerial = a?.serial ?? a?.serialNumber ?? '';
+        if (origSerial) origSerials.push(origSerial);
+        const rid = a?.replacementDeviceId ?? a?.replacement_device_id ?? (i === 0 ? taskRepId : null);
+        const repInfo = rid != null ? replacementPlaceMap[String(rid)] : null;
+        const repName = repInfo?.serial ?? '-';
+        if (rid != null) {
+          repNames.push(repName);
+          newSites.push(repInfo?.site ?? '-');
+          newLocations.push(repInfo?.location ?? '-');
+        }
+      });
+      if (repNames.length === 0 && taskRepId != null && replacementPlaceMap[String(taskRepId)]) {
+        const p = replacementPlaceMap[String(taskRepId)];
+        repNames.push(p.serial);
+        newSites.push(p.site);
+        newLocations.push(p.location);
+      }
+      const serialStr = origSerials.length > 0 ? origSerials.join('; ') : '-';
+      const replaceDeviceStr = repNames.length > 0 ? repNames.join('; ') : '-';
+      const newSiteStr = newSites.length > 0 ? newSites.join('; ') : '-';
+      const newLocationStr = newLocations.length > 0 ? newLocations.join('; ') : '-';
+      const photosArr = Array.isArray(task?.photos) ? task.photos.map((p: any) => (typeof p === 'string' ? p : String(p?.path ?? p?.url ?? '').trim())).filter(Boolean) : [];
+      row([
+        serialStr,
+        siteFromTask,
+        locationFromTask,
+        engDisplay,
+        formatExportDate(dateVal),
+        replaceDeviceStr,
+        newSiteStr,
+        newLocationStr,
+        task?.vendorName ?? '',
+        task?.vendorTel ?? '',
+        task?.reporterName ?? '',
+        task?.reporterTel ?? '',
+        task?.ticket ?? '',
+        buildRepairNoticeCsvCell({ taskId: task?.id, repairNoticePaths: photosArr } as MAReport),
+        formatTaskStatusForCsv(task?.status),
+        'Not yet',
+        String(task?.notes ?? '')
+          .replace(/\n/g, ' '),
+      ]);
+    });
+
     const csv = lines.join('\r\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -1356,7 +1529,7 @@ function ReportPageContent() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleExport}
-              disabled={loading || filteredReports.length === 0}
+              disabled={loading || (filteredReports.length === 0 && exportablePendingCount === 0)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
               title="Export data to CSV"
             >

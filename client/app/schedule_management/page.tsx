@@ -1820,10 +1820,12 @@ function ScheduleManagementContent() {
 
   // Handle task update from detail modal (for status updates only)
   const handleTaskUpdate = async (updatedTask: any) => {
-    // Prepare payload - only send status to avoid changing other fields
     const payload: any = {
       status: updatedTask.status,
     };
+    if (updatedTask.notes !== undefined) {
+      payload.notes = updatedTask.notes ?? null;
+    }
 
     // Store original dates to preserve them
     const originalEvent = calendarEvents.find(e => e.id === updatedTask.id);
@@ -1837,6 +1839,7 @@ function ScheduleManagementContent() {
           ? { 
               ...event, 
               status: updatedTask.status,
+              ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
               // Preserve original dates
               startDate: originalStartDate || event.startDate,
               endDate: originalEndDate || event.endDate,
@@ -1855,7 +1858,7 @@ function ScheduleManagementContent() {
       return updatedEvents;
     });
 
-    // Update backend - only send status
+    // Update backend
     try {
       const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
         method: 'PUT',

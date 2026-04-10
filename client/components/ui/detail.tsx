@@ -1,6 +1,6 @@
 'use client';
 
-import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip, Clock3 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { apiUrl, taskMaNoticeUrl } from '@/lib/api';
@@ -83,8 +83,10 @@ interface Props {
 }
 
 export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDelete, reportLink, createReportLink }: Props) {
-  const { showConfirm, alertModal } = useAlertModal();
+  const { showConfirm, showAlert, alertModal } = useAlertModal();
   const [status, setStatus] = useState<'done' | 'working' | 'stuck' | 'not-started'>(task?.status || 'not-started');
+  /** โน้ตเหตุผล in process — บังคับกรอกก่อนบันทึกเมื่อ status = working */
+  const [inProcessReasonDraft, setInProcessReasonDraft] = useState('');
   const [assetDetailsMap, setAssetDetailsMap] = useState<Record<string, Device>>({});
   const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, Device>>({});
   const [assetPage, setAssetPage] = useState(1);
@@ -94,6 +96,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   useEffect(() => {
     if (task) {
       setStatus(task.status || 'not-started');
+      setInProcessReasonDraft(String(task.notes ?? '').trim());
       setAssetPage(1);
     }
   }, [task]);
@@ -197,9 +200,17 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   const paginatedAssets = task.assets?.slice((assetPage - 1) * assetsPerPage, assetPage * assetsPerPage) || [];
 
   const handleSave = () => {
+    if (status === 'working') {
+      const reason = inProcessReasonDraft.trim();
+      if (!reason) {
+        showAlert('กรุณากรอกเหตุผลก่อนบันทึกสถานะ In process', 'warning', 'ขาดข้อมูล');
+        return;
+      }
+    }
     const updatedTask: TaskDetail = {
       ...task,
       status,
+      notes: status === 'working' ? inProcessReasonDraft.trim() : task.notes,
     };
 
     onUpdate?.(updatedTask);
@@ -657,6 +668,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             <h3 className="text-sm font-bold text-slate-700 mb-4">Task Status</h3>
             <div className="grid grid-cols-3 gap-2">
               <button
+                type="button"
                 onClick={() => setStatus('done')}
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
                   status === 'done'
@@ -667,16 +679,19 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 Done
               </button>
               <button
+                type="button"
                 onClick={() => setStatus('working')}
-                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
+                className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
                   status === 'working'
                     ? 'bg-amber-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border-2 border-slate-200 hover-border-amber-300'
+                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-amber-300'
                 }`}
               >
+                <Clock3 size={18} className="shrink-0" strokeWidth={2.25} />
                 In Process
               </button>
               <button
+                type="button"
                 onClick={() => setStatus('not-started')}
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
                   status === 'not-started' || status === 'stuck'
@@ -687,6 +702,23 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 Pending
               </button>
             </div>
+            {status === 'working' && (
+              <div className="mt-4 rounded-xl border-2 border-amber-200 bg-amber-50/90 p-3">
+                <label htmlFor="in-process-reason" className="mb-2 flex items-center gap-2 text-xs font-bold text-amber-900">
+                  <Clock3 size={16} className="shrink-0" />
+                  Reason for in progress
+                  <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  id="in-process-reason"
+                  value={inProcessReasonDraft}
+                  onChange={(e) => setInProcessReasonDraft(e.target.value)}
+                  rows={3}
+                  placeholder="เช่น รออะไหล่, ประสานลูกค้า, รอเข้าพื้นที่..."
+                  className="w-full resize-y rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                />
+              </div>
+            )}
           </div>
 
         </div>

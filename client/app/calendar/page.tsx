@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
-import { ChevronLeft, ChevronRight, X, FileCheck, FileX2, LayoutGrid, List, Users } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, FileCheck, FileX2, LayoutGrid, List, Users, Clock3 } from 'lucide-react';
 import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -70,6 +70,24 @@ interface CalendarEvent {
   photos?: string[];
   notes?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
+}
+
+/** ข้อความอธิบายว่าทำไมงานถึงอยู่ระหว่างดำเนินการ (in process) — จากโน้ต / root cause */
+function getCalendarInProcessReason(ev: Pick<CalendarEvent, 'notes' | 'rootCause'>): string {
+  const notes = String(ev.notes ?? '').trim();
+  const root = String(ev.rootCause ?? '').trim();
+  if (notes && root) return `${notes} (${root})`;
+  if (notes) return notes;
+  if (root) return root;
+  return 'ยังไม่ระบุเหตุผลในโน้ตงาน';
+}
+
+function calendarInProcessTitleText(ev: CalendarEvent): string {
+  const base = ev.title || '(No title)';
+  if (ev.status !== 'working') return base;
+  const reason = getCalendarInProcessReason(ev);
+  const short = reason.length > 44 ? `${reason.slice(0, 41)}…` : reason;
+  return `${base} · ${short}`;
 }
 
 export default function CalendarPage() {
@@ -798,10 +816,12 @@ function CalendarPageContent() {
 
   // Handle task update from detail modal (for status updates only)
   const handleTaskUpdate = async (updatedTask: any) => {
-    // Prepare payload - only send status to avoid changing other fields
     const payload: any = {
       status: updatedTask.status,
     };
+    if (updatedTask.notes !== undefined) {
+      payload.notes = updatedTask.notes ?? null;
+    }
 
     // Store original dates to preserve them
     const originalEvent = calendarEvents.find(e => e.id === updatedTask.id);
@@ -815,6 +835,7 @@ function CalendarPageContent() {
           ? { 
               ...event, 
               status: updatedTask.status,
+              ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
               // Preserve original dates
               startDate: originalStartDate || event.startDate,
               endDate: originalEndDate || event.endDate,
@@ -1074,7 +1095,18 @@ function CalendarPageContent() {
                         const endDate = endDateStr ? new Date(endDateStr) : null;
                         if (endDate) endDate.setHours(0, 0, 0, 0);
                         const isOverdue = !isDone && endDate && endDate < today;
-                        const statusLabel = isDone ? 'Done' : isOverdue ? 'Overdue' : hasReport && isMA ? 'Reported' : ev.status === 'working' ? 'In progress' : 'Pending';
+                        const isInProcess = ev.status === 'working';
+                        const statusLabel = isDone
+                          ? 'Done'
+                          : isOverdue
+                            ? 'Overdue'
+                            : hasReport && isMA
+                              ? 'Reported'
+                              : ev.status === 'working'
+                                ? 'In process'
+                                : ev.status === 'stuck'
+                                  ? 'Stuck'
+                                  : 'Pending';
                         return (
                           <tr
                             key={ev.id}
@@ -1095,10 +1127,27 @@ function CalendarPageContent() {
                               </span>
                             </td>
                             <td className="py-2.5 px-4 text-slate-600">{ev.engineer || '—'}</td>
-                            <td className="py-2.5 px-4">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs ${isDone ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                            <td className="py-2.5 px-4 max-w-[220px]">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                                  isDone
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : isInProcess
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : isOverdue
+                                        ? 'bg-red-100 text-red-700'
+                                        : 'bg-slate-100 text-slate-600'
+                                }`}
+                                title={isInProcess ? getCalendarInProcessReason(ev) : undefined}
+                              >
+                                {isInProcess && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                                 {statusLabel}
                               </span>
+                              {isInProcess && (
+                                <p className="mt-1 text-[11px] text-amber-900/90 line-clamp-2" title={getCalendarInProcessReason(ev)}>
+                                  {getCalendarInProcessReason(ev)}
+                                </p>
+                              )}
                             </td>
                             <td className="py-2.5 px-4">
                               <button
@@ -1299,14 +1348,17 @@ function CalendarPageContent() {
                                 const endDate = endDateStr ? new Date(endDateStr) : null;
                                 if (endDate) endDate.setHours(0, 0, 0, 0);
                                 const isOverdue = !isDone && endDate && endDate < today;
-                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า (เหมือน schedule)
+                                const isInProcess = ev.status === 'working';
+                                // สีตามสถานะ: เสร็จแล้ว=เขียว, กำลังทำ=เหลือง, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
                                 const pillStyle = isDone
                                   ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
-                                  : isOverdue
-                                    ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
-                                    : isMA
-                                      ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
-                                      : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                                  : isInProcess
+                                    ? 'border-l-4 border-l-amber-500 bg-amber-50/90 text-amber-950'
+                                    : isOverdue
+                                      ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
+                                      : isMA
+                                        ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                                        : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
@@ -1333,12 +1385,13 @@ function CalendarPageContent() {
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                                     className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
+                                    title={isInProcess ? `กำลังดำเนินการ: ${getCalendarInProcessReason(ev)}` : undefined}
                                   >
                                     <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
                                     <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
-                                      {ev.title || '(No title)'}
+                                      {calendarInProcessTitleText(ev)}
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
                                       <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
@@ -1368,6 +1421,11 @@ function CalendarPageContent() {
                                         <FileCheck size={12} strokeWidth={2.5} />
                                       </span>
                                     )}
+                                    {isInProcess && (
+                                      <span className="ml-1 flex-shrink-0 text-amber-700" title={`กำลังดำเนินการ: ${getCalendarInProcessReason(ev)}`}>
+                                        <Clock3 size={12} strokeWidth={2.5} aria-hidden />
+                                      </span>
+                                    )}
                                   </div>
                                 );
                               })}
@@ -1388,14 +1446,17 @@ function CalendarPageContent() {
                     const endDate = endDateStr ? new Date(endDateStr) : null;
                     if (endDate) endDate.setHours(0, 0, 0, 0);
                     const isOverdue = !isDone && endDate && endDate < today;
-                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า (เหมือน schedule)
+                    const isInProcess = event.status === 'working';
+                    // สีตามสถานะ: เสร็จแล้ว=เขียว, กำลังทำ=เหลือง, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
                     const barStyle = isDone
                       ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
-                      : isOverdue
-                        ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
-                        : isMA
-                          ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
-                          : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                      : isInProcess
+                        ? 'border-l-4 border-l-amber-500 bg-amber-50/90 text-amber-950'
+                        : isOverdue
+                          ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
+                          : isMA
+                            ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                            : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                     const topPx = MULTI_DAY_TOP_OFFSET + row * (BAR_HEIGHT + TASK_GAP);
                     return (
                       <div
@@ -1431,12 +1492,16 @@ function CalendarPageContent() {
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                         className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        title={isInProcess ? `กำลังดำเนินการ: ${getCalendarInProcessReason(event)}` : undefined}
                       >
                         <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
+                        {isInProcess && (
+                          <Clock3 size={12} className="mr-1 shrink-0 opacity-90" strokeWidth={2.5} aria-hidden />
+                        )}
                         <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
-                          {event.title || '(No title)'}
+                          {calendarInProcessTitleText(event)}
                         </span>
                         {event.Eng_ids && event.Eng_ids.length > 0 && (
                           <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
@@ -1464,6 +1529,11 @@ function CalendarPageContent() {
                         {hasReport && (
                           <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
                             <FileCheck size={12} strokeWidth={2.5} />
+                          </span>
+                        )}
+                        {isInProcess && (
+                          <span className="ml-1 flex-shrink-0 text-amber-700" title={`กำลังดำเนินการ: ${getCalendarInProcessReason(event)}`}>
+                            <Clock3 size={12} strokeWidth={2.5} aria-hidden />
                           </span>
                         )}
                       </div>
@@ -1499,16 +1569,17 @@ function CalendarPageContent() {
                 {hoveredEvent.taskType || 'PM'}
               </span>
               {hoveredEvent.status && (
-                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${
                   hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
-                  hoveredEvent.status === 'working' ? 'bg-orange-100 text-orange-700' :
+                  hoveredEvent.status === 'working' ? 'bg-amber-100 text-amber-800' :
                   hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-700'
                 }`}>
                   {hoveredEvent.status === 'done' ? 'Done' :
-                   hoveredEvent.status === 'working' ? 'In Process' :
+                   hoveredEvent.status === 'working' ? 'In process' :
                    hoveredEvent.status === 'stuck' ? 'Stuck' :
                    'Not Started'}
+                  {hoveredEvent.status === 'working' && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                 </span>
               )}
               {(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
@@ -1524,6 +1595,17 @@ function CalendarPageContent() {
                 </span>
               )}
             </div>
+
+            {hoveredEvent.status === 'working' && (
+              <div className="w-full min-w-0 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2">
+                <p className="mb-1 block w-full text-xs font-semibold leading-snug text-amber-800 whitespace-normal">
+                  Reason for in progress
+                </p>
+                <p className="text-sm text-amber-950 whitespace-pre-wrap break-words">
+                  {getCalendarInProcessReason(hoveredEvent)}
+                </p>
+              </div>
+            )}
 
             {/* Location ก่อน Site */}
             {hoveredEvent.location && (
