@@ -1,9 +1,9 @@
 'use client';
 
-import { X, CheckCircle2, XCircle, Trash2, FileText, Download } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, taskMaNoticeUrl } from '@/lib/api';
 import { useAlertModal } from '@/components/ui/useAlertModal';
 import ExcelJS from 'exceljs';
 
@@ -63,7 +63,8 @@ interface TaskDetail {
   replacementDeviceId?: string | number;
   // Status fields
   actuallyWent?: boolean;
-  photos?: string[]; // Array of base64 or URLs
+  /** รูป/ไฟล์แนบ — string path หรือ { path, name } จากงาน MA */
+  photos?: Array<string | { path?: string; name?: string; url?: string }>;
   notes?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
 }
@@ -574,6 +575,46 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   <p className="text-sm text-slate-700 whitespace-pre-wrap mt-1">{task.resolution?.trim() || '—'}</p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {task.taskType === 'MA' && task.photos && Array.isArray(task.photos) && task.photos.length > 0 && (
+            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">Repair notice</h3>
+              <ul className="space-y-2">
+                {task.photos.map((p, i) => {
+                  const raw =
+                    typeof p === 'string' ? p : (p.path || p.url || '');
+                  const label =
+                    typeof p === 'string'
+                      ? raw.split('/').pop() || 'file'
+                      : p.name || raw.split('/').pop() || 'file';
+                  if (!raw) return null;
+                  const diskBasename =
+                    typeof p === 'string'
+                      ? raw.split('/').filter(Boolean).pop() || ''
+                      : (p.path || p.url || '').split('/').filter(Boolean).pop() || '';
+                  const href =
+                    raw.startsWith('http://') || raw.startsWith('https://')
+                      ? raw
+                      : task.id && diskBasename
+                        ? taskMaNoticeUrl(task.id, diskBasename)
+                        : apiUrl(raw.startsWith('/') ? raw : `/${raw}`);
+                  return (
+                    <li key={`${raw}-${i}`}>
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:underline inline-flex items-center gap-2"
+                      >
+                        <Paperclip size={14} className="shrink-0" />
+                        <span className="break-all">{label}</span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
           

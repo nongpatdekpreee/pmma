@@ -4,6 +4,7 @@
  */
 
 const db = require('../config/database');
+const { rowPhotosToPathArray } = require('../utils/taskPhotosNormalize');
 
 async function generateNextReportId() {
   const [rows] = await db.execute(
@@ -118,36 +119,85 @@ const submitReport = async (req, res) => {
     const deviceJsonStr = device ? JSON.stringify(device) : null;
     const deviceIdVal = deviceId ? parseInt(deviceId, 10) : null;
 
+    /** MA: snapshot path ของ Repair notice จาก tasks.photos ลง report (เหมือนเก็บ path ในรายงาน) */
+    let repairNoticePathsJson = null;
+    let repairNoticePaths = [];
+    if (reportType === 'MA') {
+      try {
+        const [taskPh] = await db.execute('SELECT task_type, photos FROM tasks WHERE id = ?', [taskId]);
+        const trow = taskPh[0];
+        if (trow && String(trow.task_type || '').toUpperCase() === 'MA') {
+          repairNoticePaths = rowPhotosToPathArray(trow.photos);
+          repairNoticePathsJson = repairNoticePaths.length > 0 ? JSON.stringify(repairNoticePaths) : null;
+        }
+      } catch (e) {
+        console.warn('[submitReport] Could not snapshot repair notice paths:', e.message);
+      }
+    }
+
     let reportId = 1;
     let inserted = false;
     for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
       reportId = await generateNextReportId();
       try {
-        await db.execute(
-          `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status, checklist_items, comment, technician_name, pm_date, device_id, device_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [reportId, taskId, filePaths, imagePaths, sla_result, status, checklistItemsJson, comment || null, technicianName || null, pmDateVal, deviceIdVal, deviceJsonStr]
-        );
-        inserted = true;
-      } catch (insertErr) {
-        // schema เก่าอาจไม่มีคอลัมน์เพิ่ม → fallback insert แบบสั้น
-        if (insertErr.code === 'ER_BAD_FIELD_ERROR' || insertErr.message?.includes('Unknown column')) {
+        try {
+          await db.execute(
+            `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status, checklist_items, comment, technician_name, pm_date, device_id, device_json, repair_notice_paths)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              reportId,
+              taskId,
+              filePaths,
+              imagePaths,
+              sla_result,
+              status,
+              checklistItemsJson,
+              comment || null,
+              technicianName || null,
+              pmDateVal,
+              deviceIdVal,
+              deviceJsonStr,
+              repairNoticePathsJson,
+            ]
+          );
+        } catch (e13) {
+          if (e13.code === 'ER_DUP_ENTRY') throw e13;
+          if (!(e13.code === 'ER_BAD_FIELD_ERROR' || e13.message?.includes('Unknown column'))) throw e13;
           try {
+            await db.execute(
+              `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status, checklist_items, comment, technician_name, pm_date, device_id, device_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                reportId,
+                taskId,
+                filePaths,
+                imagePaths,
+                sla_result,
+                status,
+                checklistItemsJson,
+                comment || null,
+                technicianName || null,
+                pmDateVal,
+                deviceIdVal,
+                deviceJsonStr,
+              ]
+            );
+          } catch (e12) {
+            if (e12.code === 'ER_DUP_ENTRY') throw e12;
+            if (!(e12.code === 'ER_BAD_FIELD_ERROR' || e12.message?.includes('Unknown column'))) throw e12;
             await db.execute(
               `INSERT INTO report (report_id, id, file_path, image_path, sla_result, status)
                VALUES (?, ?, ?, ?, ?, ?)`,
               [reportId, taskId, filePaths, imagePaths, sla_result, status]
             );
-            inserted = true;
-          } catch (fallbackErr) {
-            if (fallbackErr.code === 'ER_DUP_ENTRY') continue;
-            throw fallbackErr;
           }
-        } else if (insertErr.code === 'ER_DUP_ENTRY') {
-          continue; // มีคนแทรก id เดียวกันพอดี → คำนวณใหม่
-        } else {
-          throw insertErr;
         }
+        inserted = true;
+      } catch (insertErr) {
+        if (insertErr.code === 'ER_DUP_ENTRY') {
+          continue;
+        }
+        throw insertErr;
       }
     }
     if (!inserted) {
@@ -170,6 +220,7 @@ const submitReport = async (req, res) => {
       pmDate: pmDate || maDate,
       status,
       createdAt: new Date().toISOString(),
+      ...(reportType === 'MA' ? { repairNoticePaths } : {}),
     };
 
     res.status(200).json({
@@ -204,9 +255,11 @@ const getReports = async (req, res) => {
         `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
                 r.sla_result, r.status,
                 r.checklist_items, r.comment, r.technician_name, r.pm_date, r.device_id, r.device_json,
+                r.repair_notice_paths,
                 r.created_at,
                 t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
-                t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket
+                t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket,
+                t.photos AS task_photos
          FROM report r
          INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
          ORDER BY r.report_id DESC
@@ -215,17 +268,39 @@ const getReports = async (req, res) => {
       );
     } catch (colErr) {
       if (colErr.code === 'ER_BAD_FIELD_ERROR' || colErr.message?.includes('Unknown column')) {
-        [rows] = await db.execute(
-          `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
-                  r.sla_result, r.status,
-                  t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
-                  t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket
-           FROM report r
-           INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
-           ORDER BY r.report_id DESC
-           LIMIT ? OFFSET ?`,
-          [taskType, limitNum, offsetNum]
-        );
+        try {
+          [rows] = await db.execute(
+            `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
+                    r.sla_result, r.status,
+                    r.checklist_items, r.comment, r.technician_name, r.pm_date, r.device_id, r.device_json,
+                    r.created_at,
+                    t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
+                    t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket,
+                    t.photos AS task_photos
+             FROM report r
+             INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
+             ORDER BY r.report_id DESC
+             LIMIT ? OFFSET ?`,
+            [taskType, limitNum, offsetNum]
+          );
+        } catch (colErr2) {
+          if (colErr2.code === 'ER_BAD_FIELD_ERROR' || colErr2.message?.includes('Unknown column')) {
+            [rows] = await db.execute(
+              `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
+                      r.sla_result, r.status,
+                      t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
+                      t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket,
+                      t.photos AS task_photos
+               FROM report r
+               INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
+               ORDER BY r.report_id DESC
+               LIMIT ? OFFSET ?`,
+              [taskType, limitNum, offsetNum]
+            );
+          } else {
+            throw colErr2;
+          }
+        }
       } else {
         throw colErr;
       }
@@ -269,6 +344,12 @@ const getReports = async (req, res) => {
         ? (typeof r.pm_date === 'string' ? r.pm_date : r.pm_date.toISOString?.()?.slice(0, 10))
         : (r.start_date ? (typeof r.start_date === 'string' ? r.start_date : r.start_date.toISOString?.()?.slice(0, 10)) : null);
 
+      const repairRaw =
+        r.repair_notice_paths != null && String(r.repair_notice_paths).trim() !== ''
+          ? r.repair_notice_paths
+          : r.task_photos;
+      const repairNoticePaths = taskType === 'MA' ? rowPhotosToPathArray(repairRaw) : [];
+
       const item = {
         id: String(r.report_id),
         report_id: r.report_id,
@@ -298,6 +379,7 @@ const getReports = async (req, res) => {
           reporterTel: r.reporter_tel,
           ticket: r.ticket,
         } : {}),
+        ...(taskType === 'MA' ? { repairNoticePaths } : {}),
       };
       return item;
     });

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, postMaReport, getTasks, getMaReports, getMaReportedTaskIds, getContractById, uploadMaReportFile } from '@/lib/api';
+import { apiUrl, postMaReport, getTasks, getMaReports, getMaReportedTaskIds, getContractById, uploadMaReportFile, taskMaNoticeUrl } from '@/lib/api';
 import { 
   Upload, 
   X, 
@@ -21,7 +21,10 @@ import {
   ClipboardList,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Paperclip,
+  Cpu,
+  Replace,
 } from 'lucide-react';
 
 interface UploadedFile {
@@ -52,6 +55,24 @@ interface Device {
   Refer_Ticket?: string;
   Assigned_Service?: string;
   Reason?: string;
+}
+
+/** path จาก task.photos (API ส่ง string[] หรือข้อมูลเก่าเป็น object) */
+function repairNoticePathsFromTask(task: any): string[] {
+  const photos = task?.photos;
+  if (!Array.isArray(photos)) return [];
+  const out: string[] = [];
+  for (const p of photos) {
+    if (typeof p === 'string' && p.trim()) {
+      out.push(p.trim());
+      continue;
+    }
+    if (p && typeof p === 'object') {
+      const raw = String((p as { path?: string; url?: string }).path || (p as { path?: string; url?: string }).url || '').trim();
+      if (raw) out.push(raw);
+    }
+  }
+  return out;
 }
 
 export default function AddMAReportPage() {
@@ -591,10 +612,6 @@ export default function AddMAReportPage() {
               if (!selected) return null;
               const task = selectedTaskId != null ? availableMATasks.find((t: any) => t.id === selectedTaskId) : null;
               const isReplacement = task && (task.replacementDeviceId === selected.Did || task.assets?.some((a: any, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === selected.Did));
-              const formatDate = (v: string | null | undefined) => {
-                if (!v) return undefined;
-                try { return new Date(v).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return v; }
-              };
               const deviceFields: { label: string; value?: string | number | null }[] = [
                 { label: 'CI Name', value: selected.CI_Name },
                 { label: 'Asset Number', value: selected.Asset_Number },
@@ -605,7 +622,6 @@ export default function AddMAReportPage() {
                 { label: 'Site', value: selected.Sitename },
                 { label: 'Location', value: (selected as any).Location2 ?? selected.Location2 },
                 { label: 'Vendor', value: selected.Vendor },
-                { label: 'Asset State', value: selected.Asset_State },
                 { label: 'Assigned Service', value: selected.Assigned_Service },
               ];
               // MA: find the other device in the replace pair (replaced / replacement)
@@ -645,40 +661,52 @@ export default function AddMAReportPage() {
                 { label: 'Model', value: pairDevice.model },
                 { label: 'Site', value: pairDevice.Sitename },
               ] : [];
+              const specGrid = (fields: { label: string; value?: string | number | null }[]) => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+                  {fields.map(({ label, value }) => (
+                    <div key={label} className="min-w-0">
+                      <p className="text-[11px] font-medium text-slate-500 mb-1">{label}</p>
+                      <p className="text-sm font-medium text-slate-800 leading-snug break-words">
+                        {value != null && value !== '' ? String(value) : '—'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              );
               return (
                 <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
-                    <div className="flex items-center gap-2 mb-3">
-                      <p className="text-sm font-bold text-slate-700">Selected device</p>
-                      {isReplacement && (
-                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Replacement device</span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      {deviceFields.map(({ label, value }) => (
-                        <div key={label} className="bg-white rounded-lg p-3 border border-slate-100">
-                          <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-                          <p className="text-sm font-medium text-slate-800 truncate" title={value != null && value !== '' ? String(value) : undefined}>
-                            {value ?? '-'}
-                          </p>
+                  <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden ring-1 ring-slate-900/[0.04]">
+                    <div className="flex items-start gap-3 px-4 py-3.5 bg-gradient-to-r from-slate-50/95 to-white border-b border-slate-100">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-100/80">
+                        <Cpu size={20} strokeWidth={1.75} />
+                      </div>
+                      <div className="min-w-0 flex-1 pt-0.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-sm font-bold text-slate-800">Selected device</h4>
+                          {isReplacement && (
+                            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 ring-1 ring-amber-200/80">
+                              Replacement unit
+                            </span>
+                          )}
                         </div>
-                      ))}
+                        <p className="mt-0.5 text-xs text-slate-500">Details for the device you selected</p>
+                      </div>
                     </div>
+                    <div className="p-4">{specGrid(deviceFields)}</div>
                   </div>
                   {pairDevice && pairLabel && (
-                    <div className="p-4 bg-slate-100/80 rounded-xl border border-slate-200">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Replaced equipment</p>
-                      <p className="text-sm font-bold text-slate-700 mb-2">{pairLabel}</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        {pairFields.map(({ label, value }) => (
-                          <div key={label} className="bg-white rounded-lg p-3 border border-slate-100">
-                            <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-                            <p className="text-sm font-medium text-slate-800 truncate" title={value != null && value !== '' ? String(value) : undefined}>
-                              {value ?? '-'}
-                            </p>
-                          </div>
-                        ))}
+                    <div className="rounded-2xl border border-amber-200/70 bg-gradient-to-b from-amber-50/35 to-white shadow-sm overflow-hidden ring-1 ring-amber-900/[0.06]">
+                      <div className="flex items-start gap-3 px-4 py-3.5 border-b border-amber-100/90 bg-amber-50/50">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-amber-700 shadow-sm ring-1 ring-amber-200/60">
+                          <Replace size={20} strokeWidth={1.75} />
+                        </div>
+                        <div className="min-w-0 flex-1 pt-0.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800/80">Replaced equipment</p>
+                          <h4 className="text-sm font-bold text-slate-800 mt-0.5">{pairLabel}</h4>
+                          <p className="mt-0.5 text-xs text-slate-500">The other unit in this replacement pair</p>
+                        </div>
                       </div>
+                      <div className="p-4">{specGrid(pairFields)}</div>
                     </div>
                   )}
                 </div>
@@ -731,17 +759,66 @@ export default function AddMAReportPage() {
             );
           })()}
 
+          {/* Repair notice — ไฟล์แนบจากงาน MA (จะถูก snapshot ลง report ตอนกดบันทึก) */}
+          {selectedTaskId != null && (() => {
+            const task =
+              availableMATasks.find((t: any) => t.id === selectedTaskId) ??
+              doneMATasks.find((t: any) => t.id === selectedTaskId);
+            if (!task) return null;
+            const paths = repairNoticePathsFromTask(task);
+            if (paths.length === 0) return null;
+            const tid = Number(task.id);
+            return (
+              <div className="mb-6 p-4 bg-gray-50/90 rounded-xl border border-gray-200/90">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
+                    <Paperclip size={18} className="text-amber-800" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-800">Repair notice</h3>
+                    <p className="text-xs text-slate-500">files from the MA task</p>
+                  </div>
+                </div>
+                <ul className="space-y-2">
+                  {paths.map((raw, i) => {
+                    const diskBasename = raw.split('/').filter(Boolean).pop() || '';
+                    const label = diskBasename || 'file';
+                    const href =
+                      raw.startsWith('http://') || raw.startsWith('https://')
+                        ? raw
+                        : tid && diskBasename
+                          ? taskMaNoticeUrl(tid, diskBasename)
+                          : apiUrl(raw.startsWith('/') ? raw : `/${raw}`);
+                    return (
+                      <li key={`${raw}-${i}`}>
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-blue-700 hover:underline inline-flex items-center gap-2 font-medium"
+                        >
+      
+                          <span className="break-all">{label}</span>
+                        </a>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })()}
+
           {/* MA Information */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">
-                Technician (ชื่อ-นามสกุล) *
+                Technician (Name and Surname) *
               </label>
               <input
                 type="text"
                 value={technicianName}
                 onChange={(e) => setTechnicianName(e.target.value)}
-                placeholder="กรอกชื่อ-นามสกุล"
+                placeholder=""
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
             </div>
