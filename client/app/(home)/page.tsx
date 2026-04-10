@@ -90,9 +90,9 @@ export default function DashboardPage() {
   const [hoveredEvent, setHoveredEvent] = useState<EventItem | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
 
-  const PM_CARDS_PAGE_SIZE = 5;
-  const NEAREST_EVENTS_PAGE_SIZE = 4;
-  const MISSING_EVENTS_PAGE_SIZE = 4;
+  const PM_CARDS_PAGE_SIZE = 3;
+  const NEAREST_EVENTS_PAGE_SIZE = 3;
+  const MISSING_EVENTS_PAGE_SIZE = 3;
 
   useEffect(() => {
     let cancelled = false;
