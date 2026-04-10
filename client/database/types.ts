@@ -157,8 +157,7 @@ export interface TaskWithRelations extends Task {
   contract?: Contract;
   assigned_engineers?: Employee[];
   assigned_assets?: Asset[];
-  /** path บนเซิร์ฟเวอร์ เช่น /uploads/tasks/... (เก็บเป็น JSON array ของ string) */
-  photos?: string[];
+  photos?: TaskPhoto[];
 }
 
 // ============================================

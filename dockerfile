@@ -1,26 +1,66 @@
-# =============================================
-# Build (default = frontend):  docker build -t pmma-plan .
-# Backend only:               docker build --target backend -t pmma-plan .
-# Frontend only:              docker build --target frontend -t pmma-plan .
-# =============================================
+# Combined: Next.js (standalone) + Express backend + nginx reverse proxy
+# Build from repo root: docker build -t pmma-combined -f Dockerfile .
 
-# -----------------------------------------------------------------------------
-# Backend (Node 18 slim = smaller image)
-# -----------------------------------------------------------------------------
-FROM node:18-slim AS backend
+# ----- Stage 1: Frontend dependencies -----
+FROM node:20-alpine AS frontend-deps
+RUN apk add --no-cache libc6-compat
 WORKDIR /app
-COPY backend/package*.json ./
-RUN npm install --omit=dev
-COPY backend/ .
-EXPOSE 5000
-ENV PORT=5000
-CMD ["npm", "start"]
+COPY client/package.json client/package-lock.json* ./
+RUN npm ci
 
-FROM node:20-slim AS frontend
+# ----- Stage 2: Backend dependencies -----
+FROM node:20-alpine AS backend-deps
+RUN apk add --no-cache python3 make g++
 WORKDIR /app
-COPY client/package*.json ./
-RUN npm install
+COPY backend/package.json backend/package-lock.json* ./
+RUN npm ci --omit=dev
+
+# ----- Stage 3: Build frontend (Next.js standalone) -----
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app
+
+COPY --from=frontend-deps /app/node_modules ./node_modules
 COPY client/ .
-EXPOSE 3000
-ENV PORT=3000
-CMD ["npm", "run", "dev"]
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production
+
+# Baked into client bundle: "" = same-origin /api via nginx
+ARG NEXT_PUBLIC_API_URL=
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+RUN npm run build
+
+# ----- Stage 4: Final runner -----
+FROM node:20-alpine AS runner
+
+RUN apk add --no-cache nginx
+
+WORKDIR /app
+
+# ---- Backend ----
+COPY --from=backend-deps /app/node_modules ./backend/node_modules
+COPY backend/server.js ./backend/
+COPY backend/config ./backend/config
+COPY backend/controllers ./backend/controllers
+COPY backend/routes ./backend/routes
+RUN mkdir -p /app/backend/uploads
+
+# ---- Frontend (Next.js standalone) ----
+COPY --from=frontend-builder /app/.next/standalone ./frontend/
+COPY --from=frontend-builder /app/.next/static ./frontend/.next/static
+COPY --from=frontend-builder /app/public ./frontend/public
+
+# ---- Nginx + startup ----
+COPY nginx.conf /etc/nginx/nginx.conf
+COPY start.sh /app/start.sh
+# Windows CRLF makes Linux report "start.sh: not found" when exec'd
+RUN sed -i 's/\r$//' /etc/nginx/nginx.conf /app/start.sh && chmod +x /app/start.sh
+
+RUN mkdir -p /var/log/nginx /tmp
+
+ENV NODE_ENV=production
+
+EXPOSE 80
+
+CMD ["/app/start.sh"]

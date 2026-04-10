@@ -13,18 +13,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useRef, useMemo, useId, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  apiUrl,
-  getContractsBySite,
-  getDevicesByContract,
-  getSitesByContract,
-  getSitesLocation,
-  getSitesLocationWithContracts,
-  getTasks,
-  checkEngineerConflict,
-  uploadMaTaskFile,
-  taskMaNoticeUrl,
-} from '@/lib/api';
+import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getSitesLocationWithContracts, getTasks, checkEngineerConflict } from '@/lib/api';
 import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -154,26 +143,6 @@ interface ContractOption {
   sof_name?: string;
 }
 
-/** แปลง task.photos จาก API เป็นรายการไฟล์แนบ MA */
-function normalizeMaAttachmentsFromEvent(photos: unknown): { path: string; name: string }[] {
-  if (!Array.isArray(photos)) return [];
-  const out: { path: string; name: string }[] = [];
-  for (const p of photos) {
-    if (typeof p === 'string' && p.trim()) {
-      const path = p.trim();
-      out.push({ path, name: path.split('/').pop() || 'file' });
-      continue;
-    }
-    if (p && typeof p === 'object') {
-      const o = p as { path?: string; url?: string; name?: string };
-      const path = (o.path || o.url || '').trim();
-      if (!path) continue;
-      out.push({ path, name: o.name || path.split('/').pop() || 'file' });
-    }
-  }
-  return out;
-}
-
 /* ================= available engineers ================= */
 // จะดึงข้อมูลจาก API ใน component แทน
 
@@ -216,12 +185,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     replacementListFetched?: boolean;
   }
   const [brokenDevicePairs, setBrokenDevicePairs] = useState<BrokenDevicePair[]>([]);
-  /** ไฟล์แนบงาน MA — เก็บ path จากหลังอัปโหลด + ชื่อแสดง */
-  const [maAttachments, setMaAttachments] = useState<{ path: string; name: string }[]>([]);
-  const [uploadingMaFiles, setUploadingMaFiles] = useState(false);
-  const maFileInputRef = useRef<HTMLInputElement>(null);
-  /** basename ของไฟล์ที่โหลดจาก task เดิม (มีใน DB แล้ว) — ใช้เปิดผ่าน /ma-notice ได้ */
-  const initialMaDiskBasenamesRef = useRef<Set<string>>(new Set());
 
   /* ===== asset ===== */
   const [siteOptions, setSiteOptions] = useState<SiteOption[]>([]);
@@ -308,9 +271,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     devicesMappedRef.current = '';
     replacementWarehouseCacheRef.current = null;
     replacementWarehouseInflightRef.current = null;
-    setMaAttachments([]);
-    setUploadingMaFiles(false);
-    initialMaDiskBasenamesRef.current = new Set();
   };
 
   const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => ({
@@ -653,16 +613,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setResolution(editingEvent.resolution || '');
       setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
       setAssetBinding(editingEvent.assetBinding || '');
-      if (editingEvent.taskType === 'MA') {
-        const ma = normalizeMaAttachmentsFromEvent(editingEvent.photos);
-        setMaAttachments(ma);
-        initialMaDiskBasenamesRef.current = new Set(
-          ma.map((x) => x.path.split('/').filter(Boolean).pop() || '').filter(Boolean)
-        );
-      } else {
-        setMaAttachments([]);
-        initialMaDiskBasenamesRef.current = new Set();
-      }
       const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
       setSelectedContractIds(contractId ? [contractId] : []);
       // Store editing assets to preserve them after devices are loaded
@@ -998,32 +948,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
   }, [startDate, duration, taskType]);
 
-  const handleMaFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
-    if (!list?.length) return;
-    const maxBytes = 20 * 1024 * 1024;
-    setUploadingMaFiles(true);
-    try {
-      for (const file of Array.from(list)) {
-        if (file.size > maxBytes) {
-          toastError(`File too large (max 20MB): ${file.name}`);
-          continue;
-        }
-        const json = await uploadMaTaskFile(file);
-        if (json.success && json.path) {
-          setMaAttachments((prev) => [...prev, { path: json.path!, name: json.name || file.name }]);
-        } else {
-          toastError(json.message || `Upload failed: ${file.name}`);
-        }
-      }
-    } catch (err: any) {
-      toastError(err?.message || 'Upload failed');
-    } finally {
-      setUploadingMaFiles(false);
-      e.target.value = '';
-    }
-  };
-
   // Reset MA-specific fields when switching to PM
   useEffect(() => {
     if (taskType === 'PM') {
@@ -1039,9 +963,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setReplacementDevices([]);
       setSelectedReplacementDevice(null);
       setBrokenDevicePairs([]);
-      setMaAttachments([]);
-      setUploadingMaFiles(false);
-      if (maFileInputRef.current) maFileInputRef.current.value = '';
       // ไม่ reset travel fields เพราะใช้ร่วมกันทั้ง PM และ MA
     }
   }, [taskType]);
@@ -1669,11 +1590,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       assetBinding: taskType === 'MA' ? assetBinding : null,
       replacementDeviceId: replacementDeviceId,
       status: editingEvent?.status || 'not-started',
-      ...(taskType === 'MA'
-        ? {
-            photos: maAttachments.map((a) => a.path),
-          }
-        : {}),
     });
 
     const allowedContractNums = new Set(
@@ -2695,81 +2611,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   />
                 </div>
               </div>
-            </div>
-          )}
-
-          {taskType === 'MA' && (
-            <div className={sectionCard}>
-              <h3 className="text-xs font-bold text-slate-700">Repair notice</h3>
-              <p className="text-[10px] text-slate-500 mt-1 mb-2">Optional files (max 20MB each)</p>
-              <input
-                ref={maFileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.zip,.txt"
-                onChange={handleMaFilesSelected}
-              />
-              <div className="flex flex-wrap items-center gap-2 mt-2">
-                <button
-                  type="button"
-                  disabled={uploadingMaFiles}
-                  onClick={() => maFileInputRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <Paperclip size={14} />
-                  {uploadingMaFiles ? 'Uploading…' : 'Add files'}
-                </button>
-              </div>
-              {maAttachments.length > 0 && (
-                <ul className="mt-3 space-y-1.5">
-                  {maAttachments.map((a) => {
-                    const diskBasename = a.path.split('/').filter(Boolean).pop() || '';
-                    const canOpenViaApi = Boolean(
-                      editingEvent?.id &&
-                        diskBasename &&
-                        initialMaDiskBasenamesRef.current.has(diskBasename)
-                    );
-                    return (
-                      <li
-                        key={a.path}
-                        className="flex items-center justify-between gap-2 text-xs bg-slate-50 rounded-lg px-2 py-1.5 border border-slate-100"
-                      >
-                        <div className="min-w-0 flex items-center gap-2 flex-1">
-                          {canOpenViaApi ? (
-                            <a
-                              href={taskMaNoticeUrl(editingEvent!.id, diskBasename)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="truncate text-blue-600 hover:underline"
-                              title={a.name}
-                            >
-                              {a.name}
-                            </a>
-                          ) : (
-                            <span className="truncate text-slate-700" title={a.name}>
-                              {a.name}
-                            </span>
-                          )}
-                          {!canOpenViaApi && diskBasename && (
-                            <span className="text-[10px] text-slate-400 shrink-0 hidden sm:inline">
-                              Open after save
-                            </span>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setMaAttachments((prev) => prev.filter((x) => x.path !== a.path))}
-                          className="shrink-0 p-0.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50"
-                          title="Remove"
-                        >
-                          <X size={14} />
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
             </div>
           )}
         

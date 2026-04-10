@@ -1,11 +1,4 @@
-const path = require('path');
-const fs = require('fs');
 const db = require('../config/database');
-const {
-  parsePhotosArray,
-  photosToPathStringArray,
-  normalizePhotosInput,
-} = require('../utils/taskPhotosNormalize');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
@@ -111,7 +104,7 @@ const mapTaskRow = (row) => {
   status: row.status || 'not-started',
   actuallyWent: !!row.actually_went,
   notes: row.notes,
-  photos: photosToPathStringArray(parsePhotosArray(row.photos)),
+  photos: row.photos ? (typeof row.photos === 'string' ? JSON.parse(row.photos) : row.photos) : [],
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 };
@@ -239,8 +232,6 @@ const createTask = async (req, res) => {
       return isNaN(parsed) ? null : parsed;
     };
 
-    const photoPaths = normalizePhotosInput(photos);
-
     const insertValues = [
       finalTaskId,
       taskType,
@@ -264,7 +255,7 @@ const createTask = async (req, res) => {
       status || 'not-started',
       actuallyWent ? 1 : 0,
       notes || null,
-      photoPaths.length > 0 ? JSON.stringify(photoPaths) : null,
+      photos && Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : null,
     ];
 
     await db.execute(insertSql, insertValues);
@@ -424,10 +415,7 @@ const updateTask = async (req, res) => {
     if (status !== undefined) addUpdate('status', status || 'not-started');
     if (actuallyWent !== undefined) addUpdate('actually_went', actuallyWent ? 1 : 0);
     if (notes !== undefined) addUpdate('notes', notes || null);
-    if (photos !== undefined) {
-      const paths = normalizePhotosInput(photos);
-      addUpdate('photos', paths.length > 0 ? JSON.stringify(paths) : null);
-    }
+    if (photos !== undefined) addUpdate('photos', photos && photos.length > 0 ? JSON.stringify(photos) : null);
 
     if (updates.length === 0) {
         return res.status(400).json({ success: false, message: 'No data to update' });
@@ -877,102 +865,6 @@ const getPendingTasks = async (req, res) => {
   }
 };
 
-/**
- * GET /api/tasks/:id/ma-notice?b=<basename>
- * เปิดไฟล์ repair notice ผ่าน API เท่านั้น — ตรวจว่า basename ตรงกับรายการใน tasks.photos ของ task นี้
- * (ไม่เปิดเผย path เต็ม / ไม่ใช้ static โฟลเดอร์ tasks)
- */
-const getTaskMaNotice = async (req, res) => {
-  try {
-    const taskId = parseInt(String(req.params.id), 10);
-    const bRaw = req.query.b;
-    if (!Number.isFinite(taskId) || taskId < 1 || bRaw == null || !String(bRaw).trim()) {
-      return res.status(400).json({ success: false, message: 'Invalid parameters' });
-    }
-
-    const wantBasename = path.basename(String(bRaw).trim());
-    if (!wantBasename || wantBasename === '.' || wantBasename === '..') {
-      return res.status(400).json({ success: false, message: 'Invalid file name' });
-    }
-
-    const [rows] = await db.execute('SELECT id, photos FROM tasks WHERE id = ?', [taskId]);
-    if (!rows[0]) {
-      return res.status(404).json({ success: false, message: 'Task not found' });
-    }
-
-    let photos = rows[0].photos;
-    if (photos == null) {
-      return res.status(404).json({ success: false, message: 'Attachment not found' });
-    }
-    if (typeof photos === 'string') {
-      try {
-        photos = JSON.parse(photos);
-      } catch {
-        return res.status(404).json({ success: false, message: 'Attachment not found' });
-      }
-    }
-    if (!Array.isArray(photos)) {
-      return res.status(404).json({ success: false, message: 'Attachment not found' });
-    }
-
-    let entry = null;
-    for (const item of photos) {
-      const rawPath = typeof item === 'string' ? item : item && (item.path || item.url);
-      if (!rawPath || /^https?:\/\//i.test(String(rawPath).trim())) continue;
-      const bn = path.basename(String(rawPath).trim());
-      if (bn === wantBasename) {
-        entry = item;
-        break;
-      }
-    }
-    if (!entry) {
-      return res.status(404).json({ success: false, message: 'Attachment not found' });
-    }
-
-    const diskBasename = path.basename(
-      typeof entry === 'string' ? entry : entry.path || entry.url || ''
-    );
-    const tasksDir = path.resolve(path.join(__dirname, '..', 'uploads', 'tasks'));
-    const absFile = path.resolve(path.join(tasksDir, diskBasename));
-    const rel = path.relative(tasksDir, absFile);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      return res.status(403).json({ success: false, message: 'Forbidden' });
-    }
-
-    if (!fs.existsSync(absFile)) {
-      return res.status(404).json({ success: false, message: 'File not found' });
-    }
-
-    const downloadName =
-      typeof entry === 'object' && entry && entry.name ? String(entry.name) : diskBasename;
-    const safeName = downloadName.replace(/[\r\n"]/g, '_');
-
-    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(safeName)}`);
-    res.sendFile(absFile);
-  } catch (error) {
-    console.error('[getTaskMaNotice]', error);
-    res.status(500).json({ success: false, message: error.message || 'Server error' });
-  }
-};
-
-// POST /api/tasks/upload — อัปโหลดไฟล์แนบงาน MA (เก็บใน uploads/tasks)
-const uploadTaskFile = (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'File not found' });
-    }
-    const filePath = `/uploads/tasks/${req.file.filename}`;
-    res.status(200).json({
-      success: true,
-      path: filePath,
-      name: req.file.originalname,
-    });
-  } catch (error) {
-    console.error('[uploadTaskFile] Error:', error);
-    res.status(500).json({ success: false, message: 'Upload failed', error: error.message });
-  }
-};
-
 module.exports = {
   createTask,
   getTasks,
@@ -984,6 +876,4 @@ module.exports = {
   getCompletedTasks,
   getInprocessTasks,
   getPendingTasks,
-  uploadTaskFile,
-  getTaskMaNotice,
 };

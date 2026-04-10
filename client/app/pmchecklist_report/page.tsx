@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { getPmReports, getMaReports, getTasks, apiUrl, taskMaNoticeUrl } from '@/lib/api';
+import { getPmReports, getMaReports, getTasks, apiUrl } from '@/lib/api';
 import JSZip from 'jszip';
 import {
   Plus,
@@ -33,7 +33,6 @@ import {
   Upload,
   Image,
   Loader2,
-  Paperclip,
 } from 'lucide-react';
 
 type ReportTab = 'pm' | 'ma';
@@ -93,8 +92,6 @@ interface MAReport {
   reporterTel?: string;
   ticket?: string;
   site_name?: string;
-  /** path จาก tasks.photos ตอนบันทึก report (หรือจาก task ถ้ายังไม่มีคอลัมน์ใน DB) */
-  repairNoticePaths?: string[];
 }
 
 const ITEMS_PER_PAGE = 5;
@@ -617,7 +614,7 @@ function ReportPageContent() {
     const row = (arr: unknown[]) => lines.push(arr.map(csvCell).join(','));
     const gen = new Date().toISOString().slice(0, 19).replace('T', ' ');
     const pmHeaders = ['Total devices', 'Site', 'Location', 'Technician', 'PM Date', 'Status', 'Report status', 'Comment'];
-    const maHeaders = ['Serial', 'Site', 'Location', 'Technician', 'MA Date', 'Replace Device', 'New Site', 'New Location', 'Third Party Vendor name', 'Third Party Vendor phone', 'Reporter name', 'Reporter phone', 'Ticket', 'Repair notice', 'Status', 'Report status', 'comment'];
+    const maHeaders = ['Serial', 'Site', 'Location', 'Technician', 'MA Date', 'Replace Device', 'New Site', 'New Location', 'Third Party Vendor name', 'Third Party Vendor phone', 'Reporter name', 'Reporter phone', 'Ticket', 'Status', 'Report status', 'comment'];
     const headers = tab === 'ma' ? maHeaders : pmHeaders;
     row([`${taskLabel} Checklist Report - Export (Generated: ${gen})`, ...Array(headers.length - 1).fill('')]);
     row(Array(headers.length).fill(''));
@@ -700,7 +697,6 @@ function ReportPageContent() {
         (r as MAReport).reporterName ?? '',
         (r as MAReport).reporterTel ?? '',
         (r as MAReport).ticket ?? '',
-        buildRepairNoticeCsvCell(r as MAReport),
         'Done',
         reportStatus,
         (r.comment || '').replace(/\n/g, ' '),
@@ -2399,46 +2395,6 @@ function ReportPageContent() {
                     </p>
                   </div>
                 )}
-
-                {/* Repair notice (จากงาน MA — snapshot ตอนบันทึก report) */}
-                {tab === 'ma' &&
-                  Array.isArray((selectedReport as MAReport).repairNoticePaths) &&
-                  (selectedReport as MAReport).repairNoticePaths!.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
-                          <Paperclip size={20} className="text-amber-700" />
-                        </div>
-                        <h3 className="font-bold text-slate-800">Repair notice</h3>
-                      </div>
-                      <ul className="space-y-2 pl-1">
-                        {(selectedReport as MAReport).repairNoticePaths!.map((raw, i) => {
-                          const diskBasename = raw.split('/').filter(Boolean).pop() || '';
-                          const label = diskBasename || 'file';
-                          const tid = (selectedReport as MAReport).taskId;
-                          const href =
-                            raw.startsWith('http://') || raw.startsWith('https://')
-                              ? raw
-                              : tid != null && diskBasename
-                                ? taskMaNoticeUrl(tid, diskBasename)
-                                : apiUrl(raw.startsWith('/') ? raw : `/${raw}`);
-                          return (
-                            <li key={`${raw}-${i}`}>
-                              <a
-                                href={href}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sm text-blue-600 hover:underline inline-flex items-center gap-2"
-                              >
-                                <Paperclip size={14} className="shrink-0" />
-                                <span className="break-all">{label}</span>
-                              </a>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
 
                 {/* Uploaded Files */}
                 {selectedReport.uploadedFiles && selectedReport.uploadedFiles.length > 0 && (

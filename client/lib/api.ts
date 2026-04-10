@@ -358,23 +358,6 @@ export async function postTask(body: {
   return res.json();
 }
 
-/** POST /api/tasks/upload — อัปโหลดไฟล์แนบงาน MA (multipart field name: file) */
-export async function uploadMaTaskFile(
-  file: File
-): Promise<{ success: boolean; path?: string; name?: string; message?: string }> {
-  const fd = new FormData();
-  fd.append('file', file);
-  const res = await fetch(apiUrl('/api/tasks/upload'), { method: 'POST', body: fd });
-  return res.json();
-}
-
-/** ลิงก์เปิดไฟล์ repair notice ผ่าน API (ไม่ชี้ /uploads/tasks โดยตรง) — ต้องมี taskId ที่บันทึกแล้ว */
-export function taskMaNoticeUrl(taskId: string | number, diskBasename: string): string {
-  const q = new URLSearchParams();
-  q.set('b', diskBasename);
-  return apiUrl(`/api/tasks/${encodeURIComponent(String(taskId))}/ma-notice?${q.toString()}`);
-}
-
 /** GET /api/tasks?month=&year= - ดึง Tasks สำหรับปฏิทิน */
 export async function getTasks(params?: { month?: number; year?: number }): Promise<{ success: boolean; data?: any[]; count?: number }> {
   const q = new URLSearchParams();

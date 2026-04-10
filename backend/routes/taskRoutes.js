@@ -1,7 +1,4 @@
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
 const router = express.Router();
 const {
   createTask,
@@ -14,30 +11,7 @@ const {
   getCompletedTasks,
   getInprocessTasks,
   getPendingTasks,
-  uploadTaskFile,
-  getTaskMaNotice,
 } = require('../controllers/taskController');
-
-const tasksUploadDir = path.join(__dirname, '..', 'uploads', 'tasks');
-if (!fs.existsSync(path.join(__dirname, '..', 'uploads'))) {
-  fs.mkdirSync(path.join(__dirname, '..', 'uploads'), { recursive: true });
-}
-if (!fs.existsSync(tasksUploadDir)) {
-  fs.mkdirSync(tasksUploadDir, { recursive: true });
-}
-
-const taskFileStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, tasksUploadDir),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '';
-    const base = (file.originalname || 'file').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
-    cb(null, `${Date.now()}-${base}${ext}`);
-  },
-});
-const taskFileUpload = multer({
-  storage: taskFileStorage,
-  limits: { fileSize: 20 * 1024 * 1024 },
-});
 
 // GET - list tasks
 router.get('/', getTasks);
@@ -56,12 +30,6 @@ router.get('/inprocess', getInprocessTasks);
 
 // GET - pending tasks แยก MA/PM
 router.get('/pending', getPendingTasks);
-
-// POST - อัปโหลดไฟล์แนบงาน MA (ต้องอยู่ก่อน POST / และก่อน GET /:id ไม่ชน path)
-router.post('/upload', taskFileUpload.single('file'), uploadTaskFile);
-
-// GET - เปิดดูไฟล์ repair notice (?b=basename บน disk) — ต้องอยู่ก่อน GET /:id
-router.get('/:id/ma-notice', getTaskMaNotice);
 
 // GET - task by id (ต้องอยู่หลัง specific routes)
 router.get('/:id', getTaskById);
