@@ -345,6 +345,10 @@ function AddContractPageContent() {
     null | { entryId: string; variant: 'site' | 'location' | 'flat' }
   >(null);
   const [siteLocationFilter, setSiteLocationFilter] = useState('');
+  /** เลือก Site หลายรายการก่อนกด Apply (dropdown Site เมื่อมี uniqueSites) */
+  const [siteSidMultiDraft, setSiteSidMultiDraft] = useState<string[]>([]);
+  /** เลือก Location (SLid) หลายรายการก่อนกด Apply */
+  const [locationSlidMultiDraft, setLocationSlidMultiDraft] = useState<string[]>([]);
 
   const toggleSelectedDevicesExpanded = (entryId: string) => {
     setExpandedSelectedDeviceEntries((prev) => {
@@ -433,6 +437,8 @@ function AddContractPageContent() {
   );
 
   const prevSourceSofDropdownOpenRef = useRef(false);
+  /** สร้างสัญญาใหม่: SOF ก่อนหน้า (trim) — ใช้รีเซ็ต Site/Device เมื่อเปลี่ยนเลข SOF */
+  const prevNewContractReferSofKeyRef = useRef('');
   const manualSofSnapshotRef = useRef('');
   const referSofManualEnabledSnapshotRef = useRef(false);
   manualSofSnapshotRef.current = manualSofInput;
@@ -468,7 +474,29 @@ function AddContractPageContent() {
   const closeSiteLocationPicker = () => {
     setSiteLocationPicker(null);
     setSiteLocationFilter('');
+    setSiteSidMultiDraft([]);
+    setLocationSlidMultiDraft([]);
   };
+
+  useEffect(() => {
+    if (!isNewContractFlow) {
+      prevNewContractReferSofKeyRef.current = '';
+      return;
+    }
+    const key = (sourceSofs[0] ?? '').trim();
+    const prev = prevNewContractReferSofKeyRef.current;
+    prevNewContractReferSofKeyRef.current = key;
+    if (prev !== '' && key !== prev) {
+      closeSiteLocationPicker();
+      setSiteEntries([{ id: randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
+      setActiveSiteEntryId('');
+      setDevicesBySite([]);
+      setIsDeviceModalOpen(false);
+      setDeviceFilter('');
+      setSelectedViewSiteId(null);
+      setExpandedSelectedDeviceEntries(new Set());
+    }
+  }, [isNewContractFlow, sourceSofs]);
 
   const toggleSiteLocationPicker = (
     entryId: string,
@@ -489,6 +517,8 @@ function AddContractPageContent() {
       if (el && !el.contains(e.target as Node)) {
         setSiteLocationPicker(null);
         setSiteLocationFilter('');
+        setSiteSidMultiDraft([]);
+        setLocationSlidMultiDraft([]);
       }
     };
     document.addEventListener('mousedown', onDoc);
@@ -1105,6 +1135,122 @@ function AddContractPageContent() {
       .filter((s) => s.Sid != null && !seen.has(s.Sid) && (seen.add(s.Sid), true))
       .map((s) => ({ sid: String(s.Sid), name: s.SiteName }));
   })();
+
+  /** ใช้ใน bulk เลือก Site — logic เดียวกับ setEntrySid แต่คืน array ใหม่ */
+  const applySidToEntryInList = (prev: SiteEntry[], entryId: string, sidTrim: string): SiteEntry[] => {
+    const sid = sidTrim?.trim() ?? '';
+    if (!sid) {
+      return prev.map((e) =>
+        e.id === entryId ? { ...e, selectedSid: undefined, siteId: '', siteLabel: '', devices: [] } : e
+      );
+    }
+    const locRows = locationRowsForSid(sid, sitesLocation);
+    if (locRows.length === 1) {
+      const slid = String(locRows[0].SLid);
+      const otherTookSlid = prev.some((e) => e.id !== entryId && e.siteId === slid);
+      const otherReserved = prev.some(
+        (e) => e.id !== entryId && e.selectedSid?.trim() === sid && !e.siteId
+      );
+      if (otherTookSlid || otherReserved) return prev;
+    }
+    return prev.map((e) =>
+      e.id === entryId ? { ...e, selectedSid: sid, siteId: '', siteLabel: '', devices: [] } : e
+    );
+  };
+
+  /** นำรายการ Sid ที่ติ๊กไว้ไปใช้: แถวปัจจุบันได้ตัวแรก ที่เหลือสร้างแถว Site ใหม่ */
+  const applyBulkSiteSidsForEntry = (entryId: string, draftSids: string[]) => {
+    setSiteEntries((prev) => {
+      const entry = prev.find((e) => e.id === entryId);
+      if (!entry || draftSids.length === 0) return prev;
+      const siteRowsAllowed = uniqueSiteOptionsForEntry(entry, prev, sitesLocation, uniqueSites);
+      const allowed = new Set(siteRowsAllowed.map((i) => i.sid));
+      const ordered: string[] = [];
+      for (const s of draftSids) {
+        const t = s.trim();
+        if (t && allowed.has(t) && !ordered.includes(t)) ordered.push(t);
+      }
+      if (ordered.length === 0) return prev;
+
+      const first = ordered[0];
+      let next = applySidToEntryInList(prev, entryId, first);
+      const idx = next.findIndex((e) => e.id === entryId);
+      if (idx < 0) return prev;
+      if ((next[idx].selectedSid?.trim() ?? '') !== first) return prev;
+
+      for (let i = 1; i < ordered.length; i++) {
+        const sid = ordered[i];
+        const nid = randomUUID();
+        const newRow: SiteEntry = {
+          id: nid,
+          siteId: '',
+          siteLabel: '',
+          devices: [],
+          selectedSid: sid,
+        };
+        if (!isSidOptionAvailableForEntry(sid, newRow, next, sitesLocation)) continue;
+        next = [...next, newRow];
+      }
+      return next;
+    });
+    closeSiteLocationPicker();
+  };
+
+  /** หลาย Location ภายใต้ Site เดียวกัน — แถวปัจจุบันได้ SLid แรก ที่เหลือสร้างแถวใหม่ */
+  const applyBulkLocationsForEntry = (entryId: string, draftSlids: string[]) => {
+    setSiteEntries((prev) => {
+      const entry = prev.find((e) => e.id === entryId);
+      if (!entry || draftSlids.length === 0) return prev;
+      const sid = entry.selectedSid?.trim();
+      if (!sid) return prev;
+      const locRows = locationsForSidForEntry(entry, sid, prev, sitesLocation);
+      const allowed = new Set(locRows.map((s) => String(s.SLid)));
+      const ordered: string[] = [];
+      for (const s of draftSlids) {
+        const t = s.trim();
+        if (t && allowed.has(t) && !ordered.includes(t)) ordered.push(t);
+      }
+      if (ordered.length === 0) return prev;
+
+      let next = [...prev];
+      const first = ordered[0];
+      const siteFirst = sitesLocation.find((s) => String(s.SLid) === first);
+      if (!siteFirst) return prev;
+      if (next.some((e) => e.id !== entryId && e.siteId === first)) return prev;
+
+      next = next.map((e) =>
+        e.id === entryId
+          ? {
+              ...e,
+              selectedSid: siteFirst.Sid != null ? String(siteFirst.Sid) : e.selectedSid,
+              siteId: first,
+              siteLabel: `${siteFirst.SiteName} – ${siteFirst.Location2}`,
+              devices: [],
+            }
+          : e
+      );
+
+      for (let i = 1; i < ordered.length; i++) {
+        const slid = ordered[i];
+        if (next.some((e) => e.siteId === slid)) continue;
+        const sl = sitesLocation.find((s) => String(s.SLid) === slid);
+        if (!sl) continue;
+        next = [
+          ...next,
+          {
+            id: randomUUID(),
+            selectedSid: sl.Sid != null ? String(sl.Sid) : sid,
+            siteId: slid,
+            siteLabel: `${sl.SiteName} – ${sl.Location2}`,
+            devices: [],
+          },
+        ];
+      }
+      return next;
+    });
+    closeSiteLocationPicker();
+  };
+
   /** แถว site สูงสุดเท่าจำนวน location (SLid) ในระบบ */
   const allLocationSlotsClaimed =
     sitesLocation.length > 0 && siteEntries.length >= sitesLocation.length;
@@ -2265,6 +2411,40 @@ function AddContractPageContent() {
                       siteLocationPicker.variant === 'flat';
 
                     const rowPickerOpen = openSite || openLoc || openFlat;
+                    const fqSite = siteLocationFilter.trim().toLowerCase();
+                    const filteredSitePickItems = siteItems.filter(
+                      (i) =>
+                        i.label.toLowerCase().includes(fqSite) ||
+                        i.value.toLowerCase().includes(fqSite)
+                    );
+                    const sitePickerOpenForRow =
+                      openSite &&
+                      siteLocationPicker?.entryId === entry.id &&
+                      siteLocationPicker?.variant === 'site';
+                    const siteTriggerDisplay =
+                      sitePickerOpenForRow && siteSidMultiDraft.length > 0
+                        ? siteSidMultiDraft
+                            .map((sid) => siteItems.find((i) => i.value === sid)?.label ?? sid)
+                            .join(', ')
+                        : siteDisplayName;
+                    const siteMultiMode = siteItems.length > 1;
+                    const fqLoc = siteLocationFilter.trim().toLowerCase();
+                    const filteredLocationPickItems = locationItems.filter(
+                      (i) =>
+                        i.label.toLowerCase().includes(fqLoc) ||
+                        i.value.toLowerCase().includes(fqLoc)
+                    );
+                    const locationPickerOpenForRow =
+                      openLoc &&
+                      siteLocationPicker?.entryId === entry.id &&
+                      siteLocationPicker?.variant === 'location';
+                    const locationMultiMode = locationItems.length > 1;
+                    const locationTriggerDisplay =
+                      locationPickerOpenForRow && locationMultiMode && locationSlidMultiDraft.length > 0
+                        ? locationSlidMultiDraft
+                            .map((slid) => locationItems.find((i) => i.value === slid)?.label ?? slid)
+                            .join(', ')
+                        : locationDisplayName;
                     return (
                     <div
                       key={entry.id}
@@ -2279,59 +2459,200 @@ function AddContractPageContent() {
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                                 Site 
                               </label>
-                              <ContractSimpleSearchListDropdown
-                                rootId={`site-pick-${entry.id}-site`}
-                                disabled={siteComboDisabled}
-                                open={openSite}
-                                onToggle={() => toggleSiteLocationPicker(entry.id, 'site')}
-                                displayText={siteDisplayName}
-                                emptyPlaceholder="-- Select Site --"
-                                panelTitle="Select from the list (one site)"
-                                filter={siteLocationFilter}
-                                onFilterChange={setSiteLocationFilter}
-                                items={siteItems}
-                                selectedValue={resolvedSid}
-                                onPick={(value) => {
-                                  setEntrySid(entry.id, value);
-                                  closeSiteLocationPicker();
-                                }}
-                                searchPlaceholder="Search site..."
-                                emptyText="No sites match"
-                                showClearOption={Boolean(resolvedSid)}
-                                onClear={() => {
-                                  setEntrySid(entry.id, '');
-                                  closeSiteLocationPicker();
-                                }}
-                              />
+                              {siteMultiMode ? (
+                                <ContractSimpleSearchListDropdown
+                                  rootId={`site-pick-${entry.id}-site`}
+                                  disabled={siteComboDisabled}
+                                  open={openSite}
+                                  onToggle={() => {
+                                    if (openSite) {
+                                      closeSiteLocationPicker();
+                                    } else {
+                                      setSiteSidMultiDraft(resolvedSid ? [resolvedSid] : []);
+                                      toggleSiteLocationPicker(entry.id, 'site');
+                                    }
+                                  }}
+                                  displayText={siteTriggerDisplay}
+                                  emptyPlaceholder="-- Select Site --"
+                                  panelTitle="Select sites (tick several or Select all — then Apply)"
+                                  filter={siteLocationFilter}
+                                  onFilterChange={setSiteLocationFilter}
+                                  items={siteItems}
+                                  selectedValue={resolvedSid}
+                                  onPick={() => {}}
+                                  multiSelect
+                                  selectedValues={sitePickerOpenForRow ? siteSidMultiDraft : []}
+                                  onToggleItem={(value) => {
+                                    setSiteSidMultiDraft((d) =>
+                                      d.includes(value) ? d.filter((x) => x !== value) : [...d, value]
+                                    );
+                                  }}
+                                  searchPlaceholder="Search site..."
+                                  emptyText="No sites match"
+                                  showClearOption={sitePickerOpenForRow && siteSidMultiDraft.length > 0}
+                                  onClear={() => setSiteSidMultiDraft([])}
+                                  listMaxHeightClass="max-h-[14rem]"
+                                  panelFooter={
+                                    <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                                      <button
+                                        type="button"
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                        onClick={() =>
+                                          setSiteSidMultiDraft(filteredSitePickItems.map((i) => i.value))
+                                        }
+                                      >
+                                        Select all shown
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                                        onClick={() => setSiteSidMultiDraft([])}
+                                      >
+                                        Clear
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ml-auto rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:bg-sky-700"
+                                        onClick={() =>
+                                          applyBulkSiteSidsForEntry(entry.id, siteSidMultiDraft)
+                                        }
+                                      >
+                                        Apply
+                                      </button>
+                                    </div>
+                                  }
+                                />
+                              ) : (
+                                <ContractSimpleSearchListDropdown
+                                  rootId={`site-pick-${entry.id}-site`}
+                                  disabled={siteComboDisabled}
+                                  open={openSite}
+                                  onToggle={() => toggleSiteLocationPicker(entry.id, 'site')}
+                                  displayText={siteDisplayName}
+                                  emptyPlaceholder="-- Select Site --"
+                                  panelTitle="Select from the list (one site)"
+                                  filter={siteLocationFilter}
+                                  onFilterChange={setSiteLocationFilter}
+                                  items={siteItems}
+                                  selectedValue={resolvedSid}
+                                  onPick={(value) => {
+                                    setEntrySid(entry.id, value);
+                                    closeSiteLocationPicker();
+                                  }}
+                                  searchPlaceholder="Search site..."
+                                  emptyText="No sites match"
+                                  showClearOption={Boolean(resolvedSid)}
+                                  onClear={() => {
+                                    setEntrySid(entry.id, '');
+                                    closeSiteLocationPicker();
+                                  }}
+                                />
+                              )}
                             </div>
                             <div className="min-w-0 flex-1 basis-0 sm:min-w-[12rem]">
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                                 Location 
                               </label>
-                              <ContractSimpleSearchListDropdown
-                                rootId={`site-pick-${entry.id}-location`}
-                                disabled={locationComboDisabled}
-                                open={openLoc}
-                                onToggle={() => toggleSiteLocationPicker(entry.id, 'location')}
-                                displayText={locationDisplayName}
-                                emptyPlaceholder="-- Select Location --"
-                                panelTitle="Select from the list (one location)"
-                                filter={siteLocationFilter}
-                                onFilterChange={setSiteLocationFilter}
-                                items={locationItems}
-                                selectedValue={entry.siteId}
-                                onPick={(value) => {
-                                  updateSiteEntry(entry.id, value);
-                                  closeSiteLocationPicker();
-                                }}
-                                searchPlaceholder="Search location..."
-                                emptyText="No locations match"
-                                showClearOption={Boolean(entry.siteId)}
-                                onClear={() => {
-                                  updateSiteEntry(entry.id, '');
-                                  closeSiteLocationPicker();
-                                }}
-                              />
+                              {locationMultiMode ? (
+                                <ContractSimpleSearchListDropdown
+                                  rootId={`site-pick-${entry.id}-location`}
+                                  disabled={locationComboDisabled}
+                                  open={openLoc}
+                                  onToggle={() => {
+                                    if (openLoc) {
+                                      closeSiteLocationPicker();
+                                    } else {
+                                      setLocationSlidMultiDraft(
+                                        entry.siteId ? [entry.siteId] : []
+                                      );
+                                      toggleSiteLocationPicker(entry.id, 'location');
+                                    }
+                                  }}
+                                  displayText={locationTriggerDisplay}
+                                  emptyPlaceholder="-- Select Location --"
+                                  panelTitle="Select locations (tick several or Select all — then Apply)"
+                                  filter={siteLocationFilter}
+                                  onFilterChange={setSiteLocationFilter}
+                                  items={locationItems}
+                                  selectedValue={entry.siteId}
+                                  onPick={() => {}}
+                                  multiSelect
+                                  selectedValues={
+                                    locationPickerOpenForRow ? locationSlidMultiDraft : []
+                                  }
+                                  onToggleItem={(value) => {
+                                    setLocationSlidMultiDraft((d) =>
+                                      d.includes(value) ? d.filter((x) => x !== value) : [...d, value]
+                                    );
+                                  }}
+                                  searchPlaceholder="Search location..."
+                                  emptyText="No locations match"
+                                  showClearOption={
+                                    locationPickerOpenForRow && locationSlidMultiDraft.length > 0
+                                  }
+                                  onClear={() => setLocationSlidMultiDraft([])}
+                                  listMaxHeightClass="max-h-[14rem]"
+                                  panelFooter={
+                                    <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                                      <button
+                                        type="button"
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                        onClick={() =>
+                                          setLocationSlidMultiDraft(
+                                            filteredLocationPickItems.map((i) => i.value)
+                                          )
+                                        }
+                                      >
+                                        Select all shown
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                                        onClick={() => setLocationSlidMultiDraft([])}
+                                      >
+                                        Clear
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="ml-auto rounded-lg bg-sky-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow-sm hover:bg-sky-700"
+                                        onClick={() =>
+                                          applyBulkLocationsForEntry(
+                                            entry.id,
+                                            locationSlidMultiDraft
+                                          )
+                                        }
+                                      >
+                                        Apply
+                                      </button>
+                                    </div>
+                                  }
+                                />
+                              ) : (
+                                <ContractSimpleSearchListDropdown
+                                  rootId={`site-pick-${entry.id}-location`}
+                                  disabled={locationComboDisabled}
+                                  open={openLoc}
+                                  onToggle={() => toggleSiteLocationPicker(entry.id, 'location')}
+                                  displayText={locationDisplayName}
+                                  emptyPlaceholder="-- Select Location --"
+                                  panelTitle="Select from the list (one location)"
+                                  filter={siteLocationFilter}
+                                  onFilterChange={setSiteLocationFilter}
+                                  items={locationItems}
+                                  selectedValue={entry.siteId}
+                                  onPick={(value) => {
+                                    updateSiteEntry(entry.id, value);
+                                    closeSiteLocationPicker();
+                                  }}
+                                  searchPlaceholder="Search location..."
+                                  emptyText="No locations match"
+                                  showClearOption={Boolean(entry.siteId)}
+                                  onClear={() => {
+                                    updateSiteEntry(entry.id, '');
+                                    closeSiteLocationPicker();
+                                  }}
+                                />
+                              )}
                             </div>
                           </>
                         ) : (

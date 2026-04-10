@@ -212,6 +212,11 @@ export function ContractSimpleSearchListDropdown({
   countNoun,
   listMaxHeightClass,
   className = '',
+  multiSelect = false,
+  selectedValues,
+  onToggleItem,
+  panelFooter,
+  itemLabelClassName,
 }: {
   rootId: string;
   disabled?: boolean;
@@ -234,6 +239,12 @@ export function ContractSimpleSearchListDropdown({
   countNoun?: string;
   listMaxHeightClass?: string;
   className?: string;
+  /** หลาย Site — ใช้กับ selectedValues + onToggleItem; ปิดแผงด้วยปุ่มใน panelFooter */
+  multiSelect?: boolean;
+  selectedValues?: string[];
+  onToggleItem?: (value: string) => void;
+  panelFooter?: ReactNode;
+  itemLabelClassName?: string;
 }) {
   return (
     <div
@@ -245,16 +256,20 @@ export function ContractSimpleSearchListDropdown({
         disabled={disabled}
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-multiselectable={multiSelect || undefined}
         onClick={() => {
           if (disabled) return;
           onToggle();
         }}
-        className={`${contractDropdownShellClass} flex w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none transition-colors hover:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50`}
+        className={`${contractDropdownShellClass} flex w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none transition-colors hover:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 ${multiSelect ? 'items-stretch' : ''}`}
       >
         <span
-          className={`min-w-0 flex-1 truncate px-3 py-2.5 text-left text-sm font-medium ${
-            displayText ? 'text-slate-900' : 'text-slate-500'
-          }`}
+          className={`min-w-0 flex-1 px-3 py-2.5 text-left text-sm font-medium ${
+            multiSelect && displayText
+              ? 'line-clamp-3 break-words leading-snug text-slate-900'
+              : 'truncate'
+          } ${displayText ? 'text-slate-900' : 'text-slate-500'}`}
+          title={displayText || undefined}
         >
           {displayText || emptyPlaceholder}
         </span>
@@ -275,6 +290,9 @@ export function ContractSimpleSearchListDropdown({
           items={items}
           selectedValue={selectedValue}
           onPick={onPick}
+          multiSelect={multiSelect}
+          selectedValues={selectedValues}
+          onToggleItem={onToggleItem}
           emptyText={emptyText}
           showClearOption={showClearOption}
           onClear={onClear}
@@ -282,6 +300,8 @@ export function ContractSimpleSearchListDropdown({
           showFilterCountHint={showFilterCountHint}
           countNoun={countNoun}
           listMaxHeightClass={listMaxHeightClass}
+          panelFooter={panelFooter}
+          itemLabelClassName={itemLabelClassName}
         />
       )}
     </div>
