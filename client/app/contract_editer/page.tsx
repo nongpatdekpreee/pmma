@@ -327,15 +327,26 @@ function ContractEditorPageContent() {
     if (toast === 'success' && msg) {
       didHandleToastRef.current = true;
       toastSuccess(decodeURIComponent(msg));
-      router.replace('/contract_editer');
+      const sid = searchParams.get('site_id');
+      router.replace(
+        sid && String(sid).trim() !== ''
+          ? `/contract_editer?site_id=${encodeURIComponent(String(sid).trim())}`
+          : '/contract_editer'
+      );
     }
   }, [searchParams, router, toastSuccess]);
+
+  const siteIdFilter = searchParams.get('site_id');
 
   useEffect(() => {
     let cancelled = false;
     setContractsLoading(true);
     setContractsError('');
-    fetch(apiUrl('/api/contracts'))
+    const contractsEndpoint =
+      siteIdFilter && String(siteIdFilter).trim() !== ''
+        ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteIdFilter).trim())}`)
+        : apiUrl('/api/contracts');
+    fetch(contractsEndpoint)
       .then((res) => res.json())
       .then((json) => {
         if (cancelled) return;
@@ -358,8 +369,10 @@ function ContractEditorPageContent() {
       .finally(() => {
         if (!cancelled) setContractsLoading(false);
       });
-    return () => { cancelled = true; };
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [siteIdFilter]);
 
   const filteredContracts = contracts.filter((contract) => {
     // Filter ตามสถานะ (Draft / Active / Expiring / Expired / All)

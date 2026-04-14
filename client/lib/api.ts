@@ -141,6 +141,54 @@ export async function getVendorStatistics(): Promise<{
   return res.json();
 }
 
+/** GET /api/contracts/statistics/top-sites - Top sites ตาม device ใน contract_device (SLid) */
+export async function getTopSitesByContractDevice(params?: { limit?: number }): Promise<{
+  success: boolean;
+  total_devices?: number;
+  data?: Array<{
+    rank: number;
+    slid: number;
+    site_name: string;
+    location2: string;
+    device_count: number;
+    contract_count: number;
+    contracts_expiring_soon: number;
+    pct_of_total: number;
+  }>;
+  message?: string;
+  error?: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.limit != null) q.set('limit', String(params.limit));
+  const qs = q.toString();
+  const res = await fetch(apiUrl(`/api/contracts/statistics/top-sites${qs ? `?${qs}` : ''}`));
+  return res.json();
+}
+
+/** GET /api/contracts/statistics/top-sites-heatmap — เมทริกซ์ site × contract (device ต่อเซลล์) */
+export async function getTopSitesHeatmap(params?: { site_limit?: number; contract_limit?: number }): Promise<{
+  success: boolean;
+  sites?: Array<{
+    slid: number;
+    site_name: string;
+    location2: string;
+    total_devices: number;
+    rank: number;
+  }>;
+  contracts?: Array<{ contract_id: number; short_id: string; title: string }>;
+  matrix?: number[][];
+  max_value?: number;
+  message?: string;
+  error?: string;
+}> {
+  const q = new URLSearchParams();
+  if (params?.site_limit != null) q.set('site_limit', String(params.site_limit));
+  if (params?.contract_limit != null) q.set('contract_limit', String(params.contract_limit));
+  const qs = q.toString();
+  const res = await fetch(apiUrl(`/api/contracts/statistics/top-sites-heatmap${qs ? `?${qs}` : ''}`));
+  return res.json();
+}
+
 /** GET /api/analytics/ma-pm - ข้อมูล Report & Analytics (MA Coverage vs Actual PM) */
 export async function getMaPmAnalytics(params?: { months?: number }): Promise<{
   success: boolean;

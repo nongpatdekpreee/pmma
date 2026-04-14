@@ -69,6 +69,7 @@ interface CalendarEvent {
   actuallyWent?: boolean;
   photos?: string[];
   notes?: string;
+  rescheduleNote?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
 }
 
@@ -233,6 +234,7 @@ function CalendarPageContent() {
       actuallyWent: task.actuallyWent ?? task.actually_went ?? false,
       photos: task.photos || [],
       notes: task.notes || '',
+      rescheduleNote: task.rescheduleNote || task.reschedule_note || '',
     };
   };
 
@@ -650,7 +652,7 @@ function CalendarPageContent() {
     try {
       const body: any = { startDate, endDate };
       if (reason) {
-        body.notes = reason;
+        body.rescheduleNote = reason;
       }
       const res = await fetch(apiUrl(`/api/tasks/${taskId}`), {
         method: 'PUT',
@@ -773,7 +775,7 @@ function CalendarPageContent() {
             year: newStartDateObj.getFullYear(),
             startDate: newStartDate,
             endDate: newEndDate,
-            notes: moveReason.trim(), // บันทึกเหตุผลไว้ใน notes
+            rescheduleNote: moveReason.trim(),
           };
           return updatedEvent;
         }
@@ -1127,9 +1129,9 @@ function CalendarPageContent() {
                               </span>
                             </td>
                             <td className="py-2.5 px-4 text-slate-600">{ev.engineer || '—'}</td>
-                            <td className="py-2.5 px-4 max-w-[220px]">
+                            <td className="py-2.5 px-4 align-top min-w-[9rem] max-w-[min(100%,240px)]">
                               <span
-                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                                className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
                                   isDone
                                     ? 'bg-emerald-100 text-emerald-700'
                                     : isInProcess
@@ -1561,7 +1563,7 @@ function CalendarPageContent() {
         >
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2 mb-2">
-              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+              <span className={`shrink-0 whitespace-nowrap px-2 py-0.5 rounded text-xs font-bold ${
                 hoveredEvent.taskType === 'MA'
                   ? 'bg-purple-100 text-purple-700'
                   : 'bg-blue-100 text-blue-700'
@@ -1569,28 +1571,28 @@ function CalendarPageContent() {
                 {hoveredEvent.taskType || 'PM'}
               </span>
               {hoveredEvent.status && (
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${
+                <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold ${
                   hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
                   hoveredEvent.status === 'working' ? 'bg-amber-100 text-amber-800' :
                   hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-700'
                 }`}>
+                  {hoveredEvent.status === 'working' && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                   {hoveredEvent.status === 'done' ? 'Done' :
                    hoveredEvent.status === 'working' ? 'In process' :
                    hoveredEvent.status === 'stuck' ? 'Stuck' :
                    'Not Started'}
-                  {hoveredEvent.status === 'working' && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                 </span>
               )}
               {(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="Reported">
-                  <FileCheck size={12} strokeWidth={2.5} />
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="Reported">
+                  <FileCheck size={12} strokeWidth={2.5} className="shrink-0" />
                   Reported
                 </span>
               )}
               {hoveredEvent.status === 'done' && !(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700" title="No report">
-                  <FileX2 size={12} strokeWidth={2.5} />
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700" title="No report">
+                  <FileX2 size={12} strokeWidth={2.5} className="shrink-0" />
                   No report
                 </span>
               )}
@@ -1599,7 +1601,7 @@ function CalendarPageContent() {
             {hoveredEvent.status === 'working' && (
               <div className="w-full min-w-0 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2">
                 <p className="mb-1 block w-full text-xs font-semibold leading-snug text-amber-800 whitespace-normal">
-                  Reason for in progress
+                  Reason for in process
                 </p>
                 <p className="text-sm text-amber-950 whitespace-pre-wrap break-words">
                   {getCalendarInProcessReason(hoveredEvent)}

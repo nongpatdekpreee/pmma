@@ -82,6 +82,7 @@ interface CalendarEvent {
   actuallyWent?: boolean;
   photos?: string[];
   notes?: string;
+  rescheduleNote?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
 }
 
@@ -301,6 +302,7 @@ function ScheduleManagementContent() {
       actuallyWent: task.actuallyWent ?? task.actually_went ?? false,
       photos: task.photos || [],
       notes: task.notes || '',
+      rescheduleNote: task.rescheduleNote || task.reschedule_note || '',
     };
   };
 
@@ -787,7 +789,7 @@ function ScheduleManagementContent() {
     try {
       const body: any = { startDate, endDate };
       if (reason) {
-        body.notes = reason;
+        body.rescheduleNote = reason;
       }
       const res = await fetch(apiUrl(`/api/tasks/${taskId}`), {
         method: 'PUT',
@@ -903,7 +905,7 @@ function ScheduleManagementContent() {
             year: newStartDateObj.getFullYear(),
             startDate: newStartDate,
             endDate: newEndDate,
-            notes: moveReason.trim(), // บันทึกเหตุผลไว้ใน notes
+            rescheduleNote: moveReason.trim(),
           };
           return updatedEvent;
         }
@@ -996,6 +998,7 @@ function ScheduleManagementContent() {
           status: editingEvent?.status || item.status || 'not-started',
           actuallyWent: item.actuallyWent ?? editingEvent?.actuallyWent ?? false,
           notes: item.notes ?? editingEvent?.notes ?? '',
+          rescheduleNote: item.rescheduleNote ?? editingEvent?.rescheduleNote ?? null,
           photos: item.photos ?? editingEvent?.photos ?? [],
         };
 
@@ -1285,6 +1288,9 @@ function ScheduleManagementContent() {
             'coverage scope': 'coverageScope', 'coverage_scope': 'coverageScope', 'coveragescope': 'coverageScope', // → coverage_scope (from CSV column)
             // Optional
             'notes': 'notes',
+            'reschedule note': 'rescheduleNote',
+            'reschedule_note': 'rescheduleNote',
+            'reschedule': 'rescheduleNote',
           };
 
           const tasks: any[] = [];
@@ -1301,9 +1307,9 @@ function ScheduleManagementContent() {
               const headerNorm = normalizeHeader(header);
               const mappedKey = columnMap[headerNorm] || columnMap[header];
               if (!mappedKey) return;
-              // สำหรับ coverageScope และ notes รับค่าแม้ cell ว่าง (จะได้ไม่ไปใช้ fallback โดยไม่ตั้งใจ)
+              // สำหรับ coverageScope, notes, rescheduleNote รับค่าแม้ cell ว่าง
               if (value === null || value === undefined) return;
-              if (mappedKey !== 'coverageScope' && mappedKey !== 'notes' && value === '') return;
+              if (mappedKey !== 'coverageScope' && mappedKey !== 'notes' && mappedKey !== 'rescheduleNote' && value === '') return;
               if (mappedKey) {
                 // taskType is always 'PM', skip any taskType mapping
                 if (mappedKey === 'engineer' || mappedKey === 'engineerId') {
@@ -1357,6 +1363,8 @@ function ScheduleManagementContent() {
                   task.coverageScope = String(value).trim();
                 } else if (mappedKey === 'notes') {
                   task.notes = String(value).trim();
+                } else if (mappedKey === 'rescheduleNote') {
+                  task.rescheduleNote = String(value).trim();
                 } else {
                   task[mappedKey] = String(value).trim();
                 }
@@ -1776,7 +1784,7 @@ function ScheduleManagementContent() {
           : siteNameValue;
         
         // coverageScope should be the correct value (sid-lid format or PM Task - Site - Location)
-        // notes should be null when importing (only used when moving/rescheduling tasks)
+        // notes = in-process / โน้ตงาน; reschedule ใช้ reschedule_note เมื่อย้ายวัน
         const payload = {
           taskType: 'PM',                                               // task_type always 'PM'
           contractId: contractId,                                        // contract_id int(11) - from sof_name lookup
@@ -1792,7 +1800,11 @@ function ScheduleManagementContent() {
           replacementDeviceId: null,                                     // replacement_device_id int(11)
           status: 'not-started',                                         // status enum('not-started','working','stuck','done')
           actuallyWent: false,                                           // actually_went tinyint(1)
-          notes: null,                                                   // notes text - null when importing (only used when moving/rescheduling tasks)
+          notes: task.notes != null && String(task.notes).trim() ? String(task.notes).trim() : null,
+          rescheduleNote:
+            task.rescheduleNote != null && String(task.rescheduleNote).trim()
+              ? String(task.rescheduleNote).trim()
+              : null,
           photos: [],                                                    // photos longtext JSON
         };
 
@@ -2185,9 +2197,9 @@ function ScheduleManagementContent() {
                               </span>
                             </td>
                             <td className="py-2.5 px-4 text-slate-600">{ev.engineer || '—'}</td>
-                            <td className="py-2.5 px-4 max-w-[220px]">
+                            <td className="py-2.5 px-4 align-top min-w-[9rem] max-w-[min(100%,240px)]">
                               <span
-                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                                className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
                                   isDone
                                     ? 'bg-emerald-100 text-emerald-700'
                                     : isInProcess
@@ -2198,8 +2210,8 @@ function ScheduleManagementContent() {
                                 }`}
                                 title={isInProcess ? getScheduleInProcessReason(ev) : undefined}
                               >
-                                {statusLabel}
                                 {isInProcess && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
+                                {statusLabel}
                               </span>
                               {isInProcess && (
                                 <p className="mt-1 text-[11px] text-amber-900/90 line-clamp-2" title={getScheduleInProcessReason(ev)}>
@@ -2470,9 +2482,6 @@ function ScheduleManagementContent() {
                                         )}
                                       </span>
                                     )}
-                                    {isDone && (
-                                      <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
-                                    )}
                                     {hasReport && (
                                       <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
                                         <FileCheck size={12} strokeWidth={2.5} />
@@ -2581,9 +2590,6 @@ function ScheduleManagementContent() {
                             )}
                           </span>
                         )}
-                        {isDone && (
-                          <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
-                        )}
                         {hasReport && (
                           <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
                             <FileCheck size={12} strokeWidth={2.5} />
@@ -2624,7 +2630,7 @@ function ScheduleManagementContent() {
         >
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2 mb-2">
-              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+              <span className={`shrink-0 whitespace-nowrap px-2 py-0.5 rounded text-xs font-bold ${
                 hoveredEvent.taskType === 'MA' 
                   ? 'bg-purple-100 text-purple-700' 
                   : 'bg-blue-100 text-blue-700'
@@ -2632,28 +2638,28 @@ function ScheduleManagementContent() {
                 {hoveredEvent.taskType || 'PM'}
               </span>
               {hoveredEvent.status && (
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${
+                <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold ${
                   hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
                   hoveredEvent.status === 'working' ? 'bg-amber-100 text-amber-800' :
                   hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-700'
                 }`}>
+                  {hoveredEvent.status === 'working' && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                   {hoveredEvent.status === 'done' ? 'Done' :
                    hoveredEvent.status === 'working' ? 'In process' :
                    hoveredEvent.status === 'stuck' ? 'Stuck' :
                    'Pending'}
-                  {hoveredEvent.status === 'working' && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                 </span>
               )}
               {(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="Reported">
-                  <FileCheck size={12} strokeWidth={2.5} />
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="Reported">
+                  <FileCheck size={12} strokeWidth={2.5} className="shrink-0" />
                   Reported
                 </span>
               )}
               {hoveredEvent.status === 'done' && !(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700" title="No report">
-                  <FileX2 size={12} strokeWidth={2.5} />
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700" title="No report">
+                  <FileX2 size={12} strokeWidth={2.5} className="shrink-0" />
                   No report
                 </span>
               )}
@@ -2662,7 +2668,7 @@ function ScheduleManagementContent() {
             {hoveredEvent.status === 'working' && (
               <div className="w-full min-w-0 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2">
                 <p className="mb-1 block w-full text-xs font-semibold leading-snug text-amber-800 whitespace-normal">
-                  เหตุผลที่กำลังดำเนินการ
+                  Reason for in process
                 </p>
                 <p className="text-sm text-amber-950 whitespace-pre-wrap break-words">
                   {getScheduleInProcessReason(hoveredEvent)}

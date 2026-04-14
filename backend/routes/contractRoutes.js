@@ -3,7 +3,20 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory, getContractById, updateContract } = require('../controllers/contractController');
+const {
+  createContract,
+  uploadContractFile,
+  getContractsBySite,
+  getAvailableDevices,
+  getSitesByContract,
+  getDevicesByContract,
+  getVendorStatistics,
+  getTopSitesByContractDevice,
+  getTopSitesHeatmap,
+  getContractHistory,
+  getContractById,
+  updateContract,
+} = require('../controllers/contractController');
 
 // โฟลเดอร์เก็บไฟล์/รูปของ contract
 const uploadDir = path.join(__dirname, '..', 'uploads', 'contracts');
@@ -38,6 +51,11 @@ router.get('/devices/available', getAvailableDevices);
 
 // GET /api/contracts/statistics/vendor — ดึง Vendor Statistics จาก Devices ที่มี Contract
 router.get('/statistics/vendor', getVendorStatistics);
+
+// GET /api/contracts/statistics/top-sites?limit=8 — Top sites ตามจำนวน device ใน contract_device
+router.get('/statistics/top-sites', getTopSitesByContractDevice);
+
+router.get('/statistics/top-sites-heatmap', getTopSitesHeatmap);
 
 // GET /api/contracts/:id/devices — ดึง Devices ที่ผูกกับ Contract (ต้องมาก่อน GET / เพื่อไม่ให้ conflict)
 router.get('/:id/devices', getDevicesByContract);

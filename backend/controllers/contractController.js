@@ -977,6 +977,208 @@ const getVendorStatistics = async (req, res) => {
   }
 };
 
+// GET /api/contracts/statistics/top-sites — Top sites จาก contract_device (devices + contracts ต่อ SLid)
+const getTopSitesByContractDevice = async (req, res) => {
+  try {
+    const lim = parseInt(String(req.query.limit ?? '8'), 10);
+    const limit = Number.isNaN(lim) ? 8 : Math.min(Math.max(lim, 1), 25);
+
+    const [rows] = await db.execute(
+      `
+      SELECT
+        cd.SLid AS slid,
+        s.Name AS site_name,
+        IFNULL(l.Location2, '') AS location2,
+        COUNT(DISTINCT cd.device_id) AS device_count,
+        COUNT(DISTINCT cd.contract_id) AS contract_count,
+        COUNT(DISTINCT CASE
+          WHEN c.end_date IS NOT NULL
+            AND c.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
+            AND c.end_date >= CURDATE()
+          THEN c.contract_id END) AS contracts_expiring_soon
+      FROM contract_device cd
+      INNER JOIN sites_location sl ON sl.SLid = cd.SLid
+      LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN location l ON sl.lid = l.lid
+      LEFT JOIN contract c ON c.contract_id = cd.contract_id
+      WHERE cd.SLid IS NOT NULL AND cd.device_id IS NOT NULL
+      GROUP BY cd.SLid, s.Name, l.Location2
+      ORDER BY device_count DESC, contract_count DESC
+      LIMIT ?
+      `,
+      [limit]
+    );
+
+    const [totalRows] = await db.execute(
+      `
+      SELECT COUNT(DISTINCT cd.device_id) AS total
+      FROM contract_device cd
+      WHERE cd.SLid IS NOT NULL AND cd.device_id IS NOT NULL
+      `
+    );
+    const totalDevices = Number(totalRows[0]?.total || 0);
+
+    const data = rows.map((r, idx) => {
+      const dc = Number(r.device_count || 0);
+      const pct = totalDevices > 0 ? Math.round((dc / totalDevices) * 1000) / 10 : 0;
+      return {
+        rank: idx + 1,
+        slid: r.slid,
+        site_name: r.site_name || '—',
+        location2: r.location2 || '',
+        device_count: dc,
+        contract_count: Number(r.contract_count || 0),
+        contracts_expiring_soon: Number(r.contracts_expiring_soon || 0),
+        pct_of_total: pct,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      total_devices: totalDevices,
+      data,
+    });
+  } catch (error) {
+    console.error('Error getting top sites by contract/device:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting top sites statistics',
+      error: error.message,
+    });
+  }
+};
+
+// GET /api/contracts/statistics/top-sites-heatmap — เมทริกซ์ site × contract (จำนวน device ต่อเซลล์)
+const getTopSitesHeatmap = async (req, res) => {
+  try {
+    const parseLim = (v, fb, min, max) => {
+      const n = parseInt(String(v ?? ''), 10);
+      if (Number.isNaN(n)) return fb;
+      return Math.min(max, Math.max(min, n));
+    };
+    const siteLimit = parseLim(req.query.site_limit, 8, 3, 15);
+    const contractLimit = parseLim(req.query.contract_limit, 5, 2, 10);
+
+    const [siteRows] = await db.execute(
+      `
+      SELECT
+        cd.SLid AS slid,
+        s.Name AS site_name,
+        IFNULL(l.Location2, '') AS location2,
+        COUNT(DISTINCT cd.device_id) AS total_devices
+      FROM contract_device cd
+      INNER JOIN sites_location sl ON sl.SLid = cd.SLid
+      LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN location l ON sl.lid = l.lid
+      WHERE cd.SLid IS NOT NULL AND cd.device_id IS NOT NULL
+      GROUP BY cd.SLid, s.Name, l.Location2
+      ORDER BY total_devices DESC
+      LIMIT ?
+      `,
+      [siteLimit]
+    );
+
+    if (!siteRows.length) {
+      return res.status(200).json({
+        success: true,
+        sites: [],
+        contracts: [],
+        matrix: [],
+        max_value: 0,
+      });
+    }
+
+    const slids = siteRows.map((r) => r.slid);
+    const slph = slids.map(() => '?').join(',');
+
+    const [contractAgg] = await db.execute(
+      `
+      SELECT
+        cd.contract_id,
+        COUNT(DISTINCT cd.device_id) AS dc
+      FROM contract_device cd
+      WHERE cd.SLid IN (${slph}) AND cd.device_id IS NOT NULL
+      GROUP BY cd.contract_id
+      ORDER BY dc DESC
+      LIMIT ?
+      `,
+      [...slids, contractLimit]
+    );
+
+    const contractIds = contractAgg.map((r) => r.contract_id);
+    let contractMeta = [];
+    if (contractIds.length > 0) {
+      const cph = contractIds.map(() => '?').join(',');
+      const [crows] = await db.execute(
+        `SELECT contract_id, contract_name, sof_name FROM contract WHERE contract_id IN (${cph})`,
+        contractIds
+      );
+      const byId = Object.fromEntries(crows.map((c) => [c.contract_id, c]));
+      contractMeta = contractIds.map((cid, j) => {
+        const c = byId[cid] || {};
+        const name = (c.contract_name || '').toString().trim();
+        const sof = (c.sof_name || '').toString().trim();
+        const title = name || (sof ? `SOF ${sof}` : `สัญญา #${cid}`);
+        return {
+          contract_id: cid,
+          short_id: String(j + 1).padStart(3, '0'),
+          title,
+        };
+      });
+    }
+
+    let matrix = siteRows.map(() => contractIds.map(() => 0));
+    if (contractIds.length > 0) {
+      const cph = contractIds.map(() => '?').join(',');
+      const [cellRows] = await db.execute(
+        `
+        SELECT cd.SLid AS slid, cd.contract_id, COUNT(DISTINCT cd.device_id) AS cnt
+        FROM contract_device cd
+        WHERE cd.SLid IN (${slph})
+          AND cd.contract_id IN (${cph})
+          AND cd.device_id IS NOT NULL
+        GROUP BY cd.SLid, cd.contract_id
+        `,
+        [...slids, ...contractIds]
+      );
+      const ci = Object.fromEntries(contractIds.map((id, idx) => [id, idx]));
+      const si = Object.fromEntries(slids.map((id, idx) => [id, idx]));
+      for (const row of cellRows) {
+        const i = si[row.slid];
+        const j = ci[row.contract_id];
+        if (i != null && j != null) matrix[i][j] = Number(row.cnt || 0);
+      }
+    }
+
+    const flat = matrix.flat();
+    const totals = siteRows.map((r) => Number(r.total_devices || 0));
+    const maxVal = Math.max(1, ...flat, ...totals);
+
+    const sites = siteRows.map((r, idx) => ({
+      slid: r.slid,
+      site_name: r.site_name || '—',
+      location2: r.location2 || '',
+      total_devices: Number(r.total_devices || 0),
+      rank: idx + 1,
+    }));
+
+    res.status(200).json({
+      success: true,
+      sites,
+      contracts: contractMeta,
+      matrix,
+      max_value: maxVal,
+    });
+  } catch (error) {
+    console.error('Error getting top sites heatmap:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting top sites heatmap',
+      error: error.message,
+    });
+  }
+};
+
 // GET - ดึงข้อมูล Contract ทั้งหมดตาม contract_id (รวม devices, sites, และข้อมูลอื่นๆ)
 const getContractById = async (req, res) => {
   try {
@@ -1423,4 +1625,17 @@ const updateContract = async (req, res) => {
   }
 };
 //
-module.exports = { createContract, uploadContractFile, getContractsBySite, getAvailableDevices, getSitesByContract, getDevicesByContract, getVendorStatistics, getContractHistory, getContractById, updateContract };
+module.exports = {
+  createContract,
+  uploadContractFile,
+  getContractsBySite,
+  getAvailableDevices,
+  getSitesByContract,
+  getDevicesByContract,
+  getVendorStatistics,
+  getTopSitesByContractDevice,
+  getTopSitesHeatmap,
+  getContractHistory,
+  getContractById,
+  updateContract,
+};

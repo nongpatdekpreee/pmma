@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 
@@ -33,6 +33,7 @@ import {
   CheckCircle2,
   Trophy,
   ArrowUpRight,
+  ChevronLeft,
   ChevronRight,
   BarChart3,
   Shield,
@@ -64,6 +65,7 @@ const PIE_COLOR_BY_NAME: Record<string, string> = {
 };
 const PIE_COLOR_PM: Record<string, string> = {
   Done: '#10b981',
+  Inprocess: '#fb923c',
   Pending: '#facc15',
   Overdue: '#ef4444',
 };
@@ -94,6 +96,57 @@ function equipmentRowModelLabel(e: { model?: string | null; deviceName?: string 
   const m = (e.model ?? '').trim();
   if (m) return m;
   return (e.deviceName ?? '').trim();
+}
+
+/** Recharts Y-axis tick: จำกัดบรรทัด + tooltip ชื่อเต็ม กันป้าย site/vendor ทับกัน */
+function RankingBarYAxisTick({
+  x,
+  y,
+  payload,
+  labelWidth = 220,
+}: {
+  x?: number | string;
+  y?: number | string;
+  payload?: { value?: string };
+  labelWidth?: number;
+}) {
+  const xPos = Number(x ?? 0);
+  const yPos = Number(y ?? 0);
+  const text = (payload?.value ?? '').toString();
+  const h = 52;
+  return (
+    <g transform={`translate(${xPos},${yPos})`}>
+      <foreignObject x={-labelWidth - 10} y={-h / 2} width={labelWidth} height={h}>
+        <div
+          style={{
+            height: '100%',
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <span
+            title={text}
+            style={{
+              maxWidth: '100%',
+              fontSize: 10,
+              lineHeight: 1.4,
+              color: '#475569',
+              wordBreak: 'break-word',
+              overflow: 'hidden',
+              display: '-webkit-box',
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: 'vertical',
+              textAlign: 'right',
+            }}
+          >
+            {text}
+          </span>
+        </div>
+      </foreignObject>
+    </g>
+  );
 }
 
 export default function ReportPage() {
@@ -136,6 +189,18 @@ export default function ReportPage() {
   const summaryCardsSetRef = useRef<HTMLDivElement>(null);
   const [summaryCardsDotIndex, setSummaryCardsDotIndex] = useState(0);
   const dragRef = useRef({ isDragging: false, startX: 0, scrollLeftStart: 0 });
+
+  const scrollSummaryCarousel = useCallback((slideIndex: 0 | 1) => {
+    const el = summaryCardsScrollRef.current;
+    const setEl = summaryCardsSetRef.current;
+    if (!el || !setEl) return;
+    const oneSetWidth = setEl.offsetWidth;
+    if (oneSetWidth <= 0) return;
+    const setStep = oneSetWidth + 16;
+    const target = slideIndex === 0 ? setStep : setStep + (3 / 7) * oneSetWidth;
+    el.scrollTo({ left: target, behavior: 'smooth' });
+    setSummaryCardsDotIndex(slideIndex);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -468,6 +533,7 @@ export default function ReportPage() {
         month: label,
         monthKey: key,
         total: 0,
+        done: 0,
         reportPass: 0,
         reportFail: 0,
         inprocess: 0,
@@ -479,6 +545,7 @@ export default function ReportPage() {
         month: base.month ?? label,
         monthKey: base.monthKey ?? key,
         total: Number(base.total || 0),
+        done: Number(base.done || 0),
         reportPass: Number(base.reportPass || 0),
         reportFail: Number(base.reportFail || 0),
         inprocess: Number(base.inprocess || 0),
@@ -547,6 +614,7 @@ export default function ReportPage() {
   const pieData = reportType === 'pm'
     ? [
         { name: 'Done', value: summary.totalDone },
+        { name: 'Inprocess', value: summary.totalInprocess },
         { name: 'Pending', value: Math.max(0, summary.totalPending - summary.totalOverdue) },
         { name: 'Overdue', value: summary.totalOverdue },
       ].filter(d => d.value > 0)
@@ -636,6 +704,16 @@ export default function ReportPage() {
   const maxSiteTotal = siteRanking.length > 0 ? siteRanking[0].total : 1;
   const maxEquipTotal = filteredEquipmentRanking.length > 0 ? Math.max(...filteredEquipmentRanking.map((e) => e.total)) : 1;
 
+  const rankingBarBandPx = 58;
+  const vendorBarChartHeight = useMemo(
+    () => Math.min(640, Math.max(300, vendorRanking.length * rankingBarBandPx + 80)),
+    [vendorRanking.length]
+  );
+  const siteBarChartHeight = useMemo(
+    () => Math.min(640, Math.max(300, siteRanking.length * rankingBarBandPx + 80)),
+    [siteRanking.length]
+  );
+
   const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
   const handleExport = () => {
@@ -657,6 +735,7 @@ export default function ReportPage() {
       row(['Total Inprocess', String(summary.totalInprocess)]);
       row(['Total Pending', String(summary.totalPending)]);
     } else {
+      row(['Total Inprocess', String(summary.totalInprocess)]);
       row(['Total Pass (Report)', String(summary.totalPassed)]);
       row(['Total Overdue', String(summary.totalOverdue)]);
       row(['Total Pending', String(summary.totalPending)]);
@@ -671,9 +750,17 @@ export default function ReportPage() {
     // 2) Monthly Trend
     lines.push(escape(`SECTION: Monthly ${taskLabel} Trend`));
     if (!isMa) {
-      row(['Month', 'Total', 'Done', 'Pass', 'Overdue', 'Pending']);
+      row(['Month', 'Total', 'Done', 'Inprocess', 'Pass', 'Overdue', 'Pending']);
       monthlyMA.forEach((m) => {
-        row([m.month, String(m.total), String(m.done), String(m.reportPass), String(m.overdue), String(m.total - m.done)]);
+        row([
+          m.month,
+          String(m.total),
+          String(m.done),
+          String(m.inprocess ?? 0),
+          String(m.reportPass),
+          String(m.overdue),
+          String(m.pending ?? Math.max(0, Number(m.total) - Number(m.done))),
+        ]);
       });
     } else {
       row(['Month', 'Total', 'Done', 'Inprocess', 'Pending']);
@@ -686,8 +773,13 @@ export default function ReportPage() {
     // 3) Result Breakdown
     lines.push(escape(`SECTION: ${taskLabel} Result Breakdown`));
     if (!isMa) {
-      row(['Done', 'Pending', 'Overdue']);
-      row([String(summary.totalDone), String(Math.max(0, summary.totalPending - summary.totalOverdue)), String(summary.totalOverdue)]);
+      row(['Done', 'Inprocess', 'Pending', 'Overdue']);
+      row([
+        String(summary.totalDone),
+        String(summary.totalInprocess),
+        String(Math.max(0, summary.totalPending - summary.totalOverdue)),
+        String(summary.totalOverdue),
+      ]);
     } else {
       row(['Complete', 'Inprocess', 'Pending', 'Overdue']);
       row([String(maCompleteCount), String(summary.totalInprocess), String(Math.max(0, summary.totalPending - summary.totalOverdue)), String(summary.totalOverdue)]);
@@ -697,9 +789,18 @@ export default function ReportPage() {
     // 4) Vendor Ranking
     lines.push(escape(`SECTION: Vendor Ranking (Top ${taskLabel} Vendors)`));
     if (!isMa) {
-      row(['Rank', 'Vendor', 'Total', 'Done', 'Pass', 'Overdue', 'Completion Rate (%)']);
+      row(['Rank', 'Vendor', 'Total', 'Done', 'Inprocess', 'Pass', 'Overdue', 'Completion Rate (%)']);
       vendorRanking.forEach((v, i) => {
-        row([String(i + 1), v.vendor, String(v.total), String(v.done), String(v.reportPass), String(v.overdue), String(v.completionRate)]);
+        row([
+          String(i + 1),
+          v.vendor,
+          String(v.total),
+          String(v.done),
+          String(v.inprocess ?? 0),
+          String(v.reportPass),
+          String(v.overdue),
+          String(v.completionRate),
+        ]);
       });
     } else {
       row(['Rank', 'Vendor', 'Total', 'Done', 'Inprocess', 'Pending', 'Completion Rate (%)']);
@@ -712,9 +813,18 @@ export default function ReportPage() {
     // 5) Site Ranking
     lines.push(escape(`SECTION: Site Ranking (Top ${taskLabel} Sites)`));
     if (!isMa) {
-      row(['Rank', 'Site', 'Total', 'Done', 'Pass', 'Overdue', 'Completion Rate (%)']);
+      row(['Rank', 'Site', 'Total', 'Done', 'Inprocess', 'Pass', 'Overdue', 'Completion Rate (%)']);
       siteRanking.forEach((s, i) => {
-        row([String(i + 1), s.site, String(s.total), String(s.done), String(s.reportPass), String(s.overdue), String(s.completionRate)]);
+        row([
+          String(i + 1),
+          s.site,
+          String(s.total),
+          String(s.done),
+          String(s.inprocess ?? 0),
+          String(s.reportPass),
+          String(s.overdue),
+          String(s.completionRate),
+        ]);
       });
     } else {
       row(['Rank', 'Site', 'Total', 'Done', 'Inprocess', 'Pending', 'Completion Rate (%)']);
@@ -729,9 +839,18 @@ export default function ReportPage() {
     const filterParts = [equipmentRoleFilter && `Role: ${equipmentRoleFilter}`, equipmentModelFilter && `Model: ${equipmentModelFilter}`, equipmentSiteFilter && `Site: ${equipmentSiteFilter}`].filter(Boolean);
     lines.push(escape(`SECTION: ${equipmentLabel} (Top 15)${filterParts.length ? ` - ${filterParts.join(', ')}` : ''}`));
     if (!isMa) {
-      row(['Rank', 'Model', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Pass']);
+      row(['Rank', 'Model', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Inprocess', 'Pass']);
       exportEquipment.forEach((e, i) => {
-        row([String(i + 1), equipmentRowModelLabel(e) || '-', e.vendor || '-', e.site || '-', String(e.total), String(e.done), String(e.reportPass)]);
+        row([
+          String(i + 1),
+          equipmentRowModelLabel(e) || '-',
+          e.vendor || '-',
+          e.site || '-',
+          String(e.total),
+          String(e.done),
+          String(e.inprocess ?? 0),
+          String(e.reportPass),
+        ]);
       });
     } else {
       row(['Rank', 'Model', 'Role', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Inprocess', 'Pending']);
@@ -983,43 +1102,54 @@ export default function ReportPage() {
         )}
         
 
-        {/* Summary Cards - Manual infinite carousel: 7 cards, 5 visible, 2 slides, dot + drag + swipe */}
-        <div className="relative w-full overflow-hidden pb-1">
-          <div
-            ref={summaryCardsScrollRef}
-            onScroll={() => {
-              const el = summaryCardsScrollRef.current;
-              const setEl = summaryCardsSetRef.current;
-              if (!el || !setEl) return;
-              const oneSetWidth = setEl.offsetWidth;
-              const gapPx = 16;
-              const setStep = oneSetWidth + gapPx;
-              let { scrollLeft } = el;
-              if (scrollLeft >= 2 * setStep) {
-                el.scrollLeft = scrollLeft - setStep;
-                scrollLeft = el.scrollLeft;
-              } else if (scrollLeft <= 0) {
-                el.scrollLeft = scrollLeft + setStep;
-                scrollLeft = el.scrollLeft;
-              }
-              const pos = Math.min(6, Math.round(((scrollLeft - setStep) / oneSetWidth) * 7) % 7);
-              setSummaryCardsDotIndex(pos >= 3 ? 1 : 0);
-            }}
-            onMouseDown={(e) => {
-              const el = summaryCardsScrollRef.current;
-              if (!el) return;
-              dragRef.current = { isDragging: true, startX: e.clientX, scrollLeftStart: el.scrollLeft };
-            }}
-            onTouchStart={(e) => {
-              const el = summaryCardsScrollRef.current;
-              if (!el || !e.touches[0]) return;
-              dragRef.current = { isDragging: true, startX: e.touches[0].clientX, scrollLeftStart: el.scrollLeft };
-            }}
-            onTouchEnd={() => { dragRef.current.isDragging = false; }}
-            onTouchCancel={() => { dragRef.current.isDragging = false; }}
-            className="flex gap-4 overflow-x-auto overflow-y-hidden scroll-smooth touch-pan-x select-none cursor-grab active:cursor-grabbing [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-            style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
-          >
+        {/* Summary Cards — เลื่อนด้วยลูกศร (ลากได้) */}
+        <div className="relative w-full">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              onClick={() => scrollSummaryCarousel(0)}
+              disabled={summaryCardsDotIndex === 0}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-700 shadow-md shadow-blue-900/10 ring-2 ring-blue-200/70 transition-all hover:bg-blue-100 hover:border-blue-600 hover:text-blue-900 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-sm disabled:ring-0 disabled:opacity-50"
+              title="เลื่อนซ้าย — ลากแถบการ์ดได้"
+              aria-label="เลื่อนการ์ดสรุปไปทางซ้าย"
+            >
+              <ChevronLeft size={22} strokeWidth={2.5} className="shrink-0" />
+            </button>
+            <div
+              ref={summaryCardsScrollRef}
+              onScroll={() => {
+                const el = summaryCardsScrollRef.current;
+                const setEl = summaryCardsSetRef.current;
+                if (!el || !setEl) return;
+                const oneSetWidth = setEl.offsetWidth;
+                const gapPx = 16;
+                const setStep = oneSetWidth + gapPx;
+                let { scrollLeft } = el;
+                if (scrollLeft >= 2 * setStep) {
+                  el.scrollLeft = scrollLeft - setStep;
+                  scrollLeft = el.scrollLeft;
+                } else if (scrollLeft <= 0) {
+                  el.scrollLeft = scrollLeft + setStep;
+                  scrollLeft = el.scrollLeft;
+                }
+                const pos = Math.min(6, Math.round(((scrollLeft - setStep) / oneSetWidth) * 7) % 7);
+                setSummaryCardsDotIndex(pos >= 3 ? 1 : 0);
+              }}
+              onMouseDown={(e) => {
+                const el = summaryCardsScrollRef.current;
+                if (!el) return;
+                dragRef.current = { isDragging: true, startX: e.clientX, scrollLeftStart: el.scrollLeft };
+              }}
+              onTouchStart={(e) => {
+                const el = summaryCardsScrollRef.current;
+                if (!el || !e.touches[0]) return;
+                dragRef.current = { isDragging: true, startX: e.touches[0].clientX, scrollLeftStart: el.scrollLeft };
+              }}
+              onTouchEnd={() => { dragRef.current.isDragging = false; }}
+              onTouchCancel={() => { dragRef.current.isDragging = false; }}
+              className="flex min-w-0 flex-1 gap-4 overflow-x-auto overflow-y-hidden scroll-smooth touch-pan-x select-none cursor-grab active:cursor-grabbing [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+              style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+            >
             {[1, 2, 3].map((set) => (
               <div key={set} ref={set === 1 ? summaryCardsSetRef : undefined} className="flex gap-4 shrink-0">
                 <div className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-blue-50/80 border border-blue-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
@@ -1105,29 +1235,17 @@ export default function ReportPage() {
                 </div>
               </div>
             ))}
-          </div>
-          <div className="flex justify-center items-center gap-2 py-3">
-            {[0, 1].map((i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => {
-                  const el = summaryCardsScrollRef.current;
-                  const setEl = summaryCardsSetRef.current;
-                  if (!el || !setEl) return;
-                  const oneSetWidth = setEl.offsetWidth;
-                  const setStep = oneSetWidth + 16;
-                  const target = i === 0 ? setStep : setStep + (3 / 7) * oneSetWidth;
-                  el.scrollTo({ left: target, behavior: 'smooth' });
-                }}
-                className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
-                  i === summaryCardsDotIndex
-                    ? 'bg-blue-600 ring-4 ring-blue-200 scale-110'
-                    : 'bg-slate-300 hover:bg-slate-400'
-                }`}
-                aria-label={i === 0 ? 'Slide 1: Total, Done, Overdue, In Process, Pending' : 'Slide 2: Top Vendor, Most Repaired Equipment'}
-              />
-            ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => scrollSummaryCarousel(1)}
+              disabled={summaryCardsDotIndex === 1}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-700 shadow-md shadow-blue-900/10 ring-2 ring-blue-200/70 transition-all hover:bg-blue-100 hover:border-blue-600 hover:text-blue-900 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-sm disabled:ring-0 disabled:opacity-50"
+              title="เลื่อนขวา — ลากแถบการ์ดได้"
+              aria-label="เลื่อนการ์ดสรุปไปทางขวา"
+            >
+              <ChevronRight size={22} strokeWidth={2.5} className="shrink-0" />
+            </button>
           </div>
         </div>
 
@@ -1245,6 +1363,9 @@ export default function ReportPage() {
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Complete
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-orange-400" /> Inprocess
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending
@@ -1412,6 +1533,7 @@ export default function ReportPage() {
                     <>
                       <Bar dataKey="total" fill="#3b82f6" name="Total" radius={[6, 6, 0, 0]} barSize={20} />
                       <Bar dataKey="complete" fill="#10b981" name="Complete" radius={[6, 6, 0, 0]} barSize={20} />
+                      <Bar dataKey="inprocess" fill="#f97316" name="Inprocess" radius={[6, 6, 0, 0]} barSize={20} />
                       <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
                       <Bar dataKey="overdue" fill="#ef4444" name="Overdue" radius={[6, 6, 0, 0]} barSize={20} />
                     </>
@@ -1497,16 +1619,29 @@ export default function ReportPage() {
             <div className="bg-white p-6 rounded-[2rem] shadow-sm min-w-0">
               <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
                 <BarChart3 size={18} className="text-slate-400" />
-                MA Tasks by Vendor
+                {isMa ? 'MA' : 'PM'} Tasks by Vendor
               </h3>
-              <div className="h-80 w-full min-w-0 min-h-[20rem]">
+              <div className="w-full min-w-0" style={{ height: vendorBarChartHeight }}>
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
-                  <BarChart data={vendorRanking} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                  <BarChart
+                    data={vendorRanking}
+                    layout="vertical"
+                    barCategoryGap="24%"
+                    margin={{ top: 12, right: 32, left: 6, bottom: 12 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                     <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#b0b8c4' }} />
-                    <YAxis dataKey="vendor" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} width={100} />
+                    <YAxis
+                      dataKey="vendor"
+                      type="category"
+                      axisLine={false}
+                      tickLine={false}
+                      width={178}
+                      interval={0}
+                      tick={(p) => <RankingBarYAxisTick x={p.x} y={p.y} payload={p.payload} labelWidth={168} />}
+                    />
                     <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', color: '#475569', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} />
-                    <Bar dataKey="total" name="MA Tasks" radius={[0, 8, 8, 0]} barSize={20}>
+                    <Bar dataKey="total" name={`${taskLabel} Tasks`} radius={[0, 8, 8, 0]} barSize={20}>
                       {vendorRanking.map((_, i) => (
                         <Cell key={i} fill={VENDOR_COLORS[i % VENDOR_COLORS.length]} />
                       ))}
@@ -1541,6 +1676,7 @@ export default function ReportPage() {
                           </>
                         ) : (
                           <>
+                            {(v.inprocess ?? 0) > 0 && <span className="text-orange-500">Inprocess {v.inprocess}</span>}
                             {v.reportPass > 0 && <span className="text-emerald-500">Pass {v.reportPass}</span>}
                             {v.overdue > 0 && <span className="text-red-500">Overdue {v.overdue}</span>}
                           </>
@@ -1683,7 +1819,10 @@ export default function ReportPage() {
                         <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-12 align-middle">Pending</th>
                       </>
                     ) : (
-                      <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Pass</th>
+                      <>
+                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Inprocess</th>
+                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Pass</th>
+                      </>
                     )}
                     <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-24 align-middle">Ratio</th>
                   </tr>
@@ -1710,7 +1849,10 @@ export default function ReportPage() {
                           <td className="py-3 px-2 text-center text-sm font-medium text-yellow-600 w-12">{e.pending}</td>
                         </>
                       ) : (
-                        <td className="py-3 px-2 text-center text-sm font-medium text-emerald-600 w-10">{e.reportPass}</td>
+                        <>
+                          <td className="py-3 px-2 text-center text-sm font-medium text-orange-500 w-14">{e.inprocess ?? 0}</td>
+                          <td className="py-3 px-2 text-center text-sm font-medium text-emerald-600 w-10">{e.reportPass}</td>
+                        </>
                       )}
                       <td className="py-3 px-2 w-24 text-center">
                         <ProgressBar value={e.total} max={maxEquipTotal} color={i < 3 ? 'bg-red-400' : 'bg-blue-300'} />
@@ -1718,7 +1860,7 @@ export default function ReportPage() {
                     </tr>
                   ))}
                   {filteredEquipmentRanking.length === 0 && (
-                    <tr><td colSpan={isMa ? 10 : 9} className="text-center py-8 text-sm text-slate-400">No data available</td></tr>
+                    <tr><td colSpan={10} className="text-center py-8 text-sm text-slate-400">No data available</td></tr>
                   )}
                 </tbody>
               </table>
@@ -1734,14 +1876,27 @@ export default function ReportPage() {
                 <BarChart3 size={18} className="text-slate-400" />
                 {taskLabel} Tasks by Site
               </h3>
-              <div className="h-80 w-full min-w-0 min-h-[20rem]">
+              <div className="w-full min-w-0" style={{ height: siteBarChartHeight }}>
                 <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={280}>
-                  <BarChart data={siteRanking} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                  <BarChart
+                    data={siteRanking}
+                    layout="vertical"
+                    barCategoryGap="24%"
+                    margin={{ top: 12, right: 32, left: 6, bottom: 12 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
                     <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#b0b8c4' }} />
-                    <YAxis dataKey="site" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} width={120} />
+                    <YAxis
+                      dataKey="site"
+                      type="category"
+                      axisLine={false}
+                      tickLine={false}
+                      width={262}
+                      interval={0}
+                      tick={(p) => <RankingBarYAxisTick x={p.x} y={p.y} payload={p.payload} labelWidth={250} />}
+                    />
                     <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', color: '#475569', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }} />
-                    <Bar dataKey="total" name="MA Tasks" radius={[0, 8, 8, 0]} barSize={20}>
+                    <Bar dataKey="total" name={`${taskLabel} Tasks`} radius={[0, 8, 8, 0]} barSize={20}>
                       {siteRanking.map((_, i) => (
                         <Cell key={i} fill={VENDOR_COLORS[i % VENDOR_COLORS.length]} />
                       ))}
@@ -1778,6 +1933,7 @@ export default function ReportPage() {
                           </>
                         ) : (
                           <>
+                            {(s.inprocess ?? 0) > 0 && <span className="text-orange-500">Inprocess {s.inprocess}</span>}
                             {s.reportPass > 0 && <span className="text-emerald-500">Pass {s.reportPass}</span>}
                             {s.overdue > 0 && <span className="text-red-500">Overdue {s.overdue}</span>}
                           </>

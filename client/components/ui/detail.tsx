@@ -64,7 +64,10 @@ interface TaskDetail {
   // Status fields
   actuallyWent?: boolean;
   photos?: string[]; // Array of base64 or URLs
+  /** เหตุผล / โน้ต ขณะ In process */
   notes?: string;
+  /** เหตุผลเมื่อย้ายวันนัด (ลากบนปฏิทิน) */
+  rescheduleNote?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
 }
 
@@ -588,14 +591,16 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             </div>
           )}
           
-          {/* Notes - แสดงเฉพาะเมื่อมี notes (ใช้เมื่อเลื่อนนัด) */}
-          {task.notes && (
+          {/* เหตุผลย้ายวัน — เก็บคนละช่องกับ notes (in process) */}
+          {task.rescheduleNote && String(task.rescheduleNote).trim() && (
             <div className="bg-blue-50 rounded-xl p-4 border-2 border-blue-200">
               <div className="flex items-center gap-2 mb-1.5">
                 <FileText size={14} className="text-blue-600" />
-                <label className="text-[10px] font-bold uppercase text-blue-700">Notes</label>
+                <label className="text-[10px] font-bold uppercase text-blue-700">Reschedule Note</label>
               </div>
-              <p className="text-sm font-medium text-blue-900 leading-relaxed">{task.notes}</p>
+              <p className="text-sm font-medium text-blue-900 leading-relaxed whitespace-pre-wrap">
+                {String(task.rescheduleNote).trim()}
+              </p>
             </div>
           )}
 
@@ -665,7 +670,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               <div className="mt-4 rounded-xl border-2 border-amber-200 bg-amber-50/90 p-3">
                 <label htmlFor="in-process-reason" className="mb-2 flex items-center gap-2 text-xs font-bold text-amber-900">
                   <Clock3 size={16} className="shrink-0" />
-                  Reason for in progress
+                  Reason for in process
                   <span className="text-red-500">*</span>
                 </label>
                 <textarea
@@ -673,7 +678,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   value={inProcessReasonDraft}
                   onChange={(e) => setInProcessReasonDraft(e.target.value)}
                   rows={3}
-                  placeholder="เช่น รออะไหล่, ประสานลูกค้า, รอเข้าพื้นที่..."
+                  placeholder="For example: Waiting for spare parts, Coordinating with customer, Waiting for access..."
                   className="w-full resize-y rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
                 />
               </div>

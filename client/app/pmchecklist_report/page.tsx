@@ -612,17 +612,57 @@ function ReportPageContent() {
       );
     }
 
+    const taskById = new Map<number, { startDate?: string; endDate?: string }>();
+    pmMaTasks.forEach((t: { id?: number; startDate?: string; endDate?: string }) => {
+      if (t?.id != null && !Number.isNaN(Number(t.id))) taskById.set(Number(t.id), { startDate: t.startDate, endDate: t.endDate });
+    });
+    const taskWindowDates = (taskId: unknown) => {
+      if (taskId == null || taskId === '') return { start: '', end: '' };
+      const t = taskById.get(Number(taskId));
+      return {
+        start: formatExportDate(t?.startDate),
+        end: formatExportDate(t?.endDate),
+      };
+    };
+
     const lines: string[] = [];
     const row = (arr: unknown[]) => lines.push(arr.map(csvCell).join(','));
     const gen = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    const pmHeaders = ['Total devices', 'Site', 'Location', 'Technician', 'PM Date', 'Status', 'Report status', 'Comment'];
-    const maHeaders = ['Serial', 'Site', 'Location', 'Technician', 'MA Date', 'Replace Device', 'New Site', 'New Location', 'Third Party Vendor name', 'Third Party Vendor phone', 'Reporter name', 'Reporter phone', 'Ticket', 'Status', 'Report status', 'comment'];
+    const pmHeaders = [
+      'Total devices',
+      'Site',
+      'Location',
+      'Technician',
+      'start_date',
+      'end_date',
+      'Status',
+      'Report status',
+      'Comment',
+    ];
+    const maHeaders = [
+      'Serial',
+      'Site',
+      'Location',
+      'Technician',
+      'start_date',
+      'end_date',
+      'Replace Device',
+      'New Site',
+      'New Location',
+      'Third Party Vendor name',
+      'Third Party Vendor phone',
+      'Reporter name',
+      'Reporter phone',
+      'Ticket',
+      'Status',
+      'Report status',
+      'comment',
+    ];
     const headers = tab === 'ma' ? maHeaders : pmHeaders;
     row([`${taskLabel} Checklist Report - Export (Generated: ${gen})`, ...Array(headers.length - 1).fill('')]);
     row(Array(headers.length).fill(''));
     row(headers);
     sourceReports.forEach((r: PMReport | MAReport) => {
-      const dateVal = r[dateKey as keyof typeof r];
       const dev = r.device as Record<string, unknown> | undefined;
       const rSite = (r as PMReport).site_name ?? (r as MAReport).site_name;
       const rawSite =
@@ -634,6 +674,7 @@ function ReportPageContent() {
       const explicitLoc = dev?.Location2 != null ? String(dev.Location2) : '';
       const { site, location } = exportSiteAndLocation(rawSite, explicitLoc);
       const reportStatus = (r.uploadedFiles || []).length > 0 ? 'Reported' : 'Not yet';
+      const { start: winStart, end: winEnd } = taskWindowDates(r.taskId);
       if (tab === 'pm') {
         const assets = Array.isArray((r as any).assets) ? (r as any).assets : [];
         const totalDevicesThisReport = assets.length > 0 ? assets.length : 1;
@@ -642,7 +683,8 @@ function ReportPageContent() {
           site,
           location,
           getEngineerDisplay(r),
-          formatExportDate(dateVal),
+          winStart,
+          winEnd,
           'Done',
           reportStatus,
           (r.comment || '').replace(/\n/g, ' '),
@@ -690,7 +732,8 @@ function ReportPageContent() {
         site,
         location,
         getEngineerDisplay(r),
-        formatExportDate(dateVal),
+        winStart,
+        winEnd,
         replaceDeviceStr,
         newSiteStr,
         newLocationStr,
@@ -706,7 +749,6 @@ function ReportPageContent() {
     });
 
     pendingExport.forEach((task: any) => {
-      const dateVal = task?.endDate || task?.startDate;
       const assets: any[] = Array.isArray(task?.assets) ? task.assets : [];
       const first = assets[0];
       const rawSiteLabel =
@@ -736,7 +778,8 @@ function ReportPageContent() {
           siteFromTask,
           locationFromTask,
           engDisplay,
-          formatExportDate(dateVal),
+          formatExportDate(task?.startDate),
+          formatExportDate(task?.endDate),
           formatTaskStatusForCsv(task?.status),
           'Not yet',
           String(task?.notes ?? '')
@@ -777,7 +820,8 @@ function ReportPageContent() {
         siteFromTask,
         locationFromTask,
         engDisplay,
-        formatExportDate(dateVal),
+        formatExportDate(task?.startDate),
+        formatExportDate(task?.endDate),
         replaceDeviceStr,
         newSiteStr,
         newLocationStr,

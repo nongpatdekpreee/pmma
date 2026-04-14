@@ -147,6 +147,8 @@ export interface Task {
   status: TaskStatus;
   actually_went?: boolean;
   notes?: string;
+  /** เหตุผลเมื่อย้ายวันนัด (คนละช่องกับ notes) */
+  reschedule_note?: string | null;
   created_at?: Date;
   updated_at?: Date;
 }

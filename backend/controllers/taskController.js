@@ -2,7 +2,7 @@ const db = require('../config/database');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
-// status, actually_went, notes, photos, created_at, updated_at
+// status, actually_went, notes, reschedule_note, photos, created_at, updated_at
 
 // Helper function - สร้าง task id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
 const generateNextTaskId = async () => {
@@ -104,6 +104,7 @@ const mapTaskRow = (row) => {
   status: row.status || 'not-started',
   actuallyWent: !!row.actually_went,
   notes: row.notes,
+  rescheduleNote: row.reschedule_note != null ? row.reschedule_note : null,
   photos: row.photos ? (typeof row.photos === 'string' ? JSON.parse(row.photos) : row.photos) : [],
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -190,6 +191,7 @@ const createTask = async (req, res) => {
       status = 'not-started',
       actuallyWent = false,
       notes = null,
+      rescheduleNote = null,
       photos = [],
     } = req.body;
 
@@ -222,8 +224,8 @@ const createTask = async (req, res) => {
         id, task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name, vendor_tel
         , reporter_name, reporter_tel, ticket
         , root_cause, resolution
-        , coverage_scope, start_date, end_date, engineers, assets, asset_binding, status, actually_went, notes, photos
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        , coverage_scope, start_date, end_date, engineers, assets, asset_binding, status, actually_went, notes, reschedule_note, photos
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const safeParseInt = (value) => {
@@ -255,6 +257,7 @@ const createTask = async (req, res) => {
       status || 'not-started',
       actuallyWent ? 1 : 0,
       notes || null,
+      rescheduleNote || null,
       photos && Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : null,
     ];
 
@@ -363,6 +366,7 @@ const updateTask = async (req, res) => {
       status,
       actuallyWent,
       notes,
+      rescheduleNote,
       photos,
     } = req.body;
 
@@ -415,6 +419,7 @@ const updateTask = async (req, res) => {
     if (status !== undefined) addUpdate('status', status || 'not-started');
     if (actuallyWent !== undefined) addUpdate('actually_went', actuallyWent ? 1 : 0);
     if (notes !== undefined) addUpdate('notes', notes || null);
+    if (rescheduleNote !== undefined) addUpdate('reschedule_note', rescheduleNote || null);
     if (photos !== undefined) addUpdate('photos', photos && photos.length > 0 ? JSON.stringify(photos) : null);
 
     if (updates.length === 0) {
