@@ -464,6 +464,25 @@ const createContract = async (req, res) => {
         } catch (historyErr) {
           console.error('Error saving contract history:', historyErr);
         }
+
+        // หลัง renew SOF: อัปเดต Refer_SOF บน devices — ทุกเครื่องที่ยังอ้าง SOF เก่า + เครื่องในรายการผูกสัญญา (กรณี Refer_SOF ว่าง)
+        if (contractStatus !== 'draft' && sofValue) {
+          const newSofTrim = String(sofValue).trim();
+          if (newSofTrim) {
+            const oldSofTrim =
+              oldSofFromDb != null && String(oldSofFromDb).trim() !== '' ? String(oldSofFromDb).trim() : '';
+            if (oldSofTrim && oldSofTrim !== newSofTrim) {
+              await conn.execute(
+                `UPDATE devices SET Refer_SOF = ? WHERE Refer_SOF IS NOT NULL AND TRIM(Refer_SOF) = ?`,
+                [newSofTrim, oldSofTrim]
+              );
+            }
+            if (deviceIdList.length > 0) {
+              const ph = deviceIdList.map(() => '?').join(',');
+              await conn.execute(`UPDATE devices SET Refer_SOF = ? WHERE Did IN (${ph})`, [newSofTrim, ...deviceIdList]);
+            }
+          }
+        }
       } else {
         // สร้างสัญญาใหม่ (ไม่มี old_contract_id)
         // 1. INSERT contract (ใช้ contract_id ที่สร้างไว้แล้ว)

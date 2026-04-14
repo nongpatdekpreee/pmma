@@ -145,12 +145,12 @@ function ScheduleManagementContent() {
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [siteOptions, setSiteOptions] = useState<Array<{
-    id: string; // SLid
-    name: string; // SiteName
+    id: string; // SLid — คีย์แถว sites_location (Site+Location2 ใน Excel ใช้จับคู่มาที่นี่)
+    name: string; // SiteName (sites + Sid)
     label: string;
-    location: string; // Location2
-    sid?: number; // Sid from sites table
-    lid?: number; // lid from location table
+    location: string; // Location2 (location + lid)
+    sid?: number;
+    lid?: number;
   }>>([]);
 
   // Force initial view mode via query param: /schedule_management?view=table|calendar
@@ -1069,11 +1069,37 @@ function ScheduleManagementContent() {
   };
 
   /* ===== Excel/CSV Import Functions ===== */
-  // Function to fetch devices: 1) จาก contract_device (contract_id + SLid) 2) fallback จาก devices (Refer_SOF + SLid)
+  /** เทียบ Refer_SOF ในฐานข้อมูลกับ SOF ที่ import (รองรับเลขแบบมี/ไม่มี 0 นำหน้า, ช่องว่าง, คั่นตัวเลขใน DB) */
+  const importReferSofMatches = (referSofDb: unknown, importSof: string): boolean => {
+    const imp = String(importSof ?? '').replace(/\s+/g, '').trim();
+    if (!imp) return false;
+    const dbRaw =
+      referSofDb == null || referSofDb === ''
+        ? ''
+        : String(referSofDb).replace(/\s+/g, '').trim();
+    if (!dbRaw) return false;
+    const stripLeadZeros = (s: string) => (/^\d+$/.test(s) ? s.replace(/^0+/, '') || '0' : s);
+    // SOF ที่ import เป็นตัวเลขล้วน → เทียบกับ Refer_SOF ที่อาจมีช่องว่าง/ขีดคั่นใน DB
+    if (/^\d+$/.test(imp)) {
+      const dbDigits = dbRaw.replace(/\D/g, '');
+      if (dbDigits && /^\d+$/.test(dbDigits)) {
+        return stripLeadZeros(dbDigits) === stripLeadZeros(imp);
+      }
+    }
+    if (/^\d+$/.test(imp) || /^\d+$/.test(dbRaw)) {
+      return stripLeadZeros(dbRaw) === stripLeadZeros(imp);
+    }
+    return dbRaw.toLowerCase() === imp.toLowerCase();
+  };
+
+  // หลัง parse: มี SLid แล้ว (จาก Site+Location → sites_location หรือ slid / sid+lid) + SOF+สัญญา แล้วค่อยดึง device:
+  // 1) contract_device (contract_id + SLid) แล้วกรอง Refer_SOF ให้ตรง SOF ที่ import
+  // 2) fallback GET by-sof-and-site (Refer_SOF + SLid ใน SQL อยู่แล้ว) ถ้าขั้นแรกไม่มีเครื่องที่ SOF ตรง
+  // ไม่กรอง Location2 ซ้ำหลัง API — siteId คือ SLid แล้ว (sites_location ระบุโลเคชันแล้ว); พารามิเตอร์ location เก็บไว้สำหรับ log/อนาคต
   const fetchDevicesBySiteSOFLocation = async (
     sofName: string, 
     siteId: number | null, 
-    location: string | null,
+    _location: string | null,
     contractId?: number | null
   ): Promise<{deviceIds: number[]; count: number; devices: Array<{Did: number; CI_Name?: string; Asset_Number?: string; Location2?: string}>}> => {
     if (!sofName || !siteId) {
@@ -1095,33 +1121,27 @@ function ScheduleManagementContent() {
     };
 
     try {
-      // 1) ลองจาก contract_device ก่อน (Site+Location → SLid, เช็ค contract_device ว่ามี device อะไรบ้าง)
+      // 1) contract_device ที่ SLid นี้ — กรองเฉพาะเครื่องที่ Refer_SOF ตรง SOF ที่ import
       let devices = contractId ? await doFetchByContract() : [];
-      // 2) ถ้าไม่ได้จาก contract_device ให้ลองจาก devices.Refer_SOF + SLid
-      if (devices.length === 0) devices = await doFetchBySof(sofName);
+      devices = devices.filter((d: any) => importReferSofMatches(d.Refer_SOF, sofName));
+
+      // 2) ถ้าไม่มีเครื่องที่ SOF ตรง ให้ลองจาก devices โดย Refer_SOF + SLid
+      if (devices.length === 0) {
+        devices = await doFetchBySof(sofName);
+        devices = devices.filter((d: any) => importReferSofMatches(d.Refer_SOF, sofName));
+      }
       if (devices.length === 0 && /^\d+$/.test(sofName)) {
         const altSof = parseInt(sofName, 10).toString(); // 0987 → 987
-        if (altSof !== sofName) devices = await doFetchBySof(altSof);
-        if (devices.length === 0) devices = await doFetchBySof(sofName.padStart(4, '0')); // 987 → 0987
+        if (altSof !== sofName) {
+          devices = await doFetchBySof(altSof);
+          devices = devices.filter((d: any) => importReferSofMatches(d.Refer_SOF, sofName));
+        }
+        if (devices.length === 0) {
+          devices = await doFetchBySof(sofName.padStart(4, '0')); // 987 → 0987
+          devices = devices.filter((d: any) => importReferSofMatches(d.Refer_SOF, sofName));
+        }
       }
-      
-      // Filter by Location if provided (match Location2 from database)
-      let filteredDevices = devices;
-      if (location && location.trim()) {
-        const locationLower = location.trim().toLowerCase();
-        const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-        filteredDevices = devices.filter((d: any) => {
-          const deviceLocation = (d.Location2 || '').toLowerCase();
-          const devLocNorm = norm(deviceLocation);
-          const locNorm = norm(locationLower);
-          return deviceLocation.includes(locationLower) || locationLower.includes(deviceLocation)
-            || (devLocNorm && locNorm && (devLocNorm.includes(locNorm) || locNorm.includes(devLocNorm)));
-        });
-        // ถ้า filter แล้ว 0 devices ให้ใช้ทั้งหมด (location อาจไม่ตรงเป๊ะ)
-        if (filteredDevices.length === 0 && devices.length > 0) filteredDevices = devices;
-      }
-      devices = filteredDevices;
-      
+
       const deviceIds = devices.map((d: any) => d.Did);
       return {
         deviceIds,
@@ -1142,7 +1162,7 @@ function ScheduleManagementContent() {
         }))
       };
     } catch (error) {
-      console.error(`Error fetching devices for SOF ${sofName}, Site ${siteId}, Location ${location}:`, error);
+      console.error(`Error fetching devices for SOF ${sofName}, Site ${siteId}:`, error);
       return { deviceIds: [], count: 0, devices: [] };
     }
   };
@@ -1151,6 +1171,8 @@ function ScheduleManagementContent() {
     if (dateStr === null || dateStr === undefined) return '';
     const str = String(dateStr).trim();
     if (!str) return '';
+    // ต้องเช็คก่อน Excel serial — ไม่งั้น "2024-06-01" จะถูก parseInt → 2024 แล้วแปลงผิด
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
     // Excel serial number (days since 1899-12-30)
     const serial = typeof dateStr === 'number' ? dateStr : parseInt(str, 10);
     if (!isNaN(serial) && serial > 0 && serial < 1000000) {
@@ -1174,8 +1196,6 @@ function ScheduleManagementContent() {
       const dayPadded = String(day).padStart(2, '0');
       return `${year}-${month}-${dayPadded}`;
     }
-    // Already YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
     // Malformed ISO like +046072-12-31: first number can be Excel serial
     const serialMatch = str.match(/^\+?0*(\d+)-\d{2}-\d{2}/);
     if (serialMatch) {
@@ -1278,9 +1298,22 @@ function ScheduleManagementContent() {
           const normalizeHeader = (h: string) => h.replace(/\s+/g, ' ').trim();
           
           const columnMap: Record<string, string> = {
-            // Required columns (ตามที่ต้องการ)
-            'site': 'siteName', 'site name': 'siteName', 'sitename': 'siteName', // → site_name
-            'location': 'location', 'location2': 'location', // → location
+            // เป้าหมายคือ SLid (sites_location). Site/Location ในไฟล์ = คำอธิบายชื่อไซต์ (sites+Sid) + Location2 (location+lid) เพื่อจับคู่แถวนั้น
+            'site': 'siteName', 'site name': 'siteName', 'sitename': 'siteName',
+            'location': 'location', 'location2': 'location',
+            // ทางเลือก: slid หรือ sid+lid ตัวเลข → ชี้ SLid โดยตรง
+            'sid': 'importSid',
+            'site sid': 'importSid',
+            'site_sid': 'importSid',
+            'lid': 'importLid',
+            'site lid': 'importLid',
+            'site_lid': 'importLid',
+            'location id': 'importLid',
+            'location_id': 'importLid',
+            // SLid โดยตรง (sites_location.SLid)
+            'slid': 'csvSlid',
+            'site slid': 'csvSlid',
+            'sl_id': 'csvSlid',
             'plan start': 'startDate', 'start date': 'startDate', 'startdate': 'startDate',
             'plan end': 'endDate', 'end date': 'endDate', 'enddate': 'endDate',
             'engineer': 'engineer', 'engineers': 'engineer',
@@ -1341,6 +1374,15 @@ function ScheduleManagementContent() {
                   task.siteName = String(value).trim();
                 } else if (mappedKey === 'location') {
                   task.location = String(value).trim();
+                } else if (mappedKey === 'importSid') {
+                  const n = parseInt(String(value).trim(), 10);
+                  if (!Number.isNaN(n)) task.importSid = n;
+                } else if (mappedKey === 'importLid') {
+                  const n = parseInt(String(value).trim(), 10);
+                  if (!Number.isNaN(n)) task.importLid = n;
+                } else if (mappedKey === 'csvSlid') {
+                  const v = String(value).trim();
+                  if (/^\d+$/.test(v)) task.siteId = v;
                 } else if (mappedKey === 'sofName') {
                   // เก็บ SOF เป็นข้อความ; เติม 0 นำหน้าถ้าเป็นตัวเลข (Excel อาจแปลง 0987 เป็น 987)
                   const raw = String(value).trim();
@@ -1371,11 +1413,44 @@ function ScheduleManagementContent() {
               }
             });
 
+            // ทางเลือก: sid + lid ตัวเลข (คอลัมน์แยก) → หาแถว sites_location เดียวกัน = SLid เดียวกับ Site+Location2
+            let resolvedSlidFromSidLid = false;
+            if (
+              task.importSid !== undefined &&
+              task.importSid !== null &&
+              !Number.isNaN(Number(task.importSid)) &&
+              task.importLid !== undefined &&
+              task.importLid !== null &&
+              !Number.isNaN(Number(task.importLid))
+            ) {
+              const sidN = Number(task.importSid);
+              const lidN = Number(task.importLid);
+              const siteByPair = siteOptions.find(
+                (s) => Number(s.sid) === sidN && Number(s.lid) === lidN
+              );
+              if (!siteByPair) {
+                errors.push(
+                  `Row ${i + 1}: No sites_location for Sid ${sidN} + Lid ${lidN} (must match a contracted site row)`
+                );
+                continue;
+              }
+              task.siteId = siteByPair.id;
+              task.Sid = siteByPair.id;
+              task.Sname = siteByPair.name;
+              task.siteSid = siteByPair.sid;
+              task.siteLid = siteByPair.lid;
+              if (!String(task.siteName || '').trim()) task.siteName = siteByPair.name;
+              task.location = siteByPair.location || task.location || '';
+              task.title = `${siteByPair.sid}-${siteByPair.lid}`;
+              resolvedSlidFromSidLid = true;
+              console.log(`Row ${i + 1}: Resolved SLid ${siteByPair.id} from Sid ${sidN} + Lid ${lidN}`);
+            }
+
             // Coverage Scope should come from CSV column "Coverage Scope" - DO NOT OVERRIDE if provided
             // Generate title as sid-lid format for title (but keep coverageScope from CSV if provided)
             if (task.siteSid && task.siteLid) {
               task.title = `${task.siteSid}-${task.siteLid}`;
-            } else {
+            } else if (!resolvedSlidFromSidLid) {
               // If sid/lid not found, try to find from siteOptions
               const siteNameLower = (task.Sname || task.siteName || '').toLowerCase();
               const locationLower = (task.location || '').toLowerCase();
@@ -1414,55 +1489,73 @@ function ScheduleManagementContent() {
             // Ensure taskType is always PM
             task.taskType = 'PM';
 
-            // Find SLid by Site Name + Location (from sites_location table)
-            if (!task.siteId && task.siteName) {
+            // จับคู่ SiteName + Location2 → SLid (ข้ามถ้าได้ SLid จาก slid หรือ sid+lid แล้ว)
+            if (!resolvedSlidFromSidLid && !task.siteId && task.siteName) {
               const siteNameLower = task.siteName.toLowerCase();
-              const locationLower = (task.location || '').toLowerCase();
-              
-              // Try to find exact match: Site Name + Location
-              let site = siteOptions.find(s => {
-                const siteMatch = s.name.toLowerCase().includes(siteNameLower) || 
-                                 siteNameLower.includes(s.name.toLowerCase());
-                const locationMatch = !locationLower || 
-                                     (s.location && s.location.toLowerCase().includes(locationLower)) ||
-                                     (locationLower && locationLower.includes(s.location.toLowerCase()));
-                return siteMatch && locationMatch;
-              });
-              
-              // Fallback: Find by Site Name only if location doesn't match
-              if (!site && task.location) {
-                site = siteOptions.find(s => {
-                  const siteMatch = s.name.toLowerCase().includes(siteNameLower) || 
-                                   siteNameLower.includes(s.name.toLowerCase());
-                  return siteMatch;
-                });
-              }
-              
-              // Last fallback: Find by Site Name only
-              if (!site) {
-                site = siteOptions.find(s => 
-                  s.name.toLowerCase().includes(siteNameLower) ||
-                  siteNameLower.includes(s.name.toLowerCase())
+              const locationTrim = (task.location || '').trim();
+              const locationLower = locationTrim.toLowerCase();
+
+              const siteNameMatch = (s: (typeof siteOptions)[0]) => {
+                const n = s.name.toLowerCase();
+                return n.includes(siteNameLower) || siteNameLower.includes(n);
+              };
+              const locationMatch = (s: (typeof siteOptions)[0]) => {
+                if (!locationLower) return true;
+                const loc = (s.location || '').toLowerCase();
+                return (
+                  !!loc &&
+                  (loc.includes(locationLower) || locationLower.includes(loc))
                 );
-              }
-              
-              if (site) {
-                task.siteId = site.id; // SLid
-                task.Sid = site.id; // SLid (for devices query)
-                task.Sname = site.name; // SiteName
-                task.siteSid = site.sid; // Sid from sites table
-                task.siteLid = site.lid; // lid from location table
-                console.log(`Row ${i + 1}: Found SLid ${site.id} (Sid: ${site.sid}, lid: ${site.lid}) for Site "${task.siteName}" + Location "${task.location || 'none'}"`);
+              };
+
+              let site: (typeof siteOptions)[0] | undefined;
+              if (locationLower) {
+                site = siteOptions.find(s => siteNameMatch(s) && locationMatch(s));
+                if (!site) {
+                  errors.push(
+                    `Row ${i + 1}: Site "${task.siteName}" + Location "${task.location}" not found in sites_location (name and location must both match a row)`
+                  );
+                  console.warn(`Available sites:`, siteOptions.map(s => `${s.name} - ${s.location} (SLid: ${s.id})`));
+                  continue;
+                }
               } else {
-                errors.push(`Row ${i + 1}: Site "${task.siteName}"${task.location ? ` + Location "${task.location}"` : ''} not found in sites_location`);
-                console.warn(`Available sites:`, siteOptions.map(s => `${s.name} - ${s.location} (SLid: ${s.id})`));
-                continue;
+                site = siteOptions.find(s => siteNameMatch(s));
+                if (!site) {
+                  errors.push(`Row ${i + 1}: Site "${task.siteName}" not found in sites_location`);
+                  console.warn(`Available sites:`, siteOptions.map(s => `${s.name} - ${s.location} (SLid: ${s.id})`));
+                  continue;
+                }
               }
-            } else if (task.siteId) {
+
+              task.siteId = site.id;
+              task.Sid = site.id;
+              task.Sname = site.name;
+              task.siteSid = site.sid;
+              task.siteLid = site.lid;
+              console.log(
+                `Row ${i + 1}: Found SLid ${site.id} (Sid: ${site.sid}, lid: ${site.lid}) for Site "${task.siteName}" + Location "${task.location || 'none'}"`
+              );
+            } else if (!resolvedSlidFromSidLid && task.siteId) {
               const site = siteOptions.find(s => s.id === String(task.siteId));
               if (site) {
                 task.Sid = site.id;
                 task.Sname = site.name;
+                task.siteSid = site.sid;
+                task.siteLid = site.lid;
+                const locCsv = (task.location || '').trim();
+                if (locCsv && !/^\d+$/.test(locCsv)) {
+                  const locationLower = locCsv.toLowerCase();
+                  const loc = (site.location || '').toLowerCase();
+                  const ok =
+                    !!loc &&
+                    (loc.includes(locationLower) || locationLower.includes(loc));
+                  if (!ok) {
+                    errors.push(
+                      `Row ${i + 1}: Site ID ${task.siteId} does not match Location "${task.location}" (system location: "${site.location || '—'}")`
+                    );
+                    continue;
+                  }
+                }
               }
             }
 
@@ -1520,29 +1613,34 @@ function ScheduleManagementContent() {
               task.title = task.coverageScope;
             }
 
-            // เช็ค contract: ต้องมี contract และยังไม่หมดอายุ ถึงจะ add task ได้
-            if (task.sofName) {
-              if (!task.contractId) {
-                errors.push(`Row ${i + 1}: SOF "${task.sofName}" does not have a contract in the system — cannot add task`);
+            // Import: ต้องมี SOF → เช็คสัญญาในระบบ → ยังไม่หมดอายุ ก่อนรับแถวและก่อนดึง device
+            const sofTrim = (task.sofName && String(task.sofName).trim()) || '';
+            if (!sofTrim) {
+              errors.push(`Row ${i + 1}: Missing SOF (required to match contract and devices)`);
+              continue;
+            }
+            if (!task.contractId) {
+              errors.push(`Row ${i + 1}: SOF "${sofTrim}" does not have a contract in the system — cannot add task`);
+              continue;
+            }
+            const endDateStr =
+              task._contractEndDate ||
+              availableContracts.find(c => c.contract_id === task.contractId)?.end_date;
+            if (endDateStr) {
+              const endDate = new Date(endDateStr);
+              endDate.setHours(0, 0, 0, 0);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              if (endDate < today) {
+                errors.push(`Row ${i + 1}: Contract expired (SOF "${sofTrim}") — cannot add task`);
                 continue;
-              }
-              const endDateStr = task._contractEndDate || availableContracts.find(c => c.contract_id === task.contractId)?.end_date;
-              if (endDateStr) {
-                const endDate = new Date(endDateStr);
-                endDate.setHours(0, 0, 0, 0);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                if (endDate < today) {
-                  errors.push(`Row ${i + 1}: Contract expired (SOF "${task.sofName}") — cannot add task`);
-                  continue;
-                }
               }
             }
 
             tasks.push(task);
           }
 
-          // After parsing all tasks, fetch devices for each Site + SOF + Location combination
+          // หลัง SOF+สัญญาและ SLid (site+location) ชัดแล้ว — ดึง device ต่อคีย์ Site+SOF+Location+contract
           const devicesMap: Record<string, {deviceIds: number[]; count: number; devices: any[]}> = {};
           for (const task of tasks) {
             console.log(`Processing task:`, {
@@ -1554,7 +1652,7 @@ function ScheduleManagementContent() {
               contractId: task.contractId
             });
             
-            if (task.sofName && task.Sid) {
+            if (task.Sid) {
               const key = `${task.Sid}_${task.sofName}_${task.location || ''}_${task.contractId ?? 'none'}`;
               if (!devicesMap[key]) {
                 console.log(`[${key}] Fetching devices for SOF: "${task.sofName}", Site ID: ${task.Sid}, Location: "${task.location || 'none'}"`);
@@ -1581,7 +1679,7 @@ function ScheduleManagementContent() {
               task.devices = devicesMap[key].devices;
               console.log(`✓ Task "${task.siteName}" - SOF "${task.sofName}": ${task.deviceCount} devices assigned`, task.deviceIds);
             } else {
-              console.warn(`✗ Task missing SOF or Site ID:`, { 
+              console.warn(`✗ Task missing Site ID (SLid):`, { 
                 sofName: task.sofName, 
                 Sid: task.Sid, 
                 siteName: task.siteName,
@@ -1678,23 +1776,25 @@ function ScheduleManagementContent() {
           continue;
         }
 
-        // เช็ค contract: ต้องมี contract และยังไม่หมดอายุ ถึงจะ add task ได้
-        if (task.sofName) {
-          const contractId = task.contractId ? Number(task.contractId) : null;
-          if (!contractId) {
-            errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): SOF "${task.sofName}" does not have a contract in the system — cannot add task`);
+        const sofTrimBulk = (task.sofName && String(task.sofName).trim()) || '';
+        if (!sofTrimBulk) {
+          errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): Missing SOF (required)`);
+          continue;
+        }
+        const contractIdBulk = task.contractId ? Number(task.contractId) : null;
+        if (!contractIdBulk) {
+          errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): SOF "${sofTrimBulk}" does not have a contract in the system — cannot add task`);
+          continue;
+        }
+        const contractBulk = availableContracts.find(c => c.contract_id === contractIdBulk);
+        if (contractBulk?.end_date) {
+          const endDate = new Date(contractBulk.end_date);
+          endDate.setHours(0, 0, 0, 0);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          if (endDate < today) {
+            errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): Contract expired (SOF "${sofTrimBulk}") — cannot add task`);
             continue;
-          }
-          const contract = availableContracts.find(c => c.contract_id === contractId);
-          if (contract?.end_date) {
-            const endDate = new Date(contract.end_date);
-            endDate.setHours(0, 0, 0, 0);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            if (endDate < today) {
-              errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): Contract expired (SOF "${task.sofName}") — cannot add task`);
-              continue;
-            }
           }
         }
 
@@ -3035,6 +3135,7 @@ function ScheduleManagementContent() {
                   <p className="text-xs text-slate-500 mt-0.5">
                     Upload a file to create multiple plans according to database schema
                   </p>
+                 
                 </div>
               </div>
               <button
