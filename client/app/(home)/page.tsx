@@ -220,7 +220,7 @@ export default function DashboardPage() {
       setLoadingHeatmap(true);
       setHeatmapError(null);
       try {
-        const res = await getTopSitesHeatmap({ site_limit: 8, contract_limit: 10 });
+        const res = await getTopSitesHeatmap({ site_limit: 5, contract_limit: 10 });
         if (cancelled) return;
         if (!res || res.success === false) {
           setHeatmapError((res as { message?: string })?.message || 'Failed to load heatmap');
