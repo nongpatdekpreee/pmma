@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { LucideIcon, Server, Network, Shield, HardDrive, Zap, Radio, ChevronDown, ChevronUp, Search, Filter, X, Calendar, MapPin, History, Loader2 } from "lucide-react";
+import { LucideIcon, Server, Network, Shield, HardDrive, Zap, Radio, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, Filter, X, Calendar, MapPin, History, Loader2 } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { getDevicesWithPM } from "@/lib/api";
@@ -611,56 +611,35 @@ const AssetSiteDatabase = () => {
             </table>
           </div>
 
-          {/* Pagination */}
-          <div className="mt-4 flex items-center justify-between text-xs text-gray-400">
-            <span>
-              Showing {startIndex + 1}–
-              {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} of{" "}
-              {totalItems}
-            </span>
-
-            <div className="flex gap-1">
-              <button
-                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
-                className={`h-8 w-8 rounded-lg border ${
-                  currentPage === 1
-                    ? "bg-gray-50 text-gray-300 cursor-not-allowed"
-                    : "bg-white hover:bg-gray-50"
-                }`}
-              >
-                ‹
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                (page) => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`h-8 w-8 rounded-lg ${
-                      page === currentPage
-                        ? "bg-indigo-500 text-white"
-                        : "border bg-white hover:bg-gray-50"
-                    }`}
-                  >
-                    {page}
-                  </button>
-                )
-              )}
-              <button
-                onClick={() =>
-                  setCurrentPage(Math.min(totalPages, currentPage + 1))
-                }
-                disabled={currentPage === totalPages}
-                className={`h-8 w-8 rounded-lg border ${
-                  currentPage === totalPages
-                    ? "bg-gray-50 text-gray-300 cursor-not-allowed"
-                    : "bg-white hover:bg-gray-50"
-                }`}
-              >
-                ›
-              </button>
+          {/* Pagination — สไตล์เดียวกับหน้า contract_editer */}
+          {totalItems > ITEMS_PER_PAGE && (
+            <div className="mt-4 -mx-4 md:-mx-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200 bg-slate-50 py-3 px-4 md:px-6">
+              <span className="text-sm text-slate-600">
+                Show {startIndex + 1}–{Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} from {totalItems} list
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage <= 1}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={16} /> Previous Page
+                </button>
+                <span className="text-sm text-slate-600">
+                  Page {currentPage} / {totalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next Page <ChevronRight size={16} />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* PM History Modal - ใช้ Portal ให้ popup อยู่บนสุดและกด backdrop ปิดได้ */}

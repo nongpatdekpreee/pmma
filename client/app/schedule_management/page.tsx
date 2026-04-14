@@ -18,12 +18,14 @@ import {
   LayoutGrid,
   List,
   Users,
+  Clock3,
 } from 'lucide-react';
 import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
+import { mapEmployeesToEngineerRoster, engineerRosterLabel } from '@/lib/engineerRoster';
 import * as XLSX from 'xlsx';
 
 
@@ -80,7 +82,25 @@ interface CalendarEvent {
   actuallyWent?: boolean;
   photos?: string[];
   notes?: string;
+  rescheduleNote?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
+}
+
+function getScheduleInProcessReason(ev: Pick<CalendarEvent, 'notes' | 'rootCause'>): string {
+  const notes = String(ev.notes ?? '').trim();
+  const root = String(ev.rootCause ?? '').trim();
+  if (notes && root) return `${notes} (${root})`;
+  if (notes) return notes;
+  if (root) return root;
+  return 'ยังไม่ระบุเหตุผลในโน้ตงาน';
+}
+
+function scheduleInProcessTitleText(ev: CalendarEvent): string {
+  const base = ev.title || '(No title)';
+  if (ev.status !== 'working') return base;
+  const reason = getScheduleInProcessReason(ev);
+  const short = reason.length > 44 ? `${reason.slice(0, 41)}…` : reason;
+  return `${base} · ${short}`;
 }
 
 export default function ScheduleManagement() {
@@ -282,6 +302,7 @@ function ScheduleManagementContent() {
       actuallyWent: task.actuallyWent ?? task.actually_went ?? false,
       photos: task.photos || [],
       notes: task.notes || '',
+      rescheduleNote: task.rescheduleNote || task.reschedule_note || '',
     };
   };
 
@@ -463,20 +484,9 @@ function ScheduleManagementContent() {
           setSiteOptions(sites);
         }
         
-        const employeesResult = await getEmployees();
+        const employeesResult = await getEmployees({ limit: 2000 });
         if (employeesResult.success && employeesResult.data) {
-          const engineers: Engineer[] = employeesResult.data
-            .filter((emp: any) => emp.positionType === 'Technical')
-            .map((emp: any) => {
-              const nameParts = (emp.name || emp.displayName || '').split(' ');
-              return {
-                id: emp.id || emp.employee_id || '',
-                name: nameParts[0] || emp.name || emp.displayName || '',
-                lastName: nameParts.slice(1).join(' ') || emp.lastName || '',
-                photo: emp.photo ?? null,
-              };
-            });
-          setAvailableEngineers(engineers);
+          setAvailableEngineers(mapEmployeesToEngineerRoster(employeesResult.data) as Engineer[]);
         }
         
         // Load contracts for sof_name → contract_id lookup
@@ -663,12 +673,22 @@ function ScheduleManagementContent() {
     setTablePage((p) => (p > totalTablePages ? totalTablePages : p < 1 ? 1 : p));
   }, [totalTablePages]);
 
-  const filteredEngineersForFilter = availableEngineers.filter(
-    eng => !selectedEngineerFilter.includes(String(eng.id)) &&
-      (eng.name?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
-        eng.lastName?.toLowerCase().includes(engineerFilterInput.toLowerCase()) ||
-        String(eng.id).toLowerCase().includes(engineerFilterInput.toLowerCase()))
-  );
+  const filteredEngineersForFilter = availableEngineers.filter((eng) => {
+    const q = engineerFilterInput.toLowerCase();
+    return (
+      !selectedEngineerFilter.includes(String(eng.id)) &&
+      (String(eng.name || '')
+        .toLowerCase()
+        .includes(q) ||
+        String(eng.lastName || '')
+          .toLowerCase()
+          .includes(q) ||
+        engineerRosterLabel(eng).toLowerCase().includes(q) ||
+        String(eng.id)
+          .toLowerCase()
+          .includes(q))
+    );
+  });
   const addEngineerFilter = (eng: Engineer) => {
     if (!selectedEngineerFilter.includes(String(eng.id))) {
       setSelectedEngineerFilter([...selectedEngineerFilter, String(eng.id)]);
@@ -769,7 +789,7 @@ function ScheduleManagementContent() {
     try {
       const body: any = { startDate, endDate };
       if (reason) {
-        body.notes = reason;
+        body.rescheduleNote = reason;
       }
       const res = await fetch(apiUrl(`/api/tasks/${taskId}`), {
         method: 'PUT',
@@ -885,7 +905,7 @@ function ScheduleManagementContent() {
             year: newStartDateObj.getFullYear(),
             startDate: newStartDate,
             endDate: newEndDate,
-            notes: moveReason.trim(), // บันทึกเหตุผลไว้ใน notes
+            rescheduleNote: moveReason.trim(),
           };
           return updatedEvent;
         }
@@ -927,67 +947,86 @@ function ScheduleManagementContent() {
   };
 
   /* ================= Modal ================= */
-  const handleSaveFromModal = async (data: any) => {
-    const normalizedTaskType = data.taskType || editingEvent?.taskType || 'PM';
-    const normalizedStartDate = data.startDate || editingEvent?.startDate || '';
-    const normalizedEndDate = data.endDate || data.startDate || editingEvent?.endDate || editingEvent?.startDate || '';
-    const payload = {
-      taskType: normalizedTaskType,
-      contractId: data.contractId || data.contract_id || null,
-      replacementDeviceId: data.replacementDeviceId || (data.replacementDevice?.id ? (typeof data.replacementDevice.id === 'number' ? data.replacementDevice.id : parseInt(String(data.replacementDevice.id), 10)) : null),
-      siteId: data.siteId || (data.Sid ? Number(data.Sid) : null),
-      siteName: data.Sname || data.siteName,
-      vendorName: data.vendorName,
-      vendorTel: data.vendorTel,
-      reporterName: data.reporterName,
-      reporterTel: data.reporterTel,
-      ticket: data.ticket,
-      rootCause: data.rootCause,
-      resolution: data.resolution,
-      assetBinding: data.assetBinding,
-      ...(data.slaTerm ? { slaTerm: data.slaTerm } : {}),
-      coverageScope: data.coverageScope,
-      startDate: normalizedStartDate,
-      endDate: normalizedEndDate,
-      travelMethod: data.travelMethod,
-      travelCost: data.travelCost,
-      engineers: data.Eng_ids || [],
-      assets: data.assets || [],
-      status: editingEvent?.status || data.status || 'not-started',
-      actuallyWent: data.actuallyWent ?? editingEvent?.actuallyWent ?? false,
-      notes: data.notes ?? editingEvent?.notes ?? '',
-      photos: data.photos ?? editingEvent?.photos ?? [],
-    };
-
-    if (!editingEvent && (!payload.taskType || !payload.startDate || !payload.endDate)) {
-      throw new Error('Please specify taskType, startDate, endDate');
+  const handleSaveFromModal = async (data: any | any[]) => {
+    const batch = Array.isArray(data) ? data : [data];
+    const first = batch[0];
+    if (!first) {
+      throw new Error('No task data to save');
     }
 
     const wasEditingExisting = !!editingEvent;
-    try {
-      const res = await fetch(
-        apiUrl(editingEvent ? `/api/tasks/${editingEvent.id}` : '/api/tasks'),
-        {
-          method: editingEvent ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        }
-      );
-      const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown }>(
-        res,
-        'Save task failed: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
-      );
-      if (!json.success) throw new Error(json.message || 'Save task failed');
+    const normalizedTaskType = first.taskType || editingEvent?.taskType || 'PM';
+    const normalizedStartDate = first.startDate || editingEvent?.startDate || '';
+    const normalizedEndDate =
+      first.endDate || first.startDate || editingEvent?.endDate || editingEvent?.startDate || '';
 
-      const mapped = mapTaskToEvent(json.data);
-      setCalendarEvents((events) =>
-        editingEvent
-          ? events.map((ev) => (ev.id === mapped.id ? mapped : ev))
-          : [...events, mapped]
-      );
+    if (!editingEvent && (!normalizedTaskType || !normalizedStartDate || !normalizedEndDate)) {
+      throw new Error('Please specify taskType, startDate, endDate');
+    }
+
+    try {
+      for (let i = 0; i < batch.length; i++) {
+        const item = batch[i];
+        const payload = {
+          taskType: item.taskType || normalizedTaskType,
+          contractId: item.contractId || item.contract_id || null,
+          replacementDeviceId:
+            item.replacementDeviceId ||
+            (item.replacementDevice?.id
+              ? typeof item.replacementDevice.id === 'number'
+                ? item.replacementDevice.id
+                : parseInt(String(item.replacementDevice.id), 10)
+              : null),
+          siteId: item.siteId || (item.Sid ? Number(item.Sid) : null),
+          siteName: item.Sname || item.siteName,
+          vendorName: item.vendorName,
+          vendorTel: item.vendorTel,
+          reporterName: item.reporterName,
+          reporterTel: item.reporterTel,
+          ticket: item.ticket,
+          rootCause: item.rootCause,
+          resolution: item.resolution,
+          assetBinding: item.assetBinding,
+          ...(item.slaTerm ? { slaTerm: item.slaTerm } : {}),
+          coverageScope: item.coverageScope,
+          startDate: item.startDate || normalizedStartDate,
+          endDate: item.endDate || item.startDate || normalizedEndDate,
+          travelMethod: item.travelMethod,
+          travelCost: item.travelCost,
+          engineers: item.Eng_ids || [],
+          assets: item.assets || [],
+          status: editingEvent?.status || item.status || 'not-started',
+          actuallyWent: item.actuallyWent ?? editingEvent?.actuallyWent ?? false,
+          notes: item.notes ?? editingEvent?.notes ?? '',
+          rescheduleNote: item.rescheduleNote ?? editingEvent?.rescheduleNote ?? null,
+          photos: item.photos ?? editingEvent?.photos ?? [],
+        };
+
+        const res = await fetch(
+          apiUrl(editingEvent ? `/api/tasks/${editingEvent.id}` : '/api/tasks'),
+          {
+            method: editingEvent ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }
+        );
+        const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown }>(
+          res,
+          'Save task failed: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
+        );
+        if (!json.success) throw new Error(json.message || 'Save task failed');
+
+        const mapped = mapTaskToEvent(json.data);
+        setCalendarEvents((events) =>
+          editingEvent
+            ? events.map((ev) => (ev.id === mapped.id ? mapped : ev))
+            : [...events, mapped]
+        );
+      }
+
       setEditingEvent(null);
       setIsModalOpen(false);
-      toastSuccess('Plan success');
+      toastSuccess(batch.length > 1 ? `Plan success (${batch.length} tasks)` : 'Plan success');
       if (wasEditingExisting) {
         router.push('/calendar');
       }
@@ -1162,12 +1201,21 @@ function ScheduleManagementContent() {
     return str;
   };
 
-  /** Format YYYY-MM-DD for display as month-day-year (e.g. 20/02/2026 or Feb 20, 2026) */
+  /** Format date for display as mm/dd/yyyy (US) */
   const formatDateMonthDayYear = (dateStr: string | undefined): string => {
     if (!dateStr) return '—';
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
-    const [y, m, d] = dateStr.split('-');
-    return `${d}/${m}/${y}`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const [y, m, d] = dateStr.split('-');
+      return `${m}/${d}/${y}`;
+    }
+    const dateObj = new Date(dateStr);
+    if (!Number.isNaN(dateObj.getTime())) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${m}/${d}/${y}`;
+    }
+    return dateStr;
   };
 
   const parseEngineerNames = (engineerStr: string): string[] => {
@@ -1240,6 +1288,9 @@ function ScheduleManagementContent() {
             'coverage scope': 'coverageScope', 'coverage_scope': 'coverageScope', 'coveragescope': 'coverageScope', // → coverage_scope (from CSV column)
             // Optional
             'notes': 'notes',
+            'reschedule note': 'rescheduleNote',
+            'reschedule_note': 'rescheduleNote',
+            'reschedule': 'rescheduleNote',
           };
 
           const tasks: any[] = [];
@@ -1256,9 +1307,9 @@ function ScheduleManagementContent() {
               const headerNorm = normalizeHeader(header);
               const mappedKey = columnMap[headerNorm] || columnMap[header];
               if (!mappedKey) return;
-              // สำหรับ coverageScope และ notes รับค่าแม้ cell ว่าง (จะได้ไม่ไปใช้ fallback โดยไม่ตั้งใจ)
+              // สำหรับ coverageScope, notes, rescheduleNote รับค่าแม้ cell ว่าง
               if (value === null || value === undefined) return;
-              if (mappedKey !== 'coverageScope' && mappedKey !== 'notes' && value === '') return;
+              if (mappedKey !== 'coverageScope' && mappedKey !== 'notes' && mappedKey !== 'rescheduleNote' && value === '') return;
               if (mappedKey) {
                 // taskType is always 'PM', skip any taskType mapping
                 if (mappedKey === 'engineer' || mappedKey === 'engineerId') {
@@ -1312,6 +1363,8 @@ function ScheduleManagementContent() {
                   task.coverageScope = String(value).trim();
                 } else if (mappedKey === 'notes') {
                   task.notes = String(value).trim();
+                } else if (mappedKey === 'rescheduleNote') {
+                  task.rescheduleNote = String(value).trim();
                 } else {
                   task[mappedKey] = String(value).trim();
                 }
@@ -1731,7 +1784,7 @@ function ScheduleManagementContent() {
           : siteNameValue;
         
         // coverageScope should be the correct value (sid-lid format or PM Task - Site - Location)
-        // notes should be null when importing (only used when moving/rescheduling tasks)
+        // notes = in-process / โน้ตงาน; reschedule ใช้ reschedule_note เมื่อย้ายวัน
         const payload = {
           taskType: 'PM',                                               // task_type always 'PM'
           contractId: contractId,                                        // contract_id int(11) - from sof_name lookup
@@ -1747,7 +1800,11 @@ function ScheduleManagementContent() {
           replacementDeviceId: null,                                     // replacement_device_id int(11)
           status: 'not-started',                                         // status enum('not-started','working','stuck','done')
           actuallyWent: false,                                           // actually_went tinyint(1)
-          notes: null,                                                   // notes text - null when importing (only used when moving/rescheduling tasks)
+          notes: task.notes != null && String(task.notes).trim() ? String(task.notes).trim() : null,
+          rescheduleNote:
+            task.rescheduleNote != null && String(task.rescheduleNote).trim()
+              ? String(task.rescheduleNote).trim()
+              : null,
           photos: [],                                                    // photos longtext JSON
         };
 
@@ -1793,10 +1850,12 @@ function ScheduleManagementContent() {
 
   // Handle task update from detail modal (for status updates only)
   const handleTaskUpdate = async (updatedTask: any) => {
-    // Prepare payload - only send status to avoid changing other fields
     const payload: any = {
       status: updatedTask.status,
     };
+    if (updatedTask.notes !== undefined) {
+      payload.notes = updatedTask.notes ?? null;
+    }
 
     // Store original dates to preserve them
     const originalEvent = calendarEvents.find(e => e.id === updatedTask.id);
@@ -1810,6 +1869,7 @@ function ScheduleManagementContent() {
           ? { 
               ...event, 
               status: updatedTask.status,
+              ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
               // Preserve original dates
               startDate: originalStartDate || event.startDate,
               endDate: originalEndDate || event.endDate,
@@ -1828,7 +1888,7 @@ function ScheduleManagementContent() {
       return updatedEvents;
     });
 
-    // Update backend - only send status
+    // Update backend
     try {
       const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
         method: 'PUT',
@@ -1903,8 +1963,8 @@ function ScheduleManagementContent() {
                   </span>
                 )}
                 {selectedEngineerFilter.map((id) => {
-                  const eng = availableEngineers.find(e => String(e.id) === id);
-                  const label = eng ? `${eng.name || ''} ${eng.lastName || ''}`.trim() || id : id;
+                  const eng = availableEngineers.find((e) => String(e.id) === id);
+                  const label = eng ? engineerRosterLabel(eng) : id;
                   return (
                     <span
                       key={id}
@@ -1954,7 +2014,7 @@ function ScheduleManagementContent() {
                     <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
                   ) : (
                     filteredEngineersForFilter.map((eng) => {
-                      const dn = `${eng.name || ''} ${eng.lastName || ''}`.trim();
+                      const dn = engineerRosterLabel(eng);
                       return (
                         <button
                           key={eng.id}
@@ -1962,10 +2022,8 @@ function ScheduleManagementContent() {
                           className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
                           onClick={() => addEngineerFilter(eng)}
                         >
-                          <EngineerAvatar photoUrl={eng.photo} displayName={dn || String(eng.id)} size="md" />
-                          <span className="min-w-0 truncate">
-                            {eng.name} {eng.lastName || ''}
-                          </span>
+                          <EngineerAvatar photoUrl={eng.photo} displayName={dn} size="md" />
+                          <span className="min-w-0 truncate">{dn}</span>
                         </button>
                       );
                     })
@@ -2021,7 +2079,7 @@ function ScheduleManagementContent() {
         <div
           className={`rounded-[2.5rem] bg-white p-6 shadow-sm ${
             calendarViewMode === 'calendar'
-              ? 'flex min-h-0 flex-1 flex-col xl:min-h-[calc(100dvh-9rem)]'
+              ? 'flex min-h-0 flex-1 flex-col xl:min-h-[calc(100dvh-8rem)]'
               : ''
           }`}
         >
@@ -2080,7 +2138,10 @@ function ScheduleManagementContent() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Date</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600">
+                        <span className="block">Date</span>
+                        <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
+                      </th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Responsible</th>
@@ -2104,7 +2165,18 @@ function ScheduleManagementContent() {
                         const endDate = endDateStr ? new Date(endDateStr) : null;
                         if (endDate) endDate.setHours(0, 0, 0, 0);
                         const isOverdue = !isDone && endDate && endDate < today;
-                        const statusLabel = isDone ? 'Done' : isOverdue ? 'Overdue' : hasReport && isMA ? 'Reported' : ev.status === 'working' ? 'Working' : 'Pending';
+                        const isInProcess = ev.status === 'working';
+                        const statusLabel = isDone
+                          ? 'Done'
+                          : isOverdue
+                            ? 'Overdue'
+                            : hasReport && isMA
+                              ? 'Reported'
+                              : ev.status === 'working'
+                                ? 'In process'
+                                : ev.status === 'stuck'
+                                  ? 'Stuck'
+                                  : 'Pending';
                         return (
                           <tr
                             key={ev.id}
@@ -2112,8 +2184,11 @@ function ScheduleManagementContent() {
                           >
                             <td className="py-2.5 px-4 text-slate-600 whitespace-nowrap">
                               {ev.startDate === ev.endDate || !ev.endDate
-                                ? ev.startDate || `${ev.startDay}/${currentMonth + 1}/${currentYear}`
-                                : `${ev.startDate || ''} – ${ev.endDate || ''}`}
+                                ? formatDateMonthDayYear(
+                                    ev.startDate ||
+                                      `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(ev.startDay).padStart(2, '0')}`
+                                  )
+                                : `${formatDateMonthDayYear(ev.startDate)} – ${formatDateMonthDayYear(ev.endDate)}`}
                             </td>
                             <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
                             <td className="py-2.5 px-4">
@@ -2122,10 +2197,27 @@ function ScheduleManagementContent() {
                               </span>
                             </td>
                             <td className="py-2.5 px-4 text-slate-600">{ev.engineer || '—'}</td>
-                            <td className="py-2.5 px-4">
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs ${isDone ? 'bg-emerald-100 text-emerald-700' : isOverdue ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+                            <td className="py-2.5 px-4 align-top min-w-[9rem] max-w-[min(100%,240px)]">
+                              <span
+                                className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
+                                  isDone
+                                    ? 'bg-emerald-100 text-emerald-700'
+                                    : isInProcess
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : isOverdue
+                                        ? 'bg-red-100 text-red-700'
+                                        : 'bg-slate-100 text-slate-600'
+                                }`}
+                                title={isInProcess ? getScheduleInProcessReason(ev) : undefined}
+                              >
+                                {isInProcess && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                                 {statusLabel}
                               </span>
+                              {isInProcess && (
+                                <p className="mt-1 text-[11px] text-amber-900/90 line-clamp-2" title={getScheduleInProcessReason(ev)}>
+                                  {getScheduleInProcessReason(ev)}
+                                </p>
+                              )}
                             </td>
                             <td className="py-2.5 px-4">
                               <button
@@ -2173,7 +2265,7 @@ function ScheduleManagementContent() {
               )}
             </div>
           ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-gray-100 xl:min-h-[calc(100dvh-15.5rem)]">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-gray-100 xl:min-h-[calc(100dvh-14rem)]">
             {/* Header row */}
             <div className="grid shrink-0 grid-cols-7 gap-px">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
@@ -2188,8 +2280,14 @@ function ScheduleManagementContent() {
                 </div>
               ))}
             </div>
-            {/* Calendar weeks — แบ่งความสูงเท่าๆ กันเมื่อจอใหญ่ */}
-            <div className="flex min-h-[min(360px,calc(100dvh-18rem))] flex-1 flex-col gap-px xl:min-h-0">
+            {/* มี task ในเดือนนี้ → ความสูงตามเนื้อหา; ไม่มี → แถวเท่ากันเต็มกรอบ */}
+            <div
+              className={
+                tasksInCurrentMonth.length > 0
+                  ? 'flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overflow-x-hidden xl:min-h-0'
+                  : 'flex min-h-0 flex-1 flex-col gap-px overflow-hidden xl:min-h-0'
+              }
+            >
             {calendarWeeks.map((week, weekIndex) => {
               const multiDaySpans = getMultiDaySpansForWeek(week);
               const multiDaySpansWithRow = assignRowsToMultiDaySpans(multiDaySpans);
@@ -2200,26 +2298,81 @@ function ScheduleManagementContent() {
               /** ความสูงพื้นที่แถบงานหลายวัน + ระยะห่างก่อน pills ให้เท่ากับ TASK_GAP */
               const multiDayAreaHeight = (rows: number) =>
                 MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
+              /** ความสูงต่อแถบ task วันเดียว (h-7 + mt-1 ระหว่างแถว) — ให้พอดีจริงไม่ถูกตัด */
+              const PILL_ROW_PX = 36;
+              /** ความสูงขั้นต่ำของช่องวัน = เทียบเท่ามี task วันเดียวกี่แถว */
+              const MIN_VISIBLE_PILL_ROWS = 2;
+              const DAY_HEADER_PX = 28;
+              const HOLIDAY_EXTRA_PX = 20;
+              const CELL_PAD_PX = 16;
+              const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
+              const dayLayouts = week.map((day, dayIndex) => {
+                const dayEvents = getEventsForDay(day);
+                const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
+                const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
+                const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
+                const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
+                const holidayForDay = getHolidayForDay(day);
+                const nPills = singleDayEventsOnly.length;
+                const nPillsForHeight = day === null ? 0 : Math.max(nPills, MIN_VISIBLE_PILL_ROWS);
+                const pillsStackPx = nPillsForHeight * PILL_ROW_PX;
+                const headerPx = DAY_HEADER_PX + (holidayForDay ? HOLIDAY_EXTRA_PX : 0);
+                const pillsMtPx = hasMultiDayBarAbove
+                  ? Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)
+                  : nPillsForHeight > 0
+                    ? 6
+                    : 0;
+                let cellMinH: number;
+                if (day === null) {
+                  cellMinH = 40;
+                } else if (multiDayRowCount > 0) {
+                  const barBlock = multiDayAreaHeight(multiDayRowCount);
+                  cellMinH = Math.ceil(
+                    barBlock + pillsMtPx + pillsStackPx + headerPx + CELL_PAD_PX + 10
+                  );
+                } else {
+                  cellMinH = Math.ceil(
+                    headerPx + pillsMtPx + pillsStackPx + CELL_PAD_PX + 10
+                  );
+                }
+                return {
+                  cellMinH,
+                  singleDayEventsOnly,
+                  hasMultiDayBarAbove,
+                  multiDayRowsThisDay,
+                  holidayForDay,
+                  nPills,
+                  pillsStackPx,
+                };
+              });
+              const weekRowMinH = Math.max(48, ...dayLayouts.map(l => l.cellMinH));
+              const expandCalendarByTasks = tasksInCurrentMonth.length > 0;
               return (
-                <div key={weekIndex} className="relative grid min-h-[5rem] flex-1 grid-cols-7 gap-px xl:min-h-[7rem]">
+                <div
+                  key={weekIndex}
+                  className={
+                    expandCalendarByTasks
+                      ? 'relative grid shrink-0 grid-cols-7 gap-px overflow-hidden'
+                      : 'relative grid min-h-[3.5rem] flex-1 grid-cols-7 grid-rows-[minmax(0,1fr)] gap-px overflow-hidden sm:min-h-[4rem] xl:min-h-[5rem]'
+                  }
+                  style={{ minHeight: weekRowMinH }}
+                >
                   {week.map((day, dayIndex) => {
-                    const dayEvents = getEventsForDay(day);
-                    // กรองงานหลายวันออกจาก pills ในวันแรก (เพราะจะแสดงเป็นแถบต่อกันแล้ว)
-                    const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
-                    const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
-                    // ช่องนี้อยู่ใต้แถบงานหลายวันหรือไม่ — ใช้เฉพาะจำนวนแถวที่ครอบคลุมวันนี้ เพื่อไม่ให้มีช่องว่างเกิน (ไม่มีแถบว่าง)
-                    const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
-                    const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
-                    const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
-                    const holidayForDay = getHolidayForDay(day);
-                    const cellMinH =
-                      multiDayRowCount > 0 ? multiDayAreaHeight(multiDayRowCount) + 44 : 100;
+                    const {
+                      cellMinH,
+                      singleDayEventsOnly,
+                      hasMultiDayBarAbove,
+                      multiDayRowsThisDay,
+                      holidayForDay,
+                      nPills,
+                      pillsStackPx,
+                    } = dayLayouts[dayIndex];
                     return (
                       <div
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => e.preventDefault()}
-                        className={`relative h-full min-h-[100px] border-l border-t border-gray-50 p-2 xl:min-h-0 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
+                        className={`relative flex h-full min-h-0 flex-col overflow-hidden border-l border-t border-gray-50 p-2 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'border-2 border-blue-300 bg-blue-50'
                             : ''
@@ -2228,23 +2381,32 @@ function ScheduleManagementContent() {
                       >
                         {day !== null && (
                           <>
-                            <span
-                              className={`text-xs font-bold ${isToday(day)
-                                  ? 'bg-gradient-to-br from-sky-500 to-pink-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md text-[10px]'
-                                  : 'bg-gradient-to-r from-slate-400 to-slate-500 bg-clip-text text-transparent'
-                                }`}
-                            >
-                              {day}
-                            </span>
-                            {holidayForDay && (
-                              <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
-                                {holidayForDay.name}
+                            <div className="shrink-0">
+                              <span
+                                className={`text-xs font-bold ${isToday(day)
+                                    ? 'bg-gradient-to-br from-sky-500 to-pink-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md text-[10px]'
+                                    : 'bg-gradient-to-r from-slate-400 to-slate-500 bg-clip-text text-transparent'
+                                  }`}
+                              >
+                                {day}
                               </span>
-                            )}
-                            {/* งานวันเดียว — ให้ pills เริ่มชิดใต้แถบ (หักความสูงพื้นที่วันที่ออก เพราะแถบวัดจากบน cell) */}
+                              {holidayForDay && (
+                                <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
+                                  {holidayForDay.name}
+                                </span>
+                              )}
+                            </div>
+                            {/* มี task ในเดือน → flex-none + min สูงตาม pills; ไม่มี → flex-1 เติมเซลล์ */}
                             <div
-                              className={`space-y-0.5 relative z-10 ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
-                              style={hasMultiDayBarAbove ? { marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px` } : undefined}
+                              className={`flex w-full flex-col overflow-x-hidden [scrollbar-width:thin] space-y-0.5 relative z-[5] ${expandCalendarByTasks ? 'flex-none overflow-y-auto' : 'min-h-0 flex-1 overflow-y-hidden'} ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
+                              style={{
+                                ...(hasMultiDayBarAbove
+                                  ? {
+                                      marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px`,
+                                    }
+                                  : {}),
+                                ...(pillsStackPx > 0 ? { minHeight: pillsStackPx } : {}),
+                              }}
                             >
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
@@ -2256,14 +2418,17 @@ function ScheduleManagementContent() {
                                 const endDate = endDateStr ? new Date(endDateStr) : null;
                                 if (endDate) endDate.setHours(0, 0, 0, 0);
                                 const isOverdue = !isDone && endDate && endDate < today;
-                                // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
-                                const pillStyle = isDone 
-                                  ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
-                                  : isOverdue 
-                                    ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
-                                    : isMA 
-                                      ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
-                                      : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                                const isInProcess = ev.status === 'working';
+                                // สีตามสถานะ: เสร็จแล้ว=เขียว, กำลังทำ=เหลือง, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
+                                const pillStyle = isDone
+                                  ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
+                                  : isInProcess
+                                    ? 'border-l-4 border-l-amber-500 bg-amber-50/90 text-amber-950'
+                                    : isOverdue
+                                      ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
+                                      : isMA
+                                        ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                                        : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                                 return (
                                   <div
                                     key={`${day}-${ev.id}-${eventIndex}`}
@@ -2291,12 +2456,13 @@ function ScheduleManagementContent() {
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                                     className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'} ${highlightTaskId === String(ev.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
+                                    title={isInProcess ? `กำลังดำเนินการ: ${getScheduleInProcessReason(ev)}` : undefined}
                                   >
                                     <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
                                     <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
-                                      {ev.title || '(No title)'}
+                                      {scheduleInProcessTitleText(ev)}
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
                                       <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
@@ -2316,9 +2482,6 @@ function ScheduleManagementContent() {
                                         )}
                                       </span>
                                     )}
-                                    {isDone && (
-                                      <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
-                                    )}
                                     {hasReport && (
                                       <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
                                         <FileCheck size={12} strokeWidth={2.5} />
@@ -2327,6 +2490,11 @@ function ScheduleManagementContent() {
                                     {isDone && !hasReport && (
                                       <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
                                         <FileX2 size={12} strokeWidth={2.5} />
+                                      </span>
+                                    )}
+                                    {isInProcess && (
+                                      <span className="ml-1 flex-shrink-0 text-amber-700" title={`กำลังดำเนินการ: ${getScheduleInProcessReason(ev)}`}>
+                                        <Clock3 size={12} strokeWidth={2.5} aria-hidden />
                                       </span>
                                     )}
                                   </div>
@@ -2349,14 +2517,17 @@ function ScheduleManagementContent() {
                     const endDate = endDateStr ? new Date(endDateStr) : null;
                     if (endDate) endDate.setHours(0, 0, 0, 0);
                     const isOverdue = !isDone && endDate && endDate < today;
-                    // สีตามสถานะ: เสร็จแล้ว=เขียว, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
-                    const barStyle = isDone 
-                      ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800' 
-                      : isOverdue 
-                        ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800' 
-                        : isMA 
-                          ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800' 
-                          : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                    const isInProcess = event.status === 'working';
+                    // สีตามสถานะ: เสร็จแล้ว=เขียว, กำลังทำ=เหลือง, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
+                    const barStyle = isDone
+                      ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
+                      : isInProcess
+                        ? 'border-l-4 border-l-amber-500 bg-amber-50/90 text-amber-950'
+                        : isOverdue
+                          ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
+                          : isMA
+                            ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                            : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
                     const topPx = MULTI_DAY_TOP_OFFSET + row * (BAR_HEIGHT + TASK_GAP);
                     return (
                       <div
@@ -2393,12 +2564,13 @@ function ScheduleManagementContent() {
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                         className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20 ${highlightTaskId === String(event.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
+                        title={isInProcess ? `กำลังดำเนินการ: ${getScheduleInProcessReason(event)}` : undefined}
                       >
                         <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
                         <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
-                          {event.title || '(No title)'}
+                          {scheduleInProcessTitleText(event)}
                         </span>
                         {event.Eng_ids && event.Eng_ids.length > 0 && (
                           <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
@@ -2418,9 +2590,6 @@ function ScheduleManagementContent() {
                             )}
                           </span>
                         )}
-                        {isDone && (
-                          <span className="ml-1.5 text-xs flex-shrink-0">✓</span>
-                        )}
                         {hasReport && (
                           <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
                             <FileCheck size={12} strokeWidth={2.5} />
@@ -2429,6 +2598,11 @@ function ScheduleManagementContent() {
                         {isDone && !hasReport && (
                           <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
                             <FileX2 size={12} strokeWidth={2.5} />
+                          </span>
+                        )}
+                        {isInProcess && (
+                          <span className="ml-1 flex-shrink-0 text-amber-700" title={`กำลังดำเนินการ: ${getScheduleInProcessReason(event)}`}>
+                            <Clock3 size={12} strokeWidth={2.5} aria-hidden />
                           </span>
                         )}
                       </div>
@@ -2455,9 +2629,8 @@ function ScheduleManagementContent() {
           }}
         >
           <div className="space-y-2">
-            {/* Task Type Badge */}
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span className={`shrink-0 whitespace-nowrap px-2 py-0.5 rounded text-xs font-bold ${
                 hoveredEvent.taskType === 'MA' 
                   ? 'bg-purple-100 text-purple-700' 
                   : 'bg-blue-100 text-blue-700'
@@ -2465,32 +2638,43 @@ function ScheduleManagementContent() {
                 {hoveredEvent.taskType || 'PM'}
               </span>
               {hoveredEvent.status && (
-                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold ${
                   hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
-                  hoveredEvent.status === 'working' ? 'bg-orange-100 text-orange-700' :
+                  hoveredEvent.status === 'working' ? 'bg-amber-100 text-amber-800' :
                   hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-700'
                 }`}>
+                  {hoveredEvent.status === 'working' && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                   {hoveredEvent.status === 'done' ? 'Done' :
-                   hoveredEvent.status === 'working' ? 'In Progress' :
+                   hoveredEvent.status === 'working' ? 'In process' :
                    hoveredEvent.status === 'stuck' ? 'Stuck' :
                    'Pending'}
                 </span>
               )}
               {(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="Reported">
-                  <FileCheck size={12} strokeWidth={2.5} />
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700" title="Reported">
+                  <FileCheck size={12} strokeWidth={2.5} className="shrink-0" />
                   Reported
                 </span>
               )}
               {hoveredEvent.status === 'done' && !(hoveredEvent.taskType === 'MA' ? reportedMATaskIds.has(Number(hoveredEvent.id)) : reportedPMTaskIds.has(Number(hoveredEvent.id))) && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700" title="No report">
-                  <FileX2 size={12} strokeWidth={2.5} />
+                <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-700" title="No report">
+                  <FileX2 size={12} strokeWidth={2.5} className="shrink-0" />
                   No report
                 </span>
               )}
             </div>
 
+            {hoveredEvent.status === 'working' && (
+              <div className="w-full min-w-0 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2">
+                <p className="mb-1 block w-full text-xs font-semibold leading-snug text-amber-800 whitespace-normal">
+                  Reason for in process
+                </p>
+                <p className="text-sm text-amber-950 whitespace-pre-wrap break-words">
+                  {getScheduleInProcessReason(hoveredEvent)}
+                </p>
+              </div>
+            )}
 
             {hoveredEvent.location && (
               <div>
@@ -2926,8 +3110,8 @@ function ScheduleManagementContent() {
                     <li><strong>Location</strong> → location Example: "Beer Thai"</li>
                     <li><strong>Plan Start</strong> → start_date Example: "Monday, February 23, 2026"</li>
                     <li><strong>Plan End</strong> → end_date Example: "Friday, February 27, 2026"</li>
-                    <li><strong>Engineer</strong> → engineers (JSON array) Example: ["John Doe", "Jane Smith"]</li>
-                    <li><strong>SOF</strong> → contract_id (From sof_name, then fetch devices from that SOF automatically)</li>
+                    <li><strong>Engineer</strong> → engineers Example: ["John Doe", "Jane Smith"]</li>
+                    <li><strong>SOF</strong> → contract_id (From sof, then fetch devices from that contract)</li>
                   </ul>
                   <p className="mt-2"><strong>Optional columns:</strong></p>
                   <ul className="ml-4 list-disc space-y-0.5">

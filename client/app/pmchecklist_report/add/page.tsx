@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
@@ -80,9 +80,12 @@ export default function AddPMReportPage() {
   const [contractSlaMap, setContractSlaMap] = useState<Record<number, number>>({});
   const [searchTaskReport, setSearchTaskReport] = useState('');
   const [sortTaskBy, setSortTaskBy] = useState<'date-desc' | 'date-asc' | 'site' | 'engineer'>('date-desc');
+  const [sofFilter, setSofFilter] = useState<string>('');
   const [taskPage, setTaskPage] = useState(1);
 
   const TASKS_PER_PAGE = 3;
+
+  const taskSofLabel = useCallback((t: any) => String(t?.sofName ?? t?.sof_name ?? '').trim(), []);
 
   // ดึง task_id ที่มี report_id แล้ว เพื่อกรองออก (แสดงเฉพาะที่ยังไม่มี)
   useEffect(() => {
@@ -120,10 +123,29 @@ export default function AddPMReportPage() {
     [donePMTasks, reportedTaskIds]
   );
 
+  const { sofNamesForFilter, sofFilterHasNoSof } = useMemo(() => {
+    const named = new Set<string>();
+    let noSof = false;
+    for (const t of availablePMTasks) {
+      const s = taskSofLabel(t);
+      if (s) named.add(s);
+      else noSof = true;
+    }
+    return {
+      sofNamesForFilter: [...named].sort((a, b) => a.localeCompare(b)),
+      sofFilterHasNoSof: noSof,
+    };
+  }, [availablePMTasks, taskSofLabel]);
+
   // ค้นหา + เรียง + แบ่งหน้า
   const taskSearchLower = searchTaskReport.trim().toLowerCase();
   const filteredAndSortedTasks = useMemo(() => {
     let list = availablePMTasks;
+    if (sofFilter === '__none__') {
+      list = list.filter((t: any) => !taskSofLabel(t));
+    } else if (sofFilter) {
+      list = list.filter((t: any) => taskSofLabel(t) === sofFilter);
+    }
     if (taskSearchLower) {
       list = list.filter((t: any) => {
         const site = (t.siteName || t.site_name || '').toLowerCase();
@@ -131,7 +153,8 @@ export default function AddPMReportPage() {
         const end = t.endDate ? new Date(t.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
         const engineers = (t.engineers || []).map((e: any) => (e.name || e.id || '').toString().toLowerCase()).join(' ');
         const devices = (t.assets || []).map((a: any) => (a.name || a.CI_Name || a.id || '').toString().toLowerCase()).join(' ');
-        return [site, start, end, engineers, devices].some(s => s.includes(taskSearchLower));
+        const sof = taskSofLabel(t).toLowerCase();
+        return [site, start, end, engineers, devices, sof].some(s => s.includes(taskSearchLower));
       });
     }
     const sorted = [...list].sort((a: any, b: any) => {
@@ -146,7 +169,7 @@ export default function AddPMReportPage() {
       return 0;
     });
     return sorted;
-  }, [availablePMTasks, taskSearchLower, sortTaskBy]);
+  }, [availablePMTasks, taskSearchLower, sortTaskBy, sofFilter, taskSofLabel]);
 
   const totalTaskPages = Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE));
   const taskPageSafe = Math.min(Math.max(1, taskPage), totalTaskPages);
@@ -158,7 +181,7 @@ export default function AddPMReportPage() {
   // รีเซ็ตหน้าเมื่อค้นหา/เรียงเปลี่ยน
   useEffect(() => {
     setTaskPage(p => Math.min(p, Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE)) || 1));
-  }, [searchTaskReport, sortTaskBy, filteredAndSortedTasks.length]);
+  }, [searchTaskReport, sortTaskBy, sofFilter, filteredAndSortedTasks.length]);
 
   // Fallback: เมื่อ Task มี contractId แต่ไม่มี slaTerm ให้ดึง sla_term จาก Contract
   useEffect(() => {
@@ -532,19 +555,35 @@ export default function AddPMReportPage() {
               <h2 className="text-lg font-bold text-slate-800">Tasks to Report</h2>
             </div>
             <p className="text-sm text-slate-500 mb-4">
-              Select completed tasks (Status = Done) that do not yet have a report to auto-fill the form.
+              Select completed tasks that do not yet have a report to auto-fill the form. Filter by SOF (from contract) to work on one service order at a time.
             </p>
-            <div className="flex flex-col sm:flex-row gap-3 mb-4">
-              <div className="relative flex-1">
+            <div className="flex flex-col lg:flex-row gap-3 mb-4 flex-wrap">
+              <div className="relative flex-1 min-w-[200px]">
                 <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   value={searchTaskReport}
                   onChange={(e) => { setSearchTaskReport(e.target.value); setTaskPage(1); }}
-                  placeholder="Search location, date, person, device..."
+                  placeholder="Search location, SOF, date, person, device..."
                   className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
+              <select
+                value={sofFilter}
+                onChange={(e) => { setSofFilter(e.target.value); setTaskPage(1); }}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-[180px]"
+                aria-label="Filter by SOF"
+              >
+                <option value="">All SOF</option>
+                {sofFilterHasNoSof && (
+                  <option value="__none__">(No SOF on contract)</option>
+                )}
+                {sofNamesForFilter.map((name) => (
+                  <option key={name} value={name}>
+                    SOF: {name}
+                  </option>
+                ))}
+              </select>
               <select
                 value={sortTaskBy}
                 onChange={(e) => { setSortTaskBy(e.target.value as any); setTaskPage(1); }}
@@ -574,6 +613,15 @@ export default function AddPMReportPage() {
                         {task.siteName || task.site_name || '-'}
                       </span>
                       <span className="flex items-center gap-1.5 text-slate-600">
+                        <FileText size={16} className="text-slate-400" />
+                        <span>
+                          SOF:{' '}
+                          <span className="font-medium text-slate-800">
+                            {taskSofLabel(task) || '—'}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="flex items-center gap-1.5 text-slate-600">
                         <Calendar size={16} className="text-slate-400" />
                         {task.startDate ? new Date(task.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
                         {task.endDate && ` - ${new Date(task.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
@@ -586,7 +634,7 @@ export default function AddPMReportPage() {
                       </span>
                       {task.assets?.length > 0 && (
                         <span className="text-slate-600">
-                          Device: {task.assets.map((a: any) => a.name || a.CI_Name || a.id).join(', ')}
+                          {task.assets.length === 1 ? 'Device' : 'Devices'}: {task.assets.length}
                         </span>
                       )}
                       {task.replacementDeviceId != null && (

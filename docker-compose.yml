@@ -1,4 +1,3 @@
-
 services:
   pmma:
     image: 10.4.102.212:8080/pmma:latest
@@ -7,7 +6,6 @@ services:
     ports:
       - "9000:80"
     volumes:
-      # Must match backend: path.join(__dirname, 'uploads') => /app/backend/uploads
       - /data/pmm/uploads:/app/backend/uploads
     environment:
       NODE_ENV: production
@@ -23,5 +21,3 @@ services:
 networks:
   app-net:
     external: true
-# ถ้า DB_HOST=tccstock_mysql resolve ไม่ได้: ให้คอนเทนเนอร์ mysql join network เดียวกัน เช่น
-#   docker network connect app-net tccstock_mysql

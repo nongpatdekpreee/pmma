@@ -1893,7 +1893,7 @@ const getDevicesWithPM = async (req, res) => {
 
     // Get all PM tasks (task_type = 'PM'); updated_at ใช้เป็น Last PM เมื่อ status = 'done'
     const [pmTasks] = await db.execute(`
-      SELECT id, assets, start_date, end_date, status, engineers, notes, updated_at
+      SELECT id, assets, start_date, end_date, status, engineers, notes, reschedule_note, updated_at
       FROM tasks
       WHERE task_type = 'PM'
       ORDER BY start_date DESC
@@ -1963,12 +1963,15 @@ const getDevicesWithPM = async (req, res) => {
               ? (engineers[0].name || engineers[0].id || 'Unknown')
               : 'Unassigned';
 
+            const rn = task.reschedule_note != null && String(task.reschedule_note).trim() ? String(task.reschedule_note).trim() : '';
+            const nn = task.notes != null && String(task.notes).trim() ? String(task.notes).trim() : '';
+            const combinedNotes = [rn && `ย้ายนัด: ${rn}`, nn].filter(Boolean).join(' | ') || null;
             pmHistory.push({
               id: `PM${task.id}`,
               date: taskDate,
               status: task.status === 'done' ? 'Done' : task.status === 'working' ? 'In Progress' : task.status === 'stuck' ? 'Failed' : 'Scheduled',
               technician: technicianName,
-              notes: task.notes || null
+              notes: combinedNotes
             });
           }
         } catch (error) {

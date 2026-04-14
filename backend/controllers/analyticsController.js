@@ -1,5 +1,56 @@
 const db = require('../config/database');
 
+/** จำนวนอันดับสูงสุดของ Vendor / Site บน MA & PM dashboard (กราฟ + ranking) */
+const DASHBOARD_RANKING_TOP_N = 5;
+
+/** คีย์รวมชื่อ vendor ที่ต่างกันแค่ตัวพิมพ์เล็ก/ใหญ่ */
+function vendorGroupingKey(raw) {
+  const t = String(raw ?? '').trim();
+  if (!t) return '__empty__';
+  const lower = t.toLowerCase();
+  if (lower === 'unknown') return '__unknown__';
+  return lower;
+}
+
+/** เลือกชื่อแสดงเมื่อรวม vendor: ชอบแบบ mixed case ถ้ามี */
+function mergeVendorDisplayLabel(current, incoming) {
+  const b = String(incoming ?? '').trim();
+  if (!b) return current || 'Unknown';
+  if (!current) return b;
+  const a = String(current).trim();
+  const hasMixed = (s) => /[a-z]/.test(s) && /[A-Z]/.test(s);
+  if (hasMixed(b) && !hasMixed(a)) return b;
+  if (hasMixed(a) && !hasMixed(b)) return a;
+  return a;
+}
+
+function mergeVendorReportStatsRows(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const raw = r.vendor != null ? String(r.vendor) : 'Unknown';
+    const gk = vendorGroupingKey(raw);
+    if (!map.has(gk)) {
+      map.set(gk, {
+        vendor: String(raw).trim() || 'Unknown',
+        totalReports: 0,
+        passReports: 0,
+        failReports: 0,
+      });
+    }
+    const e = map.get(gk);
+    e.vendor = mergeVendorDisplayLabel(e.vendor, raw);
+    e.totalReports += Number(r.total_reports) || 0;
+    e.passReports += Number(r.pass_reports) || 0;
+    e.failReports += Number(r.fail_reports) || 0;
+  }
+  return [...map.values()]
+    .map((e) => ({
+      ...e,
+      passRate: e.totalReports > 0 ? Math.round((e.passReports / e.totalReports) * 100) : 0,
+    }))
+    .sort((a, b) => b.totalReports - a.totalReports);
+}
+
 function clampInt(val, { min, max, fallback }) {
   const n = parseInt(String(val ?? ''), 10);
   if (Number.isNaN(n)) return fallback;
@@ -356,7 +407,7 @@ const getMaDashboard = async (req, res) => {
       `SELECT
          DATE_FORMAT(t.start_date, '%Y-%m') AS month_key,
          COUNT(DISTINCT t.id) AS total,
-         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' AND r.id IS NOT NULL THEN t.id END) AS done,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) <> 'done' AND t.end_date < CURDATE() THEN t.id END) AS overdue,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done', 'working') AND (t.end_date IS NULL OR t.end_date >= CURDATE()) THEN t.id END) AS pending,
@@ -446,6 +497,7 @@ const getMaDashboard = async (req, res) => {
       siteIds: Array.from(availableSiteIdsSet).sort((a, b) => a - b),
     };
     const vendorAgg = {};
+    const vendorDisplayByGroup = {};
     const modelMonthlyAgg = {};
     const modelMonthlyAggByRole = {};
     for (const row of vendorTaskRows) {
@@ -469,24 +521,27 @@ const getMaDashboard = async (req, res) => {
         continue;
       }
 
-      const vendor = primaryId != null ? (deviceIdToVendor[primaryId] || 'Unknown') : 'Unknown';
-      if (!vendorAgg[vendor]) {
-        vendorAgg[vendor] = { total: 0, done: 0, inprocess: 0, pending: 0, overdue: 0, report_fail: 0, report_pass: 0 };
+      const rawVendor = primaryId != null ? (deviceIdToVendor[primaryId] || 'Unknown') : 'Unknown';
+      const gk = vendorGroupingKey(rawVendor);
+      if (!vendorDisplayByGroup[gk]) vendorDisplayByGroup[gk] = String(rawVendor).trim() || 'Unknown';
+      else vendorDisplayByGroup[gk] = mergeVendorDisplayLabel(vendorDisplayByGroup[gk], rawVendor);
+      if (!vendorAgg[gk]) {
+        vendorAgg[gk] = { total: 0, done: 0, inprocess: 0, pending: 0, overdue: 0, report_fail: 0, report_pass: 0 };
       }
-      vendorAgg[vendor].total++;
+      vendorAgg[gk].total++;
       const taskStatus = (row.task_status || '').toLowerCase();
       const hasReport = row.report_status != null;
       if (taskStatus === 'done') {
-        vendorAgg[vendor].done++;
-        if (!hasReport) vendorAgg[vendor].inprocess++;
+        if (hasReport) vendorAgg[gk].done++;
+        else vendorAgg[gk].inprocess++;
       } else if (taskStatus === 'working') {
-        vendorAgg[vendor].inprocess++;
+        vendorAgg[gk].inprocess++;
       } else {
-        vendorAgg[vendor].pending++;
+        vendorAgg[gk].pending++;
       }
-      if (taskStatus !== 'done' && row.end_date && new Date(row.end_date) < new Date()) vendorAgg[vendor].overdue++;
-      if (row.report_status === 'Fail') vendorAgg[vendor].report_fail++;
-      if (row.report_status === 'Pass') vendorAgg[vendor].report_pass++;
+      if (taskStatus !== 'done' && row.end_date && new Date(row.end_date) < new Date()) vendorAgg[gk].overdue++;
+      if (row.report_status === 'Fail') vendorAgg[gk].report_fail++;
+      if (row.report_status === 'Pass') vendorAgg[gk].report_pass++;
 
       // model monthly aggregation (for trendline)
       const monthStart = row.start_date ? new Date(row.start_date).toISOString().slice(0, 7) + '-01' : null;
@@ -506,16 +561,16 @@ const getMaDashboard = async (req, res) => {
       }
     }
     const vendorMA = Object.entries(vendorAgg)
-      .map(([vendor, v]) => ({ vendor, ...v }))
+      .map(([gk, v]) => ({ vendor: vendorDisplayByGroup[gk] || 'Unknown', ...v }))
       .sort((a, b) => b.total - a.total)
-      .slice(0, 10);
+      .slice(0, DASHBOARD_RANKING_TOP_N);
 
-    // 3) Site MA ranking (top 10) by task status
+    // 3) Site MA ranking (top N) by task status
     const [siteMA] = await db.execute(
       `SELECT
          COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown') AS site,
          COUNT(DISTINCT t.id) AS total,
-         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' AND r.id IS NOT NULL THEN t.id END) AS done,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) <> 'done' AND t.end_date < CURDATE() THEN t.id END) AS overdue,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done', 'working') AND (t.end_date IS NULL OR t.end_date >= CURDATE()) THEN t.id END) AS pending,
@@ -526,8 +581,8 @@ const getMaDashboard = async (req, res) => {
        WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?
        GROUP BY COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown')
        ORDER BY total DESC
-       LIMIT 10`,
-      [startISO, endISO]
+       LIMIT ?`,
+      [startISO, endISO, DASHBOARD_RANKING_TOP_N]
     );
 
     // 4) Equipment MA ranking - parse assets JSON + join report for pass/fail
@@ -591,8 +646,8 @@ const getMaDashboard = async (req, res) => {
         const taskStatus = (row.task_status || '').toLowerCase();
         const hasReport = row.report_status != null;
         if (taskStatus === 'done') {
-          equipMap[key].done++;
-          if (!hasReport) equipMap[key].inprocess++;
+          if (hasReport) equipMap[key].done++;
+          else equipMap[key].inprocess++;
         } else if (taskStatus === 'working') {
           equipMap[key].inprocess++;
         } else {
@@ -649,11 +704,16 @@ const getMaDashboard = async (req, res) => {
         assets = typeof row.assets === 'string' ? JSON.parse(row.assets) : (Array.isArray(row.assets) ? row.assets : []);
       } catch (_) { /* ignore */ }
       const firstId = Array.isArray(assets) && assets[0] != null ? (assets[0].id ?? assets[0].Did ?? assets[0].deviceId) : null;
-      const vendor = firstId != null ? (deviceIdToVendor[String(firstId)] || 'Unknown') : 'Unknown';
+      const rawVendor = firstId != null ? (deviceIdToVendor[String(firstId)] || 'Unknown') : 'Unknown';
+      const gk = vendorGroupingKey(rawVendor);
       const monthStart = row.start_date ? new Date(row.start_date).toISOString().slice(0, 7) + '-01' : null;
       if (!monthStart) continue;
-      const key = `${vendor}\t${monthStart}`;
-      if (!vendorMonthlyAgg[key]) vendorMonthlyAgg[key] = { vendor, month_start: monthStart, total: 0 };
+      const key = `${gk}\t${monthStart}`;
+      if (!vendorMonthlyAgg[key]) {
+        vendorMonthlyAgg[key] = { vendor: String(rawVendor).trim() || 'Unknown', month_start: monthStart, total: 0 };
+      } else {
+        vendorMonthlyAgg[key].vendor = mergeVendorDisplayLabel(vendorMonthlyAgg[key].vendor, rawVendor);
+      }
       vendorMonthlyAgg[key].total++;
     }
     const vendorMonthly = Object.values(vendorMonthlyAgg).sort((a, b) => a.vendor.localeCompare(b.vendor) || a.month_start.localeCompare(b.month_start));
@@ -674,13 +734,14 @@ const getMaDashboard = async (req, res) => {
          ORDER BY total_reports DESC`,
         [startISO, endISO]
       );
-      vendorReportStats = vrRows.map(r => ({
-        vendor: r.vendor,
-        totalReports: Number(r.total_reports),
-        passReports: Number(r.pass_reports),
-        failReports: Number(r.fail_reports),
-        passRate: Number(r.total_reports) > 0 ? Math.round((Number(r.pass_reports) / Number(r.total_reports)) * 100) : 0,
-      }));
+      vendorReportStats = mergeVendorReportStatsRows(
+        vrRows.map((r) => ({
+          vendor: r.vendor,
+          total_reports: r.total_reports,
+          pass_reports: r.pass_reports,
+          fail_reports: r.fail_reports,
+        }))
+      );
     } catch (_) { /* table might not have all columns */ }
 
     // 7) Overall summary - "failed" = report.status = 'Fail'
@@ -799,9 +860,9 @@ const getPmDashboard = async (req, res) => {
       `SELECT
          DATE_FORMAT(t.start_date, '%Y-%m') AS month_key,
          COUNT(DISTINCT t.id) AS total,
-         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' AND r.id IS NOT NULL THEN t.id END) AS done,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done') AND t.end_date < CURDATE() THEN t.id END) AS overdue,
-         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'not-started' AND t.start_date >= CURDATE() THEN t.id END) AS pending,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done', 'working') AND (t.end_date IS NULL OR t.end_date >= CURDATE()) THEN t.id END) AS pending,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
          COUNT(DISTINCT CASE WHEN r.status = 'Fail' THEN t.id END) AS report_fail,
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
@@ -865,33 +926,48 @@ const getPmDashboard = async (req, res) => {
       }
     }
     const vendorAgg = {};
+    const vendorDisplayByGroup = {};
     for (const row of vendorTaskRows) {
       let assets = [];
       try {
         assets = typeof row.assets === 'string' ? JSON.parse(row.assets) : (Array.isArray(row.assets) ? row.assets : []);
       } catch (_) { /* ignore */ }
       const firstId = Array.isArray(assets) && assets[0] != null ? (assets[0].id ?? assets[0].Did ?? assets[0].deviceId) : null;
-      const vendor = firstId != null ? (deviceIdToVendor[String(firstId)] || 'Unknown') : 'Unknown';
-      if (!vendorAgg[vendor]) {
-        vendorAgg[vendor] = { total: 0, done: 0, overdue: 0, report_fail: 0, report_pass: 0 };
+      const rawVendor = firstId != null ? (deviceIdToVendor[String(firstId)] || 'Unknown') : 'Unknown';
+      const gk = vendorGroupingKey(rawVendor);
+      if (!vendorDisplayByGroup[gk]) vendorDisplayByGroup[gk] = String(rawVendor).trim() || 'Unknown';
+      else vendorDisplayByGroup[gk] = mergeVendorDisplayLabel(vendorDisplayByGroup[gk], rawVendor);
+      if (!vendorAgg[gk]) {
+        vendorAgg[gk] = { total: 0, done: 0, inprocess: 0, pending: 0, overdue: 0, report_fail: 0, report_pass: 0 };
       }
-      vendorAgg[vendor].total++;
-      if ((row.task_status || '').toLowerCase() === 'done') vendorAgg[vendor].done++;
-      if ((row.task_status || '').toLowerCase() !== 'done' && row.end_date && new Date(row.end_date) < new Date()) vendorAgg[vendor].overdue++;
-      if (row.report_status === 'Fail') vendorAgg[vendor].report_fail++;
-      if (row.report_status === 'Pass') vendorAgg[vendor].report_pass++;
+      vendorAgg[gk].total++;
+      const taskStatus = (row.task_status || '').toLowerCase();
+      const hasReport = row.report_status != null;
+      if (taskStatus === 'done') {
+        if (hasReport) vendorAgg[gk].done++;
+        else vendorAgg[gk].inprocess++;
+      } else if (taskStatus === 'working') {
+        vendorAgg[gk].inprocess++;
+      } else {
+        vendorAgg[gk].pending++;
+      }
+      if (taskStatus !== 'done' && row.end_date && new Date(row.end_date) < new Date()) vendorAgg[gk].overdue++;
+      if (row.report_status === 'Fail') vendorAgg[gk].report_fail++;
+      if (row.report_status === 'Pass') vendorAgg[gk].report_pass++;
     }
     const vendorMA = Object.entries(vendorAgg)
-      .map(([vendor, v]) => ({ vendor, ...v }))
+      .map(([gk, v]) => ({ vendor: vendorDisplayByGroup[gk] || 'Unknown', ...v }))
       .sort((a, b) => b.total - a.total)
-      .slice(0, 10);
+      .slice(0, DASHBOARD_RANKING_TOP_N);
 
     const [siteMA] = await db.execute(
       `SELECT
          COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown') AS site,
          COUNT(DISTINCT t.id) AS total,
-         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' THEN t.id END) AS done,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'done' AND r.id IS NOT NULL THEN t.id END) AS done,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL) THEN t.id END) AS inprocess,
          COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done') AND t.end_date < CURDATE() THEN t.id END) AS overdue,
+         COUNT(DISTINCT CASE WHEN LOWER(t.status) NOT IN ('done', 'working') AND (t.end_date IS NULL OR t.end_date >= CURDATE()) THEN t.id END) AS pending,
          COUNT(DISTINCT CASE WHEN r.status = 'Fail' THEN t.id END) AS report_fail,
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
@@ -899,8 +975,8 @@ const getPmDashboard = async (req, res) => {
        WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?
        GROUP BY COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown')
        ORDER BY total DESC
-       LIMIT 10`,
-      [startISO, endISO]
+       LIMIT ?`,
+      [startISO, endISO, DASHBOARD_RANKING_TOP_N]
     );
 
     const [equipRows] = await db.execute(
@@ -947,8 +1023,16 @@ const getPmDashboard = async (req, res) => {
           };
         }
         equipMap[key].total++;
-        if ((row.task_status || '').toLowerCase() === 'done') equipMap[key].done++;
-        else equipMap[key].pending++;
+        const taskStatus = (row.task_status || '').toLowerCase();
+        const hasReport = row.report_status != null;
+        if (taskStatus === 'done') {
+          if (hasReport) equipMap[key].done++;
+          else equipMap[key].inprocess++;
+        } else if (taskStatus === 'working') {
+          equipMap[key].inprocess++;
+        } else {
+          equipMap[key].pending++;
+        }
         if (row.report_status === 'Fail') equipMap[key].reportFail++;
         if (row.report_status === 'Pass') equipMap[key].reportPass++;
       }
@@ -964,11 +1048,16 @@ const getPmDashboard = async (req, res) => {
         assets = typeof row.assets === 'string' ? JSON.parse(row.assets) : (Array.isArray(row.assets) ? row.assets : []);
       } catch (_) { /* ignore */ }
       const firstId = Array.isArray(assets) && assets[0] != null ? (assets[0].id ?? assets[0].Did ?? assets[0].deviceId) : null;
-      const vendor = firstId != null ? (deviceIdToVendor[String(firstId)] || 'Unknown') : 'Unknown';
+      const rawVendor = firstId != null ? (deviceIdToVendor[String(firstId)] || 'Unknown') : 'Unknown';
+      const gk = vendorGroupingKey(rawVendor);
       const monthStart = row.start_date ? new Date(row.start_date).toISOString().slice(0, 7) + '-01' : null;
       if (!monthStart) continue;
-      const key = `${vendor}\t${monthStart}`;
-      if (!vendorMonthlyAgg[key]) vendorMonthlyAgg[key] = { vendor, month_start: monthStart, total: 0 };
+      const key = `${gk}\t${monthStart}`;
+      if (!vendorMonthlyAgg[key]) {
+        vendorMonthlyAgg[key] = { vendor: String(rawVendor).trim() || 'Unknown', month_start: monthStart, total: 0 };
+      } else {
+        vendorMonthlyAgg[key].vendor = mergeVendorDisplayLabel(vendorMonthlyAgg[key].vendor, rawVendor);
+      }
       vendorMonthlyAgg[key].total++;
     }
     const vendorMonthly = Object.values(vendorMonthlyAgg).sort((a, b) => a.vendor.localeCompare(b.vendor) || a.month_start.localeCompare(b.month_start));
@@ -988,17 +1077,19 @@ const getPmDashboard = async (req, res) => {
          ORDER BY total_reports DESC`,
         [startISO, endISO]
       );
-      vendorReportStats = vrRows.map(r => ({
-        vendor: r.vendor,
-        totalReports: Number(r.total_reports),
-        passReports: Number(r.pass_reports),
-        failReports: Number(r.fail_reports),
-        passRate: Number(r.total_reports) > 0 ? Math.round((Number(r.pass_reports) / Number(r.total_reports)) * 100) : 0,
-      }));
+      vendorReportStats = mergeVendorReportStatsRows(
+        vrRows.map((r) => ({
+          vendor: r.vendor,
+          total_reports: r.total_reports,
+          pass_reports: r.pass_reports,
+          fail_reports: r.fail_reports,
+        }))
+      );
     } catch (_) { /* ignore */ }
 
     const totalMA = monthlyMA.reduce((s, r) => s + Number(r.total), 0);
     const totalDone = monthlyMA.reduce((s, r) => s + Number(r.done), 0);
+    const totalInprocess = monthlyMA.reduce((s, r) => s + Number(r.inprocess || 0), 0);
     const totalReportFail = monthlyMA.reduce((s, r) => s + Number(r.report_fail), 0);
     const totalReportPass = monthlyMA.reduce((s, r) => s + Number(r.report_pass), 0);
     const totalOverdue = monthlyMA.reduce((s, r) => s + Number(r.overdue || 0), 0);
@@ -1015,7 +1106,7 @@ const getPmDashboard = async (req, res) => {
         summary: {
           totalMA,
           totalDone,
-          totalInprocess: 0,
+          totalInprocess,
           totalFailed: totalReportFail,
           totalPassed: totalReportPass,
           totalOverdue,
@@ -1034,33 +1125,33 @@ const getPmDashboard = async (req, res) => {
             monthKey: monthStart,
             total: Number(r.total),
             done: Number(r.done),
-            inprocess: 0,
+            inprocess: Number(r.inprocess || 0),
             reportFail: Number(r.report_fail),
             reportPass: Number(r.report_pass),
             overdue: Number(r.overdue || 0),
-            pending: Number(r.total) - Number(r.done),
+            pending: Number(r.pending || 0),
           };
         }),
         vendorRanking: vendorMA.map(r => ({
           vendor: r.vendor,
           total: Number(r.total),
           done: Number(r.done),
-          inprocess: 0,
+          inprocess: Number(r.inprocess || 0),
           reportFail: Number(r.report_fail),
           reportPass: Number(r.report_pass),
           overdue: Number(r.overdue || 0),
-          pending: Math.max(0, Number(r.total) - Number(r.done)),
+          pending: Number(r.pending || 0),
           completionRate: Number(r.total) > 0 ? Math.round((Number(r.done) / Number(r.total)) * 100) : 0,
         })),
         siteRanking: siteMA.map(r => ({
           site: r.site,
           total: Number(r.total),
           done: Number(r.done),
-          inprocess: 0,
+          inprocess: Number(r.inprocess || 0),
           reportFail: Number(r.report_fail),
           reportPass: Number(r.report_pass),
           overdue: Number(r.overdue || 0),
-          pending: Math.max(0, Number(r.total) - Number(r.done)),
+          pending: Number(r.pending || 0),
           completionRate: Number(r.total) > 0 ? Math.round((Number(r.done) / Number(r.total)) * 100) : 0,
         })),
         equipmentRanking,

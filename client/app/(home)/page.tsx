@@ -1,13 +1,21 @@
 'use client';
 
+import { createPortal } from 'react-dom';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { MaintenanceCard } from '@/components/ui/MaintenanceCard';
-import { CircleAlert, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import {
+  CircleAlert,
+  ChevronLeft,
+  ChevronRight,
+  AlertTriangle,
+  Calendar,
+  ChevronDown,
+} from 'lucide-react';
 import Link from 'next/link';
 import DashboardHeader from '@/components/ui/Header';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { getTasks, getVendorStatistics, getEmployees, apiUrl } from '@/lib/api';
-import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip } from 'recharts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getTasks, getTopSitesHeatmap, getEmployees, apiUrl, getPmDashboard } from '@/lib/api';
+import { TopSitesWidget, type TopSitesHeatmapData } from '@/components/ui/TopSitesWidget';
 
 type EventItem = {
   id: string;
@@ -30,6 +38,80 @@ function startOfDay(d: Date): Date {
   return x;
 }
 
+/** แปลง YYYY-MM-DD จาก API เป็นเที่ยงคืน local (หลีกเลี่ยง UTC offset ของ `new Date('YYYY-MM-DD')`) */
+function parseISODateLocal(iso: string): Date {
+  const datePart = iso.split('T')[0];
+  const parts = datePart.split('-').map((x) => parseInt(x, 10));
+  const y = parts[0];
+  const m = parts[1];
+  const d = parts[2];
+  if (!y || !m || !d) return startOfDay(new Date(iso));
+  return startOfDay(new Date(y, m - 1, d));
+}
+
+/** ช่วงเดียวกับ backend analytics `getRange` / `getRangeFromYearMonth` สำหรับกรองงานบน dashboard */
+function getDashboardPeriodBounds(
+  months: number,
+  dashboardParams: { year: number; month?: number } | null
+): { start: Date; endExclusive: Date } {
+  if (dashboardParams != null) {
+    const y = dashboardParams.year;
+    const mo = dashboardParams.month;
+    if (mo != null && mo >= 1 && mo <= 12) {
+      const start = startOfDay(new Date(y, mo - 1, 1));
+      const endExclusive = startOfDay(new Date(y, mo, 1));
+      return { start, endExclusive };
+    }
+    const start = startOfDay(new Date(y, 0, 1));
+    const endExclusive = startOfDay(new Date(y + 1, 0, 1));
+    return { start, endExclusive };
+  }
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(1);
+  start.setMonth(start.getMonth() - (months - 1));
+  const endExclusive = new Date(now);
+  endExclusive.setHours(0, 0, 0, 0);
+  endExclusive.setDate(1);
+  endExclusive.setMonth(endExclusive.getMonth() + 1);
+  return { start: startOfDay(start), endExclusive: startOfDay(endExclusive) };
+}
+
+function taskStartInPeriodBounds(taskStart: Date, bounds: { start: Date; endExclusive: Date }): boolean {
+  const t = startOfDay(taskStart).getTime();
+  return t >= bounds.start.getTime() && t < bounds.endExclusive.getTime();
+}
+
+/** จำนวนวันปฏิทินระหว่าง earlier → later (ทั้งคู่ normalize ที่เที่ยงคืน local) */
+function calendarDaysBetween(earlier: Date, later: Date): number {
+  const a = startOfDay(earlier).getTime();
+  const b = startOfDay(later).getTime();
+  return Math.round((b - a) / 86400000);
+}
+
+/** งานที่ยังไม่ถึงวันเริ่ม: อีกกี่วันถึง (เทียบกับวันนี้) */
+function formatThaiDaysUntil(startDateIso: string, todayStart: Date): string | null {
+  const start = startOfDay(new Date(startDateIso));
+  if (Number.isNaN(start.getTime())) return null;
+  const n = calendarDaysBetween(todayStart, start);
+  if (n < 0) return null;
+  if (n === 0) return 'Today';
+  if (n === 1) return 'Tomorrow';
+  return `In ${n} days`;
+}
+
+/** งานเลยกำหนด (เทียบ endDate กับวันนี้) */
+function formatThaiDaysPastDue(endDateIso: string, todayStart: Date): string | null {
+  const end = startOfDay(new Date(endDateIso));
+  if (Number.isNaN(end.getTime())) return null;
+  if (end >= todayStart) return null;
+  const n = calendarDaysBetween(end, todayStart);
+  if (n <= 0) return null;
+  if (n === 1) return 'Overdue';
+  return `Overdue ${n} days`;
+}
+
 function taskStart(t: any): Date | null {
   const s = t.startDate || t.start_date;
   if (!s) return null;
@@ -44,6 +126,8 @@ function taskEnd(t: any): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export default function DashboardPage() {
   const [allTasks, setAllTasks] = useState<any[]>([]);
   const [employeePhotoById, setEmployeePhotoById] = useState<Record<string, string>>({});
@@ -51,9 +135,14 @@ export default function DashboardPage() {
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [employeesError, setEmployeesError] = useState<string | null>(null);
 
-  const [vendorBars, setVendorBars] = useState<Array<{ name: string; value: number }>>([]);
-  const [loadingMa, setLoadingMa] = useState(true);
-  const [vendorError, setVendorError] = useState<string | null>(null);
+  const [heatmap, setHeatmap] = useState<TopSitesHeatmapData>({
+    sites: [],
+    contracts: [],
+    matrix: [],
+    max_value: 1,
+  });
+  const [loadingHeatmap, setLoadingHeatmap] = useState(true);
+  const [heatmapError, setHeatmapError] = useState<string | null>(null);
 
   const [pmCardsPage, setPmCardsPage] = useState(1);
   const [nearestEventsPage, setNearestEventsPage] = useState(1);
@@ -61,9 +150,19 @@ export default function DashboardPage() {
   const [hoveredEvent, setHoveredEvent] = useState<EventItem | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
 
-  const PM_CARDS_PAGE_SIZE = 5;
-  const NEAREST_EVENTS_PAGE_SIZE = 4;
-  const MISSING_EVENTS_PAGE_SIZE = 4;
+  const [timeFilter, setTimeFilter] = useState('6 Months');
+  const [selectedYear, setSelectedYear] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('all');
+  const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
+  const periodDropdownRef = useRef<HTMLDivElement>(null);
+  const periodMenuRef = useRef<HTMLDivElement>(null);
+  const [periodMenuPos, setPeriodMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [periodRange, setPeriodRange] = useState<{ start: string; endExclusive: string } | null>(null);
+  const [periodMetaLoading, setPeriodMetaLoading] = useState(true);
+
+  const PM_CARDS_PAGE_SIZE = 3;
+  const NEAREST_EVENTS_PAGE_SIZE = 3;
+  const MISSING_EVENTS_PAGE_SIZE = 3;
 
   useEffect(() => {
     let cancelled = false;
@@ -117,34 +216,33 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const loadMa = async () => {
-      setLoadingMa(true);
-      setVendorError(null);
+    const loadHeatmap = async () => {
+      setLoadingHeatmap(true);
+      setHeatmapError(null);
       try {
-        const res = await getVendorStatistics();
+        const res = await getTopSitesHeatmap({ site_limit: 8, contract_limit: 10 });
         if (cancelled) return;
         if (!res || res.success === false) {
-          setVendorError((res as { message?: string })?.message || 'Failed to load vendor statistics');
-          setVendorBars([]);
+          setHeatmapError((res as { message?: string })?.message || 'Failed to load heatmap');
+          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
         } else {
-          const list = Array.isArray(res?.data) ? res.data : [];
-          const bars = list
-            .slice()
-            .sort((a: any, b: any) => Number(b.value || 0) - Number(a.value || 0))
-            .slice(0, 6)
-            .map((v: any) => ({ name: v.name || '—', value: Number(v.value || 0) }));
-          setVendorBars(bars);
+          setHeatmap({
+            sites: Array.isArray(res.sites) ? res.sites! : [],
+            contracts: Array.isArray(res.contracts) ? res.contracts! : [],
+            matrix: Array.isArray(res.matrix) ? res.matrix! : [],
+            max_value: Math.max(1, Number(res.max_value ?? 1)),
+          });
         }
       } catch (e) {
         if (!cancelled) {
-          setVendorError(e instanceof Error ? e.message : 'Failed to load MA chart');
-          setVendorBars([]);
+          setHeatmapError(e instanceof Error ? e.message : 'Failed to load heatmap');
+          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
         }
       } finally {
-        if (!cancelled) setLoadingMa(false);
+        if (!cancelled) setLoadingHeatmap(false);
       }
     };
-    loadMa();
+    void loadHeatmap();
     return () => {
       cancelled = true;
     };
@@ -193,14 +291,136 @@ export default function DashboardPage() {
     };
   }, []);
 
+  const months = useMemo(() => {
+    if (timeFilter === '1 Month') return 1;
+    if (timeFilter === '3 Months') return 3;
+    if (timeFilter === '6 Months') return 6;
+    if (timeFilter === '1 Year') return 12;
+    if (timeFilter === '2 Years') return 24;
+    if (timeFilter === '3 Years') return 36;
+    if (timeFilter === '4 Years') return 48;
+    if (timeFilter === '5 Years') return 60;
+    if (timeFilter === 'All Time') return 120;
+    return 6;
+  }, [timeFilter]);
+
+  const yearOptions = useMemo(() => {
+    const current = new Date().getFullYear();
+    const list: { value: string; label: string }[] = [{ value: '', label: ' ' }];
+    for (let y = current + 1; y >= 2020; y--) list.push({ value: String(y), label: String(y) });
+    return list;
+  }, []);
+
+  const dashboardParams = useMemo(() => {
+    if (selectedYear && selectedYear !== '') {
+      const year = parseInt(selectedYear, 10);
+      const month = selectedMonth && selectedMonth !== 'all' ? parseInt(selectedMonth, 10) : undefined;
+      return { year, month };
+    }
+    return null;
+  }, [selectedYear, selectedMonth]);
+
+  useEffect(() => {
+    if (!periodDropdownOpen) return;
+    const close = (e: MouseEvent) => {
+      const target = e.target as Node;
+      const inButton = periodDropdownRef.current?.contains(target) ?? false;
+      const inMenu = periodMenuRef.current?.contains(target) ?? false;
+      if (!inButton && !inMenu) setPeriodDropdownOpen(false);
+    };
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [periodDropdownOpen]);
+
+  useEffect(() => {
+    if (!periodDropdownOpen) return;
+    const updatePos = () => {
+      const root = periodDropdownRef.current;
+      const btn = root?.querySelector('button');
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      setPeriodMenuPos({ top: rect.bottom + 8, right: Math.max(12, window.innerWidth - rect.right) });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
+  }, [periodDropdownOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setPeriodMetaLoading(true);
+      try {
+        const res = dashboardParams
+          ? await getPmDashboard(dashboardParams)
+          : await getPmDashboard({ months });
+        if (cancelled) return;
+        if (res?.success && res.data?.range) {
+          setPeriodRange(res.data.range);
+        } else {
+          setPeriodRange(null);
+        }
+      } catch {
+        if (!cancelled) setPeriodRange(null);
+      } finally {
+        if (!cancelled) setPeriodMetaLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [months, dashboardParams]);
+
+  const periodLabel = useMemo(() => {
+    if (selectedYear) {
+      const y = selectedYear;
+      if (selectedMonth && selectedMonth !== 'all') {
+        const m = parseInt(selectedMonth, 10);
+        const label = m >= 1 && m <= 12 ? MONTH_LABELS[m - 1] : 'All';
+        return `Custom: ${label} ${y}`;
+      }
+      return `Custom: ${y}`;
+    }
+    return timeFilter;
+  }, [selectedYear, selectedMonth, timeFilter]);
+
+  const rangeLabel = useMemo(() => {
+    if (!periodRange?.start || !periodRange?.endExclusive) return null;
+    const startStr = periodRange.start.split('T')[0];
+    const endStr = periodRange.endExclusive.split('T')[0];
+    const [sy, sm] = startStr.split('-').map(Number);
+    const [ey, em] = endStr.split('-').map(Number);
+    const startDate = new Date(sy, sm - 1, 1);
+    const endDate = new Date(ey, em, 0);
+    const fmt = (d: Date) => `${d.getDate()} ${MONTH_LABELS[d.getMonth()]} ${d.getFullYear()}`;
+    return `${fmt(startDate)} - ${fmt(endDate)}`;
+  }, [periodRange]);
+
+  /** กรองงานให้ตรงกับช่วงที่เลือก (เดียวกับ PM analytics: start_date ∈ [start, endExclusive)) */
+  const periodBounds = useMemo(() => {
+    if (periodRange?.start && periodRange?.endExclusive) {
+      return {
+        start: parseISODateLocal(periodRange.start),
+        endExclusive: parseISODateLocal(periodRange.endExclusive),
+      };
+    }
+    return getDashboardPeriodBounds(months, dashboardParams);
+  }, [periodRange, months, dashboardParams]);
+
   const pmCards = useMemo(() => {
     const upcomingPm = allTasks
-      .filter((t: any) => String(t.taskType).toUpperCase() === 'PM')
+      .filter((t: any) => String(t.taskType || t.task_type || '').toUpperCase() === 'PM')
       .filter((t: any) => (t.status || '') !== 'done')
       .filter((t: any) => t.startDate || t.start_date)
       .map((t: any) => ({ ...t, _start: taskStart(t)! }))
       .filter(
-        (t: any) => !Number.isNaN(t._start.getTime()) && t._start >= todayStart
+        (t: any) =>
+          !Number.isNaN(t._start.getTime()) && taskStartInPeriodBounds(t._start, periodBounds)
       )
       .sort((a: any, b: any) => a._start.getTime() - b._start.getTime());
 
@@ -231,33 +451,43 @@ export default function DashboardPage() {
         status: String(t.status || 'not-started'),
       };
     });
-  }, [allTasks, employeePhotoById, todayStart]);
+  }, [allTasks, employeePhotoById, periodBounds]);
 
   const nearestEvents = useMemo(() => {
     const nearest = allTasks
       .filter((t: any) => (t.status || '') !== 'done' && (t.startDate || t.start_date))
       .map((t: any) => ({ ...t, _start: taskStart(t)! }))
       .filter(
-        (t: any) => !Number.isNaN(t._start.getTime()) && t._start >= todayStart
+        (t: any) =>
+          !Number.isNaN(t._start.getTime()) && taskStartInPeriodBounds(t._start, periodBounds)
       )
       .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
       .slice(0, 80)
       .map(toEventItem);
     return nearest;
-  }, [allTasks, todayStart, toEventItem]);
+  }, [allTasks, periodBounds, toEventItem]);
 
   const missingEvents = useMemo(() => {
     const missing = allTasks
-      .filter((t: any) => (t.status || 'not-started') !== 'done' && (t.endDate || t.end_date))
-      .map((t: any) => ({ ...t, _end: taskEnd(t)! }))
       .filter(
-        (t: any) => !Number.isNaN(t._end.getTime()) && t._end < todayStart
+        (t: any) =>
+          (t.status || 'not-started') !== 'done' &&
+          (t.endDate || t.end_date) &&
+          (t.startDate || t.start_date)
+      )
+      .map((t: any) => ({ ...t, _end: taskEnd(t)!, _start: taskStart(t)! }))
+      .filter(
+        (t: any) =>
+          !Number.isNaN(t._end.getTime()) &&
+          !Number.isNaN(t._start.getTime()) &&
+          t._end < todayStart &&
+          taskStartInPeriodBounds(t._start, periodBounds)
       )
       .sort((a: any, b: any) => b._end.getTime() - a._end.getTime())
       .slice(0, 80)
       .map(toEventItem);
     return missing;
-  }, [allTasks, todayStart, toEventItem]);
+  }, [allTasks, todayStart, periodBounds, toEventItem]);
 
   const pmTotalPages = Math.max(1, Math.ceil(pmCards.length / PM_CARDS_PAGE_SIZE));
   const pmPage = Math.min(pmCardsPage, pmTotalPages);
@@ -292,7 +522,7 @@ export default function DashboardPage() {
     setMissingEventsPage(1);
   }, [missingEvents.length]);
 
-  const loadErrors = [tasksError, employeesError, vendorError].filter(Boolean) as string[];
+  const loadErrors = [tasksError, employeesError, heatmapError].filter(Boolean) as string[];
 
   return (
     <SidebarLayout>
@@ -312,11 +542,156 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-6 p-6 pt-4 md:mt-0 mt-16 min-w-0">
-        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between shrink-0 min-w-0">
-          <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate">
-            Dashboard
-          </Link>
+      <div className="flex flex-col gap-6 p-6 pt-4 md:mt-0 mt-16 min-w-0 bg-slate-50 min-h-screen">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-nowrap items-center justify-between gap-4 min-w-0 overflow-x-auto pb-1">
+            <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate min-w-0">
+              Dashboard
+            </Link>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <div ref={periodDropdownRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setPeriodDropdownOpen((v) => !v)}
+                    className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    aria-haspopup="listbox"
+                    aria-expanded={periodDropdownOpen}
+                  >
+                    <Calendar size={16} className="text-slate-400 shrink-0" />
+                    <span className="text-slate-500 hidden sm:inline">Period</span>
+                    <span className="font-semibold text-slate-800">{periodLabel}</span>
+                    <ChevronDown size={16} className="text-slate-400 shrink-0" />
+                  </button>
+
+                  {periodDropdownOpen && periodMenuPos && createPortal(
+                    <div
+                      ref={periodMenuRef}
+                      className="fixed w-[320px] rounded-2xl bg-white shadow-xl border border-slate-100 p-2 z-[9999]"
+                      style={{ top: periodMenuPos.top, right: periodMenuPos.right }}
+                    >
+                      <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                        Period
+                      </div>
+                      <div className="space-y-1">
+                        {['3 Months', '6 Months'].map((label) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setTimeFilter(label);
+                              setSelectedYear('');
+                              setSelectedMonth('all');
+                              setPeriodDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
+                              !selectedYear && timeFilter === label
+                                ? 'bg-slate-50 font-semibold text-slate-800'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="my-2 h-px bg-slate-100" />
+                      <div className="space-y-1">
+                        {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setTimeFilter(label);
+                              setSelectedYear('');
+                              setSelectedMonth('all');
+                              setPeriodDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
+                              !selectedYear && timeFilter === label
+                                ? 'bg-slate-50 font-semibold text-slate-800'
+                                : 'text-slate-700'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="my-2 h-px bg-slate-100" />
+                      <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                        Custom
+                      </div>
+                      <div className="px-3 pb-3">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1">
+                            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Year</label>
+                            <select
+                              aria-label="Year"
+                              value={selectedYear}
+                              onChange={(e) => {
+                                setSelectedYear(e.target.value);
+                                if (!e.target.value) setSelectedMonth('all');
+                              }}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
+                            >
+                              {yearOptions.map((o) => (
+                                <option key={o.value || 'x'} value={o.value}>
+                                  {o.value ? o.label : 'Select year'}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex-1">
+                            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Month</label>
+                            <select
+                              aria-label="Month"
+                              value={selectedMonth}
+                              onChange={(e) => setSelectedMonth(e.target.value)}
+                              disabled={!selectedYear}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                            >
+                              <option value="all">All months</option>
+                              {MONTH_LABELS.map((label, i) => (
+                                <option key={label} value={String(i + 1)}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedYear('');
+                              setSelectedMonth('all');
+                            }}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                          >
+                            Clear
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPeriodDropdownOpen(false)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      </div>
+                    </div>,
+                    document.body
+                  )}
+                </div>
+                {(rangeLabel || periodMetaLoading) && (
+                  <div className="bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-slate-600 whitespace-nowrap">
+                    {periodMetaLoading ? '…' : rangeLabel}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-nowrap gap-6 min-w-0 overflow-x-auto items-start">
@@ -331,7 +706,7 @@ export default function DashboardPage() {
               ) : tasksError ? (
                 <div className="text-sm text-red-600 py-6 text-center">Unable to load PM tasks</div>
               ) : pmCards.length === 0 ? (
-                <div className="text-sm text-slate-400 py-6 text-center">No upcoming PM tasks</div>
+                <div className="text-sm text-slate-400 py-6 text-center">No PM tasks in this period</div>
               ) : (
                 <>
                   <div className="space-y-3">
@@ -384,38 +759,19 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-slate-700">Maintenance Agreement</h3>
-            </div>
-            <div className="h-64 w-full min-w-0 min-h-[16rem] bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
-              {loadingMa ? (
-                <div className="h-full flex items-center justify-center text-slate-400">Loading…</div>
-              ) : vendorError ? (
-                <div className="h-full flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-red-600">
-                  <span>Could not load chart</span>
-                  <span className="text-xs text-red-500">{vendorError}</span>
-                </div>
-              ) : vendorBars.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-slate-400">No data yet</div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
-                  <BarChart data={vendorBars} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
-                    <XAxis dataKey="name" tickLine={false} axisLine={false} fontSize={12} />
-                    <Tooltip />
-                    <Bar dataKey="value" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
+          <TopSitesWidget loading={loadingHeatmap} error={heatmapError} data={heatmap} />
         </div>
 
         <div className="flex-1 space-y-6 min-w-0">
-          <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
-            <div className="flex justify-between mb-4">
-              <h3 className="font-bold text-slate-700">Incoming events</h3>
-              <Link href="/schedule_management?view=table" className="text-blue-500 text-xs hover:underline">
+          <div>
+            <div className="flex justify-between items-center mb-4 gap-2 min-w-0">
+              <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm truncate">
+                Incoming events
+              </h3>
+              <Link
+                href="/schedule_management?view=table"
+                className="text-blue-500 text-xs font-medium hover:underline shrink-0"
+              >
                 View all
               </Link>
             </div>
@@ -424,88 +780,101 @@ export default function DashboardPage() {
             ) : tasksError ? (
               <div className="text-sm text-red-600 py-6 text-center">Unable to load list</div>
             ) : nearestEvents.length === 0 ? (
-              <div className="text-sm text-slate-400 py-6 text-center">There are no upcoming events</div>
+              <div className="text-sm text-slate-400 py-6 text-center">No events in this period</div>
             ) : (
-              <>
+              <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
                 <div className="space-y-3">
                   {paginatedNearestEvents.map((ev) => (
-                    <Link
-                      key={ev.id}
-                      href={`/calendar?taskId=${encodeURIComponent(ev.id)}`}
-                      onMouseEnter={(e) => {
-                        setHoveredEvent(ev);
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const tooltipWidth = 320;
-                        const tooltipHeight = 400;
-                        const padding = 16;
-                        const spaceOnRight = window.innerWidth - rect.right;
-                        const spaceOnLeft = rect.left;
-                        const spaceOnBottom = window.innerHeight - rect.bottom;
-                        let x = rect.right + 10;
-                        let y = rect.top;
-                        if (spaceOnRight < tooltipWidth + 20 && spaceOnLeft >= tooltipWidth + 20)
-                          x = rect.left - tooltipWidth - 10;
-                        if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight)
-                          y = rect.bottom - tooltipHeight;
-                        x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
-                        y = Math.max(padding, Math.min(y, window.innerHeight - tooltipHeight - padding));
-                        setTooltipPosition({ x, y });
-                      }}
-                      onMouseLeave={() => {
-                        setHoveredEvent(null);
-                        setTooltipPosition(null);
-                      }}
-                      className={`block rounded-2xl border border-gray-50 border-l-4 p-4 transition-colors ${
-                        ev.taskType === 'MA'
-                          ? 'border-l-red-400 bg-red-50/30 hover:bg-red-50/50'
-                          : 'border-l-blue-400 bg-blue-50/30 hover:bg-blue-50/50'
-                      }`}
-                    >
-                      <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                      <p
-                        className={`text-[10px] mt-1 ${ev.taskType === 'MA' ? 'text-red-600' : 'text-gray-500'}`}
+                      <Link
+                        key={ev.id}
+                        href={`/calendar?taskId=${encodeURIComponent(ev.id)}`}
+                        onMouseEnter={(e) => {
+                          setHoveredEvent(ev);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const tooltipWidth = 320;
+                          const tooltipHeight = 400;
+                          const padding = 16;
+                          const spaceOnRight = window.innerWidth - rect.right;
+                          const spaceOnLeft = rect.left;
+                          const spaceOnBottom = window.innerHeight - rect.bottom;
+                          let x = rect.right + 10;
+                          let y = rect.top;
+                          if (spaceOnRight < tooltipWidth + 20 && spaceOnLeft >= tooltipWidth + 20)
+                            x = rect.left - tooltipWidth - 10;
+                          if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight)
+                            y = rect.bottom - tooltipHeight;
+                          x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
+                          y = Math.max(padding, Math.min(y, window.innerHeight - tooltipHeight - padding));
+                          setTooltipPosition({ x, y });
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredEvent(null);
+                          setTooltipPosition(null);
+                        }}
+                        className={`block rounded-2xl border border-gray-50 border-l-4 p-4 transition-colors ${
+                          ev.taskType === 'MA'
+                            ? 'border-l-red-400 bg-red-50/30 hover:bg-red-50/50'
+                            : 'border-l-blue-400 bg-blue-50/30 hover:bg-blue-50/50'
+                        }`}
                       >
-                        {ev.dateStr}
-                      </p>
-                    </Link>
-                  ))}
-                </div>
-                {nearestEvents.length > NEAREST_EVENTS_PAGE_SIZE && (
-                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
-                    <span className="text-xs text-slate-500">
-                      {(nearestPage - 1) * NEAREST_EVENTS_PAGE_SIZE + 1}–
-                      {Math.min(nearestPage * NEAREST_EVENTS_PAGE_SIZE, nearestEvents.length)} of{' '}
-                      {nearestEvents.length}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setNearestEventsPage((p) => Math.max(1, p - 1))}
-                        disabled={nearestPage <= 1}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ChevronLeft size={16} />
-                      </button>
-                      <span className="text-xs text-slate-600 px-1">
-                        Page {nearestPage}/{nearestTotalPages}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setNearestEventsPage((p) => Math.min(nearestTotalPages, p + 1))}
-                        disabled={nearestPage >= nearestTotalPages}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
+                        <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
+                        <p
+                          className={`text-[10px] mt-1 ${ev.taskType === 'MA' ? 'text-red-600' : 'text-gray-500'}`}
+                        >
+                          {ev.dateStr}
+                        </p>
+                        {ev.startDate &&
+                          (() => {
+                            const rel = formatThaiDaysUntil(ev.startDate, todayStart);
+                            return rel ? (
+                              <p
+                                className={`text-[10px] mt-0.5 font-medium ${
+                                  ev.taskType === 'MA' ? 'text-red-700/90' : 'text-blue-600/90'
+                                }`}
+                              >
+                                {rel}
+                              </p>
+                            ) : null;
+                          })()}
+                      </Link>
+                    ))}
                   </div>
-                )}
-              </>
+                  {nearestEvents.length > NEAREST_EVENTS_PAGE_SIZE && (
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
+                      <span className="text-xs text-slate-500">
+                        {(nearestPage - 1) * NEAREST_EVENTS_PAGE_SIZE + 1}–
+                        {Math.min(nearestPage * NEAREST_EVENTS_PAGE_SIZE, nearestEvents.length)} of{' '}
+                        {nearestEvents.length}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setNearestEventsPage((p) => Math.max(1, p - 1))}
+                          disabled={nearestPage <= 1}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronLeft size={16} />
+                        </button>
+                        <span className="text-xs text-slate-600 px-1">
+                          Page {nearestPage}/{nearestTotalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setNearestEventsPage((p) => Math.min(nearestTotalPages, p + 1))}
+                          disabled={nearestPage >= nearestTotalPages}
+                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+              </div>
             )}
           </div>
 
           <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
-            <div className="flex justify-between mb-4">
+            <div className="flex justify-between items-center mb-4 gap-2">
               <h3 className="font-bold text-slate-700 flex items-center gap-2">
                 <CircleAlert size={18} className="text-amber-500" />
                 Missing Events
@@ -520,7 +889,7 @@ export default function DashboardPage() {
             ) : tasksError ? (
               <div className="text-sm text-red-600 py-6 text-center">Unable to load list</div>
             ) : missingEvents.length === 0 ? (
-              <div className="text-sm text-slate-400 py-6 text-center">No pending tasks</div>
+              <div className="text-sm text-slate-400 py-6 text-center">No overdue tasks in this period</div>
             ) : (
               <>
                 <div className="space-y-3">
@@ -555,6 +924,13 @@ export default function DashboardPage() {
                     >
                       <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
                       <p className="text-[10px] text-amber-600 mt-1">Overdue {ev.dateStr}</p>
+                      {ev.endDate &&
+                        (() => {
+                          const overdue = formatThaiDaysPastDue(ev.endDate, todayStart);
+                          return overdue ? (
+                            <p className="text-[10px] text-amber-800 font-semibold mt-0.5">{overdue}</p>
+                          ) : null;
+                        })()}
                     </Link>
                   ))}
                 </div>

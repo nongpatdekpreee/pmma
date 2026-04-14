@@ -423,7 +423,7 @@ export default function AddMAReportPage() {
               <h2 className="text-lg font-bold text-slate-800">Tasks to Report</h2>
             </div>
             <p className="text-sm text-slate-500 mb-4">
-              Select completed tasks (Status = Done) that do not yet have a report to auto-fill the form.
+              Select completed tasks that do not yet have a report to auto-fill the form.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <div className="relative flex-1">

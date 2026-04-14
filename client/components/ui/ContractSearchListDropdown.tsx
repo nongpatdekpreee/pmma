@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, X } from 'lucide-react';
+import { Check, ChevronDown, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 /** เปลือก control แบบ Refer SOF — ใช้ร่วมกับ combobox / native select ในหน้า contract ฯลฯ */
@@ -52,6 +52,10 @@ type SearchListPanelProps = {
   items: ContractSearchListItem[];
   selectedValue: string;
   onPick: (value: string) => void;
+  /** เลือกได้หลายรายการ — คลิกแถวสลับเลือก แผงไม่ปิด */
+  multiSelect?: boolean;
+  selectedValues?: string[];
+  onToggleItem?: (value: string) => void;
   emptyText: string;
   showClearOption?: boolean;
   onClear?: () => void;
@@ -74,6 +78,9 @@ function SearchListDropdownPanel({
   items,
   selectedValue,
   onPick,
+  multiSelect = false,
+  selectedValues = [],
+  onToggleItem,
   emptyText,
   showClearOption,
   onClear,
@@ -126,22 +133,37 @@ function SearchListDropdownPanel({
           <p className="px-3 py-4 text-center text-xs text-slate-500">{emptyText}</p>
         ) : (
           filtered.map((item) => {
-            const selected = selectedValue === item.value;
+            const selected = multiSelect && onToggleItem
+              ? selectedValues.includes(item.value)
+              : selectedValue === item.value;
             return (
               <button
                 key={item.value}
                 type="button"
-                onClick={() => onPick(item.value)}
+                onClick={() =>
+                  multiSelect && onToggleItem ? onToggleItem(item.value) : onPick(item.value)
+                }
                 className={`flex w-full min-w-0 items-start gap-2.5 px-3 py-2 text-left text-sm hover:bg-sky-50 ${
                   selected ? 'bg-sky-50/90' : ''
                 }`}
               >
-                <span
-                  className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
-                    selected ? 'border-sky-600 bg-sky-600' : 'border-slate-300 bg-white'
-                  }`}
-                  aria-hidden
-                />
+                {multiSelect && onToggleItem ? (
+                  <span
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
+                      selected ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300 bg-white'
+                    }`}
+                    aria-hidden
+                  >
+                    {selected ? <Check size={12} strokeWidth={3} /> : null}
+                  </span>
+                ) : (
+                  <span
+                    className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
+                      selected ? 'border-sky-600 bg-sky-600' : 'border-slate-300 bg-white'
+                    }`}
+                    aria-hidden
+                  />
+                )}
                 <span className="min-w-0 flex-1">
                   <span
                     className={`block break-words text-left text-slate-800 ${itemLabelClassName}`}
@@ -190,6 +212,11 @@ export function ContractSimpleSearchListDropdown({
   countNoun,
   listMaxHeightClass,
   className = '',
+  multiSelect = false,
+  selectedValues,
+  onToggleItem,
+  panelFooter,
+  itemLabelClassName,
 }: {
   rootId: string;
   disabled?: boolean;
@@ -212,6 +239,12 @@ export function ContractSimpleSearchListDropdown({
   countNoun?: string;
   listMaxHeightClass?: string;
   className?: string;
+  /** หลาย Site — ใช้กับ selectedValues + onToggleItem; ปิดแผงด้วยปุ่มใน panelFooter */
+  multiSelect?: boolean;
+  selectedValues?: string[];
+  onToggleItem?: (value: string) => void;
+  panelFooter?: ReactNode;
+  itemLabelClassName?: string;
 }) {
   return (
     <div
@@ -223,16 +256,20 @@ export function ContractSimpleSearchListDropdown({
         disabled={disabled}
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-multiselectable={multiSelect || undefined}
         onClick={() => {
           if (disabled) return;
           onToggle();
         }}
-        className={`${contractDropdownShellClass} flex w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none transition-colors hover:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50`}
+        className={`${contractDropdownShellClass} flex w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none transition-colors hover:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 ${multiSelect ? 'items-stretch' : ''}`}
       >
         <span
-          className={`min-w-0 flex-1 truncate px-3 py-2.5 text-left text-sm font-medium ${
-            displayText ? 'text-slate-900' : 'text-slate-500'
-          }`}
+          className={`min-w-0 flex-1 px-3 py-2.5 text-left text-sm font-medium ${
+            multiSelect && displayText
+              ? 'line-clamp-3 break-words leading-snug text-slate-900'
+              : 'truncate'
+          } ${displayText ? 'text-slate-900' : 'text-slate-500'}`}
+          title={displayText || undefined}
         >
           {displayText || emptyPlaceholder}
         </span>
@@ -253,6 +290,9 @@ export function ContractSimpleSearchListDropdown({
           items={items}
           selectedValue={selectedValue}
           onPick={onPick}
+          multiSelect={multiSelect}
+          selectedValues={selectedValues}
+          onToggleItem={onToggleItem}
           emptyText={emptyText}
           showClearOption={showClearOption}
           onClear={onClear}
@@ -260,6 +300,8 @@ export function ContractSimpleSearchListDropdown({
           showFilterCountHint={showFilterCountHint}
           countNoun={countNoun}
           listMaxHeightClass={listMaxHeightClass}
+          panelFooter={panelFooter}
+          itemLabelClassName={itemLabelClassName}
         />
       )}
     </div>
@@ -283,6 +325,9 @@ export function ContractShellSearchListDropdown({
   items,
   selectedValue,
   onPick,
+  multiSelect = false,
+  selectedValues,
+  onToggleItem,
   searchPlaceholder = 'Search...',
   emptyText = 'No matches',
   showClearButton = false,
@@ -313,6 +358,10 @@ export function ContractShellSearchListDropdown({
   items: ContractSearchListItem[];
   selectedValue: string;
   onPick: (value: string) => void;
+  /** หลายสัญญา — ใช้กับ selectedValues + onToggleItem */
+  multiSelect?: boolean;
+  selectedValues?: string[];
+  onToggleItem?: (value: string) => void;
   searchPlaceholder?: string;
   emptyText?: string;
   showClearButton?: boolean;
@@ -328,34 +377,44 @@ export function ContractShellSearchListDropdown({
   countNoun?: string;
   listMaxHeightClass?: string;
 }) {
-  const hasValue = Boolean(displayText);
+  const hasValue =
+    Boolean(displayText) ||
+    (multiSelect && (selectedValues?.length ?? 0) > 0);
   const showTrailingDivider = Boolean(hasValue && !loading);
 
   return (
     <div id={rootId} className={`relative w-full min-w-0 ${open ? 'z-[200]' : ''} ${className}`}>
-      <div className={contractDropdownShellClass}>
+      <div
+        className={`${contractDropdownShellClass} ${multiSelect ? 'items-stretch' : ''}`}
+      >
         <button
           type="button"
           onClick={() => !disabled && !loading && onOpenChange(!open)}
           disabled={disabled || loading}
           aria-expanded={open}
           aria-haspopup="listbox"
-          className={contractDropdownTextButtonClass}
+          aria-multiselectable={multiSelect || undefined}
+          className={`${contractDropdownTextButtonClass} ${multiSelect ? 'items-start py-2' : ''}`}
         >
           <span
-            className={`min-w-0 flex-1 truncate ${
-              loading
-                ? 'text-slate-500'
-                : hasValue
-                  ? `text-slate-900 ${triggerSelectedClassName}`
-                  : triggerPlaceholderClassName
+            className={`min-w-0 flex-1 text-left ${
+              multiSelect && hasValue && !loading
+                ? `line-clamp-2 break-words leading-snug text-slate-900 ${triggerSelectedClassName}`
+                : `truncate ${
+                    loading
+                      ? 'text-slate-500'
+                      : hasValue
+                        ? `text-slate-900 ${triggerSelectedClassName}`
+                        : triggerPlaceholderClassName
+                  }`
             }`}
+            title={hasValue && !loading && displayText ? displayText : undefined}
           >
             {loading ? loadingText : hasValue ? displayText : emptyPlaceholder}
           </span>
         </button>
         <div
-          className={contractDropdownTrailingClass(showTrailingDivider)}
+          className={`${contractDropdownTrailingClass(showTrailingDivider)} ${multiSelect ? 'self-center' : ''}`}
           onClick={(e) => e.stopPropagation()}
         >
           {hasValue && !loading && showClearButton && onClear && (
@@ -397,6 +456,9 @@ export function ContractShellSearchListDropdown({
           items={items}
           selectedValue={selectedValue}
           onPick={onPick}
+          multiSelect={multiSelect}
+          selectedValues={selectedValues}
+          onToggleItem={onToggleItem}
           emptyText={emptyText}
           itemLabelClassName={itemLabelClassName}
           panelFooter={panelFooter}
