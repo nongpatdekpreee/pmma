@@ -174,6 +174,7 @@ export async function getTopSitesHeatmap(params?: { site_limit?: number; contrac
     location2: string;
     total_devices: number;
     rank: number;
+    contracts?: Array<{ contract_id: number; short_id: string; title: string; devices: number }>;
   }>;
   contracts?: Array<{ contract_id: number; short_id: string; title: string }>;
   matrix?: number[][];

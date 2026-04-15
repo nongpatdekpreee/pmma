@@ -12,6 +12,8 @@ export type TopSitesHeatmapData = {
     location2: string;
     total_devices: number;
     rank: number;
+    /** สัญญาที่มี device จริงที่ SLid นี้ (จาก API); ถ้าไม่มีให้ fallback เมทริกซ์ */
+    contracts?: Array<{ contract_id: number; short_id: string; title: string; devices: number }>;
   }>;
   contracts: Array<{ contract_id: number; short_id: string; title: string }>;
   matrix: number[][];
@@ -58,6 +60,7 @@ function siteRowPrimary(
   metric: Metric
 ): number {
   if (metric === 'devices') return site.total_devices;
+  if (Array.isArray(site.contracts)) return site.contracts.length;
   return linkedContractCount(matrixRow);
 }
 
@@ -98,7 +101,9 @@ export function TopSitesWidget({
       site,
       siteIndex,
       matrixRow: matrix[siteIndex] ?? [],
-      linkedCount: linkedContractCount(matrix[siteIndex] ?? []),
+      linkedCount: Array.isArray(site.contracts)
+        ? site.contracts.length
+        : linkedContractCount(matrix[siteIndex] ?? []),
     }));
   }, [data]);
 
@@ -230,25 +235,29 @@ export function TopSitesWidget({
             const barPct = Math.round((primary / maxPrimary) * 100);
             const open = expandedSlid === site.slid;
             const q = contractQuery.trim().toLowerCase();
-            const contractsForPanel = data.contracts
-              .map((c, j) => ({
-                ...c,
-                devices: matrixRow[j] ?? 0,
-              }))
-              .filter((c) => {
-                if (!q) return true;
-                return (
-                  String(c.contract_id).includes(q) ||
-                  (c.short_id || '').toLowerCase().includes(q) ||
-                  (c.title || '').toLowerCase().includes(q)
-                );
-              });
+            // API ส่ง sites[].contracts = เฉพาะสัญญาที่มี device ที่ SLid นี้; ไม่มีฟิลด์นี้ = fallback เมทริกซ์เดิม
+            const contractsAtThisSite = Array.isArray(site.contracts)
+              ? site.contracts
+              : data.contracts
+                  .map((c, j) => ({
+                    ...c,
+                    devices: matrixRow[j] ?? 0,
+                  }))
+                  .filter((c) => c.devices > 0);
+            const contractsForPanel = contractsAtThisSite.filter((c) => {
+              if (!q) return true;
+              return (
+                String(c.contract_id).includes(q) ||
+                (c.short_id || '').toLowerCase().includes(q) ||
+                (c.title || '').toLowerCase().includes(q)
+              );
+            });
             const maxDevicesInPanel = Math.max(
               1,
               ...contractsForPanel.map((c) => c.devices),
               site.total_devices
             );
-            const withDevices = contractsForPanel.filter((c) => c.devices > 0);
+            const withDevices = contractsForPanel;
             const topContractId =
               withDevices.length > 0
                 ? withDevices.reduce((best, cur) => (cur.devices > best.devices ? cur : best), withDevices[0]!)
@@ -451,7 +460,9 @@ export function TopSitesWidget({
                     </div>
                     {contractsForPanel.length === 0 && (
                       <p className="text-sm text-center py-4" style={mutedStyle}>
-                        No contracts match this search.
+                        {contractsAtThisSite.length === 0
+                          ? 'ไม่มีสัญญาที่ผูก device ที่ไซต์นี้'
+                          : 'ไม่พบสัญญาที่ตรงกับคำค้น'}
                       </p>
                     )}
                   </div>

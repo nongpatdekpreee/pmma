@@ -1110,76 +1110,90 @@ const getTopSitesHeatmap = async (req, res) => {
     const slids = siteRows.map((r) => r.slid);
     const slph = slids.map(() => '?').join(',');
 
-    const [contractAgg] = await db.execute(
+    // ทุกคู่ (SLid, contract) ที่มี device — ใช้สร้าง sites[].contracts (แค่สัญญาที่มีจริงต่อไซต์)
+    const [allPairRows] = await db.execute(
       `
-      SELECT
-        cd.contract_id,
-        COUNT(DISTINCT cd.device_id) AS dc
+      SELECT cd.SLid AS slid, cd.contract_id, COUNT(DISTINCT cd.device_id) AS cnt
       FROM contract_device cd
       WHERE cd.SLid IN (${slph}) AND cd.device_id IS NOT NULL
-      GROUP BY cd.contract_id
-      ORDER BY dc DESC
-      LIMIT ?
+      GROUP BY cd.SLid, cd.contract_id
       `,
-      [...slids, contractLimit]
+      [...slids]
     );
 
-    const contractIds = contractAgg.map((r) => r.contract_id);
-    let contractMeta = [];
-    if (contractIds.length > 0) {
-      const cph = contractIds.map(() => '?').join(',');
-      const [crows] = await db.execute(
-        `SELECT contract_id, contract_name, sof_name FROM contract WHERE contract_id IN (${cph})`,
-        contractIds
+    const pairList = Array.isArray(allPairRows) ? allPairRows : [];
+    const contractTotals = new Map();
+    for (const row of pairList) {
+      const cid = row.contract_id;
+      contractTotals.set(cid, (contractTotals.get(cid) || 0) + Number(row.cnt || 0));
+    }
+    const contractIds = [...contractTotals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, contractLimit)
+      .map(([cid]) => cid);
+
+    const allCids = [...new Set(pairList.map((r) => r.contract_id))];
+    let titleByContractId = {};
+    if (allCids.length > 0) {
+      const acph = allCids.map(() => '?').join(',');
+      const [crowsAll] = await db.execute(
+        `SELECT contract_id, contract_name, sof_name FROM contract WHERE contract_id IN (${acph})`,
+        allCids
       );
-      const byId = Object.fromEntries(crows.map((c) => [c.contract_id, c]));
-      contractMeta = contractIds.map((cid, j) => {
-        const c = byId[cid] || {};
+      for (const c of crowsAll) {
         const name = (c.contract_name || '').toString().trim();
         const sof = (c.sof_name || '').toString().trim();
-        const title = name || (sof ? `SOF ${sof}` : `สัญญา #${cid}`);
-        return {
-          contract_id: cid,
-          short_id: String(j + 1).padStart(3, '0'),
-          title,
-        };
-      });
+        titleByContractId[c.contract_id] = name || (sof ? `SOF ${sof}` : `สัญญา #${c.contract_id}`);
+      }
     }
 
-    let matrix = siteRows.map(() => contractIds.map(() => 0));
+    let contractMeta = [];
     if (contractIds.length > 0) {
-      const cph = contractIds.map(() => '?').join(',');
-      const [cellRows] = await db.execute(
-        `
-        SELECT cd.SLid AS slid, cd.contract_id, COUNT(DISTINCT cd.device_id) AS cnt
-        FROM contract_device cd
-        WHERE cd.SLid IN (${slph})
-          AND cd.contract_id IN (${cph})
-          AND cd.device_id IS NOT NULL
-        GROUP BY cd.SLid, cd.contract_id
-        `,
-        [...slids, ...contractIds]
-      );
-      const ci = Object.fromEntries(contractIds.map((id, idx) => [id, idx]));
-      const si = Object.fromEntries(slids.map((id, idx) => [id, idx]));
-      for (const row of cellRows) {
-        const i = si[row.slid];
-        const j = ci[row.contract_id];
-        if (i != null && j != null) matrix[i][j] = Number(row.cnt || 0);
-      }
+      contractMeta = contractIds.map((cid, j) => ({
+        contract_id: cid,
+        short_id: String(j + 1).padStart(3, '0'),
+        title: titleByContractId[cid] || `สัญญา #${cid}`,
+      }));
+    }
+
+    const si = Object.fromEntries(slids.map((id, idx) => [Number(id), idx]));
+    const ci = Object.fromEntries(contractIds.map((id, idx) => [id, idx]));
+
+    let matrix = siteRows.map(() => contractIds.map(() => 0));
+    for (const row of pairList) {
+      const i = si[Number(row.slid)];
+      const j = ci[row.contract_id];
+      if (i != null && j != null) matrix[i][j] = Number(row.cnt || 0);
     }
 
     const flat = matrix.flat();
     const totals = siteRows.map((r) => Number(r.total_devices || 0));
     const maxVal = Math.max(1, ...flat, ...totals);
 
-    const sites = siteRows.map((r, idx) => ({
-      slid: r.slid,
-      site_name: r.site_name || '—',
-      location2: r.location2 || '',
-      total_devices: Number(r.total_devices || 0),
-      rank: idx + 1,
-    }));
+    const sites = siteRows.map((r, idx) => {
+      const slidNum = Number(r.slid);
+      const contractsHere = pairList
+        .filter((row) => Number(row.slid) === slidNum)
+        .map((row) => ({
+          contract_id: row.contract_id,
+          cnt: Number(row.cnt || 0),
+        }))
+        .sort((a, b) => b.cnt - a.cnt)
+        .map((row, k) => ({
+          contract_id: row.contract_id,
+          short_id: String(k + 1).padStart(3, '0'),
+          title: titleByContractId[row.contract_id] || `สัญญา #${row.contract_id}`,
+          devices: row.cnt,
+        }));
+      return {
+        slid: r.slid,
+        site_name: r.site_name || '—',
+        location2: r.location2 || '',
+        total_devices: Number(r.total_devices || 0),
+        rank: idx + 1,
+        contracts: contractsHere,
+      };
+    });
 
     res.status(200).json({
       success: true,
