@@ -86,8 +86,139 @@ interface CalendarEvent {
   status?: 'done' | 'working' | 'stuck' | 'not-started';
 }
 
+/**
+ * ใช้ตอน import Excel ก่อนเทียบกับ DB:
+ * trim → lowercase → ลบช่องว่างทั้งหมด (รวมช่องว่างระหว่างคำ)
+ * ตัดคำนำหน้า "อาคาร" หนึ่งครั้งถ้ามี (เช่น "อาคารแสงโสม พหลโย" → "แสงโสมพหลโย")
+ */
+function normalizeImportText(value: unknown): string {
+  const collapsed = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+  if (collapsed.startsWith('อาคาร')) {
+    return collapsed.slice('อาคาร'.length);
+  }
+  return collapsed;
+}
+
+/** Min combined similarity to accept a sites_location row (0–1). */
+const IMPORT_FIELD_SIMILARITY_MIN = 0.78;
+/** When location fails, list DB rows whose site name is at least this similar (hints). */
+const IMPORT_SITE_HINT_MIN = 0.68;
+const IMPORT_SITE_LOC_SITE_WEIGHT = 0.4;
+const IMPORT_SITE_LOC_LOC_WEIGHT = 0.6;
+
+function levenshteinDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = new Uint32Array(n + 1);
+  let cur = new Uint32Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    const t = prev;
+    prev = cur;
+    cur = t;
+  }
+  return prev[n];
+}
+
+/**
+ * Similarity 0–1 after normalize: edit distance + length closeness.
+ * Pick the DB row with the highest score; ties favor closer location length when location is used.
+ */
+function importFieldSimilarityScore(needle: string, db: string): number {
+  if (!needle && !db) return 1;
+  if (!needle || !db) return 0;
+  if (needle === db) return 1;
+  const maxLen = Math.max(needle.length, db.length);
+  const dist = levenshteinDistance(needle, db);
+  const editSim = 1 - dist / maxLen;
+  const lenRatio = Math.min(needle.length, db.length) / maxLen;
+  return 0.65 * editSim + 0.35 * lenRatio;
+}
+
+type ImportSiteRow = {
+  id: string;
+  name: string;
+  location?: string | null;
+  sid?: number | null;
+  lid?: number | null;
+};
+
+function pickBestSiteRowForImport(
+  options: ImportSiteRow[],
+  siteNeedleNorm: string,
+  locNeedleNorm: string
+): {
+  best: ImportSiteRow | undefined;
+  bestCombined: number;
+} {
+  if (!siteNeedleNorm) return { best: undefined, bestCombined: -1 };
+
+  let best: ImportSiteRow | undefined;
+  let bestCombined = -1;
+  let bestLocSc = -1;
+  let bestLocLenDelta = Infinity;
+
+  for (const s of options) {
+    const dbSite = normalizeImportText(s.name);
+    const siteSc = importFieldSimilarityScore(siteNeedleNorm, dbSite);
+
+    let combined: number;
+    let locSc = 1;
+    let locLenDelta = 0;
+
+    if (locNeedleNorm) {
+      const dbLoc = normalizeImportText(s.location || '');
+      locSc = dbLoc ? importFieldSimilarityScore(locNeedleNorm, dbLoc) : 0;
+      locLenDelta = dbLoc ? Math.abs(dbLoc.length - locNeedleNorm.length) : 9999;
+      combined =
+        IMPORT_SITE_LOC_SITE_WEIGHT * siteSc + IMPORT_SITE_LOC_LOC_WEIGHT * locSc;
+    } else {
+      combined = siteSc;
+    }
+
+    if (combined < IMPORT_FIELD_SIMILARITY_MIN) continue;
+
+    const better =
+      combined > bestCombined ||
+      (combined === bestCombined &&
+        locNeedleNorm &&
+        (locLenDelta < bestLocLenDelta ||
+          (locLenDelta === bestLocLenDelta && locSc > bestLocSc)));
+
+    if (better) {
+      best = s;
+      bestCombined = combined;
+      bestLocSc = locSc;
+      bestLocLenDelta = locLenDelta;
+    }
+  }
+
+  return { best, bestCombined };
+}
+
+/** จับคู่ SOF กับสัญญา: เลขล้วนใช้ pad 4 หลัก; ไม่ใช่เลขใช้ normalizeImportText */
+function normalizeImportSofKey(sof: string): string {
+  const t = String(sof).trim();
+  if (/^\d+$/.test(t)) return t.padStart(4, '0').toLowerCase();
+  return normalizeImportText(t);
+}
+
+const IN_PROCESS_REASON_DISPLAY_MAX = 120;
+
 function getScheduleInProcessReason(ev: Pick<CalendarEvent, 'notes' | 'rootCause'>): string {
-  const notes = String(ev.notes ?? '').trim();
+  const notes = String(ev.notes ?? '')
+    .trim()
+    .slice(0, IN_PROCESS_REASON_DISPLAY_MAX);
   const root = String(ev.rootCause ?? '').trim();
   if (notes && root) return `${notes} (${root})`;
   if (notes) return notes;
@@ -1389,10 +1520,9 @@ function ScheduleManagementContent() {
                   const sofVal = /^\d+$/.test(raw) ? raw.padStart(4, '0') : raw;
                   task.sofName = sofVal;
                   console.log(`Row ${i + 1}: Parsed SOF "${sofVal}"`);
-                  const norm = (s: string) => (/^\d+$/.test(s) ? s.padStart(4, '0') : s).toLowerCase();
-                  const contract = availableContracts.find(c => {
+                  const contract = availableContracts.find((c) => {
                     if (!c.sof_name) return false;
-                    return norm(c.sof_name) === norm(sofVal);
+                    return normalizeImportSofKey(String(c.sof_name)) === normalizeImportSofKey(sofVal);
                   });
                   if (contract) {
                     task.contractId = contract.contract_id;
@@ -1429,8 +1559,9 @@ function ScheduleManagementContent() {
                 (s) => Number(s.sid) === sidN && Number(s.lid) === lidN
               );
               if (!siteByPair) {
+                const sofL = String(task.sofName || '').trim() || '(no SOF)';
                 errors.push(
-                  `Row ${i + 1}: No sites_location for Sid ${sidN} + Lid ${lidN} (must match a contracted site row)`
+                  `Row ${i + 1}: No contracted site row for Sid ${sidN} + Lid ${lidN} (no SLid). SOF "${sofL}". Check Sid/lid against sites + location in the database.`
                 );
                 continue;
               }
@@ -1451,18 +1582,15 @@ function ScheduleManagementContent() {
             if (task.siteSid && task.siteLid) {
               task.title = `${task.siteSid}-${task.siteLid}`;
             } else if (!resolvedSlidFromSidLid) {
-              // If sid/lid not found, try to find from siteOptions
-              const siteNameLower = (task.Sname || task.siteName || '').toLowerCase();
-              const locationLower = (task.location || '').toLowerCase();
-              const matchedSite = siteOptions.find(s => {
-                const siteMatch = s.name.toLowerCase().includes(siteNameLower) || 
-                                 siteNameLower.includes(s.name.toLowerCase());
-                const locationMatch = !locationLower || 
-                                     (s.location && s.location.toLowerCase().includes(locationLower)) ||
-                                     (locationLower && locationLower.includes(s.location.toLowerCase()));
-                return siteMatch && locationMatch;
-              });
-              
+              // If sid/lid not found, try to find from siteOptions (best similarity vs DB)
+              const siteNeedle = normalizeImportText(task.Sname || task.siteName || '');
+              const locNeedle = normalizeImportText(task.location || '');
+              const { best: matchedSite } = pickBestSiteRowForImport(
+                siteOptions,
+                siteNeedle,
+                locNeedle
+              );
+
               if (matchedSite && matchedSite.sid && matchedSite.lid) {
                 task.siteSid = matchedSite.sid;
                 task.siteLid = matchedSite.lid;
@@ -1489,40 +1617,44 @@ function ScheduleManagementContent() {
             // Ensure taskType is always PM
             task.taskType = 'PM';
 
-            // จับคู่ SiteName + Location2 → SLid (ข้ามถ้าได้ SLid จาก slid หรือ sid+lid แล้ว)
+            // จับคู่ SiteName + Location2 → SLid (best similarity vs DB rows)
             if (!resolvedSlidFromSidLid && !task.siteId && task.siteName) {
-              const siteNameLower = task.siteName.toLowerCase();
-              const locationTrim = (task.location || '').trim();
-              const locationLower = locationTrim.toLowerCase();
+              const siteNeedle = normalizeImportText(task.siteName);
+              const locNeedle = normalizeImportText(task.location || '');
 
-              const siteNameMatch = (s: (typeof siteOptions)[0]) => {
-                const n = s.name.toLowerCase();
-                return n.includes(siteNameLower) || siteNameLower.includes(n);
-              };
-              const locationMatch = (s: (typeof siteOptions)[0]) => {
-                if (!locationLower) return true;
-                const loc = (s.location || '').toLowerCase();
-                return (
-                  !!loc &&
-                  (loc.includes(locationLower) || locationLower.includes(loc))
-                );
-              };
-
-              let site: (typeof siteOptions)[0] | undefined;
-              if (locationLower) {
-                site = siteOptions.find(s => siteNameMatch(s) && locationMatch(s));
+              const { best: site } = pickBestSiteRowForImport(siteOptions, siteNeedle, locNeedle);
+              const sofForMsg = String(task.sofName || '').trim() || '(no SOF)';
+              if (locNeedle) {
                 if (!site) {
-                  errors.push(
-                    `Row ${i + 1}: Site "${task.siteName}" + Location "${task.location}" not found in sites_location (name and location must both match a row)`
-                  );
-                  console.warn(`Available sites:`, siteOptions.map(s => `${s.name} - ${s.location} (SLid: ${s.id})`));
+                  const siteOnlyHits = siteOptions.filter((s) => {
+                    const siteSc = importFieldSimilarityScore(
+                      siteNeedle,
+                      normalizeImportText(s.name)
+                    );
+                    return siteSc >= IMPORT_SITE_HINT_MIN;
+                  });
+                  if (siteOnlyHits.length === 0) {
+                    errors.push(
+                      `Row ${i + 1}: Site name "${task.siteName}" does not match any contracted site (after normalize). Location "${task.location || ''}". SOF "${sofForMsg}".`
+                    );
+                  } else {
+                    const locHints = siteOnlyHits
+                      .map((s) => `"${(s.location || '').trim() || '(empty Location2)'}" (SLid ${s.id})`)
+                      .slice(0, 5)
+                      .join('; ');
+                    errors.push(
+                      `Row ${i + 1}: Site "${task.siteName}" matched ${siteOnlyHits.length} row(s) but Location "${task.location || ''}" did not match their Location2. SOF "${sofForMsg}". Hints: ${locHints}${siteOnlyHits.length > 5 ? ' …' : ''}`
+                    );
+                  }
+                  console.warn(`Available sites:`, siteOptions.map((s) => `${s.name} - ${s.location} (SLid: ${s.id})`));
                   continue;
                 }
               } else {
-                site = siteOptions.find(s => siteNameMatch(s));
                 if (!site) {
-                  errors.push(`Row ${i + 1}: Site "${task.siteName}" not found in sites_location`);
-                  console.warn(`Available sites:`, siteOptions.map(s => `${s.name} - ${s.location} (SLid: ${s.id})`));
+                  errors.push(
+                    `Row ${i + 1}: Site "${task.siteName}" does not match any contracted site (after normalize). SOF "${sofForMsg}".`
+                  );
+                  console.warn(`Available sites:`, siteOptions.map((s) => `${s.name} - ${s.location} (SLid: ${s.id})`));
                   continue;
                 }
               }
@@ -1536,39 +1668,46 @@ function ScheduleManagementContent() {
                 `Row ${i + 1}: Found SLid ${site.id} (Sid: ${site.sid}, lid: ${site.lid}) for Site "${task.siteName}" + Location "${task.location || 'none'}"`
               );
             } else if (!resolvedSlidFromSidLid && task.siteId) {
-              const site = siteOptions.find(s => s.id === String(task.siteId));
-              if (site) {
-                task.Sid = site.id;
-                task.Sname = site.name;
-                task.siteSid = site.sid;
-                task.siteLid = site.lid;
-                const locCsv = (task.location || '').trim();
-                if (locCsv && !/^\d+$/.test(locCsv)) {
-                  const locationLower = locCsv.toLowerCase();
-                  const loc = (site.location || '').toLowerCase();
-                  const ok =
-                    !!loc &&
-                    (loc.includes(locationLower) || locationLower.includes(loc));
-                  if (!ok) {
-                    errors.push(
-                      `Row ${i + 1}: Site ID ${task.siteId} does not match Location "${task.location}" (system location: "${site.location || '—'}")`
-                    );
-                    continue;
-                  }
+              const sofCsv = String(task.sofName || '').trim() || '(no SOF)';
+              const site = siteOptions.find((s) => s.id === String(task.siteId));
+              if (!site) {
+                errors.push(
+                  `Row ${i + 1}: Site ID (SLid) "${task.siteId}" is not in contracted sites. SOF "${sofCsv}".`
+                );
+                continue;
+              }
+              task.Sid = site.id;
+              task.Sname = site.name;
+              task.siteSid = site.sid;
+              task.siteLid = site.lid;
+              const locCsv = (task.location || '').trim();
+              if (locCsv && !/^\d+$/.test(locCsv)) {
+                const locNeedle = normalizeImportText(locCsv);
+                const loc = normalizeImportText(site.location || '');
+                const locSim =
+                  !!locNeedle && !!loc ? importFieldSimilarityScore(locNeedle, loc) : 0;
+                const ok = !!locNeedle && !!loc && locSim >= IMPORT_FIELD_SIMILARITY_MIN;
+                if (!ok) {
+                  errors.push(
+                    `Row ${i + 1}: Location "${task.location}" does not match Location2 for SLid ${task.siteId} ("${site.location || '—'}"). SOF "${sofCsv}".`
+                  );
+                  continue;
                 }
               }
             }
 
             if (!task.Sid && !task.siteId) {
-              errors.push(`Row ${i + 1}: Missing Site Name or Site ID`);
+              errors.push(
+                `Row ${i + 1}: Missing site: provide Site name, SLid, or Sid+Lid columns. SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+              );
               continue;
             }
             if (!task.startDate) {
-              errors.push(`Row ${i + 1}: Missing Start Date`);
+              errors.push(`Row ${i + 1}: Missing start date. SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`);
               continue;
             }
             if (!task.Eng_ids || task.Eng_ids.length === 0) {
-              errors.push(`Row ${i + 1}: Missing Engineer`);
+              errors.push(`Row ${i + 1}: Missing engineer (no match in roster). SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`);
               continue;
             }
             
@@ -1616,11 +1755,15 @@ function ScheduleManagementContent() {
             // Import: ต้องมี SOF → เช็คสัญญาในระบบ → ยังไม่หมดอายุ ก่อนรับแถวและก่อนดึง device
             const sofTrim = (task.sofName && String(task.sofName).trim()) || '';
             if (!sofTrim) {
-              errors.push(`Row ${i + 1}: Missing SOF (required to match contract and devices)`);
+              errors.push(
+                `Row ${i + 1}: Missing SOF (required to match contract and devices at this site, SLid ${task.Sid || task.siteId || '—'}).`
+              );
               continue;
             }
             if (!task.contractId) {
-              errors.push(`Row ${i + 1}: SOF "${sofTrim}" does not have a contract in the system — cannot add task`);
+              errors.push(
+                `Row ${i + 1}: SOF "${sofTrim}" does not match any contract in the system (check sof_name). Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+              );
               continue;
             }
             const endDateStr =
@@ -1632,11 +1775,15 @@ function ScheduleManagementContent() {
               const today = new Date();
               today.setHours(0, 0, 0, 0);
               if (endDate < today) {
-                errors.push(`Row ${i + 1}: Contract expired (SOF "${sofTrim}") — cannot add task`);
+                errors.push(
+                  `Row ${i + 1}: Contract for SOF "${sofTrim}" is expired — cannot import. Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+                );
                 continue;
               }
             }
 
+            task._importSheetRow = i + 1;
+            task._importPreviewRow = tasks.length + 1;
             tasks.push(task);
           }
 
@@ -1678,6 +1825,17 @@ function ScheduleManagementContent() {
               task.deviceCount = devicesMap[key].count;
               task.devices = devicesMap[key].devices;
               console.log(`✓ Task "${task.siteName}" - SOF "${task.sofName}": ${task.deviceCount} devices assigned`, task.deviceIds);
+              if (task.deviceCount === 0) {
+                const previewN = task._importPreviewRow ?? tasks.indexOf(task) + 1;
+                const sheetN = task._importSheetRow;
+                const rowRef =
+                  sheetN != null
+                    ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
+                    : `Preview row ${previewN}`;
+                errors.push(
+                  `${rowRef}: No devices found for SOF "${task.sofName}" at this site (SLid ${task.Sid}, "${task.Sname || task.siteName || '—'}", location "${task.location || '—'}"). Check contract_device and Refer_SOF for this SLid.`
+                );
+              }
             } else {
               console.warn(`✗ Task missing Site ID (SLid):`, { 
                 sofName: task.sofName, 
@@ -1685,6 +1843,15 @@ function ScheduleManagementContent() {
                 siteName: task.siteName,
                 siteId: task.siteId 
               });
+              const previewN = task._importPreviewRow ?? tasks.indexOf(task) + 1;
+              const sheetN = task._importSheetRow;
+              const rowRef =
+                sheetN != null
+                  ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
+                  : `Preview row ${previewN}`;
+              errors.push(
+                `${rowRef}: Missing SLid after import (no devices can be resolved). SOF "${String(task.sofName || '').trim() || '(no SOF)'}". Provide Site name + Location, SLid column, or Sid+Lid that match contracted sites.`
+              );
               // Set default values
               task.deviceIds = [];
               task.deviceCount = 0;
@@ -1758,32 +1925,48 @@ function ScheduleManagementContent() {
 
     for (let idx = 0; idx < importedTasks.length; idx++) {
       const task = importedTasks[idx];
+      const bulkRow =
+        (task as { _importPreviewRow?: number })._importPreviewRow ??
+        (task as { _importSheetRow?: number })._importSheetRow ??
+        idx + 1;
       try {
         if (!task.Sid && !task.siteId) {
-          errors.push(`Row ${idx + 2}: Missing Site ID`);
+          errors.push(
+            `Preview row ${bulkRow}: Missing site (SLid). SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+          );
           continue;
         }
         if (!task.startDate) {
-          errors.push(`Row ${idx + 2}: Missing Start Date`);
+          errors.push(
+            `Preview row ${bulkRow}: Missing start date. SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+          );
           continue;
         }
         if (!task.Eng_ids || task.Eng_ids.length === 0) {
-          errors.push(`Row ${idx + 2}: Missing Engineer`);
+          errors.push(
+            `Preview row ${bulkRow}: Missing engineer (no match in roster). SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+          );
           continue;
         }
         if (!task.title) {
-          errors.push(`Row ${idx + 2}: Missing Title`);
+          errors.push(
+            `Preview row ${bulkRow}: Missing title / coverage scope. SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+          );
           continue;
         }
 
         const sofTrimBulk = (task.sofName && String(task.sofName).trim()) || '';
         if (!sofTrimBulk) {
-          errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): Missing SOF (required)`);
+          errors.push(
+            `Preview row ${bulkRow}: Missing SOF (required). Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+          );
           continue;
         }
         const contractIdBulk = task.contractId ? Number(task.contractId) : null;
         if (!contractIdBulk) {
-          errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): SOF "${sofTrimBulk}" does not have a contract in the system — cannot add task`);
+          errors.push(
+            `Preview row ${bulkRow}: SOF "${sofTrimBulk}" does not match any contract (check sof_name). Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+          );
           continue;
         }
         const contractBulk = availableContracts.find(c => c.contract_id === contractIdBulk);
@@ -1793,9 +1976,21 @@ function ScheduleManagementContent() {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           if (endDate < today) {
-            errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title}): Contract expired (SOF "${sofTrimBulk}") — cannot add task`);
+            errors.push(
+              `Row ${bulkRow}: Contract for SOF "${sofTrimBulk}" is expired — cannot create. Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+            );
             continue;
           }
+        }
+
+        const hasDevices =
+          (task.deviceIds && task.deviceIds.length > 0) ||
+          (task.devices && task.devices.length > 0);
+        if (!hasDevices) {
+          errors.push(
+            `Preview row ${bulkRow}: No devices for SOF "${sofTrimBulk}" at this site (SLid ${task.Sid || task.siteId || '—'}, "${task.Sname || task.siteName || '—'}", location "${task.location || '—'}"). Fix contract_device / Refer_SOF or import data, then retry.`
+          );
+          continue;
         }
 
         // ===== Prepare payload according to database schema (tasks.sql) =====
@@ -1870,8 +2065,8 @@ function ScheduleManagementContent() {
         // contract_id from sof_name lookup (if still not found, search again)
         let contractId = task.contractId ? Number(task.contractId) : null;
         if (!contractId && task.sofName) {
-          const contract = availableContracts.find(c => 
-            c.sof_name && c.sof_name.toLowerCase() === task.sofName.toLowerCase()
+          const contract = availableContracts.find(
+            (c) => c.sof_name && normalizeImportSofKey(String(c.sof_name)) === normalizeImportSofKey(String(task.sofName))
           );
           if (contract) contractId = contract.contract_id;
         }
@@ -1917,7 +2112,7 @@ function ScheduleManagementContent() {
 
         const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown }>(
           res,
-          `Failed to create task (row ${idx + 2}): server returned HTML or invalid JSON — check NEXT_PUBLIC_API_URL matches your API (e.g. port 9000).`
+          `Failed to create task (preview row ${bulkRow}): server returned HTML or invalid JSON — check NEXT_PUBLIC_API_URL matches your API (e.g. port 9000).`
         );
         if (!json.success) {
           throw new Error(json.message || 'Failed to create task');
@@ -1928,11 +2123,17 @@ function ScheduleManagementContent() {
         setCalendarEvents((events) => [...events, mapped]);
         successCount++;
       } catch (error: any) {
-        errors.push(`Row ${idx + 2} (${task.Sname || task.siteName || task.title || 'Unknown'}): ${error.message || 'Failed to create task'}`);
+        errors.push(
+          `Preview row ${bulkRow} (${task.Sname || task.siteName || task.title || 'Unknown'}): ${error.message || 'Failed to create task'}`
+        );
       }
     }
 
     setIsImporting(false);
+
+    if (errors.length > 0) {
+      setImportErrors(errors);
+    }
     
     if (errors.length > 0 && successCount === 0) {
       toastError(`Failed to create tasks. ${errors.slice(0, 5).join(', ')}${errors.length > 5 ? `... and ${errors.length - 5} more` : ''}`);
@@ -2242,6 +2443,7 @@ function ScheduleManagementContent() {
                         <span className="block">Date</span>
                         <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
                       </th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Incoming</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Responsible</th>
@@ -2252,7 +2454,7 @@ function ScheduleManagementContent() {
                   <tbody>
                     {tasksInCurrentMonth.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400">No tasks in this month</td>
+                        <td colSpan={7} className="py-8 text-center text-slate-400">No tasks in this month</td>
                       </tr>
                     ) : (
                       paginatedTableTasks.map((ev) => {
@@ -2265,6 +2467,27 @@ function ScheduleManagementContent() {
                         const endDate = endDateStr ? new Date(endDateStr) : null;
                         if (endDate) endDate.setHours(0, 0, 0, 0);
                         const isOverdue = !isDone && endDate && endDate < today;
+
+                        let incomingText = '—';
+                        let incomingTone: 'future' | 'today' | 'overdue' | 'neutral' = 'neutral';
+                        if (isDone) {
+                          incomingText = '—';
+                        } else if (endDate) {
+                          const msDay = 86400000;
+                          const diffDays = Math.round((endDate.getTime() - today.getTime()) / msDay);
+                          if (diffDays > 0) {
+                            incomingText = diffDays === 1 ? 'In 1 day' : `In ${diffDays} days`;
+                            incomingTone = 'future';
+                          } else if (diffDays === 0) {
+                            incomingText = 'Due today';
+                            incomingTone = 'today';
+                          } else {
+                            const overdueDays = -diffDays;
+                            incomingText =
+                              overdueDays === 1 ? 'Overdue 1 day' : `Overdue ${overdueDays} days`;
+                            incomingTone = 'overdue';
+                          }
+                        }
                         const isInProcess = ev.status === 'working';
                         const statusLabel = isDone
                           ? 'Done'
@@ -2289,6 +2512,21 @@ function ScheduleManagementContent() {
                                       `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(ev.startDay).padStart(2, '0')}`
                                   )
                                 : `${formatDateMonthDayYear(ev.startDate)} – ${formatDateMonthDayYear(ev.endDate)}`}
+                            </td>
+                            <td className="py-2.5 px-4 text-xs whitespace-nowrap">
+                              <span
+                                className={
+                                  incomingTone === 'future'
+                                    ? 'text-sky-700 font-medium'
+                                    : incomingTone === 'today'
+                                      ? 'text-amber-800 font-medium'
+                                      : incomingTone === 'overdue'
+                                        ? 'text-red-700 font-medium'
+                                        : 'text-slate-400'
+                                }
+                              >
+                                {incomingText}
+                              </span>
                             </td>
                             <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
                             <td className="py-2.5 px-4">
