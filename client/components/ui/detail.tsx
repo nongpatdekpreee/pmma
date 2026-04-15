@@ -7,6 +7,9 @@ import { apiUrl } from '@/lib/api';
 import { useAlertModal } from '@/components/ui/useAlertModal';
 import ExcelJS from 'exceljs';
 
+/** Reason for in process (notes เมื่อ status = working) */
+const IN_PROCESS_REASON_MAX_CHARS = 120;
+
 interface Device {
   id: string;
   name: string;
@@ -98,7 +101,11 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   useEffect(() => {
     if (task) {
       setStatus(task.status || 'not-started');
-      setInProcessReasonDraft(String(task.notes ?? '').trim());
+      setInProcessReasonDraft(
+        String(task.notes ?? '')
+          .trim()
+          .slice(0, IN_PROCESS_REASON_MAX_CHARS)
+      );
       setAssetPage(1);
     }
   }, [task]);
@@ -203,7 +210,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
 
   const handleSave = () => {
     if (status === 'working') {
-      const reason = inProcessReasonDraft.trim();
+      const reason = inProcessReasonDraft.trim().slice(0, IN_PROCESS_REASON_MAX_CHARS);
       if (!reason) {
         showAlert('กรุณากรอกเหตุผลก่อนบันทึกสถานะ In process', 'warning', 'ขาดข้อมูล');
         return;
@@ -212,7 +219,10 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
     const updatedTask: TaskDetail = {
       ...task,
       status,
-      notes: status === 'working' ? inProcessReasonDraft.trim() : task.notes,
+      notes:
+        status === 'working'
+          ? inProcessReasonDraft.trim().slice(0, IN_PROCESS_REASON_MAX_CHARS)
+          : task.notes,
     };
 
     onUpdate?.(updatedTask);
@@ -668,15 +678,30 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             </div>
             {status === 'working' && (
               <div className="mt-4 rounded-xl border-2 border-amber-200 bg-amber-50/90 p-3">
-                <label htmlFor="in-process-reason" className="mb-2 flex items-center gap-2 text-xs font-bold text-amber-900">
+                <label htmlFor="in-process-reason" className="mb-2 flex flex-wrap items-center gap-2 text-xs font-bold text-amber-900">
                   <Clock3 size={16} className="shrink-0" />
                   Reason for in process
                   <span className="text-red-500">*</span>
+                  <span className="ml-auto font-mono font-normal text-[10px] text-amber-800/90 tabular-nums">
+                    {inProcessReasonDraft.length}/{IN_PROCESS_REASON_MAX_CHARS}
+                  </span>
                 </label>
+                <p className="mb-1.5 text-[10px] leading-snug text-amber-900/85">
+                  Maximum 120 characters.
+                </p>
                 <textarea
                   id="in-process-reason"
                   value={inProcessReasonDraft}
-                  onChange={(e) => setInProcessReasonDraft(e.target.value)}
+                  maxLength={IN_PROCESS_REASON_MAX_CHARS}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v.length > IN_PROCESS_REASON_MAX_CHARS) {
+                      showAlert('Maximum 120 characters.', 'warning', 'Too long');
+                      setInProcessReasonDraft(v.slice(0, IN_PROCESS_REASON_MAX_CHARS));
+                      return;
+                    }
+                    setInProcessReasonDraft(v);
+                  }}
                   rows={3}
                   placeholder="For example: Waiting for spare parts, Coordinating with customer, Waiting for access..."
                   className="w-full resize-y rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"

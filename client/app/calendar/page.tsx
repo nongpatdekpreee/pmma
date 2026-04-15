@@ -73,9 +73,13 @@ interface CalendarEvent {
   status?: 'done' | 'working' | 'stuck' | 'not-started';
 }
 
+const IN_PROCESS_REASON_DISPLAY_MAX = 120;
+
 /** ข้อความอธิบายว่าทำไมงานถึงอยู่ระหว่างดำเนินการ (in process) — จากโน้ต / root cause */
 function getCalendarInProcessReason(ev: Pick<CalendarEvent, 'notes' | 'rootCause'>): string {
-  const notes = String(ev.notes ?? '').trim();
+  const notes = String(ev.notes ?? '')
+    .trim()
+    .slice(0, IN_PROCESS_REASON_DISPLAY_MAX);
   const root = String(ev.rootCause ?? '').trim();
   if (notes && root) return `${notes} (${root})`;
   if (notes) return notes;
@@ -1074,6 +1078,7 @@ function CalendarPageContent() {
                         <span className="block">Date</span>
                         <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
                       </th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Incoming</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Engineer</th>
@@ -1084,7 +1089,7 @@ function CalendarPageContent() {
                   <tbody>
                     {tasksInCurrentMonth.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400">No tasks in this month</td>
+                        <td colSpan={7} className="py-8 text-center text-slate-400">No tasks in this month</td>
                       </tr>
                     ) : (
                       paginatedTableTasks.map((ev) => {
@@ -1097,6 +1102,27 @@ function CalendarPageContent() {
                         const endDate = endDateStr ? new Date(endDateStr) : null;
                         if (endDate) endDate.setHours(0, 0, 0, 0);
                         const isOverdue = !isDone && endDate && endDate < today;
+
+                        let incomingText = '—';
+                        let incomingTone: 'future' | 'today' | 'overdue' | 'neutral' = 'neutral';
+                        if (isDone) {
+                          incomingText = '—';
+                        } else if (endDate) {
+                          const msDay = 86400000;
+                          const diffDays = Math.round((endDate.getTime() - today.getTime()) / msDay);
+                          if (diffDays > 0) {
+                            incomingText = diffDays === 1 ? 'In 1 day' : `In ${diffDays} days`;
+                            incomingTone = 'future';
+                          } else if (diffDays === 0) {
+                            incomingText = 'Due today';
+                            incomingTone = 'today';
+                          } else {
+                            const overdueDays = -diffDays;
+                            incomingText =
+                              overdueDays === 1 ? 'Overdue 1 day' : `Overdue ${overdueDays} days`;
+                            incomingTone = 'overdue';
+                          }
+                        }
                         const isInProcess = ev.status === 'working';
                         const statusLabel = isDone
                           ? 'Done'
@@ -1121,6 +1147,21 @@ function CalendarPageContent() {
                                       `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(ev.startDay).padStart(2, '0')}`
                                   )
                                 : `${formatDateMonthDayYear(ev.startDate)} – ${formatDateMonthDayYear(ev.endDate)}`}
+                            </td>
+                            <td className="py-2.5 px-4 text-xs whitespace-nowrap">
+                              <span
+                                className={
+                                  incomingTone === 'future'
+                                    ? 'text-sky-700 font-medium'
+                                    : incomingTone === 'today'
+                                      ? 'text-amber-800 font-medium'
+                                      : incomingTone === 'overdue'
+                                        ? 'text-red-700 font-medium'
+                                        : 'text-slate-400'
+                                }
+                              >
+                                {incomingText}
+                              </span>
                             </td>
                             <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
                             <td className="py-2.5 px-4">
