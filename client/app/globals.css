@@ -133,11 +133,32 @@
 }
 
 @layer base {
+  /* ฐาน rem เล็กลงทั้งแอป (~12.8px จาก 16px) — ขนาดตัวอักษร, padding, gap ที่ใช้ rem จะเล็กตาม */
+  html {
+    font-size: 80%;
+  }
+  /* หัวข้อเชิงสัมพันธ์: ค่าเล็กลงหนึ่งระดับจากเดิม; ถ้าใส่ class ขนาดเอง (เช่น text-3xl) class นั้นชนะ */
+  h1 {
+    @apply text-xl font-semibold tracking-tight;
+  }
+  h2 {
+    @apply text-lg font-semibold tracking-tight;
+  }
+  h3 {
+    @apply text-base font-semibold;
+  }
+  h4 {
+    @apply text-sm font-semibold;
+  }
+  h5,
+  h6 {
+    @apply text-sm font-medium;
+  }
   * {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-background text-foreground font-sans antialiased leading-relaxed;
   }
 }
 
