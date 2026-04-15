@@ -923,7 +923,7 @@ export default function DashboardPage() {
                       className="block rounded-2xl border border-gray-50 border-l-4 border-l-amber-400 p-4 bg-amber-50/30 hover:bg-amber-50/50 transition-colors"
                     >
                       <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                      <p className="text-[10px] text-amber-600 mt-1">Overdue {ev.dateStr}</p>
+                      <p className="text-[10px] text-amber-600 mt-1">From {ev.dateStr}</p>
                       {ev.endDate &&
                         (() => {
                           const overdue = formatThaiDaysPastDue(ev.endDate, todayStart);

@@ -42,9 +42,8 @@ import type { SiteLocation, DeviceItem } from './types';
 const inputBase =
   'w-full rounded-xl border border-slate-200/90 bg-white p-3 text-sm text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
 
-/** ความสูงเดียวกับปุ่มเพิ่มผู้ติดต่อ (45px รวม border) */
-const saleContactInputClass =
-  'w-full box-border h-[45px] rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm leading-snug text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
+/** Sale contact — เหมือน Contract name (inputBase) + ที่ว่างปุ่มล้าง */
+const saleContactInputClass = `${inputBase} box-border pr-9`;
 
 type SiteEntry = {
   id: string;
@@ -1764,7 +1763,7 @@ function AddContractPageContent() {
               serviceDropdownOpen || sourceSofDropdownOpen ? 'z-[100]' : ''
             }
           >
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid w-full min-w-0 gap-4 sm:grid-cols-2 [&>div]:min-w-0">
               <FormField label="Contract Name" required>
                 <div className="relative">
                   <input
@@ -1942,13 +1941,13 @@ function AddContractPageContent() {
                 </>
               )}
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid w-full min-w-0 gap-4 sm:grid-cols-2 [&>div]:min-w-0">
               <FormField label="Service " required>
                 <div
                   id="service-dropdown-root"
-                  className={`relative w-full min-w-0 ${serviceDropdownOpen ? 'z-[200]' : ''}`}
+                  className={`relative w-full min-w-0 max-w-full ${serviceDropdownOpen ? 'z-[200]' : ''}`}
                 >
-                  <div className={contractDropdownShellClass}>
+                  <div className={`${contractDropdownShellClass} w-full max-w-full`}>
                     <input
                       type="text"
                       value={assignedService}
@@ -2072,7 +2071,7 @@ function AddContractPageContent() {
                           value={row.name}
                           onChange={(e) => updateSaleContactRow(row.id, { name: e.target.value })}
                           placeholder="Name"
-                          className={`${saleContactInputClass} pr-9`}
+                          className={saleContactInputClass}
                         />
                         {row.name ? (
                           <button
@@ -2093,7 +2092,7 @@ function AddContractPageContent() {
                           value={row.email}
                           onChange={(e) => updateSaleContactRow(row.id, { email: e.target.value })}
                           placeholder="name@example.com"
-                          className={`${saleContactInputClass} pr-9`}
+                          className={saleContactInputClass}
                         />
                         {row.email ? (
                           <button
@@ -2118,7 +2117,7 @@ function AddContractPageContent() {
                             updateSaleContactRow(row.id, { tel: v });
                           }}
                           placeholder="9–15 digits"
-                          className={`${saleContactInputClass} pr-9`}
+                          className={saleContactInputClass}
                         />
                         {row.tel ? (
                           <button
@@ -2132,7 +2131,7 @@ function AddContractPageContent() {
                         ) : null}
                       </div>
                     </FormField>
-                    <div className="flex flex-col sm:w-[45px] sm:shrink-0">
+                    <div className="flex flex-col sm:w-11 sm:shrink-0">
                       <span
                         className="mb-1.5 hidden text-xs font-semibold uppercase tracking-wider text-transparent sm:block"
                         aria-hidden
@@ -2145,12 +2144,12 @@ function AddContractPageContent() {
                           onClick={addSaleContactRow}
                           title="Add sale contact"
                           aria-label="Add sale contact"
-                          className="ml-auto flex h-[45px] w-[45px] shrink-0 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-sm transition-colors hover:bg-indigo-600 sm:ml-0"
+                          className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-sm transition-colors hover:bg-indigo-600 sm:ml-0"
                         >
                           <UserPlus size={22} strokeWidth={2} />
                         </button>
                       ) : (
-                        <div className="hidden h-[45px] w-[45px] shrink-0 sm:block" aria-hidden />
+                        <div className="hidden h-11 w-11 shrink-0 sm:block" aria-hidden />
                       )}
                     </div>
                   </div>
@@ -2179,7 +2178,7 @@ function AddContractPageContent() {
             emoji="📅"
             gradient="from-purple-50 to-pink-50"
           >
-            <div className="grid gap-4 sm:grid-cols-4 lg:grid-cols-4">
+            <div className="grid w-full min-w-0 gap-4 sm:grid-cols-2 [&>div]:min-w-0">
               <FormField
                 label={
                   <>
@@ -2220,7 +2219,7 @@ function AddContractPageContent() {
                       setDuration(v);
                       recalcEndFromDuration(startDate, v);
                     }}
-                    className={contractDropdownNativeSelectClass}
+                    className={`${contractDropdownNativeSelectClass} w-full min-w-0`}
                   >
                     <option value="">Select</option>
                     {/* 1-11 months */}
@@ -2269,7 +2268,7 @@ function AddContractPageContent() {
                   <select
                     value={pmTimePerYear}
                     onChange={(e) => setPmTimePerYear(e.target.value)}
-                    className={contractDropdownNativeSelectClass}
+                    className={`${contractDropdownNativeSelectClass} w-full min-w-0`}
                   >
                     <option value="">Select</option>
                     {[1, 2, 3, 4, 5].map((n) => (
@@ -2486,14 +2485,14 @@ function AddContractPageContent() {
                     return (
                     <div
                       key={entry.id}
-                      className={`relative flex flex-col gap-2 rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 backdrop-blur-sm ${
+                      className={`relative flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 backdrop-blur-sm ${
                         rowPickerOpen ? 'z-[160]' : ''
                       }`}
                     >
-                      <div className="flex flex-wrap items-end gap-2">
+                      <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:items-end sm:gap-3">
                         {uniqueSites.length > 0 ? (
                           <>
-                            <div className="min-w-0 flex-1 basis-0 sm:min-w-[12rem]">
+                            <div className="min-w-0 w-full max-w-full">
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                                 Site 
                               </label>
@@ -2581,7 +2580,7 @@ function AddContractPageContent() {
                                 />
                               )}
                             </div>
-                            <div className="min-w-0 flex-1 basis-0 sm:min-w-[12rem]">
+                            <div className="min-w-0 w-full max-w-full">
                               <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                                 Location 
                               </label>
@@ -2682,7 +2681,7 @@ function AddContractPageContent() {
                             </div>
                           </>
                         ) : (
-                          <div className="min-w-0 flex-1 basis-0 sm:min-w-[14rem]">
+                          <div className="min-w-0 w-full max-w-full sm:col-span-2">
                             <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
                               Site
                             </label>
@@ -2712,28 +2711,32 @@ function AddContractPageContent() {
                             />
                           </div>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
-                            void openDeviceModalForEntry(entry.id);
-                          }}
-                          disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
-                          className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {devicesLoading && activeSiteEntryId === entry.id
-                            ? 'Loading...'
-                            : 'Select Device'}
-                        </button>
-                        {siteEntries.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeSiteEntry(entry.id)}
-                            className="rounded-xl p-2 text-red-500 transition-colors hover:bg-red-50"
-                            title="Delete Site"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                        {entry.devices.length === 0 && (
+                          <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-4 sm:col-span-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
+                                void openDeviceModalForEntry(entry.id);
+                              }}
+                              disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
+                              className="inline-flex min-h-[2.75rem] items-center justify-center rounded-xl bg-indigo-500 px-5 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {devicesLoading && activeSiteEntryId === entry.id
+                                ? 'Loading...'
+                                : 'Select Device'}
+                            </button>
+                            {siteEntries.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeSiteEntry(entry.id)}
+                                className="inline-flex min-h-[2.75rem] min-w-[2.75rem] items-center justify-center rounded-xl p-2 text-red-500 transition-colors hover:bg-red-50"
+                                title="Delete Site"
+                              >
+                                <Trash2 size={20} />
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                       {entry.devices.length > 0 && (() => {
@@ -2747,8 +2750,8 @@ function AddContractPageContent() {
                         const truncated = total > limit;
                         const moreCount = total - limit;
                         return (
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-4">
                             <p className="text-xs font-semibold text-slate-600">
                               Selected <span className="text-blue-600">{total}</span> items
                               {truncated && !listExpanded && (
@@ -2822,6 +2825,33 @@ function AddContractPageContent() {
                         </div>
                         );
                       })()}
+                      {entry.devices.length > 0 && (
+                        <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-4">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
+                              void openDeviceModalForEntry(entry.id);
+                            }}
+                            disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
+                            className="inline-flex min-h-[2.75rem] items-center justify-center rounded-xl bg-indigo-500 px-5 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {devicesLoading && activeSiteEntryId === entry.id
+                              ? 'Loading...'
+                              : 'Select Device'}
+                          </button>
+                          {siteEntries.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeSiteEntry(entry.id)}
+                              className="inline-flex min-h-[2.75rem] min-w-[2.75rem] items-center justify-center rounded-xl p-2 text-red-500 transition-colors hover:bg-red-50"
+                              title="Delete Site"
+                            >
+                              <Trash2 size={20} />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

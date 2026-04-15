@@ -3,23 +3,23 @@
 import { Check, ChevronDown, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-/** เปลือก control แบบ Refer SOF — ใช้ร่วมกับ combobox / native select ในหน้า contract ฯลฯ */
+/** เปลือก control — ให้สอดคล้อง input ชื่อสัญญา (p-3, border-slate-200/90, shadow, focus ring) */
 export const contractDropdownShellClass =
-  'relative flex min-h-[42px] w-full min-w-0 items-center rounded-xl border border-slate-200 bg-white shadow-sm transition-colors hover:border-sky-300 has-[:disabled]:opacity-50';
+  'relative flex w-full min-w-0 items-stretch rounded-xl border border-slate-200/90 bg-white text-sm text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all hover:border-sky-300/90 focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-500/15 has-[:disabled]:opacity-50';
 
 export const contractDropdownTextButtonClass =
-  'flex min-h-[42px] min-w-0 flex-1 items-center px-3 py-2.5 text-left text-sm font-medium text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:pointer-events-none rounded-l-xl';
+  'flex min-h-0 min-w-0 flex-1 items-center px-3 py-3 text-left text-sm font-medium text-slate-800 outline-none focus-visible:outline-none disabled:pointer-events-none rounded-l-xl';
 
 export const contractDropdownNativeSelectClass =
-  'min-h-[42px] min-w-0 flex-1 cursor-pointer appearance-none rounded-l-xl border-0 bg-transparent px-3 py-2.5 text-left text-sm font-medium text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:pointer-events-none disabled:cursor-not-allowed';
+  'min-h-0 min-w-0 flex-1 cursor-pointer appearance-none rounded-l-xl border-0 bg-transparent px-3 py-3 text-left text-sm font-medium text-slate-800 outline-none focus-visible:outline-none disabled:pointer-events-none disabled:cursor-not-allowed';
 
 export const contractDropdownComboboxInputClass =
-  'min-h-[42px] min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-sm font-medium text-slate-800 outline-none placeholder:font-normal placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 rounded-l-xl';
+  'min-h-0 min-w-0 flex-1 border-0 bg-transparent px-3 py-3 text-sm font-medium text-slate-800 outline-none placeholder:font-normal placeholder:text-slate-400 focus-visible:outline-none rounded-l-xl';
 
 export function contractDropdownTrailingClass(showDivider: boolean) {
   return showDivider
-    ? 'flex shrink-0 items-center gap-0.5 border-l border-slate-100 py-1 pl-1 pr-1.5'
-    : 'flex shrink-0 items-center gap-0.5 py-1 pl-0.5 pr-1.5';
+    ? 'flex shrink-0 items-center gap-0.5 self-stretch border-l border-slate-100 py-0 pl-1 pr-1.5'
+    : 'flex shrink-0 items-center gap-0.5 self-stretch py-0 pl-0.5 pr-1.5';
 }
 
 export const contractDropdownClearBtnClass =
@@ -32,7 +32,7 @@ export function NativeSelectDropdownShell({ children }: { children: ReactNode })
   return (
     <div className={contractDropdownShellClass}>
       {children}
-      <div className="pointer-events-none flex shrink-0 items-center border-l border-slate-100 py-1 pl-1 pr-2 text-slate-500">
+      <div className="pointer-events-none flex shrink-0 items-center self-stretch border-l border-slate-100 py-0 pl-1 pr-2 text-slate-500">
         <ChevronDown size={18} aria-hidden />
       </div>
     </div>
@@ -42,7 +42,7 @@ export function NativeSelectDropdownShell({ children }: { children: ReactNode })
 export type ContractSearchListItem = { value: string; label: string; description?: string };
 
 const panelClassName =
-  'absolute left-0 right-0 top-full z-[300] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg';
+  'absolute left-0 right-0 top-full z-[300] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg shadow-slate-900/[0.06]';
 
 type SearchListPanelProps = {
   panelTitle: string;
@@ -261,19 +261,19 @@ export function ContractSimpleSearchListDropdown({
           if (disabled) return;
           onToggle();
         }}
-        className={`${contractDropdownShellClass} flex w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none transition-colors hover:border-sky-300 focus-visible:ring-2 focus-visible:ring-sky-500/30 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 ${multiSelect ? 'items-stretch' : ''}`}
+        className={`${contractDropdownShellClass} w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none disabled:cursor-not-allowed disabled:opacity-50 ${multiSelect ? 'items-stretch' : 'items-center'}`}
       >
         <span
-          className={`min-w-0 flex-1 px-3 py-2.5 text-left text-sm font-medium ${
+          className={`flex min-h-0 min-w-0 flex-1 px-3 py-3 text-left text-sm font-medium ${
             multiSelect && displayText
-              ? 'line-clamp-3 break-words leading-snug text-slate-900'
-              : 'truncate'
+              ? 'items-start overflow-hidden line-clamp-3 break-words leading-snug text-slate-900'
+              : 'items-center overflow-hidden truncate'
           } ${displayText ? 'text-slate-900' : 'text-slate-500'}`}
           title={displayText || undefined}
         >
           {displayText || emptyPlaceholder}
         </span>
-        <span className="flex shrink-0 items-center border-l border-slate-100 py-1 pl-1 pr-2 text-slate-500">
+        <span className="flex shrink-0 items-center self-stretch border-l border-slate-100 py-0 pl-1 pr-2 text-slate-500">
           <ChevronDown
             size={18}
             className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -384,9 +384,7 @@ export function ContractShellSearchListDropdown({
 
   return (
     <div id={rootId} className={`relative w-full min-w-0 ${open ? 'z-[200]' : ''} ${className}`}>
-      <div
-        className={`${contractDropdownShellClass} ${multiSelect ? 'items-stretch' : ''}`}
-      >
+      <div className={contractDropdownShellClass}>
         <button
           type="button"
           onClick={() => !disabled && !loading && onOpenChange(!open)}
@@ -394,7 +392,7 @@ export function ContractShellSearchListDropdown({
           aria-expanded={open}
           aria-haspopup="listbox"
           aria-multiselectable={multiSelect || undefined}
-          className={`${contractDropdownTextButtonClass} ${multiSelect ? 'items-start py-2' : ''}`}
+          className={`${contractDropdownTextButtonClass} ${multiSelect ? 'items-start' : 'items-center'}`}
         >
           <span
             className={`min-w-0 flex-1 text-left ${
@@ -414,7 +412,7 @@ export function ContractShellSearchListDropdown({
           </span>
         </button>
         <div
-          className={`${contractDropdownTrailingClass(showTrailingDivider)} ${multiSelect ? 'self-center' : ''}`}
+          className={contractDropdownTrailingClass(showTrailingDivider)}
           onClick={(e) => e.stopPropagation()}
         >
           {hasValue && !loading && showClearButton && onClear && (
