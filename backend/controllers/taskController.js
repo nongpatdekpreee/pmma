@@ -4,6 +4,15 @@ const db = require('../config/database');
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
 // status, actually_went, notes, reschedule_note, photos, created_at, updated_at
 
+/** Reason for in process เก็บใน notes เมื่อ status = working — จำกัดความยาว */
+const WORKING_NOTES_MAX_LEN = 120;
+function clampNotesForWorkingStatus(notes, status) {
+  if (notes === null || notes === undefined || notes === '') return null;
+  const s = String(notes);
+  if (String(status || '').toLowerCase() !== 'working') return s;
+  return s.length > WORKING_NOTES_MAX_LEN ? s.slice(0, WORKING_NOTES_MAX_LEN) : s;
+}
+
 // Helper function - สร้าง task id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
 const generateNextTaskId = async () => {
   try {
@@ -256,7 +265,7 @@ const createTask = async (req, res) => {
       assetBinding || null,
       status || 'not-started',
       actuallyWent ? 1 : 0,
-      notes || null,
+      clampNotesForWorkingStatus(notes, status || 'not-started'),
       rescheduleNote || null,
       photos && Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : null,
     ];
@@ -418,7 +427,10 @@ const updateTask = async (req, res) => {
     if (assetBinding !== undefined) addUpdate('asset_binding', assetBinding || null);
     if (status !== undefined) addUpdate('status', status || 'not-started');
     if (actuallyWent !== undefined) addUpdate('actually_went', actuallyWent ? 1 : 0);
-    if (notes !== undefined) addUpdate('notes', notes || null);
+    if (notes !== undefined) {
+      const nextStatus = status !== undefined ? status : existing[0].status;
+      addUpdate('notes', clampNotesForWorkingStatus(notes, nextStatus));
+    }
     if (rescheduleNote !== undefined) addUpdate('reschedule_note', rescheduleNote || null);
     if (photos !== undefined) addUpdate('photos', photos && photos.length > 0 ? JSON.stringify(photos) : null);
 

@@ -73,9 +73,13 @@ interface CalendarEvent {
   status?: 'done' | 'working' | 'stuck' | 'not-started';
 }
 
+const IN_PROCESS_REASON_DISPLAY_MAX = 120;
+
 /** ข้อความอธิบายว่าทำไมงานถึงอยู่ระหว่างดำเนินการ (in process) — จากโน้ต / root cause */
 function getCalendarInProcessReason(ev: Pick<CalendarEvent, 'notes' | 'rootCause'>): string {
-  const notes = String(ev.notes ?? '').trim();
+  const notes = String(ev.notes ?? '')
+    .trim()
+    .slice(0, IN_PROCESS_REASON_DISPLAY_MAX);
   const root = String(ev.rootCause ?? '').trim();
   if (notes && root) return `${notes} (${root})`;
   if (notes) return notes;
