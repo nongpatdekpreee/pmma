@@ -68,6 +68,8 @@ type SearchListPanelProps = {
   countNoun?: string;
   /** ความสูงสูงสุดของรายการ (ค่าเริ่ม max-h-[11rem]) */
   listMaxHeightClass?: string;
+  /** ปิดได้เมื่อมีช่องพิมพ์ใน footer — กันโฟกัสไปช่องค้นหาด้านบนโดยไม่ตั้งใจ */
+  filterInputAutoFocus?: boolean;
 };
 
 function SearchListDropdownPanel({
@@ -90,6 +92,7 @@ function SearchListDropdownPanel({
   showFilterCountHint,
   countNoun = 'items',
   listMaxHeightClass = 'max-h-[11rem]',
+  filterInputAutoFocus = true,
 }: SearchListPanelProps) {
   const q = filter.trim().toLowerCase();
   const filtered = items.filter((i) => {
@@ -115,7 +118,7 @@ function SearchListDropdownPanel({
         onChange={(e) => onFilterChange(e.target.value)}
         placeholder={searchPlaceholder}
         className="w-full min-w-0 shrink-0 border-b border-slate-100 px-3 py-2 text-sm outline-none focus:bg-slate-50"
-        autoFocus
+        autoFocus={filterInputAutoFocus}
       />
       <div
         className={`min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden py-1 ${listMaxHeightClass}`}
@@ -217,6 +220,7 @@ export function ContractSimpleSearchListDropdown({
   onToggleItem,
   panelFooter,
   itemLabelClassName,
+  filterInputAutoFocus,
 }: {
   rootId: string;
   disabled?: boolean;
@@ -245,6 +249,7 @@ export function ContractSimpleSearchListDropdown({
   onToggleItem?: (value: string) => void;
   panelFooter?: ReactNode;
   itemLabelClassName?: string;
+  filterInputAutoFocus?: boolean;
 }) {
   return (
     <div
@@ -302,6 +307,7 @@ export function ContractSimpleSearchListDropdown({
           listMaxHeightClass={listMaxHeightClass}
           panelFooter={panelFooter}
           itemLabelClassName={itemLabelClassName}
+          filterInputAutoFocus={filterInputAutoFocus}
         />
       )}
     </div>
@@ -342,6 +348,7 @@ export function ContractShellSearchListDropdown({
   showFilterCountHint,
   countNoun,
   listMaxHeightClass,
+  filterInputAutoFocus,
 }: {
   rootId: string;
   className?: string;
@@ -376,6 +383,7 @@ export function ContractShellSearchListDropdown({
   showFilterCountHint?: boolean;
   countNoun?: string;
   listMaxHeightClass?: string;
+  filterInputAutoFocus?: boolean;
 }) {
   const hasValue =
     Boolean(displayText) ||
@@ -464,6 +472,7 @@ export function ContractShellSearchListDropdown({
           showFilterCountHint={showFilterCountHint}
           countNoun={countNoun}
           listMaxHeightClass={listMaxHeightClass}
+          filterInputAutoFocus={filterInputAutoFocus}
         />
       )}
     </div>
