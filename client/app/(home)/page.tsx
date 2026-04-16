@@ -759,7 +759,14 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <TopSitesWidget loading={loadingHeatmap} error={heatmapError} data={heatmap} />
+          <div>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">
+                Top site contracts
+              </h3>
+            </div>
+            <TopSitesWidget loading={loadingHeatmap} error={heatmapError} data={heatmap} />
+          </div>
         </div>
 
         <div className="flex-1 space-y-6 min-w-0">

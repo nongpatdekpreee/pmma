@@ -13,7 +13,7 @@ import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearch
 import { 
   FileText, Calendar, DollarSign, Building2, Cpu, MapPin, Hash,
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
-  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight 
+  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban
 } from 'lucide-react';
 
 const EQUIPMENT_PAGE_SIZE = 6;
@@ -44,14 +44,15 @@ interface Contract {
   startDate: string;
   endDate: string;
   value: string;
-  status: 'active' | 'expiring' | 'expired';
+  status: 'active' | 'expiring' | 'expired' | 'closed';
   description?: string;
   equipment?: Equipment[];
   formattedValue?: string;
   formattedStartDate?: string;
   formattedEndDate?: string;
   deviceCount?: number;
-  contractStatus?: 'draft' | 'official';
+  /** ค่า DB contract.status: draft | official | not_renewing */
+  contractStatus?: 'draft' | 'official' | 'not_renewing';
   /** device.SLid ตรงกับ contract_device.SLid ทุกเครื่อง (หรือไม่มีเครื่องที่ผูก) */
   devicesSlidAligned?: boolean;
   /** contract.site_id (sites_location.SLid หลัก) */
@@ -60,6 +61,7 @@ interface Contract {
 
 interface FullContractDetails {
   contract_id: number;
+  status?: string | null;
   contract_name?: string | null;
   start_date?: string | null;
   end_date?: string | null;
@@ -182,7 +184,11 @@ function mapApiRowToContract(c: {
   devices_slid_aligned?: number | boolean | null;
 }): Contract {
   const endDate = c.end_date || '';
-  const status = deriveStatus(endDate);
+  const rawStatus = String(c.status || '').toLowerCase();
+  const markedNotRenewing = rawStatus === 'not_renewing';
+  const contractStatus: Contract['contractStatus'] =
+    rawStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
+  const status = resolveContractListStatus(endDate, markedNotRenewing);
   const alignedRaw = c.devices_slid_aligned;
   const devicesSlidAligned =
     alignedRaw === 1 ||
@@ -210,7 +216,7 @@ function mapApiRowToContract(c: {
     formattedEndDate: formatDateThai(c.end_date),
     equipment: [],
     deviceCount: c.device_count || 0,
-    contractStatus: c.status === 'draft' || c.status === 'official' ? c.status : 'official',
+    contractStatus,
     devicesSlidAligned,
     siteId: c.site_id != null && !Number.isNaN(Number(c.site_id)) ? Number(c.site_id) : null,
   };
@@ -226,6 +232,63 @@ function deriveStatus(endDate: string | null | undefined): 'active' | 'expiring'
   const in30Days = new Date(today);
   in30Days.setDate(in30Days.getDate() + 30);
   return end <= in30Days ? 'expiring' : 'active';
+}
+
+/** รายการสัญญา: ถ้า status DB = not_renewing และเลยวันสิ้นสุดแล้ว → แสดงเป็น closed (ไม่ใช้คำว่า Expired ใน badge) */
+function resolveContractListStatus(
+  endDate: string,
+  markedNotRenewing?: boolean | null,
+): 'active' | 'expiring' | 'expired' | 'closed' {
+  const base = deriveStatus(endDate);
+  if (markedNotRenewing && base === 'expired') return 'closed';
+  return base;
+}
+
+/** ปุ่ม Renew ในการ์ด/ตาราง: หมดอายุ หรือ not_renewing — ไม่ใช่ draft */
+function contractListShowsRenewAction(contract: Contract): boolean {
+  return (
+    contract.contractStatus !== 'draft' &&
+    (contract.status === 'expired' || contract.contractStatus === 'not_renewing')
+  );
+}
+
+/** Days until end date if end is within the next 3 calendar months; days since expiry if end is past; otherwise "—". */
+function getContractExpiryIncomingLabel(
+  endDateRaw: string | null | undefined,
+  markedNotRenewing?: boolean | null,
+): {
+  text: string;
+  tone: 'future' | 'overdue' | 'due' | 'na';
+} {
+  if (!endDateRaw || !String(endDateRaw).trim()) return { text: '—', tone: 'na' };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(endDateRaw);
+  if (Number.isNaN(end.getTime())) return { text: '—', tone: 'na' };
+  end.setHours(0, 0, 0, 0);
+
+  const windowEnd = new Date(today);
+  windowEnd.setMonth(windowEnd.getMonth() + 3);
+
+  const msDay = 86400000;
+  const diffDays = Math.round((end.getTime() - today.getTime()) / msDay);
+
+  if (diffDays < 0) {
+    if (markedNotRenewing) return { text: '—', tone: 'na' };
+    const n = -diffDays;
+    return {
+      text: n === 1 ? 'Expired 1 day ago' : `Expired ${n} days ago`,
+      tone: 'overdue',
+    };
+  }
+  if (diffDays === 0) {
+    return { text: 'Expires today', tone: 'due' };
+  }
+  if (end.getTime() > windowEnd.getTime()) {
+    return { text: '—', tone: 'na' };
+  }
+  return { text: diffDays === 1 ? 'In 1 day' : `In ${diffDays} days`, tone: 'future' };
 }
 
 function ContractEditorPageContent() {
@@ -375,9 +438,11 @@ function ContractEditorPageContent() {
   }, [siteIdFilter]);
 
   const filteredContracts = contracts.filter((contract) => {
-    // Filter ตามสถานะ (Draft / Active / Expiring / Expired / All)
+    // Filter ตามสถานะ (Draft / Not renewing / Active / Expiring / Expired / All)
     if (activeFilter === 'Draft') {
       if (contract.contractStatus !== 'draft') return false;
+    } else if (activeFilter === 'Not renewing') {
+      if (contract.contractStatus !== 'not_renewing') return false;
     } else if (activeFilter !== 'All') {
       const statusMap: Record<string, string> = {
         Active: 'active',
@@ -865,6 +930,19 @@ function ContractEditorPageContent() {
       const json = await res.json();
       if (res.ok && json.data) {
         setFullContractDetails(json.data);
+        const apiStatus = json.data.status != null ? String(json.data.status).toLowerCase() : '';
+        const markedNotRenewing = apiStatus === 'not_renewing';
+        const nextContractStatus: Contract['contractStatus'] =
+          apiStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
+        setCurrentContract((cur) =>
+          cur && cur.id === contract.id
+            ? {
+                ...cur,
+                contractStatus: nextContractStatus,
+                status: resolveContractListStatus(cur.endDate, markedNotRenewing),
+              }
+            : cur,
+        );
       } else {
         console.error('Failed to load contract details:', json.message);
       }
@@ -883,6 +961,50 @@ function ContractEditorPageContent() {
   const renewContract = (contract: Contract) => {
     setRenewContractTarget(contract);
     setShowRenewModal(true);
+  };
+
+  const applyContractNoRenew = async (contract: Contract) => {
+    try {
+      const nextDbStatus: Contract['contractStatus'] = 'not_renewing';
+      const res = await fetch(apiUrl(`/api/contracts/${contract.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextDbStatus }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toastError(json.message || 'Failed to update contract');
+        return;
+      }
+      const nextStatus = resolveContractListStatus(contract.endDate, true);
+      setContracts((prev) =>
+        prev.map((c) =>
+          c.id === contract.id
+            ? { ...c, contractStatus: nextDbStatus, status: nextStatus }
+            : c,
+        ),
+      );
+      setCurrentContract((cur) =>
+        cur && cur.id === contract.id
+          ? { ...cur, contractStatus: nextDbStatus, status: nextStatus }
+          : cur,
+      );
+      toastSuccess(
+        'Marked as not renewing — Incoming will no longer show days past expiry',
+      );
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Network error');
+    }
+  };
+
+  const handleContractDoNotRenew = (contract: Contract) => {
+    showConfirm(
+      'This contract will be marked as not renewing. Incoming will no longer show days past the end date. You can use Renew later if you change your mind.',
+      () => {
+        void applyContractNoRenew(contract);
+      },
+      { title: 'Are you sure you don’t want to renew the contract?', confirmText: 'Do not renew', cancelText: 'Cancel', dangerConfirm: true },
+    );
   };
 
   const confirmRenewContract = () => {
@@ -920,6 +1042,8 @@ function ContractEditorPageContent() {
         return 'bg-orange-100 text-orange-800';
       case 'expired':
         return 'bg-red-100 text-red-800';
+      case 'closed':
+        return 'bg-slate-200 text-slate-700';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -935,6 +1059,8 @@ function ContractEditorPageContent() {
         return 'Expiring';
       case 'expired':
         return 'Expired';
+      case 'closed':
+        return 'Not renewing';
       default:
         return status;
     }
@@ -1456,6 +1582,7 @@ function ContractEditorPageContent() {
         {(() => {
           const total = contracts.length;
           const draft = contracts.filter((c) => c.contractStatus === 'draft').length;
+          const notRenewing = contracts.filter((c) => c.contractStatus === 'not_renewing').length;
           const active = contracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
           const expiring = contracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
           const expired = contracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
@@ -1465,10 +1592,11 @@ function ContractEditorPageContent() {
             { filter: 'Expiring' as const, number: String(expiring), label: 'Expiring Contracts' },
             { filter: 'Expired' as const, number: String(expired), label: 'Expired Contracts' },
             { filter: 'Draft' as const, number: String(draft), label: 'Draft Contracts' },
+            { filter: 'Not renewing' as const, number: String(notRenewing), label: 'Not renewing' },
           ];
           return (
         <div className="@container min-w-0 w-full max-w-full">
-        <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-white p-4 shadow-sm rounded-2xl border border-slate-200 @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-5 @[56rem]:gap-8 @[56rem]:p-10">
+        <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-white p-4 shadow-sm rounded-2xl border border-slate-200 @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-6 @[56rem]:gap-8 @[56rem]:p-10">
           {stats.map((stat, idx) => {
             const isSelected = activeFilter === stat.filter;
             return (
@@ -1480,7 +1608,7 @@ function ContractEditorPageContent() {
                 isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : 'hover:bg-slate-50'
               }`}
             >
-              {idx < 4 && (
+              {idx < stats.length - 1 && (
                 <div className="pointer-events-none absolute right-0 top-1/2 hidden h-[60%] w-px -translate-y-1/2 bg-slate-200 @[56rem]:block" />
               )}
               <span className="mb-1 block text-2xl font-bold text-blue-600 @[36rem]:mb-2 @[36rem]:text-3xl @[56rem]:text-[2.5rem]">
@@ -1518,7 +1646,7 @@ function ContractEditorPageContent() {
         {/* Filters */}
         <div className="flex gap-4 flex-nowrap items-center overflow-x-auto pb-1">
           <div className="flex gap-2 shrink-0">
-            {['All', 'Active', 'Expiring', 'Expired', 'Draft'].map((filter) => (
+            {['All', 'Active', 'Expiring', 'Expired', 'Draft', 'Not renewing'].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setActiveFilter(filter)}
@@ -1608,7 +1736,12 @@ function ContractEditorPageContent() {
         viewMode === 'card' ? (
         <div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(350px,1fr))] gap-6">
-          {paginatedContracts.map((contract, idx) => (
+          {paginatedContracts.map((contract, idx) => {
+            const incomingCard = getContractExpiryIncomingLabel(
+              contract.endDate,
+              contract.contractStatus === 'not_renewing',
+            );
+            return (
             <div
               key={contract.id}
               className="bg-white border border-slate-200 rounded-[2rem] p-6 
@@ -1663,6 +1796,25 @@ function ContractEditorPageContent() {
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedEndDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
+                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><AlertCircle size={18} /></span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Incoming:</span>
+                <span
+                  className={`font-medium min-w-0 flex-1 ${
+                    incomingCard.tone === 'future'
+                      ? 'text-sky-700'
+                      : incomingCard.tone === 'overdue'
+                        ? 'text-red-700'
+                        : incomingCard.tone === 'due'
+                          ? 'text-amber-800'
+                          : 'text-slate-400'
+                  }`}
+                  style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
+                  title="Within 3 months before end date, or how many days since the contract expired"
+                >
+                  {incomingCard.text}
+                </span>
+              </div>
+              <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><DollarSign size={18} /></span>
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">Value:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>฿{contract.formattedValue}</span>
@@ -1680,45 +1832,66 @@ function ContractEditorPageContent() {
                   </span>
                 </span>
               </div>
-              <div className="flex flex-wrap gap-2 mt-6 pt-6 border-t border-slate-200 min-w-0 overflow-hidden items-center justify-between">
-                <div className="flex flex-wrap gap-2 min-w-0">
-                  <button
-                    onClick={() => viewContractDetails(contract)}
-                    className="flex items-center justify-center py-1.5 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 bg-blue-600 text-white hover:bg-blue-700 hover:-translate-y-0.5 shadow-sm"
-                    title="View Details"
-                  >
-                    <Info size={18} className="text-white" />
-                  </button>
-                  <button
-                    onClick={() => openAssignSiteForContract(contract)}
-                    className={`flex items-center justify-center py-1.5 px-3 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 text-white ${
-                      contract.devicesSlidAligned
-                        ? 'bg-green-600 hover:bg-green-700'
-                        : 'bg-amber-500 hover:bg-amber-600'
-                    }`}
-                    title="View/Edit Site"
-                  >
-                    <MapPin size={18} className="text-white" />
-                  </button>
+              <div className="mt-6 min-w-0 overflow-hidden border-t border-slate-200 pt-6">
+                <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => viewContractDetails(contract)}
+                      className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-xs font-medium shadow-sm transition-all duration-300 bg-blue-600 text-white hover:-translate-y-0.5 hover:bg-blue-700"
+                      title="View Details"
+                    >
+                      <Info size={18} className="text-white" />
+                    </button>
+                    <button
+                      onClick={() => openAssignSiteForContract(contract)}
+                      className={`flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 text-white ${
+                        contract.devicesSlidAligned
+                          ? 'bg-green-600 hover:bg-green-700'
+                          : 'bg-amber-500 hover:bg-amber-600'
+                      }`}
+                      title="View/Edit Site"
+                    >
+                      <MapPin size={18} className="text-white" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {contract.status === 'expired' && contract.contractStatus !== 'draft' && (
+                      <button
+                        type="button"
+                        onClick={() => handleContractDoNotRenew(contract)}
+                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-600 transition-all duration-300 hover:border-slate-400 hover:bg-slate-50"
+                        title="Do not renew — hide days past end date in Incoming"
+                      >
+                        <Ban size={18} className="shrink-0" strokeWidth={2.25} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() =>
+                        contractListShowsRenewAction(contract)
+                          ? renewContract(contract)
+                          : editContract(contract)
+                      }
+                      className={`flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 ${
+                        contractListShowsRenewAction(contract)
+                          ? 'bg-red-500 text-white hover:bg-red-600'
+                          : 'border border-slate-200 bg-white text-slate-700 hover:border-blue-500 hover:text-blue-600'
+                      }`}
+                      title={
+                        contractListShowsRenewAction(contract) ? 'Renew Contract' : 'Edit Contract'
+                      }
+                    >
+                      {contractListShowsRenewAction(contract) ? (
+                        <RefreshCw size={18} className="shrink-0" />
+                      ) : (
+                        <Edit size={18} className="shrink-0" />
+                      )}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
-                  className={`flex items-center justify-center p-2.5 rounded-lg font-medium text-xs cursor-pointer transition-all duration-300 flex-shrink-0 ${
-                    contract.status === 'expired'
-                      ? 'bg-red-500 text-white hover:bg-red-600'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:border-blue-500 hover:text-blue-600'
-                  }`}
-                  title={contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
-                >
-                  {contract.status === 'expired' ? (
-                    <RefreshCw size={16} className="flex-shrink-0" />
-                  ) : (
-                    <Edit size={16} className="flex-shrink-0" />
-                  )}
-                </button>
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
         {totalContracts > CONTRACT_CARD_PAGE_SIZE && (
           <div className="flex items-center justify-between mt-6 py-3 px-4 bg-slate-50 rounded-xl border border-slate-200">
@@ -1758,12 +1931,23 @@ function ContractEditorPageContent() {
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">SOF</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Start Date</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">End Date</th>
+                  <th
+                    className="text-left py-4 px-4 text-sm font-semibold text-slate-700 whitespace-nowrap"
+                    title="Countdown if the contract ends within 3 months; days since expiry if the end date has passed"
+                  >
+                    Incoming
+                  </th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Status</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {paginatedContracts.map((contract) => (
+                {paginatedContracts.map((contract) => {
+                  const incoming = getContractExpiryIncomingLabel(
+                    contract.endDate,
+                    contract.contractStatus === 'not_renewing',
+                  );
+                  return (
                   <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
                     <td className="py-4 px-4 text-sm font-medium text-slate-800">
                       {contract.contractSiteName?.trim() ? contract.contractSiteName : '—'}
@@ -1776,24 +1960,39 @@ function ContractEditorPageContent() {
                     </td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedStartDate}</td>
                     <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedEndDate}</td>
+                    <td className="py-4 px-4 text-sm whitespace-nowrap">
+                      <span
+                        className={
+                          incoming.tone === 'future'
+                            ? 'text-sky-700 font-medium'
+                            : incoming.tone === 'overdue'
+                              ? 'text-red-700 font-medium'
+                              : incoming.tone === 'due'
+                                ? 'text-amber-800 font-medium'
+                                : 'text-slate-400'
+                        }
+                      >
+                        {incoming.text}
+                      </span>
+                    </td>
                     <td className="py-4 px-4">
                       <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
                         {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
                       </span>
                     </td>
-                    <td className="py-4 px-4 min-w-0">
-                      <div className="flex items-center gap-1.5 justify-between min-w-0">
-                        <div className="flex items-center gap-1 min-w-0">
+                    <td className="min-w-[11rem] py-4 px-4">
+                      <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                        <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => viewContractDetails(contract)}
-                            className="flex items-center justify-center py-1 px-2 rounded-md text-[10px] font-medium bg-blue-600 text-white hover:bg-blue-700 transition-all duration-200"
+                            className="flex size-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-[10px] font-medium text-white transition-all duration-200 hover:bg-blue-700"
                             title="View Details"
                           >
                             <Info size={14} className="text-white" />
                           </button>
                           <button
                             onClick={() => openAssignSiteForContract(contract)}
-                            className={`flex items-center justify-center py-1 px-2 rounded-md text-[10px] font-medium text-white transition-all duration-200 ${
+                            className={`flex size-8 shrink-0 items-center justify-center rounded-md text-[10px] font-medium text-white transition-all duration-200 ${
                               contract.devicesSlidAligned
                                 ? 'bg-green-600 hover:bg-green-700'
                                 : 'bg-amber-500 hover:bg-amber-600'
@@ -1803,25 +2002,46 @@ function ContractEditorPageContent() {
                             <MapPin size={14} className="text-white" />
                           </button>
                         </div>
-                        <button
-                          onClick={() => (contract.status === 'expired' ? renewContract(contract) : editContract(contract))}
-                          className={`flex items-center justify-center p-2 rounded-md font-medium transition-all duration-200 flex-shrink-0 ${
-                            contract.status === 'expired'
-                              ? 'bg-red-500 text-white hover:bg-red-600'
-                              : 'bg-white border border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50'
-                          }`}
-                          title={contract.status === 'expired' ? 'Renew Contract' : 'Edit Contract'}
-                        >
-                          {contract.status === 'expired' ? (
-                            <RefreshCw size={14} className="flex-shrink-0" />
-                          ) : (
-                            <Edit size={14} className="flex-shrink-0" />
+                        <div className="flex items-center gap-1.5">
+                          {contract.status === 'expired' && contract.contractStatus !== 'draft' && (
+                            <button
+                              type="button"
+                              onClick={() => handleContractDoNotRenew(contract)}
+                              className="flex size-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-all duration-200 hover:bg-slate-50"
+                              title="Do not renew — hide days past end date in Incoming"
+                            >
+                              <Ban size={14} className="shrink-0" strokeWidth={2.25} />
+                            </button>
                           )}
-                        </button>
+                          <button
+                            onClick={() =>
+                              contractListShowsRenewAction(contract)
+                                ? renewContract(contract)
+                                : editContract(contract)
+                            }
+                            className={`flex size-8 shrink-0 items-center justify-center rounded-md font-medium transition-all duration-200 ${
+                              contractListShowsRenewAction(contract)
+                                ? 'bg-red-500 text-white hover:bg-red-600'
+                                : 'border border-slate-200 bg-white text-slate-700 hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600'
+                            }`}
+                            title={
+                              contractListShowsRenewAction(contract)
+                                ? 'Renew Contract'
+                                : 'Edit Contract'
+                            }
+                          >
+                            {contractListShowsRenewAction(contract) ? (
+                              <RefreshCw size={14} className="shrink-0" />
+                            ) : (
+                              <Edit size={14} className="shrink-0" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -2295,6 +2515,13 @@ function ContractEditorPageContent() {
                               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-50 text-red-700 text-sm font-medium border border-red-200">
                                 <XCircle className="w-3.5 h-3.5" />
                                 ❌ Expired
+                              </span>
+                            )}
+                            {(currentContract.contractStatus === 'not_renewing' ||
+                              currentContract.status === 'closed') && (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium border border-slate-200">
+                                <Ban className="w-3.5 h-3.5" />
+                                Not renewing
                               </span>
                             )}
                           </span>

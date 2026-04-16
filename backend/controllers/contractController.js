@@ -397,7 +397,10 @@ const createContract = async (req, res) => {
           }
         } catch (_) { /* ข้าม */ }
 
-        if (status !== undefined && (status === 'draft' || status === 'official')) {
+        if (
+          status !== undefined &&
+          (status === 'draft' || status === 'official' || status === 'not_renewing')
+        ) {
           updateFields.push('status = ?');
           updateValues.push(status);
         }
@@ -1434,7 +1437,10 @@ const updateContract = async (req, res) => {
     }
 
     // Validate SLA Term
-    const contractStatus = (status === 'draft' || status === 'official') ? status : undefined;
+    const contractStatus =
+      status === 'draft' || status === 'official' || status === 'not_renewing'
+        ? status
+        : undefined;
     if (sla_term !== undefined && sla_term !== null) {
       const slaTermStr = String(sla_term).trim();
       // ถ้าไม่ใช่ draft และส่งค่า sla_term มา ต้องไม่ว่าง
@@ -1571,7 +1577,10 @@ const updateContract = async (req, res) => {
       }
     } catch (_) { /* ข้าม */ }
 
-    if (status !== undefined && (status === 'draft' || status === 'official')) {
+    if (
+      status !== undefined &&
+      (status === 'draft' || status === 'official' || status === 'not_renewing')
+    ) {
       updateFields.push('status = ?');
       updateValues.push(status);
     }

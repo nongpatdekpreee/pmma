@@ -45,6 +45,11 @@ const inputBase =
 /** Sale contact — เหมือน Contract name (inputBase) + ที่ว่างปุ่มล้าง */
 const saleContactInputClass = `${inputBase} box-border pr-9`;
 
+/** Refer SOF — ช่องพิมพ์เอง: รับเฉพาะหลัก 0–9 */
+function referSofManualDigitsOnly(v: string): string {
+  return v.replace(/\D/g, '');
+}
+
 type SiteEntry = {
   id: string;
   selectedSid?: string;
@@ -423,9 +428,9 @@ function AddContractPageContent() {
   /** ยืนยัน SOF ใหม่จากช่องพิมพ์ แล้วปิด dropdown — คง checkbox + ข้อความเมื่อเปิดรายการอีกครั้ง */
   const addManualReferSof = useCallback(
     (raw?: string) => {
-      const t = (raw ?? manualSofInput).trim();
+      const t = referSofManualDigitsOnly(raw ?? manualSofInput);
       if (!t) {
-        toastError('Please enter a SOF number');
+        toastError('Please enter SOF as digits only (0–9)');
         return;
       }
       setSourceSofs([t]);
@@ -442,6 +447,7 @@ function AddContractPageContent() {
   const prevNewContractReferSofKeyRef = useRef('');
   const manualSofSnapshotRef = useRef('');
   const referSofManualEnabledSnapshotRef = useRef(false);
+  const manualReferSofInputRef = useRef<HTMLInputElement>(null);
   manualSofSnapshotRef.current = manualSofInput;
   referSofManualEnabledSnapshotRef.current = referSofManualRowEnabled;
 
@@ -471,6 +477,15 @@ function AddContractPageContent() {
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [sourceSofDropdownOpen]);
+
+  /** โหมดพิมพ์ SOF เอง: โฟกัสช่องใน footer */
+  useEffect(() => {
+    if (!sourceSofDropdownOpen || !referSofManualRowEnabled) return;
+    const t = window.setTimeout(() => {
+      manualReferSofInputRef.current?.focus();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [sourceSofDropdownOpen, referSofManualRowEnabled]);
 
   useEffect(() => {
     if (!viewSiteDropdownOpen) return;
@@ -1712,12 +1727,8 @@ function AddContractPageContent() {
                                 setSofName('');
                                 return;
                               }
-                              // Allow if value comes from dropdown list,
-                              // otherwise enforce digits-only for manual input.
-                              if (referSOFList.includes(value) || /^\d+$/.test(value)) {
-                                setSelectedSOF(value);
-                                setSofName(value);
-                              }
+                              setSelectedSOF(value);
+                              setSofName(value);
                             }}
                             placeholder="Enter new SOF"
                             className={`${inputBase} ${selectedSOF && !referSOFLoading ? 'pr-16' : ''}`}
@@ -1835,6 +1846,7 @@ function AddContractPageContent() {
                   <FormField label="Refer SOF" required>
                     <ContractShellSearchListDropdown
                       rootId="source-sof-dropdown-root"
+                      filterInputAutoFocus={!referSofManualRowEnabled}
                       open={sourceSofDropdownOpen}
                       onOpenChange={setSourceSofDropdownOpen}
                       disabled={referSOFLoading}
@@ -1856,7 +1868,10 @@ function AddContractPageContent() {
                       itemLabelClassName="font-mono"
                       triggerSelectedClassName="font-mono"
                       panelFooter={
-                        <div className="shrink-0 border-t border-slate-200 bg-slate-50/95 px-3 py-2.5 text-sm">
+                        <div
+                          className="shrink-0 border-t border-slate-200 bg-slate-50/95 px-3 py-2.5 text-sm"
+                          onMouseDown={(e) => e.stopPropagation()}
+                        >
                           <div className="flex items-start gap-2.5 rounded-lg hover:bg-sky-50/80">
                             <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-2.5">
                               <input
@@ -1876,27 +1891,39 @@ function AddContractPageContent() {
                               <div className="min-w-0 flex-1">
                                 <span className="block font-medium text-slate-800">Type the new SOF</span>
                                 <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
-                                  Check and type the new SOF, then click Add or press Enter.
+                                  Enter digits only (0–9), then Add or Enter.
                                 </span>
                               </div>
                             </label>
                           </div>
                           <div className="mt-2 flex min-w-0 items-center gap-2 pl-7 sm:pl-8">
                             <input
+                              ref={manualReferSofInputRef}
+                              id="refer-sof-manual-input"
                               type="text"
-                              list="manual-sof-datalist"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              autoComplete="off"
+                              autoCorrect="off"
+                              autoCapitalize="none"
+                              spellCheck={false}
+                              name="refer_sof_manual"
                               value={manualSofInput}
-                              onChange={(e) => setManualSofInput(e.target.value)}
+                              onChange={(e) =>
+                                setManualSofInput(referSofManualDigitsOnly(e.target.value))
+                              }
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   e.preventDefault();
                                   if (referSofManualRowEnabled) {
                                     addManualReferSof(e.currentTarget.value);
                                   }
+                                  return;
                                 }
+                                e.stopPropagation();
                               }}
                               onClick={(e) => e.stopPropagation()}
-                              placeholder="Type the new SOF..."
+                              placeholder="Digits only, e.g. 12345"
                               disabled={!referSofManualRowEnabled}
                               className={`min-w-0 flex-1 rounded-lg border px-2.5 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
                                 referSofManualRowEnabled
@@ -1928,11 +1955,6 @@ function AddContractPageContent() {
                               Add
                             </button>
                           </div>
-                          <datalist id="manual-sof-datalist">
-                            {referSOFList.map((sof) => (
-                              <option key={sof} value={sof} />
-                            ))}
-                          </datalist>
                         </div>
                       }
                     />
@@ -2178,7 +2200,7 @@ function AddContractPageContent() {
             emoji="📅"
             gradient="from-purple-50 to-pink-50"
           >
-            <div className="grid w-full min-w-0 gap-4 sm:grid-cols-2 [&>div]:min-w-0">
+            <div className="grid w-full min-w-0 grid-cols-1 gap-4 md:grid-cols-4 [&>div]:min-w-0">
               <FormField
                 label={
                   <>
@@ -2720,7 +2742,7 @@ function AddContractPageContent() {
                                 void openDeviceModalForEntry(entry.id);
                               }}
                               disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
-                              className="inline-flex min-h-[2.75rem] items-center justify-center rounded-xl bg-indigo-500 px-5 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {devicesLoading && activeSiteEntryId === entry.id
                                 ? 'Loading...'
@@ -2730,7 +2752,7 @@ function AddContractPageContent() {
                               <button
                                 type="button"
                                 onClick={() => removeSiteEntry(entry.id)}
-                                className="inline-flex min-h-[2.75rem] min-w-[2.75rem] items-center justify-center rounded-xl p-2 text-red-500 transition-colors hover:bg-red-50"
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-red-500 transition-colors hover:bg-red-50"
                                 title="Delete Site"
                               >
                                 <Trash2 size={20} />
@@ -2834,7 +2856,7 @@ function AddContractPageContent() {
                               void openDeviceModalForEntry(entry.id);
                             }}
                             disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
-                            className="inline-flex min-h-[2.75rem] items-center justify-center rounded-xl bg-indigo-500 px-5 py-3 text-base font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            className="flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {devicesLoading && activeSiteEntryId === entry.id
                               ? 'Loading...'
@@ -2844,7 +2866,7 @@ function AddContractPageContent() {
                             <button
                               type="button"
                               onClick={() => removeSiteEntry(entry.id)}
-                              className="inline-flex min-h-[2.75rem] min-w-[2.75rem] items-center justify-center rounded-xl p-2 text-red-500 transition-colors hover:bg-red-50"
+                              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-red-500 transition-colors hover:bg-red-50"
                               title="Delete Site"
                             >
                               <Trash2 size={20} />
