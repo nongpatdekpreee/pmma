@@ -20,6 +20,42 @@ export function taskMaNoticeUrl(taskId: number | string, fileBasename: string): 
 }
 
 /**
+ * Excel HYPERLINK() must use an absolute http(s) URL. On Windows, a path like `/api/...` is treated as `C:\\api\\...`
+ * (local file), which triggers a security warning and breaks the link.
+ */
+export function absoluteUrlForHyperlink(pathOrUrl: string): string {
+  const raw = String(pathOrUrl ?? '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const pathOnly = raw.startsWith('/') ? raw : `/${raw}`;
+
+  let base = '';
+  if (typeof window !== 'undefined') {
+    const env = process.env.NEXT_PUBLIC_API_URL;
+    if (env != null && String(env).trim() !== '') {
+      base = String(env).replace(/\/$/, '');
+    }
+    if (!base) {
+      base = window.location.origin || '';
+    }
+  }
+  if (!base) {
+    const g = getApiBase();
+    base = g && String(g).trim() !== '' ? String(g).replace(/\/$/, '') : '';
+  }
+  if (!base || base.startsWith('file:')) {
+    base = 'http://127.0.0.1:3000';
+  }
+  if (!/^https?:\/\//i.test(base)) {
+    base = `http://${base.replace(/^\/+/, '')}`;
+  }
+
+  const out = `${base.replace(/\/$/, '')}${pathOnly}`;
+  return /^https?:\/\//i.test(out) ? out : `http://127.0.0.1:3000${pathOnly}`;
+}
+
+/**
  * Read fetch body as JSON. Returns null if body is HTML (e.g. nginx/404 page), empty, or invalid JSON.
  * Prevents Uncaught SyntaxError from res.json() when the API base URL / proxy is wrong.
  */
