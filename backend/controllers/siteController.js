@@ -275,12 +275,35 @@ const deleteSite = async (req, res) => {
   }
 };
 
+/** GET — จำนวน Site (ตาราง sites) และ Location (ตาราง sites_location) จาก DB */
+const getSiteRegistryCounts = async (req, res) => {
+  try {
+    const [[siteRow]] = await db.execute('SELECT COUNT(*) AS c FROM sites');
+    const [[locRow]] = await db.execute('SELECT COUNT(*) AS c FROM sites_location');
+    res.status(200).json({
+      success: true,
+      data: {
+        siteCount: Number(siteRow?.c ?? 0),
+        locationCount: Number(locRow?.c ?? 0),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting site registry counts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting site registry counts',
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createSite,                    // POST
   getSites,                      // GET
   getSitesLocation,              // GET /locations
   getSitesLocationBySOF,         // GET /locations-by-sof?refer_sof=XXX
   getSitesLocationWithContracts, // GET /locations-with-contracts
+  getSiteRegistryCounts,         // GET /registry-counts
   updateSite,                    // PUT
   deleteSite                     // DELETE
 };

@@ -13,7 +13,17 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useRef, useMemo, useId, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { apiUrl, getContractsBySite, getDevicesByContract, getSitesByContract, getSitesLocation, getSitesLocationWithContracts, getTasks, checkEngineerConflict } from '@/lib/api';
+import {
+  apiUrl,
+  getContractsBySite,
+  getDevicesByContract,
+  getSitesByContract,
+  getSitesLocation,
+  getSitesLocationWithContracts,
+  getTasks,
+  checkEngineerConflict,
+  uploadMaReportFile,
+} from '@/lib/api';
 import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -126,6 +136,32 @@ function parseEngineersFromEvent(engList: unknown): Engineer[] {
   return out;
 }
 
+/** MA text field limits (aligned with DB / UX) */
+const MA_MAX_VENDOR = 100;
+const MA_MAX_REPORTER = 100;
+const MA_MAX_ISSUE_TEXT = 300;
+const MA_MAX_TICKET_DIGITS = 50;
+
+/** paths ใน tasks.photos — MA repair notice attachments */
+function normalizeTaskPhotos(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const p of raw) {
+    if (typeof p === 'string' && p.trim()) out.push(p.trim());
+    else if (p && typeof p === 'object') {
+      const o = p as Record<string, unknown>;
+      const path =
+        typeof o.path === 'string'
+          ? o.path.trim()
+          : typeof o.url === 'string'
+            ? o.url.trim()
+            : '';
+      if (path) out.push(path);
+    }
+  }
+  return out;
+}
+
 interface SiteOption {
   id: string;
   name: string;
@@ -157,6 +193,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [coverageScope, setCoverageScope] = useState('');
+  /** MA repair notice: ที่เก็บแล้ว (path จาก server) + ไฟล์รออัปโหลดตอน Save */
+  const [taskAttachmentPaths, setTaskAttachmentPaths] = useState<string[]>([]);
+  const [taskAttachmentFilesPending, setTaskAttachmentFilesPending] = useState<File[]>([]);
+  const repairNoticeInputId = useId();
   const [assetModalOpen, setAssetModalOpen] = useState(false);
 
   /* ===== MA Contract fields (เหมือน PM) ===== */
@@ -239,6 +279,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setStartDate('');
     setEndDate('');
     setCoverageScope('');
+    setTaskAttachmentPaths([]);
+    setTaskAttachmentFilesPending([]);
     setVendorName('');
     setVendorTel('');
     setVendorTelError('');
@@ -604,6 +646,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setStartDate(start);
       setEndDate(end);
       setCoverageScope(editingEvent.coverageScope || '');
+      setTaskAttachmentPaths(normalizeTaskPhotos(editingEvent.photos));
+      setTaskAttachmentFilesPending([]);
       setVendorName(editingEvent.vendorName || '');
       setVendorTel(editingEvent.vendorTel || editingEvent.vendor_tel || '');
       setReporterName(editingEvent.reporterName || (editingEvent as any).reporter_name || '');
@@ -947,6 +991,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setEndDate(endStr);
     }
   }, [startDate, duration, taskType]);
+
+  /** MA: สัญญาได้แค่หนึ่งฉบับ — ถ้าเปลี่ยนจาก PM มาแล้วเคยเลือกหลายฉบับ ให้เหลือฉบับแรก */
+  useEffect(() => {
+    if (taskType !== 'MA' || editingEvent) return;
+    setSelectedContractIds((prev) => (prev.length > 1 ? [prev[0]] : prev));
+  }, [taskType, editingEvent]);
 
   // Reset MA-specific fields when switching to PM
   useEffect(() => {
@@ -1567,31 +1617,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         })()
         : null;
 
-    const makePayload = (assets: Device[], contractIdNum: number | null, replacementDeviceId: number | null) => ({
-      ...(editingEvent?.id && { id: editingEvent.id }),
-      taskType,
-      contractId: contractIdNum,
-      Sid,
-      Sname,
-      siteId: Sid ? (isNaN(Number(Sid)) ? null : Number(Sid)) : null,
-      siteName: Sname,
-      Eng_id: selectedEngineers.map((e) => e.id),
-      Eng_ids: selectedEngineers,
-      ...(editingEvent?.status !== 'done' && { startDate, endDate: endDate || startDate }),
-      coverageScope,
-      assets,
-      vendorName: taskType === 'MA' ? vendorName : null,
-      vendorTel: taskType === 'MA' ? vendorTel : null,
-      reporterName: taskType === 'MA' ? reporterName : null,
-      reporterTel: taskType === 'MA' ? reporterTel : null,
-      ticket: taskType === 'MA' ? ticket : null,
-      rootCause: taskType === 'MA' ? rootCause : null,
-      resolution: taskType === 'MA' ? resolution : null,
-      assetBinding: taskType === 'MA' ? assetBinding : null,
-      replacementDeviceId: replacementDeviceId,
-      status: editingEvent?.status || 'not-started',
-    });
-
     const allowedContractNums = new Set(
       selectedContractIds.map((x) => Number(x)).filter((n) => !isNaN(n))
     );
@@ -1600,6 +1625,44 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
     try {
       setIsSubmitting(true);
+
+      const photosPayloadForSave = [...taskAttachmentPaths];
+      if (taskType === 'MA' && taskAttachmentFilesPending.length > 0) {
+        for (const file of taskAttachmentFilesPending) {
+          const up = await uploadMaReportFile(file);
+          if (!up.success || !up.path) {
+            toastError(`อัปโหลดไม่สำเร็จ: ${file.name}`);
+            return;
+          }
+          photosPayloadForSave.push(up.path);
+        }
+      }
+
+      const makePayload = (assets: Device[], contractIdNum: number | null, replacementDeviceId: number | null) => ({
+        ...(editingEvent?.id && { id: editingEvent.id }),
+        taskType,
+        contractId: contractIdNum,
+        Sid,
+        Sname,
+        siteId: Sid ? (isNaN(Number(Sid)) ? null : Number(Sid)) : null,
+        siteName: Sname,
+        Eng_id: selectedEngineers.map((e) => e.id),
+        Eng_ids: selectedEngineers,
+        ...(editingEvent?.status !== 'done' && { startDate, endDate: endDate || startDate }),
+        coverageScope,
+        assets,
+        vendorName: taskType === 'MA' ? vendorName : null,
+        vendorTel: taskType === 'MA' ? vendorTel : null,
+        reporterName: taskType === 'MA' ? reporterName : null,
+        reporterTel: taskType === 'MA' ? reporterTel : null,
+        ticket: taskType === 'MA' ? ticket : null,
+        rootCause: taskType === 'MA' ? rootCause : null,
+        resolution: taskType === 'MA' ? resolution : null,
+        assetBinding: taskType === 'MA' ? assetBinding : null,
+        replacementDeviceId: replacementDeviceId,
+        status: editingEvent?.status || 'not-started',
+        photos: photosPayloadForSave,
+      });
 
       if (isEditing) {
         const cidStr = selectedContractIds[0];
@@ -1842,7 +1905,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 <p className="text-[10px] text-slate-500 -mt-0.5 mb-1">
                   {editingEvent
                     ? 'Select contract to specify SOF.'
-                    : 'Select one or more contracts (SOF). Devices load from all selected; save creates separate tasks per contract when assets belong to different contracts.'}
+                    : taskType === 'MA'
+                      ? 'Select one contract (SOF). Devices load from this contract only.'
+                      : 'Select one or more contracts (SOF). Devices load from all selected; save creates separate tasks per contract when assets belong to different contracts.'}
                 </p>
 
                 <div className="relative" ref={contractDropdownRef}>
@@ -1861,19 +1926,23 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     displayText={contractTriggerText}
                     emptyPlaceholder="Find or select contract..."
                     loadingText="Loading contracts..."
-                    panelTitle={editingEvent ? 'Select contract' : 'Select contracts'}
+                    panelTitle={
+                      !editingEvent && taskType === 'PM' ? 'Select contracts' : 'Select contract'
+                    }
                     filter={contractSearch}
                     onFilterChange={setContractSearch}
                     items={contractOptions.map((c) => ({
                       value: String(c.contract_id),
                       label: `${c.contract_name || `Contract #${c.contract_id}`}${c.sof_name ? ` - ${c.sof_name}` : ''}`,
                     }))}
-                    multiSelect={!editingEvent}
-                    selectedValues={!editingEvent ? selectedContractIds : undefined}
-                    onToggleItem={!editingEvent ? toggleContractSelection : undefined}
-                    selectedValue={editingEvent ? selectedContractIds[0] || '' : ''}
+                    multiSelect={!editingEvent && taskType === 'PM'}
+                    selectedValues={!editingEvent && taskType === 'PM' ? selectedContractIds : undefined}
+                    onToggleItem={!editingEvent && taskType === 'PM' ? toggleContractSelection : undefined}
+                    selectedValue={
+                      editingEvent || taskType === 'MA' ? selectedContractIds[0] || '' : ''
+                    }
                     onPick={(contractId) => {
-                      if (!editingEvent) return;
+                      if (!editingEvent && taskType === 'PM') return;
                       handleContractPickSingle(contractId);
                       setShowContractDropdown(false);
                       setContractSearch('');
@@ -1894,7 +1963,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     countNoun="contracts"
                     listMaxHeightClass="max-h-[min(20rem,calc(100vh-12rem))]"
                     panelFooter={
-                      !editingEvent ? (
+                      !editingEvent && taskType === 'PM' ? (
                         <button
                           type="button"
                           className="w-full border-t border-slate-100 bg-slate-50/80 px-3 py-2.5 text-center text-xs font-semibold text-sky-700 hover:bg-sky-50"
@@ -2403,7 +2472,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   <input
                     type="text"
                     value={vendorName}
-                    onChange={(e) => setVendorName(e.target.value)}
+                    maxLength={MA_MAX_VENDOR}
+                    onChange={(e) => setVendorName(e.target.value.slice(0, MA_MAX_VENDOR))}
                     placeholder="Enter third party vendor"
                     className={`${inputBase} ${vendorName && vendorName.trim().length < 5 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
                   />
@@ -2497,7 +2567,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   <input
                     type="text"
                     value={reporterName}
-                    onChange={(e) => setReporterName(e.target.value)}
+                    maxLength={MA_MAX_REPORTER}
+                    onChange={(e) => setReporterName(e.target.value.slice(0, MA_MAX_REPORTER))}
                     placeholder="Reporter name"
                     className={`${inputBase} ${reporterName && reporterName.trim().length < 5 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
                   />
@@ -2576,12 +2647,107 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   <label className={fieldLabel}>Ticket</label>
                   <input
                     type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
                     value={ticket}
-                    onChange={(e) => setTicket(e.target.value)}
-                    placeholder="Ticket number"
+                    maxLength={MA_MAX_TICKET_DIGITS}
+                    onChange={(e) => setTicket(e.target.value.replace(/\D/g, '').slice(0, MA_MAX_TICKET_DIGITS))}
+                    placeholder="Digits only"
                     className={inputBase}
                   />
                 </div>
+              </div>
+
+              <div className="mt-5 pt-5 border-t border-slate-100">
+                <div className="mb-3 flex items-start gap-3">
+                  <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 text-slate-500 ring-1 ring-slate-200/80 shadow-sm">
+                    <Paperclip size={18} strokeWidth={2} aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Repair notice</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                      PDF or images. Files are sent to the server when you save the task.
+                    </p>
+                  </div>
+                </div>
+                <input
+                  id={repairNoticeInputId}
+                  type="file"
+                  multiple
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,application/pdf,image/*"
+                  disabled={editingEvent?.status === 'done'}
+                  className="sr-only"
+                  onChange={(e) => {
+                    const list = e.target.files;
+                    if (!list?.length) return;
+                    setTaskAttachmentFilesPending((prev) => [...prev, ...Array.from(list)]);
+                    e.target.value = '';
+                  }}
+                />
+                <label
+                  htmlFor={repairNoticeInputId}
+                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-3.5 text-sm font-medium text-slate-600 transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${
+                    editingEvent?.status === 'done' ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
+                  }`}
+                >
+                  <Paperclip size={16} className="text-slate-400 transition-colors group-hover:text-sky-600" aria-hidden />
+                  Add files
+                </label>
+                {(taskAttachmentPaths.length > 0 || taskAttachmentFilesPending.length > 0) && (
+                  <ul className="mt-3 space-y-2">
+                    {taskAttachmentPaths.map((path) => {
+                      const name = path.replace(/^.*[/\\]/, '') || path;
+                      const href = /^https?:\/\//i.test(path) ? path : apiUrl(path.startsWith('/') ? path : `/${path}`);
+                      return (
+                        <li
+                          key={path}
+                          className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm shadow-sm"
+                        >
+                          <Paperclip size={14} className="shrink-0 text-slate-400" aria-hidden />
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="min-w-0 flex-1 truncate font-medium text-sky-700 hover:text-sky-900 hover:underline"
+                          >
+                            {name}
+                          </a>
+                          {editingEvent?.status !== 'done' && (
+                            <button
+                              type="button"
+                              className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                              onClick={() => setTaskAttachmentPaths((p) => p.filter((x) => x !== path))}
+                              aria-label="Remove attachment"
+                            >
+                              <X size={16} />
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
+                    {taskAttachmentFilesPending.map((file) => (
+                      <li
+                        key={`${file.name}-${file.size}-${file.lastModified}`}
+                        className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm shadow-sm"
+                      >
+                        <Paperclip size={14} className="shrink-0 text-slate-400" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate font-medium text-slate-700">{file.name}</span>
+                        {editingEvent?.status !== 'done' && (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                            onClick={() =>
+                              setTaskAttachmentFilesPending((prev) => prev.filter((f) => f !== file))
+                            }
+                            aria-label="Remove file"
+                          >
+                            <X size={16} />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           )}
@@ -2594,9 +2760,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   <label className={fieldLabel}>Root Cause</label>
                   <textarea
                     value={rootCause}
-                    onChange={(e) => setRootCause(e.target.value)}
+                    onChange={(e) => setRootCause(e.target.value.slice(0, MA_MAX_ISSUE_TEXT))}
                     placeholder="Enter root cause"
                     rows={3}
+                    maxLength={MA_MAX_ISSUE_TEXT}
                     className={`${inputBase} min-h-[72px] resize-none`}
                   />
                 </div>
@@ -2604,9 +2771,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   <label className={fieldLabel}>Resolution</label>
                   <textarea
                     value={resolution}
-                    onChange={(e) => setResolution(e.target.value)}
+                    onChange={(e) => setResolution(e.target.value.slice(0, MA_MAX_ISSUE_TEXT))}
                     placeholder="Enter resolution"
                     rows={3}
+                    maxLength={MA_MAX_ISSUE_TEXT}
                     className={`${inputBase} min-h-[72px] resize-none`}
                   />
                 </div>

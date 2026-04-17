@@ -238,32 +238,73 @@ export default function AddPMReportPage() {
     if (a == null) return '';
     if (typeof a === 'number') return String(a);
     if (typeof a === 'string') return a.trim();
-    const id = a.id ?? a.Did ?? a.deviceId ?? a.device_id ?? (a as any).ID;
+    const id =
+      a.id ?? a.Did ?? a.did ?? a.deviceId ?? a.device_id ?? (a as any).ID;
     return id != null ? String(id).trim() : '';
   };
 
-  // Device ที่เลือกได้ต้องมาจาก Task (assets + อุปกรณ์ที่เอามาแลกเปลี่ยน replacementDeviceId)
-  const allowedDeviceIds = useMemo(() => {
-    // ยังไม่เลือก task → ไม่ต้องแสดงอะไรเลย
-    if (selectedTaskId == null) return new Set<string>();
-    const ids = new Set<string>();
-    const addTaskDevices = (task: any) => {
-      task.assets?.forEach((a: any) => {
-        const id = getDeviceIdFromAsset(a);
-        if (id) ids.add(id);
-      });
-      if (task.replacementDeviceId != null) ids.add(String(task.replacementDeviceId));
+  /** รวมข้อมูลจาก task.assets เมื่อ device ไม่อยู่ใน GET /api/devices (เช่น limit 1000 + ORDER BY Did DESC ไม่ครอบคลุม Did เก่า) */
+  const deviceFromTaskAssetSnapshot = (raw: any, didNum: number): Device => {
+    const a = raw as Record<string, unknown>;
+    return {
+      Did: didNum,
+      Asset_State: a.Asset_State as string | undefined,
+      CI_Name: (a.CI_Name ?? a.name ?? '') as string | undefined,
+      Asset_Number: (a.Asset_Number ?? a.assetNumber ?? '') as string | undefined,
+      serial: (a.serial ?? a.serialNumber ?? '') as string | undefined,
+      model: (a.model ?? a.type ?? '') as string | undefined,
+      Manufacturername: a.Manufacturername as string | undefined,
+      Sitename: (a.Sitename ?? a.sitename ?? a.siteName ?? '') as string | undefined,
+      Location2: (a.Location2 ?? a.location2 ?? '') as string | undefined,
+      PR_No: a.PR_No as string | undefined,
+      Vendor: a.Vendor as string | undefined,
+      SLid: a.SLid as number | undefined,
     };
-    const task = availablePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
-    if (task) addTaskDevices(task);
-    return ids;
-  }, [availablePMTasks, selectedTaskId]);
+  };
 
-  // แสดงเฉพาะ Device ที่มาจาก Task (ไม่ fallback เป็น devices ทั้งหมด)
+  // Device ที่เลือกได้มาจาก Task (assets + replacement) — ใช้ snapshot ใน task ถ้าไม่พบในรายการ devices ที่โหลดมา
   const allowedDevices = useMemo(() => {
-    if (allowedDeviceIds.size === 0) return [];
-    return devices.filter((d) => allowedDeviceIds.has(String(d.Did)));
-  }, [devices, allowedDeviceIds]);
+    if (selectedTaskId == null) return [];
+    const task = availablePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    if (!task) return [];
+
+    const seen = new Set<string>();
+    const out: Device[] = [];
+
+    const addOne = (d: Device) => {
+      const key = String(d.Did);
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(d);
+    };
+
+    for (const raw of task.assets || []) {
+      const idStr = getDeviceIdFromAsset(raw);
+      if (!idStr) continue;
+      const fromPool = devices.find((d) => String(d.Did) === String(idStr));
+      if (fromPool) {
+        addOne(fromPool);
+        continue;
+      }
+      const didNum = parseInt(String(idStr), 10);
+      if (Number.isNaN(didNum)) continue;
+      addOne(deviceFromTaskAssetSnapshot(raw, didNum));
+    }
+
+    if (task.replacementDeviceId != null) {
+      const rid = String(task.replacementDeviceId);
+      if (!seen.has(rid)) {
+        const fromPool = devices.find((d) => String(d.Did) === rid);
+        if (fromPool) addOne(fromPool);
+        else {
+          const n = Number(task.replacementDeviceId);
+          if (!Number.isNaN(n)) addOne({ Did: n } as Device);
+        }
+      }
+    }
+
+    return out;
+  }, [devices, availablePMTasks, selectedTaskId]);
 
   const selectedTask = useMemo(() => {
     if (selectedTaskId == null) return null;
@@ -272,8 +313,10 @@ export default function AddPMReportPage() {
 
   const selectedDevice = useMemo(() => {
     if (!selectedDeviceId) return null;
+    const fromAllowed = allowedDevices.find((d) => String(d.Did) === String(selectedDeviceId));
+    if (fromAllowed) return fromAllowed;
     return devices.find((d) => String(d.Did) === String(selectedDeviceId)) ?? null;
-  }, [devices, selectedDeviceId]);
+  }, [devices, selectedDeviceId, allowedDevices]);
 
   const selectedTaskSiteName = useMemo(() => {
     const t: any = selectedTask as any;
@@ -694,7 +737,7 @@ export default function AddPMReportPage() {
             </label>
             {loadingDevices ? (
               <p className="text-sm text-slate-500 py-2">Loading devices...</p>
-            ) : availablePMTasks.length > 0 && allowedDevices.length === 0 ? (
+            ) : !selectedTaskId && availablePMTasks.length > 0 ? (
               <p className="text-sm text-slate-500 py-2">Please select a task above first.</p>
             ) : allowedDevices.length > 0 ? (
               <div className="py-2 space-y-1">
@@ -717,6 +760,8 @@ export default function AddPMReportPage() {
                   </div>
                 ) : null}
               </div>
+            ) : selectedTaskId != null ? (
+              <p className="text-sm text-amber-700 py-2">This task has no linked devices in its data.</p>
             ) : (
               <p className="text-sm text-slate-500 py-2">No devices to show. Select a task above.</p>
             )}
@@ -726,13 +771,13 @@ export default function AddPMReportPage() {
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">
-                Technician (ชื่อ-นามสกุล) *
+                Technician 
               </label>
               <input
                 type="text"
                 value={technicianName}
                 onChange={(e) => setTechnicianName(e.target.value)}
-                placeholder="กรอกชื่อ-นามสกุล"
+                placeholder="Enter technician name and surname"
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
             </div>

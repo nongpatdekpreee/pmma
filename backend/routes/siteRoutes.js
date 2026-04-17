@@ -6,6 +6,7 @@ const {
   getSitesLocation,
   getSitesLocationBySOF,
   getSitesLocationWithContracts,
+  getSiteRegistryCounts,
   updateSite,
   deleteSite
 } = require('../controllers/siteController');
@@ -15,6 +16,9 @@ router.post('/', createSite);
 
 // GET - ดึงข้อมูล Sites ทั้งหมด
 router.get('/', getSites);
+
+// GET - จำนวน sites / locations จากตาราง sites และ sites_location
+router.get('/registry-counts', getSiteRegistryCounts);
 
 // GET - ดึง Sites_Location (SLid สำหรับ contract.site_id)
 router.get('/locations', getSitesLocation);

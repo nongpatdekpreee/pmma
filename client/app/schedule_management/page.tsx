@@ -2546,13 +2546,12 @@ function ScheduleManagementContent() {
                                         ? 'bg-red-100 text-red-700'
                                         : 'bg-slate-100 text-slate-600'
                                 }`}
-                                title={isInProcess ? getScheduleInProcessReason(ev) : undefined}
                               >
                                 {isInProcess && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                                 {statusLabel}
                               </span>
                               {isInProcess && (
-                                <p className="mt-1 text-[11px] text-amber-900/90 line-clamp-2" title={getScheduleInProcessReason(ev)}>
+                                <p className="mt-1 text-[11px] text-amber-900/90 line-clamp-2">
                                   {getScheduleInProcessReason(ev)}
                                 </p>
                               )}

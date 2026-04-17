@@ -10,6 +10,25 @@ import ExcelJS from 'exceljs';
 /** Reason for in process (notes เมื่อ status = working) */
 const IN_PROCESS_REASON_MAX_CHARS = 120;
 
+function parseRepairNoticePaths(photos?: string[] | null): string[] {
+  if (!Array.isArray(photos)) return [];
+  const out: string[] = [];
+  for (const p of photos) {
+    if (typeof p === 'string' && p.trim()) out.push(p.trim());
+    else if (p && typeof p === 'object') {
+      const o = p as Record<string, unknown>;
+      const path =
+        typeof o.path === 'string'
+          ? o.path.trim()
+          : typeof o.url === 'string'
+            ? o.url.trim()
+            : '';
+      if (path) out.push(path);
+    }
+  }
+  return out;
+}
+
 interface Device {
   id: string;
   name: string;
@@ -600,6 +619,38 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               </div>
             </div>
           )}
+
+          {task.taskType === 'MA' &&
+            (() => {
+              const repairPaths = parseRepairNoticePaths(task.photos);
+              if (repairPaths.length === 0) return null;
+              return (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                  <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+                    <Paperclip size={16} className="text-slate-500 shrink-0" aria-hidden />
+                    Repair notice
+                  </h3>
+                  <ul className="space-y-2">
+                    {repairPaths.map((path) => {
+                      const name = path.replace(/^.*[/\\]/, '') || path;
+                      const href = /^https?:\/\//i.test(path) ? path : apiUrl(path.startsWith('/') ? path : `/${path}`);
+                      return (
+                        <li key={path}>
+                          <a
+                            href={href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-sky-700 hover:text-sky-900 hover:underline break-all"
+                          >
+                            {name}
+                          </a>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })()}
           
           {/* เหตุผลย้ายวัน — เก็บคนละช่องกับ notes (in process) */}
           {task.rescheduleNote && String(task.rescheduleNote).trim() && (
