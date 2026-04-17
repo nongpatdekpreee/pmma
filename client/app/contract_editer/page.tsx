@@ -16,8 +16,8 @@ import {
   ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban
 } from 'lucide-react';
 
-const EQUIPMENT_PAGE_SIZE = 6;
-const CONTRACT_CARD_PAGE_SIZE = 6;
+const EQUIPMENT_PAGE_SIZE = 5;
+const CONTRACT_CARD_PAGE_SIZE = 12;
 const CONTRACT_TABLE_PAGE_SIZE = 8;
 const EXPORT_MODAL_PAGE_SIZE = 25;
 
@@ -307,6 +307,35 @@ function mapHistoryDisplayRowToContract(h: HistoryDisplayApiRow): Contract {
   };
 }
 
+/** แถว contract_history → Contract สำหรับเปิด modal รายละเอียด (GET /api/contracts/history/:historyId) — contract_id เดิม */
+function buildContractForHistorySnapshot(base: Contract, row: ContractHistoryRow): Contract {
+  const linked = base.linkedContractId ?? base.id;
+  const hs = row.status_history != null ? String(row.status_history).trim() : '';
+  const historyStatus: Contract['historyStatus'] =
+    hs === 'Renew' || hs === 'Terminated' ? hs : null;
+  const terminated = hs === 'Terminated';
+  const cid = row.contract_id != null ? Number(row.contract_id) : NaN;
+  return {
+    ...base,
+    id: `h-${row.history_id}`,
+    linkedContractId: Number.isFinite(cid) && cid > 0 ? String(cid) : linked,
+    historyId: row.history_id,
+    isHistorySnapshotRow: true,
+    status: terminated ? 'closed' : base.status,
+    historyStatus,
+    renewHistOldSof:
+      row.old_sof != null && String(row.old_sof).trim() !== '' ? String(row.old_sof).trim() : null,
+    renewHistNewSof:
+      row.new_sof != null && String(row.new_sof).trim() !== '' ? String(row.new_sof).trim() : null,
+    renewHistAt:
+      row.renewed_at != null && String(row.renewed_at).trim() !== ''
+        ? String(row.renewed_at)
+        : row.created_at != null && String(row.created_at).trim() !== ''
+          ? String(row.created_at)
+          : null,
+  };
+}
+
 function deriveStatus(endDate: string | null | undefined): 'active' | 'expiring' | 'expired' {
   if (!endDate) return 'active';
   const end = new Date(endDate);
@@ -523,6 +552,8 @@ function ContractEditorPageContent() {
   const [currentContract, setCurrentContract] = useState<Contract | null>(null);
   const [fullContractDetails, setFullContractDetails] = useState<FullContractDetails | null>(null);
   const [loadingContractDetails, setLoadingContractDetails] = useState(false);
+  /** แถว contract_history ที่ contract_id ตรงกับสัญญา (โหลดคู่กับ modal รายละเอียด) */
+  const [detailModalHistoryRows, setDetailModalHistoryRows] = useState<ContractHistoryRow[]>([]);
   const [currentEquipmentList, setCurrentEquipmentList] = useState<Equipment[]>([]);
   const [editingEquipmentIndex, setEditingEquipmentIndex] = useState<number | null>(null);
   const [equipmentForm, setEquipmentForm] = useState<Equipment>({
@@ -546,10 +577,11 @@ function ContractEditorPageContent() {
     Array<{ SLid: number; Sid?: number; lid?: number; SiteName?: string; Location2?: string }>
   >([]);
   const [assignDeviceDetails, setAssignDeviceDetails] = useState<Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }>>({});
-  /** โมดัล Assign to Site: Site ใช้ input+datalist (พิมพ์ค้นหาได้), Location เป็น select ตาม Sid */
+  /** โมดัล Assign to Site: Site / Location ใช้ ContractSimpleSearchListDropdown; เปลี่ยนค่าเมื่อติ๊กหลายแถวจะซิงค์ไปทุกแถวที่เลือก */
   const [deviceAssignTargetSid, setDeviceAssignTargetSid] = useState<Record<string, string>>({});
   const [deviceAssignTargetSlid, setDeviceAssignTargetSlid] = useState<Record<string, string>>({});
-  const [deviceAssignSiteQuery, setDeviceAssignSiteQuery] = useState<Record<string, string>>({});
+  const [assignRowPicker, setAssignRowPicker] = useState<{ did: string; kind: 'site' | 'loc' } | null>(null);
+  const [assignRowPickerFilter, setAssignRowPickerFilter] = useState('');
   const [assignDeviceSelected, setAssignDeviceSelected] = useState<Set<string>>(new Set());
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
   const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
@@ -1025,6 +1057,7 @@ function ContractEditorPageContent() {
     setRenewContractTarget(null);
     setCurrentContract(null);
     setFullContractDetails(null);
+    setDetailModalHistoryRows([]);
     setEditingEquipmentIndex(null);
     setSelectedDetailSiteSlid(null);
   };
@@ -1076,8 +1109,26 @@ function ContractEditorPageContent() {
     if (!showAssignSiteModal) {
       setAssignModalViewSiteDropdownOpen(false);
       setAssignModalViewSiteFilter('');
+      setAssignRowPicker(null);
+      setAssignRowPickerFilter('');
     }
   }, [showAssignSiteModal]);
+
+  useEffect(() => {
+    if (!assignRowPicker) return;
+    const rootId = `assign-device-${assignRowPicker.kind}-${assignRowPicker.did}`;
+    const onDoc = (e: MouseEvent) => {
+      const root = document.getElementById(rootId);
+      const portal = document.querySelector(`[data-dropdown-portal-for="${rootId}"]`);
+      const t = e.target as Node;
+      if (root && !root.contains(t) && !(portal && portal.contains(t))) {
+        setAssignRowPicker(null);
+        setAssignRowPickerFilter('');
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [assignRowPicker]);
 
   useEffect(() => {
     if (!assignModalViewSiteDropdownOpen) return;
@@ -1178,6 +1229,7 @@ function ContractEditorPageContent() {
     setShowDetailModal(true);
     setLoadingContractDetails(true);
     setFullContractDetails(null);
+    setDetailModalHistoryRows([]);
 
     const hid = contract.historyId != null ? Number(contract.historyId) : NaN;
     const isHistoryRow =
@@ -1186,12 +1238,27 @@ function ContractEditorPageContent() {
       ? apiUrl(`/api/contracts/history/${hid}`)
       : apiUrl(`/api/contracts/${contractRowApiId(contract)}`);
 
+    const cid = Number(contractRowApiId(contract));
+    const historyListPromise =
+      Number.isFinite(cid) && cid > 0
+        ? fetch(apiUrl(`/api/contracts/${cid}/history`)).then((r) => r.json())
+        : Promise.resolve({ success: false, data: [] as ContractHistoryRow[] });
+
     try {
-      const res = await fetch(url);
+      const [res, histJson] = await Promise.all([fetch(url), historyListPromise]);
       const json = await res.json();
+
+      let histRows: ContractHistoryRow[] = [];
+      if (histJson?.success && Array.isArray(histJson.data)) {
+        histRows = (histJson.data as ContractHistoryRow[]).filter(
+          (h) => Number(h.contract_id) === cid,
+        );
+      }
+
       if (res.ok && json.data) {
         const rawDetail: FullContractDetails = json.data;
         setFullContractDetails(rawDetail);
+        setDetailModalHistoryRows(histRows);
         if (!isHistoryRow) {
           const apiStatus = json.data.status != null ? String(json.data.status).toLowerCase() : '';
           const markedNotRenewing = apiStatus === 'not_renewing';
@@ -1209,9 +1276,11 @@ function ContractEditorPageContent() {
         }
       } else {
         console.error('Failed to load contract details:', json.message);
+        setDetailModalHistoryRows([]);
       }
     } catch (err) {
       console.error('Error loading contract details:', err);
+      setDetailModalHistoryRows([]);
     } finally {
       setLoadingContractDetails(false);
     }
@@ -1296,21 +1365,22 @@ function ContractEditorPageContent() {
   };
 
   const getStatusBadgeClass = (status: string) => {
+    // ทุกสถานะใช้ border ความหนาเดียวกัน (Renew ใช้สีขอบจริง ที่อื่นใช้ transparent) เพื่อให้ขนาดป้ายเท่ากัน
     switch (status) {
       case 'draft':
-        return 'bg-amber-100 text-amber-800';
+        return 'border border-transparent bg-amber-100 text-amber-800';
       case 'active':
-        return 'bg-green-100 text-green-800';
+        return 'border border-transparent bg-green-100 text-green-800';
       case 'expiring':
-        return 'bg-orange-100 text-orange-800';
+        return 'border border-transparent bg-orange-100 text-orange-800';
       case 'expired':
-        return 'bg-red-100 text-red-800';
+        return 'border border-transparent bg-red-100 text-red-800';
       case 'renew':
-        return 'bg-yellow-100 text-yellow-900 border border-yellow-300';
+        return 'border border-transparent bg-yellow-100 text-yellow-900';
       case 'closed':
-        return 'bg-slate-200 text-slate-700';
+        return 'border border-transparent bg-slate-200 text-slate-700';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'border border-transparent bg-gray-100 text-gray-800';
     }
   };
 
@@ -1345,7 +1415,8 @@ function ContractEditorPageContent() {
     setAssignDeviceDetails({});
     setDeviceAssignTargetSid({});
     setDeviceAssignTargetSlid({});
-    setDeviceAssignSiteQuery({});
+    setAssignRowPicker(null);
+    setAssignRowPickerFilter('');
     setAssignDeviceSelected(new Set());
     setAssignModalSelectedSiteSlid(null);
     try {
@@ -2910,6 +2981,72 @@ function ContractEditorPageContent() {
                         </div>
 
                       </div>
+
+                      {/* ประวัติ SOF จาก contract_history — กรองเฉพาะ contract_id เดียวกับสัญญา; คลิกเปิดรายละเอียด snapshot */}
+                      <div className="mt-6 pt-6 border-t border-slate-200">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
+                          <History className="w-4 h-4 text-slate-500 shrink-0" />
+                          <span className="text-sm font-semibold text-slate-800">Contract history</span>
+                          <span className="text-xs text-slate-500">
+                            contract_id {fullContractDetails.contract_id} 
+                          </span>
+                        </div>
+                        {detailModalHistoryRows.length === 0 ? (
+                          <p className="text-sm text-slate-500">No history records found for this contract</p>
+                        ) : (
+                          <ul className="space-y-2">
+                            {detailModalHistoryRows.map((row) => {
+                              const when = row.renewed_at || row.created_at;
+                              const activeSnap =
+                                fullContractDetails.history_detail === true &&
+                                fullContractDetails.history_id != null &&
+                                Number(fullContractDetails.history_id) === Number(row.history_id);
+                              const oldS = row.old_sof?.trim() || '—';
+                              const newS = row.new_sof?.trim() || '—';
+                              const st = row.status_history?.trim();
+                              return (
+                                <li key={row.history_id}>
+                                  <button
+                                    type="button"
+                                    disabled={activeSnap}
+                                    onClick={() => {
+                                      if (!currentContract) return;
+                                      void viewContractDetails(
+                                        buildContractForHistorySnapshot(currentContract, row),
+                                      );
+                                    }}
+                                    className={`w-full flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                                      activeSnap
+                                        ? 'border-blue-300 bg-blue-50/70 cursor-default'
+                                        : 'border-slate-200 bg-white hover:border-blue-400 hover:bg-slate-50 cursor-pointer'
+                                    }`}
+                                  >
+                                    <Clock className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-xs text-slate-500 mb-1">
+                                        {when ? formatDateThai(String(when)) : '—'} · history_id {row.history_id}
+                                      </div>
+                                      <div className="text-sm text-slate-800">
+                                        <span className="text-slate-500">Old SOF</span>{' '}
+                                        <span className="font-medium text-slate-900">{oldS}</span>
+                                        <span className="text-slate-400 mx-1.5">→</span>
+                                        <span className="text-slate-500">New SOF</span>{' '}
+                                        <span className="font-medium text-blue-700">{newS}</span>
+                                      </div>
+                                      {st ? (
+                                        <div className="mt-1 text-xs text-slate-600">Status: {st}</div>
+                                      ) : null}
+                                    </div>
+                                    {!activeSnap ? (
+                                      <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" aria-hidden />
+                                    ) : null}
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -3515,21 +3652,49 @@ function ContractEditorPageContent() {
                         .filter((s) => s.Sid != null && !seen.has(s.Sid) && (seen.add(s.Sid), true))
                         .map((s) => ({ sid: String(s.Sid), name: s.SiteName ?? `Site ${s.Sid}` }));
                     })();
-                    const findSiteByTypedName = (raw: string) => {
-                      const t = raw.trim();
-                      if (!t) return undefined;
-                      return (
-                        assignModalUniqueSites.find((x) => x.name === t) ??
-                        assignModalUniqueSites.find((x) => (x.name || '').toLowerCase() === t.toLowerCase())
-                      );
+                    const assignDeviceSiteItems = assignModalUniqueSites.map(({ sid, name }) => ({
+                      value: sid,
+                      label: name,
+                    }));
+                    const applyAssignSiteToAllSelected = (sid: string) => {
+                      const targets = [...assignDeviceSelected];
+                      if (targets.length === 0) return;
+                      setDeviceAssignTargetSid((prev) => {
+                        const next = { ...prev };
+                        for (const id of targets) next[id] = sid;
+                        return next;
+                      });
+                      setDeviceAssignTargetSlid((prev) => {
+                        const next = { ...prev };
+                        for (const id of targets) next[id] = '';
+                        return next;
+                      });
+                    };
+                    const applyAssignLocationToAllSelected = (slid: string) => {
+                      const targets = [...assignDeviceSelected];
+                      if (targets.length === 0) return;
+                      setDeviceAssignTargetSlid((prev) => {
+                        const next = { ...prev };
+                        for (const id of targets) next[id] = slid;
+                        return next;
+                      });
+                    };
+                    const clearAssignSiteForAllSelected = () => {
+                      const targets = [...assignDeviceSelected];
+                      if (targets.length === 0) return;
+                      setDeviceAssignTargetSid((prev) => {
+                        const next = { ...prev };
+                        for (const id of targets) next[id] = '';
+                        return next;
+                      });
+                      setDeviceAssignTargetSlid((prev) => {
+                        const next = { ...prev };
+                        for (const id of targets) next[id] = '';
+                        return next;
+                      });
                     };
                     return (
                   <>
-                  <datalist id="assign-modal-site-combo-list">
-                    {assignModalUniqueSites.map(({ sid, name }) => (
-                      <option key={sid} value={name} />
-                    ))}
-                  </datalist>
                   {showSitePills && (
                     <div className="mb-4 w-full min-w-0">
                       <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -3652,7 +3817,25 @@ function ContractEditorPageContent() {
                           const locRowsForDevice = selSid
                             ? sitesLocation.filter((s) => s.Sid != null && String(s.Sid) === selSid)
                             : [];
-                          const selectRowClass = `min-w-[120px] flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none ${!isSelected ? 'bg-slate-100 cursor-not-allowed' : 'bg-white'}`;
+                          const assignDeviceLocationItems = locRowsForDevice.map((row) => ({
+                            value: String(row.SLid),
+                            label:
+                              row.Location2 ??
+                              (row.lid != null ? `lid ${row.lid}` : `SLid ${row.SLid}`),
+                          }));
+                          const siteDisplayLabel =
+                            selSid && assignModalUniqueSites.some((u) => u.sid === selSid)
+                              ? assignModalUniqueSites.find((u) => u.sid === selSid)!.name
+                              : '';
+                          const locationDisplayLabel =
+                            selSlid && assignDeviceLocationItems.some((i) => i.value === selSlid)
+                              ? assignDeviceLocationItems.find((i) => i.value === selSlid)!.label
+                              : '';
+                          const sitePickerOpen =
+                            assignRowPicker?.did === didStr && assignRowPicker?.kind === 'site';
+                          const locPickerOpen =
+                            assignRowPicker?.did === didStr && assignRowPicker?.kind === 'loc';
+                          const rowAssignRaiseZ = sitePickerOpen || locPickerOpen;
                           return (
                             <tr key={device.Did} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/50 ${!isSelected ? 'opacity-60' : ''}`}>
                               <td className="px-3 py-2">
@@ -3689,49 +3872,87 @@ function ContractEditorPageContent() {
                                 )}
                               </td>
                               <td className="px-3 py-2">
-                                <div className="flex flex-wrap items-center gap-2 min-w-0">
-                                  <input
-                                    type="text"
-                                    list="assign-modal-site-combo-list"
-                                    placeholder="-- Select Site --"
-                                    autoComplete="off"
-                                    value={deviceAssignSiteQuery[didStr] ?? ''}
-                                    onChange={(e) => {
-                                      const v = e.target.value;
-                                      setDeviceAssignSiteQuery((prev) => ({ ...prev, [didStr]: v }));
-                                      const found = findSiteByTypedName(v);
-                                      if (found) {
-                                        setDeviceAssignTargetSid((prev) => ({ ...prev, [didStr]: found.sid }));
-                                        setDeviceAssignTargetSlid((prev) => ({ ...prev, [didStr]: '' }));
+                                <div
+                                  className={`flex flex-wrap items-center gap-2 min-w-0 ${
+                                    rowAssignRaiseZ ? 'relative z-[220]' : ''
+                                  }`}
+                                >
+                                  <ContractSimpleSearchListDropdown
+                                    rootId={`assign-device-site-${didStr}`}
+                                    portalPanel
+                                    className="min-w-[140px] flex-1 text-xs"
+                                    disabled={!isSelected}
+                                    open={sitePickerOpen}
+                                    onToggle={() => {
+                                      if (sitePickerOpen) {
+                                        setAssignRowPicker(null);
+                                        setAssignRowPickerFilter('');
                                       } else {
-                                        setDeviceAssignTargetSid((prev) => ({ ...prev, [didStr]: '' }));
-                                        setDeviceAssignTargetSlid((prev) => ({ ...prev, [didStr]: '' }));
+                                        setAssignRowPicker({ did: didStr, kind: 'site' });
+                                        setAssignRowPickerFilter('');
                                       }
                                     }}
-                                    disabled={!isSelected}
-                                    className={selectRowClass}
-                                    title="Site (พิมพ์ค้นหาหรือเลือกจากรายการ)"
-                                  />
-                                  <select
-                                    value={selSlid}
-                                    onChange={(e) => {
-                                      setDeviceAssignTargetSlid((prev) => ({
-                                        ...prev,
-                                        [didStr]: e.target.value,
-                                      }));
+                                    displayText={siteDisplayLabel}
+                                    emptyPlaceholder="-- Select Site --"
+                                    panelTitle="Select site"
+                                    filter={assignRowPickerFilter}
+                                    onFilterChange={setAssignRowPickerFilter}
+                                    items={assignDeviceSiteItems}
+                                    selectedValue={selSid}
+                                    onPick={(value) => {
+                                      applyAssignSiteToAllSelected(value);
+                                      setAssignRowPicker(null);
+                                      setAssignRowPickerFilter('');
                                     }}
+                                    searchPlaceholder="Search site..."
+                                    emptyText="No matches"
+                                    showClearOption={Boolean(selSid)}
+                                    showClearButton
+                                    clearAriaLabel="Clear site"
+                                    onClear={() => {
+                                      clearAssignSiteForAllSelected();
+                                      setAssignRowPicker(null);
+                                      setAssignRowPickerFilter('');
+                                    }}
+                                  />
+                                  <ContractSimpleSearchListDropdown
+                                    rootId={`assign-device-loc-${didStr}`}
+                                    portalPanel
+                                    className="min-w-[140px] flex-1 text-xs"
                                     disabled={!isSelected || !selSid}
-                                    className={selectRowClass}
-                                    title="Location (เฉพาะ lid/แถวที่อยู่ภายใต้ Site ที่เลือก)"
-                                  >
-                                    <option value="">-- Select Location --</option>
-                                    {locRowsForDevice.map((row) => (
-                                      <option key={row.SLid} value={String(row.SLid)}>
-                                        {row.Location2 ??
-                                          (row.lid != null ? `lid ${row.lid}` : `SLid ${row.SLid}`)}
-                                      </option>
-                                    ))}
-                                  </select>
+                                    open={locPickerOpen}
+                                    onToggle={() => {
+                                      if (locPickerOpen) {
+                                        setAssignRowPicker(null);
+                                        setAssignRowPickerFilter('');
+                                      } else {
+                                        setAssignRowPicker({ did: didStr, kind: 'loc' });
+                                        setAssignRowPickerFilter('');
+                                      }
+                                    }}
+                                    displayText={locationDisplayLabel}
+                                    emptyPlaceholder="-- Select Location --"
+                                    panelTitle="Select location"
+                                    filter={assignRowPickerFilter}
+                                    onFilterChange={setAssignRowPickerFilter}
+                                    items={assignDeviceLocationItems}
+                                    selectedValue={selSlid}
+                                    onPick={(value) => {
+                                      applyAssignLocationToAllSelected(value);
+                                      setAssignRowPicker(null);
+                                      setAssignRowPickerFilter('');
+                                    }}
+                                    searchPlaceholder="Search location..."
+                                    emptyText="No matches"
+                                    showClearOption={Boolean(selSlid)}
+                                    showClearButton
+                                    clearAriaLabel="Clear location"
+                                    onClear={() => {
+                                      applyAssignLocationToAllSelected('');
+                                      setAssignRowPicker(null);
+                                      setAssignRowPickerFilter('');
+                                    }}
+                                  />
                                 </div>
                               </td>
                             </tr>

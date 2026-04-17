@@ -1557,8 +1557,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
     // MA-specific validation (เหมือน PM)
   if (taskType === 'MA') {
-      if (!vendorName || !startDate) {
-        showWarning('Please fill required MA fields: Third Party Vendor name and Start Date');
+      if (!startDate) {
+        showWarning('Please fill required MA fields: Start Date');
         return;
       }
       // Guard against bots: minimum 5 characters for key text fields
@@ -2468,7 +2468,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
               <div className="grid grid-cols-2 gap-4 items-start">
                 <div>
-                  <label className={fieldLabel}>Third Party Vendor name <span className="text-red-500">*</span></label>
+                  <label className={fieldLabel}>Third Party Vendor name </label>
                   <input
                     type="text"
                     value={vendorName}

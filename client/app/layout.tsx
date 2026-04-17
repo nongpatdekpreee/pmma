@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { SidebarProvider } from "@/components/sidebar/SidebarContext";
@@ -17,6 +17,13 @@ export const metadata: Metadata = {
   title: "Plan Schedule",
   description: "Plan Schedule",
   icons: { icon: "/date.svg" },
+};
+
+/** ให้ layout ใช้ความกว้างจอจริง และไม่บล็อกการ zoom ของเบราว์เซอร์ (Ctrl+/−, pinch) */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  userScalable: true,
 };
 
 export default function RootLayout({

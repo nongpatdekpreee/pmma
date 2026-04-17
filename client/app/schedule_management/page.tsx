@@ -3342,7 +3342,9 @@ function ScheduleManagementContent() {
           ? `/pmchecklist_report?tab=${selectedTask.taskType === 'MA' ? 'ma' : 'pm'}&taskId=${selectedTask.id}`
           : null}
         createReportLink={selectedTask && selectedTask.status === 'done' && !(selectedTask.taskType === 'MA' ? reportedMATaskIds.has(Number(selectedTask.id)) : reportedPMTaskIds.has(Number(selectedTask.id)))
-          ? (selectedTask.taskType === 'MA' ? '/machecklist_report/add' : '/pmchecklist_report/add')
+          ? (selectedTask.taskType === 'MA'
+              ? `/machecklist_report/add?taskId=${encodeURIComponent(String(selectedTask.id))}`
+              : `/pmchecklist_report/add?taskId=${encodeURIComponent(String(selectedTask.id))}`)
           : null}
       />
       {/* Import Excel/CSV Modal */}

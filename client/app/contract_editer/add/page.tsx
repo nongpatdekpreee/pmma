@@ -2255,7 +2255,7 @@ function AddContractPageContent() {
                             autoComplete="off"
                             aria-label="Extension (max 5 digits)"
                             title="Extension (max 5 digits)"
-                            className={`${inputBase} box-border px-2.5 py-3 text-center text-sm tabular-nums ${
+                            className={`${inputBase} box-border px-2.5 py-3 text-left text-sm tabular-nums ${
                               row.telExt ? 'pr-7' : ''
                             }`}
                           />

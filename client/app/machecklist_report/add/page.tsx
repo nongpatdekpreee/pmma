@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -82,6 +82,9 @@ interface Device {
 
 export default function AddMAReportPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const appliedTaskIdFromUrlRef = useRef(false);
   const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -147,6 +150,30 @@ export default function AddMAReportPage() {
   useEffect(() => {
     setTaskPage(p => Math.min(p, Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE)) || 1));
   }, [searchTaskReport, sortTaskBy, filteredAndSortedTasks.length]);
+
+  /** จากลิงก์ Create Report — เลือก task และเลื่อนไปหน้ารายการที่มี task นั้น */
+  useEffect(() => {
+    if (checkingTasks || appliedTaskIdFromUrlRef.current) return;
+    const raw = searchParams.get('taskId');
+    if (!raw?.trim()) return;
+    const n = parseInt(raw.trim(), 10);
+    if (Number.isNaN(n) || n <= 0) {
+      appliedTaskIdFromUrlRef.current = true;
+      return;
+    }
+    const exists = availableMATasks.some((t: any) => Number(t.id) === n);
+    if (!exists) {
+      appliedTaskIdFromUrlRef.current = true;
+      return;
+    }
+    appliedTaskIdFromUrlRef.current = true;
+    setSelectedTaskId(n);
+    const idx = filteredAndSortedTasks.findIndex((t: any) => Number(t.id) === n);
+    if (idx >= 0) {
+      setTaskPage(Math.floor(idx / TASKS_PER_PAGE) + 1);
+    }
+    if (pathname) router.replace(pathname, { scroll: false });
+  }, [checkingTasks, availableMATasks, filteredAndSortedTasks, searchParams, router, pathname]);
 
   // Check if there are done MA tasks
   useEffect(() => {
