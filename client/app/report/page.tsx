@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 
 import {
   BarChart,
   Bar,
+  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -26,6 +27,7 @@ import {
   Calendar,
   Wrench,
   Building2,
+  MapPin,
   Server,
   AlertTriangle,
   Clock,
@@ -39,7 +41,13 @@ import {
   Shield,
   ChevronDown,
 } from 'lucide-react';
-import { getMaDashboard, getPmDashboard, getDeviceRoles, getSitesLocation } from '@/lib/api';
+import {
+  getMaDashboard,
+  getPmDashboard,
+  getDeviceRoles,
+  getSitesLocation,
+  getSiteRegistryCounts,
+} from '@/lib/api';
 import { OverdueTasksModal,CompletedTasksModal,InprocessTasksModal,PendingTasksModal  } from '@/components/ui/OverdueTasksModal';
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['data']>;
@@ -47,7 +55,22 @@ type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['dat
 const EMPTY: DashboardData = {
   months: 6,
   range: { start: '', endExclusive: '' },
-  summary: { totalMA: 0, totalDone: 0, totalInprocess: 0, totalFailed: 0, totalPassed: 0, totalOverdue: 0, totalPending: 0, completionRate: 0, failRate: 0, topVendor: 'N/A', topVendorCount: 0, topEquipment: 'N/A', topEquipmentCount: 0 },
+  summary: {
+    totalMA: 0,
+    totalDone: 0,
+    totalInprocess: 0,
+    totalFailed: 0,
+    totalPassed: 0,
+    totalOverdue: 0,
+    totalPending: 0,
+    completionRate: 0,
+    failRate: 0,
+    topVendor: 'N/A',
+    topVendorCount: 0,
+    topEquipment: 'N/A',
+    topEquipmentCount: 0,
+    topEquipmentBasis: 'none',
+  },
   monthlyMA: [],
   vendorRanking: [],
   siteRanking: [],
@@ -69,6 +92,157 @@ const PIE_COLOR_PM: Record<string, string> = {
   Pending: '#facc15',
   Overdue: '#ef4444',
 };
+
+const TREND_CHART_TOOLTIP_BOX: CSSProperties = {
+  backgroundColor: '#fff',
+  border: '1px solid #e2e8f0',
+  borderRadius: '16px',
+  color: '#475569',
+  padding: '12px 16px',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
+};
+
+/** One Bar + custom shape: fixed bar width (band / series count), only draw value > 0; bars touch, zeros do not widen neighbors. */
+const MONTHLY_TREND_BAR_SEGMENTS_PM = [
+  { key: 'total', fill: '#3b82f6' },
+  { key: 'complete', fill: '#10b981' },
+  { key: 'overdue', fill: '#ef4444' },
+  { key: 'inprocess', fill: '#f97316' },
+  { key: 'pending', fill: '#facc15' },
+] as const;
+
+const MONTHLY_TREND_BAR_SEGMENTS_MA = [
+  { key: 'total', fill: '#3b82f6' },
+  { key: 'complete', fill: '#10b981' },
+  { key: 'pending', fill: '#facc15' },
+  { key: 'inprocess', fill: '#f97316' },
+  { key: 'overdue', fill: '#ef4444' },
+] as const;
+
+function monthlyTrendBundledBarShape(variant: 'pm' | 'ma') {
+  const segments = variant === 'pm' ? MONTHLY_TREND_BAR_SEGMENTS_PM : MONTHLY_TREND_BAR_SEGMENTS_MA;
+  // Recharts BarShapeProps — keep loose so custom rects stay compatible across versions
+  return (props: any) => {
+    const x = Number(props.x);
+    const y = Number(props.y);
+    const width = Number(props.width);
+    const height = Number(props.height);
+    const payload = props.payload as Record<string, unknown> | undefined;
+    const scale = Number(props.value ?? 0);
+    if (!payload || !Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || scale <= 0) {
+      return null;
+    }
+    const baseY = y + height;
+    const slotW = width / segments.length;
+    const ordered = segments.map((s) => ({
+      key: s.key,
+      fill: s.fill,
+      v: Math.max(0, Number(payload[s.key] ?? 0) || 0),
+    }));
+    const visible = ordered.filter((p) => p.v > 0);
+    if (!visible.length) return null;
+    const usedW = visible.length * slotW;
+    const startX = x + (width - usedW) / 2;
+    const rx = Math.min(2, slotW / 2);
+    return (
+      <g>
+        {visible.map((seg, j) => {
+          const h = (seg.v / scale) * height;
+          const yi = baseY - h;
+          return (
+            <rect
+              key={seg.key}
+              x={startX + j * slotW}
+              y={yi}
+              width={Math.max(0, slotW)}
+              height={Math.max(0, h)}
+              fill={seg.fill}
+              rx={rx}
+              ry={rx}
+            />
+          );
+        })}
+      </g>
+    );
+  };
+}
+
+const MONTHLY_TREND_BAR_SHAPE_PM = monthlyTrendBundledBarShape('pm');
+const MONTHLY_TREND_BAR_SHAPE_MA = monthlyTrendBundledBarShape('ma');
+
+function MonthlyTrendSummaryBarTooltip({
+  active,
+  payload,
+  label,
+  isMa,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: Record<string, unknown> }>;
+  label?: string | number;
+  isMa: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  const labelText = label === undefined || label === null ? '' : String(label);
+  const items = isMa
+    ? (MONTHLY_TREND_BAR_SEGMENTS_MA as readonly { key: string; fill: string }[]).map((s) => ({
+        name:
+          s.key === 'total'
+            ? 'Total'
+            : s.key === 'complete'
+              ? 'Complete'
+              : s.key === 'overdue'
+                ? 'Overdue'
+                : s.key === 'inprocess'
+                  ? 'Inprocess'
+                  : 'Pending',
+        key: s.key,
+        fill: s.fill,
+      }))
+    : (MONTHLY_TREND_BAR_SEGMENTS_PM as readonly { key: string; fill: string }[]).map((s) => ({
+        name:
+          s.key === 'total'
+            ? 'Total'
+            : s.key === 'complete'
+              ? 'Complete'
+              : s.key === 'overdue'
+                ? 'Overdue'
+                : s.key === 'inprocess'
+                  ? 'Inprocess'
+                  : 'Pending',
+        key: s.key,
+        fill: s.fill,
+      }));
+  return (
+    <div style={TREND_CHART_TOOLTIP_BOX}>
+      <div style={{ color: '#94a3b8', marginBottom: 4 }}>{labelText}</div>
+      {items.map((it) => (
+        <div key={it.key} className="flex items-center gap-2 text-sm" style={{ marginTop: 2 }}>
+          <span className="inline-block size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: it.fill }} />
+          <span>
+            {it.name}: <strong>{Number(row[it.key] ?? 0) || 0}</strong>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Display-only: normalize location strings to English in this panel (e.g. Thai floor words → "Floor N").
+ * Regex matches Thai source data from the API, not user-facing copy.
+ */
+function formatLocationLabelEn(s: string): string {
+  const t = s.trim();
+  if (!t) return '—';
+  return t
+    .replace(/ชั้น\s*(\d+)/gi, 'Floor $1')
+    .replace(/ชั้น/gi, 'Floor')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const VENDOR_COLORS = ['#60a5fa', '#f87171', '#fbbf24', '#34d399', '#a78bfa', '#f472b6', '#2dd4bf', '#fb923c', '#38bdf8', '#a3e635'];
 
 function RankBadge({ rank }: { rank: number }) {
@@ -98,7 +272,16 @@ function equipmentRowModelLabel(e: { model?: string | null; deviceName?: string 
   return (e.deviceName ?? '').trim();
 }
 
-/** Recharts Y-axis tick: จำกัดบรรทัด + tooltip ชื่อเต็ม กันป้าย site/vendor ทับกัน */
+/** Watch List (MA): group key = model only; strip serial from "Model / Serial" style names. */
+function maWatchListModelKey(e: { model?: string | null; deviceName?: string | null }) {
+  const m = (e.model ?? '').trim();
+  if (m && m !== 'Unknown Model') return m;
+  const fallback = (e.deviceName ?? '').trim();
+  if (fallback.includes(' / ')) return fallback.split(' / ')[0].trim();
+  return fallback || 'Unknown';
+}
+
+/** Recharts Y-axis tick: line-wrap labels + full name in tooltip to avoid overlapping site/vendor labels */
 function RankingBarYAxisTick({
   x,
   y,
@@ -182,24 +365,33 @@ export default function ReportPage() {
   const [maTrendModelFilter, setMaTrendModelFilter] = useState<string | null>(null);
   const [maTrendSidFilter, setMaTrendSidFilter] = useState<string>('');
   const [maTrendLidFilter, setMaTrendLidFilter] = useState<string>('');
+  /** Line (default) vs bar for Monthly trend when showing summary-style series (PM or MA summary). */
+  const [monthlyTrendChartKind, setMonthlyTrendChartKind] = useState<'line' | 'bar'>('line');
   const [completedModalOpen, setCompletedModalOpen] = useState(false);
   const [inprocessModalOpen, setInprocessModalOpen] = useState(false);
   const [pendingModalOpen, setPendingModalOpen] = useState(false);
+  const [siteRegistryCounts, setSiteRegistryCounts] = useState<{ siteCount: number; locationCount: number } | null>(null);
+  const [siteRegistryCountsLoading, setSiteRegistryCountsLoading] = useState(false);
   const summaryCardsScrollRef = useRef<HTMLDivElement>(null);
-  const summaryCardsSetRef = useRef<HTMLDivElement>(null);
-  const [summaryCardsDotIndex, setSummaryCardsDotIndex] = useState(0);
+  const [summaryAtScrollStart, setSummaryAtScrollStart] = useState(true);
+  const [summaryAtScrollEnd, setSummaryAtScrollEnd] = useState(false);
   const dragRef = useRef({ isDragging: false, startX: 0, scrollLeftStart: 0 });
+
+  const updateSummaryScrollArrows = useCallback(() => {
+    const el = summaryCardsScrollRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    const sl = el.scrollLeft;
+    setSummaryAtScrollStart(sl <= 2);
+    setSummaryAtScrollEnd(maxScroll <= 2 || sl >= maxScroll - 2);
+  }, []);
 
   const scrollSummaryCarousel = useCallback((slideIndex: 0 | 1) => {
     const el = summaryCardsScrollRef.current;
-    const setEl = summaryCardsSetRef.current;
-    if (!el || !setEl) return;
-    const oneSetWidth = setEl.offsetWidth;
-    if (oneSetWidth <= 0) return;
-    const setStep = oneSetWidth + 16;
-    const target = slideIndex === 0 ? setStep : setStep + (3 / 7) * oneSetWidth;
+    if (!el) return;
+    const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth);
+    const target = slideIndex === 0 ? 0 : maxScroll;
     el.scrollTo({ left: target, behavior: 'smooth' });
-    setSummaryCardsDotIndex(slideIndex);
   }, []);
 
   useEffect(() => {
@@ -218,13 +410,46 @@ export default function ReportPage() {
   }, []);
 
   useEffect(() => {
+    if (reportType !== 'pm') return;
+    let cancelled = false;
+    setSiteRegistryCountsLoading(true);
+    getSiteRegistryCounts()
+      .then((res) => {
+        if (cancelled) return;
+        if (res?.success && res.data && typeof res.data.siteCount === 'number' && typeof res.data.locationCount === 'number') {
+          setSiteRegistryCounts({
+            siteCount: res.data.siteCount,
+            locationCount: res.data.locationCount,
+          });
+        } else {
+          setSiteRegistryCounts(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSiteRegistryCounts(null);
+      })
+      .finally(() => {
+        if (!cancelled) setSiteRegistryCountsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportType]);
+
+  useEffect(() => {
     const el = summaryCardsScrollRef.current;
-    const setEl = summaryCardsSetRef.current;
-    if (!el || !setEl) return;
-    const oneSetWidth = setEl.offsetWidth;
-    const setStep = oneSetWidth + 16;
-    if (oneSetWidth > 0) el.scrollLeft = setStep;
-  }, [data]);
+    if (!el) return;
+    el.scrollLeft = 0;
+    requestAnimationFrame(() => updateSummaryScrollArrows());
+  }, [data, updateSummaryScrollArrows]);
+
+  useEffect(() => {
+    const el = summaryCardsScrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => updateSummaryScrollArrows());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [updateSummaryScrollArrows]);
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
@@ -282,6 +507,14 @@ export default function ReportPage() {
     document.addEventListener('click', close);
     return () => document.removeEventListener('click', close);
   }, [siteDropdownOpen]);
+
+  /** PM equipment ranking is per-model (aggregated); role/site filters do not apply */
+  useEffect(() => {
+    if (reportType !== 'pm') return;
+    setEquipmentRoleFilter(null);
+    setEquipmentSiteFilter(null);
+    setEquipmentOrderBy((o) => (o === 'vendor' ? 'total' : o));
+  }, [reportType]);
 
   useEffect(() => {
     if (!periodDropdownOpen) return;
@@ -398,8 +631,14 @@ export default function ReportPage() {
   const { summary, monthlyMA, vendorRanking, siteRanking, equipmentRanking, range, months: dataMonths } = data;
   const isMa = reportType === 'ma';
   const taskLabel = reportType === 'ma' ? 'MA' : 'PM';
-  const equipmentLabel = reportType === 'ma' ? 'Most Repaired Equipment' : 'Most Serviced Equipment';
+  /** Equipment tab / export / Top 15 section — MA uses product wording; PM keeps “Model”. */
+  const equipmentLabel = isMa ? 'Most Serviced Equipment' : 'Model';
   const maCompleteCount = Number(summary.totalPassed || 0) + Number(summary.totalFailed || 0);
+
+  /** PM: hide Top Sites tab (many tied rows — low signal) */
+  useEffect(() => {
+    if (reportType === 'pm' && activeTab === 'site') setActiveTab('vendor');
+  }, [reportType, activeTab]);
 
   const maTrendRoleOptions = useMemo(() => {
     const allow = data?.availableFilters?.roleIds;
@@ -415,7 +654,7 @@ export default function ReportPage() {
     return sitesList.filter((s) => set.has(s.SLid));
   }, [data?.availableFilters?.siteIds, sitesList]);
 
-  // Distinct Site (Sid-level) options for cascaded Site filter – เฉพาะ site ที่มีข้อมูล MA
+  // Distinct Site (Sid-level) options for cascaded filter — sites that have MA data in range
   const maTrendSidOptions = useMemo(() => {
     const allow = data?.availableFilters?.siteIds;
     const allowedSlids = Array.isArray(allow) && allow.length > 0 ? new Set(allow) : null;
@@ -431,7 +670,7 @@ export default function ReportPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [data?.availableFilters?.siteIds, sitesList]);
 
-  // Distinct Location (lid-level) options for selected Sid – เฉพาะ location ที่มีข้อมูล MA
+  // Distinct Location (lid-level) for selected Sid — locations that have MA data in range
   const maTrendLidOptions = useMemo(() => {
     if (!maTrendSidFilter) return [];
     const sidNum = Number(maTrendSidFilter);
@@ -609,21 +848,57 @@ export default function ReportPage() {
     });
   }, [isMa, data?.topModelTrendByRole, monthlyTrendData]);
 
+  /** Data for the main monthly trend chart (summary / PM, or MA top-model when that view is active). */
+  const monthlyTrendMainChartData = useMemo(() => {
+    if (isMa && maTrendView === 'top-model') {
+      return (
+        (maTrendRoleFilterId == null && topModelTrendByRoleData
+          ? topModelTrendByRoleData
+          : topModelTrendData) ?? monthlyTrendData
+      );
+    }
+    return monthlyTrendData;
+  }, [
+    isMa,
+    maTrendView,
+    maTrendRoleFilterId,
+    topModelTrendByRoleData,
+    topModelTrendData,
+    monthlyTrendData,
+  ]);
+
+  /** Drives Y-scale for bundled monthly bars; equals max of stacked metrics that month. */
+  const monthlyTrendBarPackData = useMemo(() => {
+    return monthlyTrendMainChartData.map((row) => {
+      const r = row as Record<string, unknown>;
+      const total = Number(r.total ?? 0) || 0;
+      const complete = Number(r.complete ?? 0) || 0;
+      const inprocess = Number(r.inprocess ?? 0) || 0;
+      const pending = Number(r.pending ?? 0) || 0;
+      const overdue = Number(r.overdue ?? 0) || 0;
+      const scale = isMa
+        ? Math.max(total, complete, overdue, inprocess, pending)
+        : Math.max(total, complete, overdue, inprocess, pending);
+      return { ...row, _groupBarScale: scale };
+    });
+  }, [monthlyTrendMainChartData, isMa]);
+
   const topModelRoleColors = ['#ec4899', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444'];
 
+  /** Result Breakdown donut — same figures as the summary cards above */
   const pieData = reportType === 'pm'
     ? [
         { name: 'Done', value: summary.totalDone },
         { name: 'Inprocess', value: summary.totalInprocess },
-        { name: 'Pending', value: Math.max(0, summary.totalPending - summary.totalOverdue) },
+        { name: 'Pending', value: summary.totalPending },
         { name: 'Overdue', value: summary.totalOverdue },
-      ].filter(d => d.value > 0)
+      ].filter((d) => d.value > 0)
     : [
         { name: 'Complete', value: maCompleteCount },
         { name: 'Inprocess', value: summary.totalInprocess },
-        { name: 'Pending', value: Math.max(0, summary.totalPending - summary.totalOverdue) },
+        { name: 'Pending', value: summary.totalPending },
         { name: 'Overdue', value: summary.totalOverdue },
-      ].filter(d => d.value > 0);
+      ].filter((d) => d.value > 0);
 
   /** Equipment tab filters: options only from current Top 15 (equipmentRanking), not full DB lists */
   const equipmentModels = useMemo(() => {
@@ -655,7 +930,7 @@ export default function ReportPage() {
 
   const filteredEquipmentRanking = useMemo(() => {
     let list = equipmentRanking;
-    if (equipmentRoleFilter) {
+    if (isMa && equipmentRoleFilter) {
       const want = equipmentRoleFilter.toLowerCase();
       list = list.filter((e) => (e.role ?? '').toLowerCase() === want);
     }
@@ -663,19 +938,79 @@ export default function ReportPage() {
       const want = equipmentModelFilter.toLowerCase();
       list = list.filter((e) => equipmentRowModelLabel(e).toLowerCase() === want);
     }
-    if (equipmentSiteFilter) {
+    if (isMa && equipmentSiteFilter) {
       const want = equipmentSiteFilter.toLowerCase();
       list = list.filter((e) => (e.site ?? '').toLowerCase() === want);
     }
-    if (equipmentOrderBy === 'total') return list;
-    const key = equipmentOrderBy;
+    const orderKey = !isMa && equipmentOrderBy === 'vendor' ? 'total' : equipmentOrderBy;
+    if (orderKey === 'total') return list;
+    const key = orderKey;
     return [...list].sort((a, b) => {
       const va = String((a as Record<string, unknown>)[key] ?? '').toLowerCase();
       const vb = String((b as Record<string, unknown>)[key] ?? '').toLowerCase();
       const cmp = va.localeCompare(vb);
       return cmp !== 0 ? cmp : b.total - a.total;
     });
-  }, [equipmentRanking, equipmentRoleFilter, equipmentModelFilter, equipmentSiteFilter, equipmentOrderBy]);
+  }, [equipmentRanking, equipmentRoleFilter, equipmentModelFilter, equipmentSiteFilter, equipmentOrderBy, isMa]);
+
+  /** MA Watch List: top models by total MA count (aggregated across sites), no serials. */
+  const maWatchListByModel = useMemo(() => {
+    const map = new Map<string, { model: string; total: number; inprocess: number; pending: number }>();
+    for (const e of equipmentRanking) {
+      const model = maWatchListModelKey(e);
+      const cur = map.get(model);
+      const t = Number(e.total) || 0;
+      const ip = Number(e.inprocess) || 0;
+      const pend = Number(e.pending) || 0;
+      if (!cur) map.set(model, { model, total: t, inprocess: ip, pending: pend });
+      else {
+        cur.total += t;
+        cur.inprocess += ip;
+        cur.pending += pend;
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total).slice(0, 3);
+  }, [equipmentRanking]);
+
+  /** PM — location rows from /api/sites/locations, sorted by site then location */
+  const sitesLocationDetailRows = useMemo(() => {
+    return [...sitesList].sort((a, b) => {
+      const an = (a.SiteName || '').localeCompare(b.SiteName || '', undefined, { sensitivity: 'base' });
+      if (an !== 0) return an;
+      return (a.Location2 || '').localeCompare(b.Location2 || '', undefined, { sensitivity: 'base' });
+    });
+  }, [sitesList]);
+
+  /** PM — group by Site (Sid): organisation on the left, child locations on the right */
+  const sitesLocationGroupedBySite = useMemo(() => {
+    const map = new Map<
+      string,
+      { siteName: string; sid: number; locations: { SLid: number; label: string }[] }
+    >();
+    for (const row of sitesLocationDetailRows) {
+      const siteName = row.SiteName?.trim() || '—';
+      const key =
+        typeof row.Sid === 'number' && row.Sid > 0 ? `sid:${row.Sid}` : `name:${siteName}`;
+      const locLabel = row.Location2?.trim() || '—';
+      const sid = typeof row.Sid === 'number' && row.Sid > 0 ? row.Sid : 0;
+      const cur = map.get(key);
+      if (!cur) {
+        map.set(key, { siteName, sid, locations: [{ SLid: row.SLid, label: locLabel }] });
+      } else {
+        cur.locations.push({ SLid: row.SLid, label: locLabel });
+        if (siteName !== '—') cur.siteName = siteName;
+        if (sid > 0) cur.sid = sid;
+      }
+    }
+    return Array.from(map.values())
+      .map((g) => ({
+        ...g,
+        locations: [...g.locations].sort((a, b) =>
+          a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+        ),
+      }))
+      .sort((a, b) => a.siteName.localeCompare(b.siteName, undefined, { sensitivity: 'base' }));
+  }, [sitesLocationDetailRows]);
 
   useEffect(() => {
     const models = new Set(equipmentModels.map((m) => m.toLowerCase()));
@@ -702,7 +1037,10 @@ export default function ReportPage() {
 
   const maxVendorTotal = vendorRanking.length > 0 ? vendorRanking[0].total : 1;
   const maxSiteTotal = siteRanking.length > 0 ? siteRanking[0].total : 1;
-  const maxEquipTotal = filteredEquipmentRanking.length > 0 ? Math.max(...filteredEquipmentRanking.map((e) => e.total)) : 1;
+  const maxEquipRankBar = useMemo(() => {
+    if (!filteredEquipmentRanking.length) return 1;
+    return Math.max(...filteredEquipmentRanking.map((e) => e.total), 1);
+  }, [filteredEquipmentRanking]);
 
   const rankingBarBandPx = 58;
   const vendorBarChartHeight = useMemo(
@@ -744,7 +1082,17 @@ export default function ReportPage() {
     row(['Top MA Vendor', summary.topVendor]);
     row(['Top Vendor MA Count', String(summary.topVendorCount)]);
     row([equipmentLabel, summary.topEquipment]);
-    row(['Top Equipment MA Count', String(summary.topEquipmentCount)]);
+    {
+      const b = summary.topEquipmentBasis ?? 'none';
+      const countLabel = isMa
+        ? `${taskLabel} tasks (top model)`
+        : b === 'failed_reports'
+          ? 'Failed PM reports (top model)'
+          : b === 'pm_tasks'
+            ? 'PM tasks (top model, no failures in range)'
+            : 'PM top model (no equipment rows)';
+      row([countLabel, String(summary.topEquipmentCount)]);
+    }
     nl();
 
     // 2) Monthly Trend
@@ -763,9 +1111,16 @@ export default function ReportPage() {
         ]);
       });
     } else {
-      row(['Month', 'Total', 'Done', 'Inprocess', 'Pending']);
+      row(['Month', 'Total', 'Done', 'Inprocess', 'Pending', 'Overdue']);
       monthlyMA.forEach((m) => {
-        row([m.month, String(m.total), String(m.done), String(m.inprocess), String(m.pending)]);
+        row([
+          m.month,
+          String(m.total),
+          String(m.done),
+          String(m.inprocess),
+          String(m.pending),
+          String(m.overdue ?? 0),
+        ]);
       });
     }
     nl();
@@ -777,12 +1132,17 @@ export default function ReportPage() {
       row([
         String(summary.totalDone),
         String(summary.totalInprocess),
-        String(Math.max(0, summary.totalPending - summary.totalOverdue)),
+        String(summary.totalPending),
         String(summary.totalOverdue),
       ]);
     } else {
       row(['Complete', 'Inprocess', 'Pending', 'Overdue']);
-      row([String(maCompleteCount), String(summary.totalInprocess), String(Math.max(0, summary.totalPending - summary.totalOverdue)), String(summary.totalOverdue)]);
+      row([
+        String(maCompleteCount),
+        String(summary.totalInprocess),
+        String(summary.totalPending),
+        String(summary.totalOverdue),
+      ]);
     }
     nl();
 
@@ -836,20 +1196,20 @@ export default function ReportPage() {
 
     // 6) Equipment Ranking (Most Repaired) — respects Role filter
     const exportEquipment = filteredEquipmentRanking.slice(0, 15);
-    const filterParts = [equipmentRoleFilter && `Role: ${equipmentRoleFilter}`, equipmentModelFilter && `Model: ${equipmentModelFilter}`, equipmentSiteFilter && `Site: ${equipmentSiteFilter}`].filter(Boolean);
+    const filterParts = [
+      isMa && equipmentRoleFilter && `Role: ${equipmentRoleFilter}`,
+      equipmentModelFilter && `Model: ${equipmentModelFilter}`,
+      isMa && equipmentSiteFilter && `Site: ${equipmentSiteFilter}`,
+    ].filter(Boolean) as string[];
     lines.push(escape(`SECTION: ${equipmentLabel} (Top 15)${filterParts.length ? ` - ${filterParts.join(', ')}` : ''}`));
     if (!isMa) {
-      row(['Rank', 'Model', 'Vendor', 'Site', `Total ${taskLabel}`, 'Done', 'Inprocess', 'Pass']);
+      row(['Rank', 'Model', 'Primary site', 'In-use devices']);
       exportEquipment.forEach((e, i) => {
         row([
           String(i + 1),
           equipmentRowModelLabel(e) || '-',
-          e.vendor || '-',
-          e.site || '-',
-          String(e.total),
-          String(e.done),
-          String(e.inprocess ?? 0),
-          String(e.reportPass),
+          String(e.site || '—'),
+          String(e.total ?? 0),
         ]);
       });
     } else {
@@ -1030,7 +1390,8 @@ export default function ReportPage() {
             </button>
           </div>
           </div>
-            {/* Bottom Insights */}
+            {/* Bottom Insights — MA only (hidden for PM Report) */}
+        {isMa && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-blue-50/70 border border-blue-100 p-6 rounded-[2rem] shadow-sm">
             <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
@@ -1040,11 +1401,17 @@ export default function ReportPage() {
             <ul className="space-y-2.5 text-sm text-slate-600">
               <li className="flex items-start gap-2">
                 <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
-                <span>Total {taskLabel} tasks: <strong className="text-blue-600">{summary.totalMA}</strong>, completion rate <strong className="text-emerald-600">{summary.completionRate}%</strong></span>
+                <span>
+                  Total MA plan:{' '}
+                  <strong className="text-blue-600 tabular-nums">{summary.totalMA.toLocaleString()}</strong>
+                </span>
               </li>
               <li className="flex items-start gap-2">
                 <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
-                <span>Top {taskLabel} vendor: <strong className="text-violet-600">{summary.topVendor}</strong> ({summary.topVendorCount} tasks)</span>
+                <span>
+                  Completion plan:{' '}
+                  <strong className="text-emerald-600 tabular-nums">{summary.completionRate}%</strong>
+                </span>
               </li>
               <li className="flex items-start gap-2">
                 <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
@@ -1059,22 +1426,26 @@ export default function ReportPage() {
               Watch List
             </h3>
             <p className="text-xs text-amber-800/80 mb-3">
-              Items requiring monitoring due to frequent MA visits.
+              Models with the highest MA repair frequency (aggregated by model, all sites).
             </p>
             <ul className="space-y-2.5 text-sm text-slate-600">
-              {equipmentRanking.slice(0, 3).map((e, i) => (
-                <li key={i} className="flex items-start gap-2">
+              {maWatchListByModel.map((row) => (
+                <li key={row.model} className="flex items-start gap-2">
                   <ChevronRight size={14} className="text-amber-500 mt-0.5 shrink-0" />
                   <span>
-                    <strong className="text-amber-700">{e.deviceName}</strong> - {e.total} {taskLabel} times
-                    {isMa && (e.inprocess > 0 || e.pending > 0) && <span className="text-orange-500"> (Inprocess {e.inprocess}, Pending {e.pending})</span>}
+                    <strong className="text-amber-700">{row.model}</strong>
+                    <span className="text-slate-600"> — {row.total} MA times</span>
+                    {(row.inprocess > 0 || row.pending > 0) && (
+                      <span className="text-orange-500"> (Inprocess {row.inprocess}, Pending {row.pending})</span>
+                    )}
                   </span>
                 </li>
               ))}
-              {equipmentRanking.length === 0 && <li className="text-slate-400">No data available</li>}
+              {maWatchListByModel.length === 0 && <li className="text-slate-400">No data available</li>}
             </ul>
           </div>
         </div>
+        )}
 
           {/* MA / PM Tab */}
           <div className="flex gap-1 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-sm w-fit">
@@ -1100,41 +1471,23 @@ export default function ReportPage() {
             {loading ? 'Loading data...' : error}
           </div>
         )}
-        
 
-        {/* Summary Cards — เลื่อนด้วยลูกศร (ลากได้) */}
+        {/* Summary Cards — horizontal scroll (arrows + drag) */}
         <div className="relative w-full">
           <div className="flex items-center gap-2 sm:gap-3">
             <button
               type="button"
               onClick={() => scrollSummaryCarousel(0)}
-              disabled={summaryCardsDotIndex === 0}
+              disabled={summaryAtScrollStart}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-700 shadow-md shadow-blue-900/10 ring-2 ring-blue-200/70 transition-all hover:bg-blue-100 hover:border-blue-600 hover:text-blue-900 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-sm disabled:ring-0 disabled:opacity-50"
-              title="เลื่อนซ้าย — ลากแถบการ์ดได้"
-              aria-label="เลื่อนการ์ดสรุปไปทางซ้าย"
+              title="Scroll left — drag the row to scroll"
+              aria-label="Scroll summary cards left"
             >
               <ChevronLeft size={22} strokeWidth={2.5} className="shrink-0" />
             </button>
             <div
               ref={summaryCardsScrollRef}
-              onScroll={() => {
-                const el = summaryCardsScrollRef.current;
-                const setEl = summaryCardsSetRef.current;
-                if (!el || !setEl) return;
-                const oneSetWidth = setEl.offsetWidth;
-                const gapPx = 16;
-                const setStep = oneSetWidth + gapPx;
-                let { scrollLeft } = el;
-                if (scrollLeft >= 2 * setStep) {
-                  el.scrollLeft = scrollLeft - setStep;
-                  scrollLeft = el.scrollLeft;
-                } else if (scrollLeft <= 0) {
-                  el.scrollLeft = scrollLeft + setStep;
-                  scrollLeft = el.scrollLeft;
-                }
-                const pos = Math.min(6, Math.round(((scrollLeft - setStep) / oneSetWidth) * 7) % 7);
-                setSummaryCardsDotIndex(pos >= 3 ? 1 : 0);
-              }}
+              onScroll={updateSummaryScrollArrows}
               onMouseDown={(e) => {
                 const el = summaryCardsScrollRef.current;
                 if (!el) return;
@@ -1150,8 +1503,7 @@ export default function ReportPage() {
               className="flex min-w-0 flex-1 gap-4 overflow-x-auto overflow-y-hidden scroll-smooth touch-pan-x select-none cursor-grab active:cursor-grabbing [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
             >
-            {[1, 2, 3].map((set) => (
-              <div key={set} ref={set === 1 ? summaryCardsSetRef : undefined} className="flex gap-4 shrink-0">
+            <div className="flex gap-4 shrink-0">
                 <div className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-blue-50/80 border border-blue-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
                   <div className="relative flex items-center">
                     <span className="flex-1 text-xs text-center font-semibold text-blue-500 uppercase tracking-wide">Total {taskLabel} Tasks</span>
@@ -1218,31 +1570,43 @@ export default function ReportPage() {
                   </div>
                 </button>
                 <div className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-violet-50/80 border border-violet-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-violet-500 uppercase tracking-wide">Top {taskLabel} Vendor</span>
+                  <div className="flex items-center justify-between gap-1 min-h-[1.25rem]">
+                    <span className="text-xs font-semibold text-violet-500 uppercase tracking-wide min-w-0">Top {taskLabel} Vendor</span>
                     <Trophy size={16} className="text-violet-400 shrink-0" />
                   </div>
-                  <p className="text-lg text-center pt-3 font-black text-violet-700 truncate">{summary.topVendor}</p>
-                  <p className="text-xs pt-6 text-violet-400">{summary.topVendorCount} {taskLabel} tasks</p>
+                  <p className="mx-auto flex min-h-[2.75rem] w-full max-w-full flex-1 items-center justify-center px-0.5 pt-1 text-center text-[11px] font-bold leading-snug text-violet-700 break-words [overflow-wrap:anywhere]">
+                    {summary.topVendor}
+                  </p>
+                  <p className="mt-auto pt-2 text-xs text-violet-400">{summary.topVendorCount} {taskLabel} tasks</p>
                 </div>
-                <div className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-amber-50/80 border border-amber-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-amber-500 uppercase tracking-wide">{equipmentLabel}</span>
-                    <Server size={16} className="text-amber-400 shrink-0" />
+                {isMa && (
+                  <div className="shrink-0 w-[calc(17vw-0.6rem)] min-w-[120px] bg-amber-50/80 border border-amber-300 rounded-[2rem] shadow-sm p-4 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between gap-1 min-h-[1.25rem]">
+                      <span className="min-w-0 max-w-[calc(100%-1.5rem)] text-[10px] font-semibold leading-tight tracking-wide text-amber-500">
+                        {equipmentLabel}
+                      </span>
+                      <Server size={16} className="text-amber-400 shrink-0" />
+                    </div>
+                    <p
+                      className="mx-auto flex min-h-[2.75rem] w-full max-w-full flex-1 items-center justify-center px-0.5 pt-1 text-center text-[11px] font-bold leading-snug text-amber-700 break-words [overflow-wrap:anywhere]"
+                      title={String(summary.topEquipment)}
+                    >
+                      {summary.topEquipment}
+                    </p>
+                    <p className="mt-auto pt-2 text-xs text-amber-400">
+                      {summary.topEquipmentCount} {taskLabel} tasks
+                    </p>
                   </div>
-                  <p className="text-base font-black text-amber-700 break-words min-h-[2rem]" title={summary.topEquipment} style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{summary.topEquipment}</p>
-                  <p className="text-xs text-amber-400">{summary.topEquipmentCount} {taskLabel} tasks</p>
-                </div>
+                )}
               </div>
-            ))}
             </div>
             <button
               type="button"
               onClick={() => scrollSummaryCarousel(1)}
-              disabled={summaryCardsDotIndex === 1}
+              disabled={summaryAtScrollEnd}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-700 shadow-md shadow-blue-900/10 ring-2 ring-blue-200/70 transition-all hover:bg-blue-100 hover:border-blue-600 hover:text-blue-900 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-sm disabled:ring-0 disabled:opacity-50"
-              title="เลื่อนขวา — ลากแถบการ์ดได้"
-              aria-label="เลื่อนการ์ดสรุปไปทางขวา"
+              title="Scroll right — drag the row to scroll"
+              aria-label="Scroll summary cards right"
             >
               <ChevronRight size={22} strokeWidth={2.5} className="shrink-0" />
             </button>
@@ -1286,15 +1650,41 @@ export default function ReportPage() {
           }}
         />
 
-        {/* Row 2: Monthly Trend + Pie */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 min-w-0 overflow-hidden bg-white p-6 rounded-[2rem] shadow-sm">
+        {/* Row 2: Monthly Trend + Pie (~70% / ~30% on large screens) */}
+        <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-6">
+          <div className="min-w-0 overflow-hidden bg-white p-6 rounded-[2rem] shadow-sm">
             <div className="flex items-center justify-between mb-3 min-w-0">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <h3 className="font-bold text-slate-600 text-lg flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                <h3 className="font-bold text-slate-600 text-lg flex items-center gap-2 shrink-0">
                   <BarChart3 size={18} className="text-slate-400" />
                   Monthly {taskLabel} Trend
                 </h3>
+                {(!isMa || (isMa && maTrendView === 'summary')) && (
+                  <div className="flex items-center gap-0.5 rounded-full bg-slate-100 p-1 text-[11px] font-semibold text-slate-600 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setMonthlyTrendChartKind('line')}
+                      className={`rounded-full px-2.5 py-1 transition-all ${
+                        monthlyTrendChartKind === 'line'
+                          ? 'bg-white text-slate-800 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Line
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMonthlyTrendChartKind('bar')}
+                      className={`rounded-full px-2.5 py-1 transition-all ${
+                        monthlyTrendChartKind === 'bar'
+                          ? 'bg-white text-slate-800 shadow-sm'
+                          : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      Bar
+                    </button>
+                  </div>
+                )}
                 {isMa && (topModelTrendData || topModelTrendByRoleData) && (
                   <div className="flex items-center gap-1 bg-slate-100 rounded-full p-1 text-[11px] text-slate-600">
                     <button
@@ -1329,10 +1719,13 @@ export default function ReportPage() {
                         <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Complete
                       </span>
                       <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending
+                      </span>
+                      <span className="flex items-center gap-1.5">
                         <span className="w-2.5 h-2.5 rounded-sm bg-orange-400" /> Inprocess
                       </span>
                       <span className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending
+                        <span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Overdue
                       </span>
                     </>
                   ) : maTrendRoleFilterId == null && data?.topModelTrendByRole?.length ? (
@@ -1365,13 +1758,13 @@ export default function ReportPage() {
                       <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Complete
                     </span>
                     <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Overdue
+                    </span>
+                    <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-sm bg-orange-400" /> Inprocess
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> Pending
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-sm bg-red-400" /> Overdue
                     </span>
                   </>
                 )}
@@ -1390,7 +1783,7 @@ export default function ReportPage() {
                         const v = e.target.value;
                         setMaTrendSidFilter(v);
                         setMaTrendLidFilter('');
-                        // ไม่รู้ SLid จนกว่าจะเลือก lid เสร็จ
+                        // SLid unknown until a location (lid) is selected
                         setMaTrendSiteFilterId(null);
                       }}
                     >
@@ -1470,39 +1863,24 @@ export default function ReportPage() {
                 </div>
               </div>
             )}
-            <div className="h-72 w-full min-w-0 min-h-[18rem]">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={260}>
-                <BarChart
-                  data={
-                    isMa && maTrendView === 'top-model'
-                      ? (maTrendRoleFilterId == null && topModelTrendByRoleData
-                          ? topModelTrendByRoleData
-                          : topModelTrendData) ?? monthlyTrendData
-                      : monthlyTrendData
-                  }
-                  margin={{ top: 5, right: 20, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', color: '#475569', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}
-                    labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
-                  />
-                  {isMa ? (
-                    <>
-                      {maTrendView === 'summary' && (
-                        <>
-                          <Bar dataKey="total" fill="#3b82f6" name="Total" radius={[6, 6, 0, 0]} barSize={20} />
-                          <Bar dataKey="complete" fill="#10b981" name="Complete" radius={[6, 6, 0, 0]} barSize={20} />
-                          <Bar dataKey="inprocess" fill="#f97316" name="Inprocess" radius={[6, 6, 0, 0]} barSize={20} />
-                          <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
-                        </>
-                      )}
-                      {maTrendView === 'top-model' && maTrendRoleFilterId == null && topModelTrendByRoleData && data?.topModelTrendByRole?.length
-                        ? data.topModelTrendByRole
-                            .filter((r) => !maTrendModelFilter || !r?.model || String(r.model) === maTrendModelFilter)
-                            .map((r, i) => {
+            <div className="h-64 sm:h-72 w-full min-w-0 min-h-[16rem]">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
+                {isMa && maTrendView === 'top-model' ? (
+                  <LineChart
+                    data={monthlyTrendMainChartData}
+                    margin={{ top: 5, right: 20, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', color: '#475569', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}
+                      labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
+                    />
+                    {maTrendRoleFilterId == null && topModelTrendByRoleData && data?.topModelTrendByRole?.length
+                      ? data.topModelTrendByRole
+                          .filter((r) => !maTrendModelFilter || !r?.model || String(r.model) === maTrendModelFilter)
+                          .map((r, i) => {
                             const roleKey = String(r.roleName || r.roleId).trim() || `Role ${r.roleId}`;
                             return (
                               <Line
@@ -1513,32 +1891,85 @@ export default function ReportPage() {
                                 stroke={topModelRoleColors[i % topModelRoleColors.length]}
                                 strokeWidth={2}
                                 dot={{ r: 3 }}
+                                activeDot={{ r: 5 }}
                                 yAxisId={0}
                               />
                             );
                           })
-                        : maTrendView === 'top-model' && topModelTrendData && (
-                            <Line
-                              type="monotone"
-                              dataKey="topModelCount"
-                              name={data?.topModelTrend?.model || 'Top model'}
-                              stroke="#ec4899"
-                              strokeWidth={2}
-                              dot={{ r: 3 }}
-                              yAxisId={0}
-                            />
-                          )}
-                    </>
-                  ) : (
-                    <>
-                      <Bar dataKey="total" fill="#3b82f6" name="Total" radius={[6, 6, 0, 0]} barSize={20} />
-                      <Bar dataKey="complete" fill="#10b981" name="Complete" radius={[6, 6, 0, 0]} barSize={20} />
-                      <Bar dataKey="inprocess" fill="#f97316" name="Inprocess" radius={[6, 6, 0, 0]} barSize={20} />
-                      <Bar dataKey="pending" fill="#facc15" name="Pending" radius={[6, 6, 0, 0]} barSize={20} />
-                      <Bar dataKey="overdue" fill="#ef4444" name="Overdue" radius={[6, 6, 0, 0]} barSize={20} />
-                    </>
-                  )}
-                </BarChart>
+                      : topModelTrendData && (
+                          <Line
+                            type="monotone"
+                            dataKey="topModelCount"
+                            name={data?.topModelTrend?.model || 'Top model'}
+                            stroke="#ec4899"
+                            strokeWidth={2}
+                            dot={{ r: 3 }}
+                            activeDot={{ r: 5 }}
+                            yAxisId={0}
+                          />
+                        )}
+                  </LineChart>
+                ) : monthlyTrendChartKind === 'line' ? (
+                  <LineChart
+                    data={monthlyTrendMainChartData}
+                    margin={{ top: 5, right: 20, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px', color: '#475569', padding: '12px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.06)' }}
+                      labelStyle={{ color: '#94a3b8', marginBottom: 4 }}
+                    />
+                    {isMa ? (
+                      <>
+                        <Line type="monotone" dataKey="total" name="Total" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                        <Line type="monotone" dataKey="complete" name="Complete" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                        <Line type="monotone" dataKey="pending" name="Pending" stroke="#facc15" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                        <Line type="monotone" dataKey="inprocess" name="Inprocess" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                        <Line type="monotone" dataKey="overdue" name="Overdue" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                      </>
+                    ) : (
+                      <>
+                        <Line type="monotone" dataKey="total" name="Total" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                        <Line type="monotone" dataKey="complete" name="Complete" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                        <Line type="monotone" dataKey="inprocess" name="Inprocess" stroke="#f97316" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                        <Line type="monotone" dataKey="pending" name="Pending" stroke="#facc15" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                        <Line type="monotone" dataKey="overdue" name="Overdue" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                      </>
+                    )}
+                  </LineChart>
+                ) : (
+                  <BarChart
+                    data={monthlyTrendBarPackData}
+                    margin={{ top: 8, right: 12, left: 4, bottom: 4 }}
+                    barCategoryGap="12%"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#b0b8c4' }} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(148, 163, 184, 0.12)' }}
+                      content={(tipProps) => (
+                        <MonthlyTrendSummaryBarTooltip
+                          active={tipProps.active}
+                          payload={
+                            tipProps.payload as ReadonlyArray<{ payload?: Record<string, unknown> }> | undefined
+                          }
+                          label={tipProps.label}
+                          isMa={isMa}
+                        />
+                      )}
+                    />
+                    <Bar
+                      dataKey="_groupBarScale"
+                      name="Monthly"
+                      fill="transparent"
+                      isAnimationActive={false}
+                      shape={isMa ? MONTHLY_TREND_BAR_SHAPE_MA : MONTHLY_TREND_BAR_SHAPE_PM}
+                    />
+                  </BarChart>
+                )}
               </ResponsiveContainer>
             </div>
           </div>
@@ -1548,8 +1979,8 @@ export default function ReportPage() {
               <Shield size={18} className="text-slate-400" />
               {taskLabel} Result Breakdown
             </h3>
-            <div className="h-52 w-full min-w-0 min-h-[13rem]">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={200}>
+            <div className="h-64 sm:h-72 w-full min-w-0 min-h-[16rem]">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
                 <PieChart>
                   <Pie
                     data={pieData}
@@ -1596,7 +2027,7 @@ export default function ReportPage() {
           {([
             { key: 'vendor' as const, label: `Top ${taskLabel} Vendors`, icon: Building2 },
             { key: 'equipment' as const, label: equipmentLabel, icon: Server },
-            { key: 'site' as const, label: `Top ${taskLabel} Sites`, icon: Building2 },
+            ...(isMa ? [{ key: 'site' as const, label: `Top ${taskLabel} Sites`, icon: Building2 }] : []),
           ]).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -1695,12 +2126,21 @@ export default function ReportPage() {
         {/* Equipment Tab */}
         {activeTab === 'equipment' && (
           <div className="bg-white p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
+            <h3 className={`font-bold text-slate-600 text-lg flex items-center gap-2 ${isMa ? 'mb-5' : 'mb-1'}`}>
               <Server size={18} className="text-slate-400" />
               {equipmentLabel} (Top 15)
             </h3>
+            {!isMa && (
+              <p className="text-xs text-slate-500 mb-5 leading-relaxed">
+                <span className="text-slate-600 font-medium">Inventory-based ranking:</span> count of devices per model with status{' '}
+                <span className="font-semibold text-slate-700">In Use</span> (not tied to PM tasks in the selected period).
+                <br />
+                <span className="text-slate-600 font-medium">Site column:</span> shows the location with the most devices for that model first.
+                If the model appears at several sites, the text reads <span className="font-medium text-slate-700">· N more locations</span> — N is the number of <em>other</em> sites (not device count).
+              </p>
+            )}
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px]">
+              <table className={`w-full ${isMa ? 'min-w-[900px]' : 'min-w-[640px]'}`}>
                 <thead>
                   <tr className="border-b border-slate-100">
                     <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Rank</th>
@@ -1736,131 +2176,161 @@ export default function ReportPage() {
                         )}
                       </div>
                     </th>
-                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[90px]">
-                      <div className="relative flex justify-center" ref={roleDropdownRef}>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setRoleDropdownOpen((o) => !o); }}
-                          className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
-                        >
-                          Role <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${roleDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
-                        </button>
-                        {roleDropdownOpen && (
-                          <div className="absolute left-0 top-full mt-1 z-10 min-w-[120px] bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                    {isMa && (
+                      <>
+                        <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[90px]">
+                          <div className="relative flex justify-center" ref={roleDropdownRef}>
                             <button
                               type="button"
-                              onClick={() => { setEquipmentRoleFilter(null); setRoleDropdownOpen(false); }}
-                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentRoleFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                              onClick={(e) => { e.stopPropagation(); setRoleDropdownOpen((o) => !o); }}
+                              className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
                             >
-                              All
+                              Role <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${roleDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
                             </button>
-                            {equipmentRoles.map((role) => (
-                              <button
-                                key={role}
-                                type="button"
-                                onClick={() => { setEquipmentRoleFilter(role); setRoleDropdownOpen(false); }}
-                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 capitalize ${equipmentRoleFilter === role ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
-                              >
-                                {role}
-                              </button>
-                            ))}
+                            {roleDropdownOpen && (
+                              <div className="absolute left-0 top-full mt-1 z-10 min-w-[120px] bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                                <button
+                                  type="button"
+                                  onClick={() => { setEquipmentRoleFilter(null); setRoleDropdownOpen(false); }}
+                                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentRoleFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                >
+                                  All
+                                </button>
+                                {equipmentRoles.map((role) => (
+                                  <button
+                                    key={role}
+                                    type="button"
+                                    onClick={() => { setEquipmentRoleFilter(role); setRoleDropdownOpen(false); }}
+                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 capitalize ${equipmentRoleFilter === role ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                  >
+                                    {role}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </th>
-                    <th
-                      className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:bg-slate-50 min-w-[160px] align-middle"
-                      onClick={() => setEquipmentOrderBy(equipmentOrderBy === 'vendor' ? 'total' : 'vendor')}
-                    >
-                      Vendor
-                    </th>
-                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[220px]">
-                      <div className="relative flex justify-center" ref={siteDropdownRef}>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setSiteDropdownOpen((o) => !o); }}
-                          className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
+                        </th>
+                        <th
+                          className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:bg-slate-50 min-w-[160px] align-middle"
+                          onClick={() => setEquipmentOrderBy(equipmentOrderBy === 'vendor' ? 'total' : 'vendor')}
                         >
-                          Site <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${siteDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
-                        </button>
-                        {siteDropdownOpen && (
-                          <div className="absolute left-0 top-full mt-1 z-10 min-w-[140px] max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                          Vendor
+                        </th>
+                        <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[220px]">
+                          <div className="relative flex justify-center" ref={siteDropdownRef}>
                             <button
                               type="button"
-                              onClick={() => { setEquipmentSiteFilter(null); setSiteDropdownOpen(false); }}
-                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentSiteFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                              onClick={(e) => { e.stopPropagation(); setSiteDropdownOpen((o) => !o); }}
+                              className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
                             >
-                              All
+                              Site <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${siteDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
                             </button>
-                            {equipmentSites.map((site) => (
-                              <button
-                                key={site}
-                                type="button"
-                                onClick={() => { setEquipmentSiteFilter(site); setSiteDropdownOpen(false); }}
-                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 truncate ${equipmentSiteFilter === site ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
-                              >
-                                {site}
-                              </button>
-                            ))}
+                            {siteDropdownOpen && (
+                              <div className="absolute left-0 top-full mt-1 z-10 min-w-[140px] max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                                <button
+                                  type="button"
+                                  onClick={() => { setEquipmentSiteFilter(null); setSiteDropdownOpen(false); }}
+                                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentSiteFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                >
+                                  All
+                                </button>
+                                {equipmentSites.map((site) => (
+                                  <button
+                                    key={site}
+                                    type="button"
+                                    onClick={() => { setEquipmentSiteFilter(site); setSiteDropdownOpen(false); }}
+                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 truncate ${equipmentSiteFilter === site ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                  >
+                                    {site}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    </th>
+                        </th>
+                      </>
+                    )}
+                    {!isMa && (
+                      <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider min-w-[160px] align-middle">
+                        <span className="normal-case tracking-normal">Primary site</span>
+                        <span className="block font-normal text-[10px] text-slate-400 normal-case tracking-normal mt-0.5">(highest count first)</span>
+                      </th>
+                    )}
                     <th
                       className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:bg-slate-50 w-16 align-middle"
                       onClick={() => setEquipmentOrderBy('total')}
                     >
-                      Total {taskLabel}
+                      {isMa ? `Total ${taskLabel}` : (
+                        <span className="normal-case tracking-normal">In-use devices</span>
+                      )}
                     </th>
-                    <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Complete</th>
-                    {isMa ? (
+                    {isMa && (
                       <>
+                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Complete</th>
                         <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Inprocess</th>
                         <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-12 align-middle">Pending</th>
                       </>
-                    ) : (
-                      <>
-                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Inprocess</th>
-                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Pass</th>
-                      </>
                     )}
-                    <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-24 align-middle">Ratio</th>
+                    <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-28 align-middle">Ratio</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredEquipmentRanking.slice(0, 15).map((e, i) => (
-                    <tr key={e.deviceId + i} className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors ${i < 3 ? 'bg-red-50/30' : ''}`}>
+                    <tr key={`${String(e.deviceId)}-${i}`} className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors ${i < 3 ? 'bg-red-50/30' : ''}`}>
                       <td className="py-3 px-3 w-14 text-center"><RankBadge rank={i + 1} /></td>
-                      <td className="py-3 px-3 text-sm text-slate-400 whitespace-nowrap text-center" title={equipmentRowModelLabel(e) || undefined}>{equipmentRowModelLabel(e) || '-'}</td>
-                      <td className="py-3 px-3 text-center">
-                        <span className="text-sm text-slate-600 capitalize">{e.role ?? '-'}</span>
+                      <td
+                        className={
+                          isMa
+                            ? 'py-3 px-3 text-center text-sm text-slate-400 whitespace-nowrap'
+                            : 'py-3 px-3 text-center text-sm text-slate-600 max-w-[220px] break-words [overflow-wrap:anywhere]'
+                        }
+                        title={equipmentRowModelLabel(e) || undefined}
+                      >
+                        {equipmentRowModelLabel(e) || '-'}
                       </td>
-                      <td className="py-3 px-3 text-center">
-                        <span className="text-sm text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md">{e.vendor || '-'}</span>
-                      </td>
-                      <td className="py-3 px-3 text-sm text-slate-400 text-center" title={e.site || undefined}>{e.site || '-'}</td>
-                      <td className="py-3 px-2 text-center w-16">
-                        <span className="text-sm font-bold text-slate-600 bg-blue-50 px-1.5 py-0.5 rounded-lg">{e.total}</span>
-                      </td>
-                      <td className="py-3 px-2 text-center text-sm font-medium text-slate-500 w-10">{e.done}</td>
-                      {isMa ? (
+                      {isMa && (
                         <>
+                          <td className="py-3 px-3 text-center">
+                            <span className="text-sm text-slate-600 capitalize">{e.role ?? '-'}</span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className="text-sm text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md">{e.vendor || '-'}</span>
+                          </td>
+                          <td className="py-3 px-3 text-sm text-slate-400 text-center" title={e.site || undefined}>{e.site || '-'}</td>
+                        </>
+                      )}
+                      {!isMa && (
+                        <td className="py-3 px-3 text-center text-xs text-slate-500 max-w-[200px] break-words [overflow-wrap:anywhere]" title={e.site || undefined}>
+                          {e.site || '—'}
+                        </td>
+                      )}
+                      <td className="py-3 px-2 text-center w-16">
+                        <span className="text-sm font-bold text-slate-600 bg-blue-50 px-1.5 py-0.5 rounded-lg">
+                          {e.total ?? 0}
+                        </span>
+                      </td>
+                      {isMa && (
+                        <>
+                          <td className="py-3 px-2 text-center text-sm font-medium text-slate-500 w-10">{e.done}</td>
                           <td className="py-3 px-2 text-center text-sm font-medium text-orange-500 w-14">{e.inprocess}</td>
                           <td className="py-3 px-2 text-center text-sm font-medium text-yellow-600 w-12">{e.pending}</td>
                         </>
-                      ) : (
-                        <>
-                          <td className="py-3 px-2 text-center text-sm font-medium text-orange-500 w-14">{e.inprocess ?? 0}</td>
-                          <td className="py-3 px-2 text-center text-sm font-medium text-emerald-600 w-10">{e.reportPass}</td>
-                        </>
                       )}
-                      <td className="py-3 px-2 w-24 text-center">
-                        <ProgressBar value={e.total} max={maxEquipTotal} color={i < 3 ? 'bg-red-400' : 'bg-blue-300'} />
+                      <td className="py-3 px-2 w-28 text-center">
+                        <ProgressBar
+                          value={e.total ?? 0}
+                          max={maxEquipRankBar}
+                          color={i < 3 ? 'bg-red-400' : 'bg-blue-300'}
+                        />
                       </td>
                     </tr>
                   ))}
                   {filteredEquipmentRanking.length === 0 && (
-                    <tr><td colSpan={10} className="text-center py-8 text-sm text-slate-400">No data available</td></tr>
+                    <tr>
+                      <td colSpan={isMa ? 10 : 5} className="text-center py-8 text-sm text-slate-400">
+                        No data available
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>
@@ -1868,8 +2338,8 @@ export default function ReportPage() {
           </div>
         )}
 
-        {/* Site Tab */}
-        {activeTab === 'site' && (
+        {/* Site tab — MA only (hidden for PM: many tied site ranks) */}
+        {activeTab === 'site' && isMa && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white p-6 rounded-[2rem] shadow-sm min-w-0">
               <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
@@ -1948,7 +2418,128 @@ export default function ReportPage() {
           </div>
         )}
 
-      
+        {reportType === 'pm' && (
+          <section
+            className="w-full rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+            aria-labelledby="pm-sites-registry-heading"
+          >
+            <h2
+              id="pm-sites-registry-heading"
+              className="mb-1 font-bold text-slate-600 text-base sm:text-lg flex items-center gap-2"
+            >
+              <Building2 size={18} className="text-blue-500 shrink-0" aria-hidden />
+              Sites & locations
+            </h2>
+            <p className="mb-2 text-[11px] leading-snug text-slate-500">
+              Registry totals from <span className="font-medium text-slate-600">sites</span> /{' '}
+              <span className="font-medium text-slate-600">sites_location</span>.
+            </p>
+
+            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="flex flex-col gap-0.5 rounded-2xl border border-blue-300 bg-blue-50/80 p-3 shadow-sm">
+                <div className="relative flex items-center">
+                  <span className="flex-1 text-center text-[11px] font-semibold uppercase tracking-wide text-blue-500">
+                    Sites
+                  </span>
+                  <Building2
+                    size={15}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 shrink-0 text-blue-400"
+                    aria-hidden
+                  />
+                </div>
+                <p className="pt-1 text-center text-xl font-black text-blue-700 tabular-nums leading-tight">
+                  {siteRegistryCountsLoading
+                    ? '…'
+                    : siteRegistryCounts != null
+                      ? siteRegistryCounts.siteCount.toLocaleString()
+                      : '—'}
+                </p>
+                <p className="pt-1 text-center text-[10px] text-blue-400/90">Sites table</p>
+              </div>
+              <div className="flex flex-col gap-0.5 rounded-2xl border border-sky-300 bg-sky-50/80 p-3 shadow-sm">
+                <div className="relative flex items-center">
+                  <span className="flex-1 text-center text-[11px] font-semibold uppercase tracking-wide text-sky-600">
+                    Locations
+                  </span>
+                  <MapPin
+                    size={15}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 shrink-0 text-sky-500"
+                    aria-hidden
+                  />
+                </div>
+                <p className="pt-1 text-center text-xl font-black text-sky-700 tabular-nums leading-tight">
+                  {siteRegistryCountsLoading
+                    ? '…'
+                    : siteRegistryCounts != null
+                      ? siteRegistryCounts.locationCount.toLocaleString()
+                      : '—'}
+                </p>
+                <p className="pt-1 text-center text-[10px] text-sky-500">sites_location table</p>
+              </div>
+            </div>
+
+            <div className="mb-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <h3 className="font-semibold text-slate-700 flex items-center gap-1.5 text-xs sm:text-sm">
+                <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" aria-hidden />
+                By organisation & locations
+              </h3>
+              <div className="flex flex-wrap gap-1.5">
+                <span className="w-fit rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-blue-700 ring-1 ring-blue-100/80">
+                  {sitesLocationGroupedBySite.length} sites
+                </span>
+                <span className="w-fit rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-sky-800 ring-1 ring-sky-100/80">
+                  {sitesLocationDetailRows.length} locations
+                </span>
+              </div>
+            </div>
+
+            <div className="pm-registry-scroll max-h-[min(28rem,56vh)] space-y-2 overflow-y-auto pr-1">
+              {sitesLocationGroupedBySite.length === 0 ? (
+                <p className="py-6 text-center text-xs text-slate-400">No rows loaded.</p>
+              ) : (
+                sitesLocationGroupedBySite.map((group, i) => (
+                    <div
+                      key={group.locations.map((l) => l.SLid).join('-')}
+                      className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50/60"
+                    >
+                      <div className="flex items-start gap-1.5 border-b border-slate-100 bg-blue-50/25 p-2.5">
+                        <RankBadge rank={i + 1} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[9px] font-semibold uppercase tracking-wide text-blue-600/90">Site</p>
+                          <p className="font-semibold text-[12px] leading-tight text-slate-800 break-words">
+                            {group.siteName}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="min-w-0 bg-white p-2.5 sm:p-3">
+                        <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-wide text-sky-700/90">
+                          Locations
+                        </p>
+                        <ul className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3" role="list">
+                          {group.locations.map((loc) => (
+                            <li
+                              key={loc.SLid}
+                              className="flex items-start gap-1.5 rounded border border-sky-100/80 bg-sky-50/35 px-2 py-1 text-[11px] leading-snug text-slate-700"
+                            >
+                              <MapPin
+                                className="mt-0.5 h-3 w-3 shrink-0 text-sky-500"
+                                strokeWidth={2}
+                                aria-hidden
+                              />
+                              <span className="min-w-0" title={loc.label}>
+                                {formatLocationLabelEn(loc.label)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+          </section>
+        )}
+
       </div>
 
       {/* MA Top-model advanced filter modal (Site & Model) */}

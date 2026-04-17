@@ -33,7 +33,28 @@ import {
   Upload,
   Image,
   Loader2,
+  Paperclip,
 } from 'lucide-react';
+
+/** Paths จาก task.photos / report.repairNoticePaths สำหรับลิงก์ Repair notice */
+function normalizeRepairPathsFromPhotos(photos: unknown): string[] {
+  if (!Array.isArray(photos)) return [];
+  const out: string[] = [];
+  for (const p of photos) {
+    if (typeof p === 'string' && p.trim()) out.push(p.trim());
+    else if (p && typeof p === 'object') {
+      const o = p as Record<string, unknown>;
+      const path =
+        typeof o.path === 'string'
+          ? o.path.trim()
+          : typeof o.url === 'string'
+            ? o.url.trim()
+            : '';
+      if (path) out.push(path);
+    }
+  }
+  return out;
+}
 
 type ReportTab = 'pm' | 'ma';
 
@@ -571,8 +592,14 @@ function ReportPageContent() {
       : [];
     if (sourceReports.length === 0 && pendingExport.length === 0) return;
 
-    // สำหรับ MA: ดึง replacement device (serial, location, site) สำหรับ Replace Device, New Site, New Location
-    type ReplacementInfo = { serial: string; location: string; site: string };
+    // สำหรับ MA: ดึง replacement device (serial, model, asset #, location, site)
+    type ReplacementInfo = {
+      serial: string;
+      model: string;
+      assetNumber: string;
+      location: string;
+      site: string;
+    };
     let replacementPlaceMap: Record<string, ReplacementInfo> = {};
     const addReplacementIdsFromRow = (row: any, repIds: Set<string>) => {
       const assets: any[] = Array.isArray(row?.assets) ? row.assets : [];
@@ -595,18 +622,34 @@ function ReportPageContent() {
             if (res.ok && json.data) {
               const d = json.data as Record<string, unknown>;
               const serial = (d.serial ?? (d as any).serialNumber ?? '') as string;
+              const model = (d.model ?? (d as any).type ?? '') as string;
+              const assetNum = (d.Asset_Number ?? (d as any).assetNumber ?? '') as string;
               const location = (d.Location2 ?? d.location2 ?? '') as string;
               const site = (d.Sitename ?? d.site ?? '') as string;
               replacementPlaceMap[rid] = {
                 serial: String(serial || '').trim() || '-',
+                model: String(model || '').trim() || '-',
+                assetNumber: String(assetNum || '').trim() || '-',
                 location: String(location || '').trim() || '-',
                 site: String(site || '').trim() || '-',
               };
             } else {
-              replacementPlaceMap[rid] = { serial: '-', location: '-', site: '-' };
+              replacementPlaceMap[rid] = {
+                serial: '-',
+                model: '-',
+                assetNumber: '-',
+                location: '-',
+                site: '-',
+              };
             }
           } catch {
-            replacementPlaceMap[rid] = { serial: '-', location: '-', site: '-' };
+            replacementPlaceMap[rid] = {
+              serial: '-',
+              model: '-',
+              assetNumber: '-',
+              location: '-',
+              site: '-',
+            };
           }
         })
       );
@@ -641,12 +684,16 @@ function ReportPageContent() {
     ];
     const maHeaders = [
       'Serial',
+      'Model',
+      'Asset number',
       'Site',
       'Location',
       'Technician',
       'start_date',
       'end_date',
-      'Replace Device',
+      'Replace Device (serial)',
+      'Model',
+      'Asset number',
       'New Site',
       'New Location',
       'Third Party Vendor name',
@@ -656,8 +703,20 @@ function ReportPageContent() {
       'Ticket',
       'Status',
       'Report status',
+      'Repair notice',
       'comment',
     ];
+
+    const getMaExportRepairPaths = (ma: MAReport): string[] => {
+      const fromReport = Array.isArray(ma.repairNoticePaths)
+        ? ma.repairNoticePaths.filter((p): p is string => typeof p === 'string' && p.trim() !== '')
+        : [];
+      if (fromReport.length > 0) return fromReport;
+      const tid = ma.taskId;
+      if (tid == null) return [];
+      const linked = pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(tid));
+      return normalizeRepairPathsFromPhotos(linked?.photos);
+    };
     const headers = tab === 'ma' ? maHeaders : pmHeaders;
     row([`${taskLabel} Checklist Report - Export (Generated: ${gen})`, ...Array(headers.length - 1).fill('')]);
     row(Array(headers.length).fill(''));
@@ -696,54 +755,77 @@ function ReportPageContent() {
       const origNames: string[] = [];
       const origAssets: string[] = [];
       const origSerials: string[] = [];
-      const repNames: string[] = [];
+      const origModels: string[] = [];
+      const repSerials: string[] = [];
+      const repModels: string[] = [];
+      const repAssetNums: string[] = [];
       const newSites: string[] = [];
       const newLocations: string[] = [];
       assets.forEach((a: any, i: number) => {
         const origName = a?.name ?? a?.CI_Name ?? a?.Asset_Number ?? a?.serial ?? '';
         const origAsset = a?.Asset_Number ?? a?.assetNumber ?? '';
         const origSerial = a?.serial ?? a?.serialNumber ?? '';
+        const origModel = (a?.model ?? a?.type ?? '').toString().trim();
         if (origName) origNames.push(origName);
         if (origAsset) origAssets.push(origAsset);
         if (origSerial) origSerials.push(origSerial);
+        if (origModel) origModels.push(origModel);
         const rid = a?.replacementDeviceId ?? a?.replacement_device_id ?? (i === 0 ? taskRepId : null);
         const repInfo = rid != null ? replacementPlaceMap[String(rid)] : null;
-        const repName = repInfo?.serial ?? '-';
-        if (rid != null) {
-          repNames.push(repName);
-          newSites.push(repInfo?.site ?? '-');
-          newLocations.push(repInfo?.location ?? '-');
+        if (rid != null && repInfo) {
+          repSerials.push(repInfo.serial);
+          repModels.push(repInfo.model);
+          repAssetNums.push(repInfo.assetNumber);
+          newSites.push(repInfo.site);
+          newLocations.push(repInfo.location);
         }
       });
-      if (repNames.length === 0 && taskRepId != null && replacementPlaceMap[String(taskRepId)]) {
+      if (repSerials.length === 0 && taskRepId != null && replacementPlaceMap[String(taskRepId)]) {
         const p = replacementPlaceMap[String(taskRepId)];
-        repNames.push(p.serial);
+        repSerials.push(p.serial);
+        repModels.push(p.model);
+        repAssetNums.push(p.assetNumber);
         newSites.push(p.site);
         newLocations.push(p.location);
       }
-      const deviceStr = origNames.length > 0 ? origNames.join('; ') : (r.device?.CI_Name || r.device?.Asset_Number || '-');
-      const assetStr = origAssets.length > 0 ? origAssets.join('; ') : (r.device?.Asset_Number || '-');
-      const serialStr = origSerials.length > 0 ? origSerials.join('; ') : (r.device?.serial || '-');
-      const replaceDeviceStr = repNames.length > 0 ? repNames.join('; ') : '-';
+      const assetStr = origAssets.length > 0 ? origAssets.join('; ') : String(dev?.Asset_Number ?? r.device?.Asset_Number ?? '-');
+      const serialStr = origSerials.length > 0 ? origSerials.join('; ') : String(dev?.serial ?? r.device?.serial ?? '-');
+      const modelStr =
+        origModels.length > 0
+          ? origModels.join('; ')
+          : String((dev as Record<string, unknown> | undefined)?.model ?? (r.device as { model?: string } | undefined)?.model ?? '').trim() || '-';
+      const replaceDeviceStr = repSerials.length > 0 ? repSerials.join('; ') : '-';
+      const replaceModelStr = repModels.length > 0 ? repModels.join('; ') : '-';
+      const replaceAssetStr = repAssetNums.length > 0 ? repAssetNums.join('; ') : '-';
       const newSiteStr = newSites.length > 0 ? newSites.join('; ') : '-';
       const newLocationStr = newLocations.length > 0 ? newLocations.join('; ') : '-';
+      const maR = r as MAReport;
+      const repairCell = buildRepairNoticeCsvCell({
+        taskId: maR.taskId,
+        repairNoticePaths: getMaExportRepairPaths(maR),
+      } as MAReport);
       row([
         serialStr,
+        modelStr,
+        assetStr,
         site,
         location,
         getEngineerDisplay(r),
         winStart,
         winEnd,
         replaceDeviceStr,
+        replaceModelStr,
+        replaceAssetStr,
         newSiteStr,
         newLocationStr,
-        (r as MAReport).vendorName ?? '',
-        (r as MAReport).vendorTel ?? '',
-        (r as MAReport).reporterName ?? '',
-        (r as MAReport).reporterTel ?? '',
-        (r as MAReport).ticket ?? '',
+        maR.vendorName ?? '',
+        maR.vendorTel ?? '',
+        maR.reporterName ?? '',
+        maR.reporterTel ?? '',
+        maR.ticket ?? '',
         'Done',
         reportStatus,
+        repairCell,
         (r.comment || '').replace(/\n/g, ' '),
       ]);
     });
@@ -789,40 +871,66 @@ function ReportPageContent() {
       }
       const taskRepId = task?.replacementDeviceId ?? task?.replacement_device_id;
       const origSerials: string[] = [];
-      const repNames: string[] = [];
+      const origModels: string[] = [];
+      const origAssetNums: string[] = [];
+      const repSerials: string[] = [];
+      const repModels: string[] = [];
+      const repAssetNumsRepl: string[] = [];
       const newSites: string[] = [];
       const newLocations: string[] = [];
       assets.forEach((a: any, i: number) => {
         const origSerial = a?.serial ?? a?.serialNumber ?? '';
         if (origSerial) origSerials.push(origSerial);
+        const om = (a?.model ?? a?.type ?? '').toString().trim();
+        if (om) origModels.push(om);
+        const an = (a?.Asset_Number ?? a?.assetNumber ?? '').toString().trim();
+        if (an) origAssetNums.push(an);
         const rid = a?.replacementDeviceId ?? a?.replacement_device_id ?? (i === 0 ? taskRepId : null);
         const repInfo = rid != null ? replacementPlaceMap[String(rid)] : null;
-        const repName = repInfo?.serial ?? '-';
-        if (rid != null) {
-          repNames.push(repName);
-          newSites.push(repInfo?.site ?? '-');
-          newLocations.push(repInfo?.location ?? '-');
+        if (rid != null && repInfo) {
+          repSerials.push(repInfo.serial);
+          repModels.push(repInfo.model);
+          repAssetNumsRepl.push(repInfo.assetNumber);
+          newSites.push(repInfo.site);
+          newLocations.push(repInfo.location);
         }
       });
-      if (repNames.length === 0 && taskRepId != null && replacementPlaceMap[String(taskRepId)]) {
+      if (repSerials.length === 0 && taskRepId != null && replacementPlaceMap[String(taskRepId)]) {
         const p = replacementPlaceMap[String(taskRepId)];
-        repNames.push(p.serial);
+        repSerials.push(p.serial);
+        repModels.push(p.model);
+        repAssetNumsRepl.push(p.assetNumber);
         newSites.push(p.site);
         newLocations.push(p.location);
       }
       const serialStr = origSerials.length > 0 ? origSerials.join('; ') : '-';
-      const replaceDeviceStr = repNames.length > 0 ? repNames.join('; ') : '-';
+      const modelStr = origModels.length > 0 ? origModels.join('; ') : '-';
+      const assetNumStr =
+        origAssetNums.length > 0
+          ? origAssetNums.join('; ')
+          : String(first?.Asset_Number ?? first?.assetNumber ?? '-');
+      const replaceDeviceStr = repSerials.length > 0 ? repSerials.join('; ') : '-';
+      const replaceModelStr = repModels.length > 0 ? repModels.join('; ') : '-';
+      const replaceAssetStr = repAssetNumsRepl.length > 0 ? repAssetNumsRepl.join('; ') : '-';
       const newSiteStr = newSites.length > 0 ? newSites.join('; ') : '-';
       const newLocationStr = newLocations.length > 0 ? newLocations.join('; ') : '-';
-      const photosArr = Array.isArray(task?.photos) ? task.photos.map((p: any) => (typeof p === 'string' ? p : String(p?.path ?? p?.url ?? '').trim())).filter(Boolean) : [];
+      const photosArr = normalizeRepairPathsFromPhotos(task?.photos);
+      const repairCell = buildRepairNoticeCsvCell({
+        taskId: task?.id,
+        repairNoticePaths: photosArr,
+      } as MAReport);
       row([
         serialStr,
+        modelStr,
+        assetNumStr,
         siteFromTask,
         locationFromTask,
         engDisplay,
         formatExportDate(task?.startDate),
         formatExportDate(task?.endDate),
         replaceDeviceStr,
+        replaceModelStr,
+        replaceAssetStr,
         newSiteStr,
         newLocationStr,
         task?.vendorName ?? '',
@@ -830,9 +938,9 @@ function ReportPageContent() {
         task?.reporterName ?? '',
         task?.reporterTel ?? '',
         task?.ticket ?? '',
-        buildRepairNoticeCsvCell({ taskId: task?.id, repairNoticePaths: photosArr } as MAReport),
         formatTaskStatusForCsv(task?.status),
         'Not yet',
+        repairCell,
         String(task?.notes ?? '')
           .replace(/\n/g, ' '),
       ]);
@@ -2215,6 +2323,51 @@ function ReportPageContent() {
                     </div>
                   );
                 })()}
+
+                {tab === 'ma' &&
+                  (() => {
+                    const ma = selectedReport as MAReport;
+                    const fromReport = Array.isArray(ma.repairNoticePaths)
+                      ? ma.repairNoticePaths.filter((p): p is string => typeof p === 'string' && !!p.trim())
+                      : [];
+                    const linkedTask =
+                      ma.taskId != null
+                        ? pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(ma.taskId))
+                        : undefined;
+                    const fromTask = normalizeRepairPathsFromPhotos(linkedTask?.photos);
+                    const repairPaths = fromReport.length > 0 ? fromReport : fromTask;
+                    if (repairPaths.length === 0) return null;
+                    return (
+                      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center">
+                            <Paperclip size={20} className="text-sky-700" />
+                          </div>
+                          <h3 className="font-bold text-slate-800">Repair notice</h3>
+                        </div>
+                        <ul className="space-y-2">
+                          {repairPaths.map((path) => {
+                            const name = path.replace(/^.*[/\\]/, '') || path;
+                            const href = /^https?:\/\//i.test(path)
+                              ? path
+                              : apiUrl(path.startsWith('/') ? path : `/${path}`);
+                            return (
+                              <li key={path}>
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm font-medium text-sky-700 hover:underline break-all"
+                                >
+                                  {name}
+                                </a>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  })()}
 
                 {/* 
                 {selectedReport.sla_result != null && (

@@ -76,6 +76,16 @@ export async function getSitesLocation(): Promise<{
   return res.json();
 }
 
+/** GET /api/sites/registry-counts — จำนวนแถวในตาราง sites และ sites_location */
+export async function getSiteRegistryCounts(): Promise<{
+  success: boolean;
+  data?: { siteCount: number; locationCount: number };
+  message?: string;
+}> {
+  const res = await fetch(apiUrl('/api/sites/registry-counts'));
+  return res.json();
+}
+
 /** GET /api/sites/locations-with-contracts - สำหรับ dropdown Site เฉพาะที่มี contract (SLid, SiteName, Location2) */
 export async function getSitesLocationWithContracts(): Promise<{ success: boolean; data: { SLid: number; SiteName: string; Location2?: string }[] }> {
   const res = await fetch(apiUrl('/api/sites/locations-with-contracts'));
@@ -248,6 +258,8 @@ export async function getMaDashboard(params?: { months?: number; year?: number; 
       topVendorCount: number;
       topEquipment: string;
       topEquipmentCount: number;
+      /** MA: top model by MA task count; PM: see failed_reports / pm_tasks */
+      topEquipmentBasis?: 'ma_tasks' | 'failed_reports' | 'pm_tasks' | 'none';
     };
     monthlyMA: Array<{ month: string; monthKey: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number }>;
     vendorRanking: Array<{ vendor: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number; completionRate: number }>;
@@ -266,6 +278,8 @@ export async function getMaDashboard(params?: { months?: number; year?: number; 
       pending: number;
       reportFail: number;
       reportPass: number;
+      /** PM model ranking: distinct device count for this model in range */
+      deviceCount?: number;
     }>;
     topModelTrend?: {
       model: string | null;
@@ -315,6 +329,8 @@ export async function getPmDashboard(params?: { months?: number; year?: number; 
       topVendorCount: number;
       topEquipment: string;
       topEquipmentCount: number;
+      /** failed_reports = top by report Fail; pm_tasks = fallback when no fails */
+      topEquipmentBasis?: 'failed_reports' | 'pm_tasks' | 'none';
     };
     monthlyMA: Array<{ month: string; monthKey: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number }>;
     vendorRanking: Array<{ vendor: string; total: number; done: number; inprocess: number; reportFail: number; reportPass: number; overdue: number; pending: number; completionRate: number }>;
@@ -333,6 +349,8 @@ export async function getPmDashboard(params?: { months?: number; year?: number; 
       pending: number;
       reportFail: number;
       reportPass: number;
+      /** PM model ranking: distinct device count for this model in range */
+      deviceCount?: number;
     }>;
     vendorMonthly: Array<{ vendor: string; month: string; monthKey: string; total: number }>;
     vendorReportStats: Array<{ vendor: string; totalReports: number; passReports: number; failReports: number; passRate: number }>;

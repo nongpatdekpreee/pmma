@@ -2546,13 +2546,12 @@ function ScheduleManagementContent() {
                                         ? 'bg-red-100 text-red-700'
                                         : 'bg-slate-100 text-slate-600'
                                 }`}
-                                title={isInProcess ? getScheduleInProcessReason(ev) : undefined}
                               >
                                 {isInProcess && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                                 {statusLabel}
                               </span>
                               {isInProcess && (
-                                <p className="mt-1 text-[11px] text-amber-900/90 line-clamp-2" title={getScheduleInProcessReason(ev)}>
+                                <p className="mt-1 text-[11px] text-amber-900/90 line-clamp-2">
                                   {getScheduleInProcessReason(ev)}
                                 </p>
                               )}
@@ -2794,7 +2793,6 @@ function ScheduleManagementContent() {
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                                     className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'} ${highlightTaskId === String(ev.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
-                                    title={isInProcess ? `กำลังดำเนินการ: ${getScheduleInProcessReason(ev)}` : undefined}
                                   >
                                     <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
@@ -2831,7 +2829,7 @@ function ScheduleManagementContent() {
                                       </span>
                                     )}
                                     {isInProcess && (
-                                      <span className="ml-1 flex-shrink-0 text-amber-700" title={`กำลังดำเนินการ: ${getScheduleInProcessReason(ev)}`}>
+                                      <span className="ml-1 flex-shrink-0 text-amber-700">
                                         <Clock3 size={12} strokeWidth={2.5} aria-hidden />
                                       </span>
                                     )}
@@ -2902,7 +2900,6 @@ function ScheduleManagementContent() {
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                         className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20 ${highlightTaskId === String(event.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
-                        title={isInProcess ? `กำลังดำเนินการ: ${getScheduleInProcessReason(event)}` : undefined}
                       >
                         <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
@@ -2939,7 +2936,7 @@ function ScheduleManagementContent() {
                           </span>
                         )}
                         {isInProcess && (
-                          <span className="ml-1 flex-shrink-0 text-amber-700" title={`กำลังดำเนินการ: ${getScheduleInProcessReason(event)}`}>
+                          <span className="ml-1 flex-shrink-0 text-amber-700">
                             <Clock3 size={12} strokeWidth={2.5} aria-hidden />
                           </span>
                         )}

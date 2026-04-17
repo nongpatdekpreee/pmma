@@ -21,8 +21,34 @@ import {
   ClipboardList,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Paperclip,
 } from 'lucide-react';
+
+/** paths จาก task.photos — ใบแจ้งซ่อมที่แนบตอนสร้างงาน */
+function normalizeRepairPathsFromPhotos(photos: unknown): string[] {
+  if (!Array.isArray(photos)) return [];
+  const out: string[] = [];
+  for (const p of photos) {
+    if (typeof p === 'string' && p.trim()) out.push(p.trim());
+    else if (p && typeof p === 'object') {
+      const o = p as Record<string, unknown>;
+      const path =
+        typeof o.path === 'string'
+          ? o.path.trim()
+          : typeof o.url === 'string'
+            ? o.url.trim()
+            : '';
+      if (path) out.push(path);
+    }
+  }
+  return out;
+}
+
+function repairFileHref(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return apiUrl(path.startsWith('/') ? path : `/${path}`);
+}
 
 interface UploadedFile {
   id: string;
@@ -514,6 +540,32 @@ export default function AddMAReportPage() {
                         </span>
                       </div>
                     )}
+                    {normalizeRepairPathsFromPhotos(task.photos).length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-slate-200 w-full">
+                        <p className="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
+                          <Paperclip size={14} className="text-sky-600 shrink-0" aria-hidden />
+                          Repair notice
+                        </p>
+                        <ul className="text-xs space-y-1">
+                          {normalizeRepairPathsFromPhotos(task.photos).map((path) => {
+                            const name = path.replace(/^.*[/\\]/, '') || path;
+                            return (
+                              <li key={path}>
+                                <a
+                                  href={repairFileHref(path)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sky-700 hover:text-sky-900 hover:underline break-all"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {name}
+                                </a>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={() => applyTaskToForm(task)}
@@ -731,11 +783,54 @@ export default function AddMAReportPage() {
             );
           })()}
 
+          {/* Repair notice (ใบแจ้งซ่อม) — จากงานที่เลือก เพื่อดูรายละเอียดก่อนส่งรายงาน */}
+          {selectedTaskId != null &&
+            (() => {
+              const task = availableMATasks.find((t: any) => t.id === selectedTaskId);
+              if (!task) return null;
+              const paths = normalizeRepairPathsFromPhotos(task.photos);
+              if (paths.length === 0) return null;
+              return (
+                <div className="mb-6 p-4 rounded-xl border border-sky-200/80 bg-gradient-to-br from-sky-50/90 to-white">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-sky-700">
+                      <Paperclip size={18} aria-hidden />
+                    </span>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-800">Repair notice</h3>
+                      <p className="text-xs text-slate-500">Files attached when the MA task was created</p>
+                    </div>
+                  </div>
+                  <ul className="mt-3 space-y-2">
+                    {paths.map((path) => {
+                      const name = path.replace(/^.*[/\\]/, '') || path;
+                      return (
+                        <li
+                          key={path}
+                          className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                        >
+                          <FileText size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden />
+                          <a
+                            href={repairFileHref(path)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-sky-700 hover:text-sky-900 hover:underline break-all"
+                          >
+                            {name}
+                          </a>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })()}
+
           {/* MA Information */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">
-                Technician (ชื่อ-นามสกุล) *
+                Technician 
               </label>
               <input
                 type="text"
