@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { getPmReports, getMaReports, getTasks, apiUrl, taskMaNoticeUrl } from '@/lib/api';
+import { getPmReports, getMaReports, getTasks, apiUrl, taskMaNoticeUrl, absoluteUrlForHyperlink } from '@/lib/api';
 import JSZip from 'jszip';
 import {
   Plus,
@@ -541,8 +541,11 @@ function ReportPageContent() {
     return { site: raw || '-', location: '-' };
   };
 
-  /** สำหรับ Excel/LibreOffice: สูตร HYPERLINK ให้กดเปิด Repair notice ได้ (หลายไฟล์คั่นบรรทัดในเซลล์เดียว) */
+  /** Excel/LibreOffice: HYPERLINK formula; multiple files joined with line breaks in one cell */
   const escapeExcelStr = (s: string) => s.replace(/"/g, '""');
+  /** Thai Excel uses ";" between function args; US/UK Excel uses "," — wrong separator breaks HYPERLINK into a bad path (e.g. C:\\api\\...) */
+  const excelFormulaArgSep =
+    typeof navigator !== 'undefined' && /^th/i.test(navigator.language || '') ? ';' : ',';
   const buildRepairNoticeCsvCell = (report: MAReport): string => {
     const paths = report.repairNoticePaths || [];
     const tid = report.taskId;
@@ -561,7 +564,10 @@ function ReportPageContent() {
       } else {
         url = apiUrl(trimmed.startsWith('/') ? trimmed : `/${trimmed}`);
       }
-      segments.push(`HYPERLINK("${escapeExcelStr(url)}","${escapeExcelStr(basename)}")`);
+      url = absoluteUrlForHyperlink(url);
+      segments.push(
+        `HYPERLINK("${escapeExcelStr(url)}"${excelFormulaArgSep}"${escapeExcelStr(basename)}")`
+      );
     }
     if (segments.length === 0) return '';
     return `=${segments.join('&CHAR(10)&')}`;
