@@ -47,7 +47,8 @@ export function FormSection({
           <div className="shrink-0">{headerAction}</div>
         )}
       </div>
-      <div className="relative z-50 space-y-4">{children}</div>
+      {/* ไม่ใช้ z-50 ที่นี่ — จะทำให้ sibling ใน section อื่นทับแผง dropdown ที่ล้น (ลำดับ DOM ชนะเมื่อ z เท่ากัน) */}
+      <div className="relative space-y-4">{children}</div>
     </section>
   );
 }

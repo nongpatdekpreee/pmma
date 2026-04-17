@@ -86,6 +86,20 @@ function canOpenDevicePicker(entry: SiteEntry | undefined, sofExistsInDb: boolea
   return entryHasSlidForSofDevicePick(entry);
 }
 
+/** แสดงปุ่ม Select Device — โหมด Site+Location แยกคอลัมน์: ต้องเลือก Location แล้ว (siteId = SLid); โหมดรายการ flat: ตาม scope device */
+function shouldShowSelectDeviceButton(
+  entry: SiteEntry,
+  sofExistsInDb: boolean,
+  siteLocationSplitMode: boolean,
+  sitesLocation: SiteLocation[]
+): boolean {
+  if (siteLocationSplitMode) {
+    return Boolean(entry.siteId?.trim());
+  }
+  if (sofExistsInDb) return entryHasSlidForSofDevicePick(entry);
+  return entryHasSiteScope(entry, sitesLocation);
+}
+
 function entryViewKey(entry: SiteEntry): string | null {
   if (entry.siteId) return entry.siteId;
   if (entry.selectedSid?.trim()) return `sid:${entry.selectedSid.trim()}`;
@@ -232,7 +246,26 @@ function primaryContractSiteIdFromEntries(entries: SiteEntry[]): number | null {
   return null;
 }
 
-type SaleContactRow = { id: string; name: string; email: string; tel: string };
+type SaleContactRow = { id: string; name: string; email: string; tel: string; telExt: string };
+
+/** แยกเบอร์หลัก / ต่อ จากบรรทัด DB (รูปแบบ 0893444444-12345) */
+function parseTelLineFromDb(line: string): { tel: string; telExt: string } {
+  const t = line.trim();
+  if (!t) return { tel: '', telExt: '' };
+  const m = t.match(/^(\d{9,15})-(\d{1,5})$/);
+  if (m) return { tel: m[1], telExt: m[2] };
+  const digits = t.replace(/\D/g, '').slice(0, 15);
+  return { tel: digits, telExt: '' };
+}
+
+/** บันทึก tel_acc หนึ่งบรรทัด: มีต่อ → หลัก-ต่อ */
+function formatTelLineForDb(tel: string, telExt: string): string {
+  const m = tel.replace(/\D/g, '').slice(0, 15);
+  const x = telExt.replace(/\D/g, '').slice(0, 5);
+  if (!m && !x) return '';
+  if (m && x) return `${m}-${x}`;
+  return m;
+}
 
 /** โหลดจาก DB: หลายบรรทัดใน sale_account / email_acc / tel_acc = หลายคน (แถวเดียวกัน) */
 function saleContactsFromDb(
@@ -246,16 +279,18 @@ function saleContactsFromDb(
   const maxLen = Math.max(nameLines.length, emailLines.length, telLines.length, 1);
   const rows: SaleContactRow[] = [];
   for (let i = 0; i < maxLen; i++) {
+    const parsed = parseTelLineFromDb((telLines[i] ?? '').trim());
     rows.push({
       id: randomUUID(),
       name: (nameLines[i] ?? '').trim(),
       email: (emailLines[i] ?? '').trim(),
-      tel: (telLines[i] ?? '').trim(),
+      tel: parsed.tel,
+      telExt: parsed.telExt,
     });
   }
   while (rows.length > 1) {
     const last = rows[rows.length - 1];
-    if (!last.name && !last.email && !last.tel) rows.pop();
+    if (!last.name && !last.email && !last.tel && !last.telExt) rows.pop();
     else break;
   }
   return rows;
@@ -266,14 +301,17 @@ function serializeSaleContacts(rows: SaleContactRow[]): {
   email_acc: string | null;
   tel_acc: string | null;
 } {
-  const nonempty = rows.filter((r) => r.name.trim() || r.email.trim() || r.tel.trim());
+  const nonempty = rows.filter(
+    (r) => r.name.trim() || r.email.trim() || r.tel.trim() || r.telExt.trim()
+  );
   if (nonempty.length === 0) {
     return { sale_account: null, email_acc: null, tel_acc: null };
   }
   return {
     sale_account: nonempty.map((r) => r.name.trim()).join('\n') || null,
     email_acc: nonempty.map((r) => r.email.trim()).join('\n') || null,
-    tel_acc: nonempty.map((r) => r.tel.trim()).join('\n') || null,
+    tel_acc:
+      nonempty.map((r) => formatTelLineForDb(r.tel, r.telExt)).join('\n') || null,
   };
 }
 
@@ -298,17 +336,20 @@ function AddContractPageContent() {
   /** ใน dropdown: ติ๊กเพื่อเปิดช่องพิมพ์ SOF เอง */
   const [referSofManualRowEnabled, setReferSofManualRowEnabled] = useState(false);
   const [saleContacts, setSaleContacts] = useState<SaleContactRow[]>(() => [
-    { id: randomUUID(), name: '', email: '', tel: '' },
+    { id: randomUUID(), name: '', email: '', tel: '', telExt: '' },
   ]);
   const addSaleContactRow = () => {
-    setSaleContacts((prev) => [...prev, { id: randomUUID(), name: '', email: '', tel: '' }]);
+    setSaleContacts((prev) => [
+      ...prev,
+      { id: randomUUID(), name: '', email: '', tel: '', telExt: '' },
+    ]);
   };
   const removeSaleContactRow = (id: string) => {
     setSaleContacts((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.id !== id)));
   };
   const updateSaleContactRow = (
     id: string,
-    patch: Partial<Pick<SaleContactRow, 'name' | 'email' | 'tel'>>,
+    patch: Partial<Pick<SaleContactRow, 'name' | 'email' | 'tel' | 'telExt'>>,
   ) => {
     setSaleContacts((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   };
@@ -536,23 +577,6 @@ function AddContractPageContent() {
     );
     setSiteLocationFilter('');
   };
-
-  useEffect(() => {
-    if (!siteLocationPicker) return;
-    const onDoc = (e: MouseEvent) => {
-      const el = document.getElementById(
-        `site-pick-${siteLocationPicker.entryId}-${siteLocationPicker.variant}`
-      );
-      if (el && !el.contains(e.target as Node)) {
-        setSiteLocationPicker(null);
-        setSiteLocationFilter('');
-        setSiteSidMultiDraft([]);
-        setLocationSlidMultiDraft([]);
-      }
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [siteLocationPicker]);
 
   // คำนวณ End Date จาก Start + Duration (เมื่อแก้ Start หรือ Duration)
   const recalcEndFromDuration = (startVal?: string, durVal?: string) => {
@@ -1095,17 +1119,37 @@ function AddContractPageContent() {
     setSiteEntries((prev) => prev.filter((e) => e.id !== entryId));
   };
 
-  const updateSiteEntry = (entryId: string, siteId: string) => {
-    const site = sitesLocation.find((s) => String(s.SLid) === siteId);
+  /**
+   * อัปเดต SLid (location) ของแถว
+   * @param clearLocationOnly เมื่อ siteId ว่าง — ถ้า true ล้างแค่ location คง selectedSid (โหมด Site+Location แยกคอลัมน์); ถ้าไม่ใส่ล้างทั้งแถวรวม Sid (โหมด flat)
+   */
+  const updateSiteEntry = (
+    entryId: string,
+    siteId: string,
+    opts?: { clearLocationOnly?: boolean }
+  ) => {
+    const trimmed = siteId?.trim() ?? '';
+    if (!trimmed) {
+      setSiteEntries((prev) =>
+        prev.map((e) => {
+          if (e.id !== entryId) return e;
+          if (opts?.clearLocationOnly) {
+            return { ...e, siteId: '', siteLabel: '', devices: [] };
+          }
+          return { ...e, selectedSid: undefined, siteId: '', siteLabel: '', devices: [] };
+        })
+      );
+      return;
+    }
+
+    const site = sitesLocation.find((s) => String(s.SLid) === trimmed);
     const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : '';
     const selectedSid = site?.Sid != null ? String(site.Sid) : undefined;
     setSiteEntries((prev) => {
-      if (siteId) {
-        const conflict = prev.some((e) => e.id !== entryId && e.siteId === siteId);
-        if (conflict) return prev;
-      }
+      const conflict = prev.some((e) => e.id !== entryId && e.siteId === trimmed);
+      if (conflict) return prev;
       return prev.map((e) =>
-        e.id === entryId ? { ...e, selectedSid, siteId, siteLabel, devices: [] } : e
+        e.id === entryId ? { ...e, selectedSid, siteId: trimmed, siteLabel, devices: [] } : e
       );
     });
   };
@@ -1280,6 +1324,36 @@ function AddContractPageContent() {
     closeSiteLocationPicker();
   };
 
+  const applyBulkSiteSidsForEntryRef = useRef(applyBulkSiteSidsForEntry);
+  const applyBulkLocationsForEntryRef = useRef(applyBulkLocationsForEntry);
+  applyBulkSiteSidsForEntryRef.current = applyBulkSiteSidsForEntry;
+  applyBulkLocationsForEntryRef.current = applyBulkLocationsForEntry;
+
+  /** คลิกนอก Site/Location/flat dropdown — ถ้ามี draft multi (ติ๊กแล้วยังไม่ Apply) ให้บันทึกเหมือนกด Apply แล้วค่อยปิด */
+  useEffect(() => {
+    if (!siteLocationPicker) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = document.getElementById(
+        `site-pick-${siteLocationPicker.entryId}-${siteLocationPicker.variant}`
+      );
+      if (!el || el.contains(e.target as Node)) return;
+
+      const sp = siteLocationPicker;
+      if (sp.variant === 'site' && siteSidMultiDraft.length > 0) {
+        applyBulkSiteSidsForEntryRef.current(sp.entryId, siteSidMultiDraft);
+        return;
+      }
+      if (sp.variant === 'location' && locationSlidMultiDraft.length > 0) {
+        applyBulkLocationsForEntryRef.current(sp.entryId, locationSlidMultiDraft);
+        return;
+      }
+      closeSiteLocationPicker();
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- closeSiteLocationPicker สร้างใหม่ทุก render; ใช้ ref สำหรับ apply แล้ว
+  }, [siteLocationPicker, siteSidMultiDraft, locationSlidMultiDraft]);
+
   /** แถว site สูงสุดเท่าจำนวน location (SLid) ในระบบ */
   const allLocationSlotsClaimed =
     sitesLocation.length > 0 && siteEntries.length >= sitesLocation.length;
@@ -1419,11 +1493,18 @@ function AddContractPageContent() {
         toastError(msg);
         return;
       }
-      const tt = row.tel.trim();
-      if (tt) {
-        const digitsOnly = tt.replace(/\D/g, '');
-        if (digitsOnly.length < 9 || digitsOnly.length > 15) {
-          const msg = 'Please enter a valid phone number (9–15 digits) for each sale contact row.';
+      const mainD = row.tel.replace(/\D/g, '');
+      const extD = row.telExt.replace(/\D/g, '');
+      if (mainD || extD) {
+        if (!mainD || mainD.length < 9 || mainD.length > 15) {
+          const msg =
+            'Please enter a valid main phone number (9–15 digits) for each sale contact row.';
+          setSaveError(msg);
+          toastError(msg);
+          return;
+        }
+        if (extD && (extD.length < 1 || extD.length > 5)) {
+          const msg = 'Extension must be 1–5 digits when provided.';
           setSaveError(msg);
           toastError(msg);
           return;
@@ -2085,7 +2166,7 @@ function AddContractPageContent() {
 
               {saleContacts.map((row, index) => (
                 <div key={row.id} className="space-y-3">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] sm:items-end">
                     <FormField label="Sale Account">
                       <div className="relative">
                         <input
@@ -2129,28 +2210,67 @@ function AddContractPageContent() {
                       </div>
                     </FormField>
                     <FormField label="Sale Telephone">
-                      <div className="relative">
-                        <input
-                          type="text"
-                          inputMode="tel"
-                          value={row.tel}
-                          onChange={(e) => {
-                            const v = e.target.value.replace(/\D/g, '').slice(0, 15);
-                            updateSaleContactRow(row.id, { tel: v });
-                          }}
-                          placeholder="9–15 digits"
-                          className={saleContactInputClass}
-                        />
-                        {row.tel ? (
-                          <button
-                            type="button"
-                            onClick={() => updateSaleContactRow(row.id, { tel: '' })}
-                            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                            title="Clear"
-                          >
-                            <X size={14} />
-                          </button>
-                        ) : null}
+                      <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+                        <div className="relative min-w-0 flex-1">
+                          <input
+                            type="text"
+                            inputMode="tel"
+                            value={row.tel}
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/\D/g, '').slice(0, 15);
+                              updateSaleContactRow(row.id, { tel: v });
+                            }}
+                            placeholder="9–15 digits"
+                            className={saleContactInputClass}
+                          />
+                          {row.tel ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateSaleContactRow(row.id, { tel: '', telExt: '' })
+                              }
+                              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              title="Clear"
+                            >
+                              <X size={14} />
+                            </button>
+                          ) : null}
+                        </div>
+                        <span
+                          className="shrink-0 select-none text-base font-medium text-slate-400"
+                          aria-hidden
+                        >
+                          -
+                        </span>
+                        <div className="relative w-[4.5rem] shrink-0 sm:w-24">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={row.telExt}
+                            onChange={(e) => {
+                              const v = e.target.value.replace(/\D/g, '').slice(0, 5);
+                              updateSaleContactRow(row.id, { telExt: v });
+                            }}
+                            placeholder="Ext"
+                            autoComplete="off"
+                            aria-label="Extension (max 5 digits)"
+                            title="Extension (max 5 digits)"
+                            className={`${inputBase} box-border px-2.5 py-3 text-center text-sm tabular-nums ${
+                              row.telExt ? 'pr-7' : ''
+                            }`}
+                          />
+                          {row.telExt ? (
+                            <button
+                              type="button"
+                              onClick={() => updateSaleContactRow(row.id, { telExt: '' })}
+                              className="absolute -right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600 sm:right-0"
+                              title="Clear extension"
+                              aria-label="Clear extension"
+                            >
+                              <X size={12} />
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     </FormField>
                     <div className="flex flex-col sm:w-11 sm:shrink-0">
@@ -2316,7 +2436,9 @@ function AddContractPageContent() {
             icon={Cpu}
             emoji="🏢"
             gradient="from-emerald-50 to-teal-50"
-            className={siteLocationPicker ? 'z-[100]' : ''}
+            className={
+              siteLocationPicker || viewSiteDropdownOpen ? 'z-[100]' : ''
+            }
           >
             {!showSiteDeviceSection ? (
               <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/50 py-10 text-center text-sm text-slate-500 shadow-inner shadow-slate-900/[0.02]">
@@ -2353,7 +2475,11 @@ function AddContractPageContent() {
                   <p className="text-sm text-slate-500">Loading site list...</p>
                 )}
                 {distinctSitesForView.length > 1 && (
-                  <div className="flex w-full min-w-0 flex-wrap items-end gap-2">
+                  <div
+                    className={`flex w-full min-w-0 flex-wrap items-end gap-2 ${
+                      viewSiteDropdownOpen ? 'relative z-[200]' : ''
+                    }`}
+                  >
                     <div className="flex min-w-0 w-full flex-1 flex-col gap-1">
                       <span
                         id="contract-add-view-site-label"
@@ -2399,6 +2525,8 @@ function AddContractPageContent() {
                         searchPlaceholder="Search site..."
                         emptyText="No sites match"
                         showClearOption={selectedViewSiteId != null}
+                        showClearButton
+                        clearAriaLabel="Clear view site filter"
                         onClear={() => {
                           setSelectedViewSiteId(null);
                           setViewSiteDropdownOpen(false);
@@ -2504,11 +2632,17 @@ function AddContractPageContent() {
                             .map((slid) => locationItems.find((i) => i.value === slid)?.label ?? slid)
                             .join(', ')
                         : locationDisplayName;
+                    const showSelectDeviceBtn = shouldShowSelectDeviceButton(
+                      entry,
+                      sofExistsInDb,
+                      uniqueSites.length > 0,
+                      sitesLocation
+                    );
                     return (
                     <div
                       key={entry.id}
                       className={`relative flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 backdrop-blur-sm ${
-                        rowPickerOpen ? 'z-[160]' : ''
+                        rowPickerOpen ? 'z-[220]' : ''
                       }`}
                     >
                       <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:items-end sm:gap-3">
@@ -2549,7 +2683,16 @@ function AddContractPageContent() {
                                   searchPlaceholder="Search site..."
                                   emptyText="No sites match"
                                   showClearOption={sitePickerOpenForRow && siteSidMultiDraft.length > 0}
-                                  onClear={() => setSiteSidMultiDraft([])}
+                                  showClearButton
+                                  clearAriaLabel="Clear site selection"
+                                  onClear={() => {
+                                    if (sitePickerOpenForRow && siteSidMultiDraft.length > 0) {
+                                      setSiteSidMultiDraft([]);
+                                    } else {
+                                      setEntrySid(entry.id, '');
+                                      closeSiteLocationPicker();
+                                    }
+                                  }}
                                   listMaxHeightClass="max-h-[14rem]"
                                   panelFooter={
                                     <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2">
@@ -2595,6 +2738,8 @@ function AddContractPageContent() {
                                   searchPlaceholder="Search site..."
                                   emptyText="No sites match"
                                   showClearOption={Boolean(resolvedSid)}
+                                  showClearButton
+                                  clearAriaLabel="Clear site"
                                   onClear={() => {
                                     setEntrySid(entry.id, '');
                                     closeSiteLocationPicker();
@@ -2643,7 +2788,16 @@ function AddContractPageContent() {
                                   showClearOption={
                                     locationPickerOpenForRow && locationSlidMultiDraft.length > 0
                                   }
-                                  onClear={() => setLocationSlidMultiDraft([])}
+                                  showClearButton
+                                  clearAriaLabel="Clear location selection"
+                                  onClear={() => {
+                                    if (locationPickerOpenForRow && locationSlidMultiDraft.length > 0) {
+                                      setLocationSlidMultiDraft([]);
+                                    } else {
+                                      updateSiteEntry(entry.id, '', { clearLocationOnly: true });
+                                      closeSiteLocationPicker();
+                                    }
+                                  }}
                                   listMaxHeightClass="max-h-[14rem]"
                                   panelFooter={
                                     <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2">
@@ -2694,8 +2848,10 @@ function AddContractPageContent() {
                                   searchPlaceholder="Search location..."
                                   emptyText="No locations match"
                                   showClearOption={Boolean(entry.siteId)}
+                                  showClearButton
+                                  clearAriaLabel="Clear location"
                                   onClear={() => {
-                                    updateSiteEntry(entry.id, '');
+                                    updateSiteEntry(entry.id, '', { clearLocationOnly: true });
                                     closeSiteLocationPicker();
                                   }}
                                 />
@@ -2726,6 +2882,8 @@ function AddContractPageContent() {
                               searchPlaceholder="Search..."
                               emptyText="No matches"
                               showClearOption={Boolean(entry.siteId)}
+                              showClearButton
+                              clearAriaLabel="Clear site / location"
                               onClear={() => {
                                 updateSiteEntry(entry.id, '');
                                 closeSiteLocationPicker();
@@ -2733,21 +2891,24 @@ function AddContractPageContent() {
                             />
                           </div>
                         )}
-                        {entry.devices.length === 0 && (
+                        {entry.devices.length === 0 &&
+                          (showSelectDeviceBtn || siteEntries.length > 1) && (
                           <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-4 sm:col-span-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
-                                void openDeviceModalForEntry(entry.id);
-                              }}
-                              disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
-                              className="flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {devicesLoading && activeSiteEntryId === entry.id
-                                ? 'Loading...'
-                                : 'Select Device'}
-                            </button>
+                            {showSelectDeviceBtn && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
+                                  void openDeviceModalForEntry(entry.id);
+                                }}
+                                disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
+                                className="flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {devicesLoading && activeSiteEntryId === entry.id
+                                  ? 'Loading...'
+                                  : 'Select Device'}
+                              </button>
+                            )}
                             {siteEntries.length > 1 && (
                               <button
                                 type="button"
@@ -2847,21 +3008,24 @@ function AddContractPageContent() {
                         </div>
                         );
                       })()}
-                      {entry.devices.length > 0 && (
+                      {entry.devices.length > 0 &&
+                        (showSelectDeviceBtn || siteEntries.length > 1) && (
                         <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-4">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
-                              void openDeviceModalForEntry(entry.id);
-                            }}
-                            disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
-                            className="flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {devicesLoading && activeSiteEntryId === entry.id
-                              ? 'Loading...'
-                              : 'Select Device'}
-                          </button>
+                          {showSelectDeviceBtn && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
+                                void openDeviceModalForEntry(entry.id);
+                              }}
+                              disabled={!canOpenDevicePicker(entry, sofExistsInDb) || devicesLoading}
+                              className="flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-3 py-2 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {devicesLoading && activeSiteEntryId === entry.id
+                                ? 'Loading...'
+                                : 'Select Device'}
+                            </button>
+                          )}
                           {siteEntries.length > 1 && (
                             <button
                               type="button"

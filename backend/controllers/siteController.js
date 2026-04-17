@@ -108,24 +108,6 @@ const getSitesLocationWithContracts = async (req, res) => {
       console.log('contract_device/contract table may not exist or has no data:', err.message);
     }
 
-    // ดึง site_id จาก contract (ตาราง contract) ที่สัญญายังไม่หมดอายุ
-    try {
-      const [contractCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'site_id'");
-      if (contractCols && contractCols.length > 0) {
-        const contractsSql = `
-          SELECT DISTINCT CAST(c.site_id AS UNSIGNED) AS SLid
-          FROM contract c
-          WHERE c.site_id IS NOT NULL AND c.site_id != ''
-            AND (c.end_date IS NULL OR c.end_date >= CURDATE())
-        `;
-        const [contractsRows] = await db.execute(contractsSql);
-        const contractSiteIds = (contractsRows || []).map(row => row.SLid).filter(Boolean);
-        siteIds = [...new Set([...siteIds, ...contractSiteIds])];
-      }
-    } catch (err) {
-      console.log('contract.site_id or end_date may not exist:', err.message);
-    }
-
     if (siteIds.length === 0) {
       return res.status(200).json({
         success: true,

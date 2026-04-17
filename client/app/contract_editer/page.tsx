@@ -11,7 +11,7 @@ import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearchListDropdown';
 import { 
-  FileText, Calendar, DollarSign, Building2, Cpu, MapPin, Hash,
+  FileText, Calendar, Building2, MapPin, Hash,
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
   ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban
 } from 'lucide-react';
@@ -57,10 +57,24 @@ interface Contract {
   devicesSlidAligned?: boolean;
   /** contract.site_id (sites_location.SLid หลัก) */
   siteId?: number | null;
+  /** สถานะล่าสุดจาก contract_history (สำหรับ badge เช่น Renew แทน Expired) */
+  historyStatus?: 'Renew' | 'Terminated' | null;
+  /** แถว Renew ล่าสุดใน contract_history (แสดงใต้ badge คอลัมน์ Status — โหมดตาราง) */
+  renewHistOldSof?: string | null;
+  renewHistNewSof?: string | null;
+  renewHistAt?: string | null;
+  /** แถวจาก contract_history (แสดงในตาราง/การ์ดเดียวกับ contract) */
+  isHistorySnapshotRow?: boolean;
+  /** contract_id จริงสำหรับเรียก API รายละเอียด/แก้ไข */
+  linkedContractId?: string;
+  historyId?: number;
 }
 
 interface FullContractDetails {
   contract_id: number;
+  /** ตั้งเมื่อโหลดจาก GET /api/contracts/history/:historyId */
+  history_id?: number | null;
+  history_detail?: boolean;
   status?: string | null;
   contract_name?: string | null;
   start_date?: string | null;
@@ -107,10 +121,38 @@ interface FullContractDetails {
     new_sof?: string | null;
     renewed_at?: string | null;
     created_at?: string | null;
+    /** JSON: snapshot แถว contract (ไม่มี contract_id) + devices[] — แทน device_json */
+    contract_snapshot?: string | null;
+    /** legacy: รูปแบบเก่า [{ Did, CI_Name }] */
+    device_json?: string | null;
+    status_history?: string | null;
   }>;
 }
 
+type ContractHistoryRow = NonNullable<FullContractDetails['history']>[number];
+
 type ContractSitePillRow = { SLid: number; SiteName?: string | null; Location2?: string | null };
+
+function toOptionalFiniteNumber(v: unknown): number | null {
+  if (v == null) return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** จับคู่ device กับ SLid ของไซต์: ใช้ contract_SLid ก่อน ถ้าไม่มีค่อยใช้ SLid ของแถว device */
+function deviceRowMatchesContractSiteSlid(
+  d: { contract_SLid?: unknown; SLid?: unknown },
+  slid: number,
+): boolean {
+  const target = toOptionalFiniteNumber(slid);
+  if (target == null) return false;
+  const c = toOptionalFiniteNumber(d.contract_SLid);
+  if (c !== null && c === target) return true;
+  if (c !== null) return false;
+  const phy = toOptionalFiniteNumber(d.SLid);
+  return phy !== null && phy === target;
+}
 
 /** รวม site หลักจาก contract.site_id (+ site_name/site_location จากแถว contract) ถ้ายังไม่อยู่ในรายการจาก contract_device */
 function mergeContractPrimarySiteIntoSites(
@@ -167,6 +209,11 @@ function formatDateForExport(dateStr: string | null | undefined): string {
   return `${day}/${month}/${year}`;
 }
 
+/** ใช้เรียก GET/PUT /api/contracts/:id — แถวประวัติใช้ linkedContractId */
+function contractRowApiId(c: Contract): string {
+  return c.linkedContractId ?? c.id;
+}
+
 function mapApiRowToContract(c: {
   contract_id: number;
   contract_name?: string | null;
@@ -182,6 +229,10 @@ function mapApiRowToContract(c: {
   device_count?: number | null;
   status?: string | null;
   devices_slid_aligned?: number | boolean | null;
+  history_status?: string | null;
+  renew_hist_old_sof?: string | null;
+  renew_hist_new_sof?: string | null;
+  renew_hist_at?: string | Date | null;
 }): Contract {
   const endDate = c.end_date || '';
   const rawStatus = String(c.status || '').toLowerCase();
@@ -189,6 +240,9 @@ function mapApiRowToContract(c: {
   const contractStatus: Contract['contractStatus'] =
     rawStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
   const status = resolveContractListStatus(endDate, markedNotRenewing);
+  const hs = c.history_status != null ? String(c.history_status).trim() : '';
+  const historyStatus: Contract['historyStatus'] =
+    hs === 'Renew' || hs === 'Terminated' ? hs : null;
   const alignedRaw = c.devices_slid_aligned;
   const devicesSlidAligned =
     alignedRaw === 1 ||
@@ -219,6 +273,37 @@ function mapApiRowToContract(c: {
     contractStatus,
     devicesSlidAligned,
     siteId: c.site_id != null && !Number.isNaN(Number(c.site_id)) ? Number(c.site_id) : null,
+    historyStatus,
+    renewHistOldSof:
+      c.renew_hist_old_sof != null && String(c.renew_hist_old_sof).trim() !== ''
+        ? String(c.renew_hist_old_sof).trim()
+        : null,
+    renewHistNewSof:
+      c.renew_hist_new_sof != null && String(c.renew_hist_new_sof).trim() !== ''
+        ? String(c.renew_hist_new_sof).trim()
+        : null,
+    renewHistAt:
+      c.renew_hist_at != null && String(c.renew_hist_at).trim() !== ''
+        ? String(c.renew_hist_at)
+        : null,
+  };
+}
+
+type HistoryDisplayApiRow = Parameters<typeof mapApiRowToContract>[0] & {
+  row_type: 'history';
+  history_id: number;
+};
+
+function mapHistoryDisplayRowToContract(h: HistoryDisplayApiRow): Contract {
+  const base = mapApiRowToContract(h);
+  const terminated = String(h.history_status ?? '').trim() === 'Terminated';
+  return {
+    ...base,
+    id: `h-${h.history_id}`,
+    linkedContractId: String(h.contract_id),
+    historyId: h.history_id,
+    isHistorySnapshotRow: true,
+    status: terminated ? 'closed' : base.status,
   };
 }
 
@@ -244,8 +329,51 @@ function resolveContractListStatus(
   return base;
 }
 
+/** Badge ในรายการสัญญา: ถ้าเลยวันสิ้นสุดแต่ประวัติล่าสุดเป็น Renew → แสดง Renew แทน Expired */
+function contractListBadgeKey(c: Contract): string {
+  if (c.isHistorySnapshotRow) {
+    if (c.historyStatus === 'Renew') return 'renew';
+    if (c.historyStatus === 'Terminated') return 'closed';
+    if ((c.renewHistOldSof?.trim() || c.renewHistNewSof?.trim()) && !c.historyStatus) return 'renew';
+  }
+  if (c.contractStatus === 'draft') return 'draft';
+  if (c.status === 'expired' && c.historyStatus === 'Renew') return 'renew';
+  return c.status;
+}
+
+/** ไม่แสดงการนับวันใน Expiry Status / Incoming เมื่อเป็นสัญญา Renew หรือ Terminated */
+function contractListBlocksExpiryIncoming(c: Contract): boolean {
+  if (c.historyStatus === 'Renew' || c.historyStatus === 'Terminated') return true;
+  if (contractListBadgeKey(c) === 'renew') return true;
+  if (c.status === 'closed') return true;
+  return false;
+}
+
+/** ปิดการแก้ไขจากรายการและจาก modal รายละเอียดเมื่อ Renew / Terminated */
+function contractListDisablesEdit(c: Contract): boolean {
+  return Boolean(c.isHistorySnapshotRow);
+}
+
+/** ข้อความจาก contract_history ใต้ badge ในคอลัมน์ Status — แสดงเฉพาะ Renew / Terminated (ไม่แสดงเมื่อเป็น Active ฯลฯ) */
+function renewHistoryTableSubtitle(
+  c: Contract,
+): { sof: string | null; dateLine: string | null } | null {
+  const badge = contractListBadgeKey(c);
+  if (badge !== 'renew' && badge !== 'closed') return null;
+  const oldS = c.renewHistOldSof?.trim();
+  const newS = c.renewHistNewSof?.trim();
+  const hasSof = (oldS && oldS.length > 0) || (newS && newS.length > 0);
+  const rawAt = c.renewHistAt?.trim();
+  if (!hasSof && !rawAt) return null;
+  const sof = hasSof ? `SOF: ${oldS || '—'} → ${newS || '—'}` : null;
+  const dateLine = rawAt ? formatDateThai(rawAt) : null;
+  if (!sof && !dateLine) return null;
+  return { sof, dateLine };
+}
+
 /** ปุ่ม Renew ในการ์ด/ตาราง: หมดอายุ หรือ not_renewing — ไม่ใช่ draft */
 function contractListShowsRenewAction(contract: Contract): boolean {
+  if (contract.isHistorySnapshotRow) return false;
   return (
     contract.contractStatus !== 'draft' &&
     (contract.status === 'expired' || contract.contractStatus === 'not_renewing')
@@ -256,11 +384,16 @@ function contractListShowsRenewAction(contract: Contract): boolean {
 function getContractExpiryIncomingLabel(
   endDateRaw: string | null | undefined,
   markedNotRenewing?: boolean | null,
+  contract?: Contract | null,
 ): {
   text: string;
   tone: 'future' | 'overdue' | 'due' | 'na';
 } {
   if (!endDateRaw || !String(endDateRaw).trim()) return { text: '—', tone: 'na' };
+
+  if (contract && contractListBlocksExpiryIncoming(contract)) {
+    return { text: '—', tone: 'na' };
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -289,6 +422,86 @@ function getContractExpiryIncomingLabel(
     return { text: '—', tone: 'na' };
   }
   return { text: diffDays === 1 ? 'In 1 day' : `In ${diffDays} days`, tone: 'future' };
+}
+
+/** เรียงแถวสัญญา + ประวัติในตารางหลักตามเวลา (ให้แถวประวัติไม่ไปกองท้ายสุดเสมอ) */
+function contractRowSortTimestamp(c: Contract): number {
+  if (c.isHistorySnapshotRow) {
+    const ra = c.renewHistAt ? new Date(c.renewHistAt).getTime() : NaN;
+    if (!Number.isNaN(ra)) return ra;
+    const e = c.endDate ? new Date(c.endDate).getTime() : NaN;
+    return Number.isNaN(e) ? 0 : e;
+  }
+  const e = c.endDate ? new Date(c.endDate).getTime() : NaN;
+  const base = Number.isNaN(e) ? 0 : e;
+  const id = parseInt(c.id, 10);
+  return base + (Number.isNaN(id) ? 0 : id / 1e9);
+}
+
+function sortMergedContractList(merged: Contract[]): Contract[] {
+  return [...merged].sort((a, b) => {
+    const tb = contractRowSortTimestamp(b);
+    const ta = contractRowSortTimestamp(a);
+    if (tb !== ta) return tb - ta;
+    const ida = a.isHistorySnapshotRow ? a.historyId ?? 0 : parseInt(a.id, 10) || 0;
+    const idb = b.isHistorySnapshotRow ? b.historyId ?? 0 : parseInt(b.id, 10) || 0;
+    return idb - ida;
+  });
+}
+
+function ContractListPageJump({
+  currentPage,
+  totalPages,
+  onGoTo,
+}: {
+  currentPage: number;
+  totalPages: number;
+  onGoTo: (page: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(currentPage));
+  useEffect(() => {
+    setDraft(String(currentPage));
+  }, [currentPage, totalPages]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed === '') {
+      setDraft(String(currentPage));
+      return;
+    }
+    const n = parseInt(trimmed, 10);
+    if (!Number.isFinite(n)) {
+      setDraft(String(currentPage));
+      return;
+    }
+    const clamped = Math.min(totalPages, Math.max(1, n));
+    onGoTo(clamped);
+    setDraft(String(clamped));
+  };
+
+  return (
+    <label className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+      <span className="shrink-0">Page</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        className="w-12 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-center text-sm tabular-nums text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value.replace(/\D/g, ''))}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        aria-label="Go to page"
+      />
+      <span className="shrink-0">/ {totalPages}</span>
+    </label>
+  );
 }
 
 function ContractEditorPageContent() {
@@ -401,6 +614,29 @@ function ContractEditorPageContent() {
 
   const siteIdFilter = searchParams.get('site_id');
 
+  const mergeContractHistoryRows = async (list: Contract[]): Promise<Contract[]> => {
+    const ids = list.map((c) => parseInt(c.id, 10)).filter((n) => !Number.isNaN(n));
+    try {
+      const hres = await fetch(apiUrl('/api/contracts/history-display-rows'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contract_ids: ids,
+          include_history_for_not_renewing_contracts: true,
+        }),
+      });
+      const hjson = await hres.json();
+      if (!hjson.success || !Array.isArray(hjson.data)) return list;
+      const extra: Contract[] = (hjson.data as HistoryDisplayApiRow[]).map((h) =>
+        mapHistoryDisplayRowToContract(h),
+      );
+      if (extra.length === 0) return list;
+      return sortMergedContractList([...list, ...extra]);
+    } catch {
+      return list;
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     setContractsLoading(true);
@@ -409,9 +645,10 @@ function ContractEditorPageContent() {
       siteIdFilter && String(siteIdFilter).trim() !== ''
         ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteIdFilter).trim())}`)
         : apiUrl('/api/contracts');
-    fetch(contractsEndpoint)
-      .then((res) => res.json())
-      .then((json) => {
+    (async () => {
+      try {
+        const res = await fetch(contractsEndpoint);
+        const json = await res.json();
         if (cancelled) return;
         if (!json.success || !Array.isArray(json.data)) {
           setContracts([]);
@@ -419,31 +656,35 @@ function ContractEditorPageContent() {
           return;
         }
         const list: Contract[] = json.data.map((c: Parameters<typeof mapApiRowToContract>[0]) =>
-          mapApiRowToContract(c)
+          mapApiRowToContract(c),
         );
-        setContracts(list);
-      })
-      .catch((err) => {
+        const merged = await mergeContractHistoryRows(list);
+        if (!cancelled) setContracts(merged);
+      } catch (err) {
         if (!cancelled) {
           setContracts([]);
-          setContractsError(err?.message || 'Failed to load contract list');
+          setContractsError(err instanceof Error ? err.message : 'Failed to load contract list');
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setContractsLoading(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [siteIdFilter]);
 
   const filteredContracts = contracts.filter((contract) => {
-    // Filter ตามสถานะ (Draft / Not renewing / Active / Expiring / Expired / All)
+
     if (activeFilter === 'Draft') {
       if (contract.contractStatus !== 'draft') return false;
-    } else if (activeFilter === 'Not renewing') {
-      if (contract.contractStatus !== 'not_renewing') return false;
+    } else if (activeFilter === 'Renew') {
+      if (contractListBadgeKey(contract) !== 'renew') return false;
+    } else if (activeFilter === 'Terminated') {
+      if (contract.status !== 'closed') return false;
     } else if (activeFilter !== 'All') {
+      // แถว snapshot จาก contract_history แสดงเฉพาะมุมมอง All (Active/Expiring/Expired ใช้สถานะสัญญาปัจจุบัน)
+      if (contract.isHistorySnapshotRow) return false;
       const statusMap: Record<string, string> = {
         Active: 'active',
         Expiring: 'expiring',
@@ -455,8 +696,11 @@ function ContractEditorPageContent() {
     // Filter ตามคำค้นหา
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
+      const apiId = contractRowApiId(contract).toLowerCase();
       const matchText =
         contract.id.toLowerCase().includes(searchLower) ||
+        apiId.includes(searchLower) ||
+        (contract.historyId != null && `h-${contract.historyId}`.toLowerCase().includes(searchLower)) ||
         contract.name.toLowerCase().includes(searchLower) ||
         (contract.sofName ?? '').toLowerCase().includes(searchLower) ||
         contract.partner.toLowerCase().includes(searchLower) ||
@@ -570,7 +814,9 @@ function ContractEditorPageContent() {
     setExportModalSiteFilter('');
     setExportModalLocationFilter('');
     setExportModalPage(1);
-    setExportContractSelected(new Set(filteredContracts.map((c) => c.id)));
+    setExportContractSelected(
+      new Set(filteredContracts.filter((c) => !c.isHistorySnapshotRow).map((c) => c.id)),
+    );
     setIsExportContractModalOpen(true);
   };
 
@@ -616,8 +862,12 @@ function ContractEditorPageContent() {
         };
       })();
 
+      const seenApiIds = new Set<string>();
       for (const c of toExport) {
-        const res = await fetch(apiUrl(`/api/contracts/${c.id}`));
+        const apiCid = contractRowApiId(c);
+        if (seenApiIds.has(apiCid)) continue;
+        seenApiIds.add(apiCid);
+        const res = await fetch(apiUrl(`/api/contracts/${apiCid}`));
         const json = await res.json();
         const detail = json?.data;
         const devices = (detail?.devices || []) as Array<{ contract_SLid?: number | null; SLid?: number | null; SiteName?: string | null; Location2?: string | null; CI_Name?: string | null; serial?: string | null }>;
@@ -688,7 +938,7 @@ function ContractEditorPageContent() {
           });
         }
 
-        const sheetName = makeSheetName(c.name, `Contract-${c.id}`);
+        const sheetName = makeSheetName(c.name, `Contract-${contractRowApiId(c)}`);
         sheetsPerContract.push({ sheetName, rows: sheetRows });
       }
       const wsContracts =
@@ -704,7 +954,7 @@ function ContractEditorPageContent() {
       }
       const dateStr = new Date().toISOString().split('T')[0];
       XLSX.writeFile(wb, `contracts_export_${dateStr}.xlsx`);
-      toastSuccess(`Exported ${toExport.length} contract(s)`);
+      toastSuccess(`Exported ${seenApiIds.size} contract(s)`);
       setIsExportContractModalOpen(false);
     } catch (e) {
       toastError('Failed to load device list for export');
@@ -811,7 +1061,9 @@ function ContractEditorPageContent() {
     if (!detailSiteViewDropdownOpen) return;
     const onDoc = (e: MouseEvent) => {
       const root = document.getElementById('contract-detail-site-view-dropdown');
-      if (root && !root.contains(e.target as Node)) {
+      const portal = document.querySelector('[data-dropdown-portal-for="contract-detail-site-view-dropdown"]');
+      const t = e.target as Node;
+      if (root && !root.contains(t) && !(portal && portal.contains(t))) {
         setDetailSiteViewDropdownOpen(false);
         setDetailSiteViewFilter('');
       }
@@ -831,7 +1083,9 @@ function ContractEditorPageContent() {
     if (!assignModalViewSiteDropdownOpen) return;
     const onDoc = (e: MouseEvent) => {
       const root = document.getElementById('assign-modal-view-site-dropdown');
-      if (root && !root.contains(e.target as Node)) {
+      const portal = document.querySelector('[data-dropdown-portal-for="assign-modal-view-site-dropdown"]');
+      const t = e.target as Node;
+      if (root && !root.contains(t) && !(portal && portal.contains(t))) {
         setAssignModalViewSiteDropdownOpen(false);
         setAssignModalViewSiteFilter('');
       }
@@ -924,25 +1178,35 @@ function ContractEditorPageContent() {
     setShowDetailModal(true);
     setLoadingContractDetails(true);
     setFullContractDetails(null);
-    
+
+    const hid = contract.historyId != null ? Number(contract.historyId) : NaN;
+    const isHistoryRow =
+      Boolean(contract.isHistorySnapshotRow) && Number.isFinite(hid) && hid > 0;
+    const url = isHistoryRow
+      ? apiUrl(`/api/contracts/history/${hid}`)
+      : apiUrl(`/api/contracts/${contractRowApiId(contract)}`);
+
     try {
-      const res = await fetch(apiUrl(`/api/contracts/${contract.id}`));
+      const res = await fetch(url);
       const json = await res.json();
       if (res.ok && json.data) {
-        setFullContractDetails(json.data);
-        const apiStatus = json.data.status != null ? String(json.data.status).toLowerCase() : '';
-        const markedNotRenewing = apiStatus === 'not_renewing';
-        const nextContractStatus: Contract['contractStatus'] =
-          apiStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
-        setCurrentContract((cur) =>
-          cur && cur.id === contract.id
-            ? {
-                ...cur,
-                contractStatus: nextContractStatus,
-                status: resolveContractListStatus(cur.endDate, markedNotRenewing),
-              }
-            : cur,
-        );
+        const rawDetail: FullContractDetails = json.data;
+        setFullContractDetails(rawDetail);
+        if (!isHistoryRow) {
+          const apiStatus = json.data.status != null ? String(json.data.status).toLowerCase() : '';
+          const markedNotRenewing = apiStatus === 'not_renewing';
+          const nextContractStatus: Contract['contractStatus'] =
+            apiStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
+          setCurrentContract((cur) =>
+            cur && cur.id === contract.id
+              ? {
+                  ...cur,
+                  contractStatus: nextContractStatus,
+                  status: resolveContractListStatus(cur.endDate, markedNotRenewing),
+                }
+              : cur,
+          );
+        }
       } else {
         console.error('Failed to load contract details:', json.message);
       }
@@ -955,7 +1219,7 @@ function ContractEditorPageContent() {
 
   const editContract = (contract: Contract) => {
     // Redirect to edit page
-    router.push(`/contract_editer/add?edit=${contract.id}`);
+    router.push(`/contract_editer/add?edit=${contractRowApiId(contract)}`);
   };
 
   const renewContract = (contract: Contract) => {
@@ -966,7 +1230,7 @@ function ContractEditorPageContent() {
   const applyContractNoRenew = async (contract: Contract) => {
     try {
       const nextDbStatus: Contract['contractStatus'] = 'not_renewing';
-      const res = await fetch(apiUrl(`/api/contracts/${contract.id}`), {
+      const res = await fetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextDbStatus }),
@@ -977,15 +1241,14 @@ function ContractEditorPageContent() {
         return;
       }
       const nextStatus = resolveContractListStatus(contract.endDate, true);
+      const targetApi = contractRowApiId(contract);
       setContracts((prev) =>
         prev.map((c) =>
-          c.id === contract.id
-            ? { ...c, contractStatus: nextDbStatus, status: nextStatus }
-            : c,
+          contractRowApiId(c) === targetApi ? { ...c, contractStatus: nextDbStatus, status: nextStatus } : c,
         ),
       );
       setCurrentContract((cur) =>
-        cur && cur.id === contract.id
+        cur && contractRowApiId(cur) === targetApi
           ? { ...cur, contractStatus: nextDbStatus, status: nextStatus }
           : cur,
       );
@@ -1009,7 +1272,7 @@ function ContractEditorPageContent() {
 
   const confirmRenewContract = () => {
     if (renewContractTarget) {
-      router.push(`/contract_editer/add?renew=${renewContractTarget.id}`);
+      router.push(`/contract_editer/add?renew=${contractRowApiId(renewContractTarget)}`);
       setShowRenewModal(false);
       setRenewContractTarget(null);
     }
@@ -1042,6 +1305,8 @@ function ContractEditorPageContent() {
         return 'bg-orange-100 text-orange-800';
       case 'expired':
         return 'bg-red-100 text-red-800';
+      case 'renew':
+        return 'bg-yellow-100 text-yellow-900 border border-yellow-300';
       case 'closed':
         return 'bg-slate-200 text-slate-700';
       default:
@@ -1059,14 +1324,20 @@ function ContractEditorPageContent() {
         return 'Expiring';
       case 'expired':
         return 'Expired';
+      case 'renew':
+        return 'Renew';
       case 'closed':
-        return 'Not renewing';
+        return 'Terminated';
       default:
         return status;
     }
   };
 
   const openAssignSiteForContract = async (contract: Contract) => {
+    if (contract.isHistorySnapshotRow) {
+      toastError('Site assignment is not available for history snapshot rows.');
+      return;
+    }
     setAssignModalLoading(true);
     setCurrentContract(contract);
     setFullContractDetails(null);
@@ -1078,7 +1349,7 @@ function ContractEditorPageContent() {
     setAssignDeviceSelected(new Set());
     setAssignModalSelectedSiteSlid(null);
     try {
-      const res = await fetch(apiUrl(`/api/contracts/${contract.id}`));
+      const res = await fetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`));
       const json = await res.json();
       if (!res.ok || !json.data) {
         toastError(json.message || 'Failed to load contract');
@@ -1127,7 +1398,7 @@ function ContractEditorPageContent() {
       setAssignDeviceSelected(new Set(devices.map((d: { Did: number }) => String(d.Did))));
       // Check if any devices are assigned to site
       const hasAssignedDevices = Object.values(assignedStatus).some(status => status);
-      setDevicesAssignedStatus({ [contract.id]: hasAssignedDevices });
+      setDevicesAssignedStatus({ [contractRowApiId(contract)]: hasAssignedDevices });
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Failed to load data');
       setShowAssignSiteModal(false);
@@ -1545,11 +1816,16 @@ function ContractEditorPageContent() {
 
   const loadContracts = async () => {
     try {
-      const res = await fetch(apiUrl('/api/contracts'));
+      const contractsEndpoint =
+        siteIdFilter && String(siteIdFilter).trim() !== ''
+          ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteIdFilter).trim())}`)
+          : apiUrl('/api/contracts');
+      const res = await fetch(contractsEndpoint);
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         const list = (json.data as any[]).map((c: any) => mapApiRowToContract(c));
-        setContracts(list);
+        const merged = await mergeContractHistoryRows(list);
+        setContracts(merged);
       }
     } catch (e) {
       console.error('Load contracts:', e);
@@ -1580,23 +1856,26 @@ function ContractEditorPageContent() {
 
         {/* Stats Bar - กดแล้ว filter รายการสัญญาตามสถานะ */}
         {(() => {
-          const total = contracts.length;
-          const draft = contracts.filter((c) => c.contractStatus === 'draft').length;
-          const notRenewing = contracts.filter((c) => c.contractStatus === 'not_renewing').length;
-          const active = contracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
-          const expiring = contracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
-          const expired = contracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
+          const onlyContracts = contracts.filter((c) => !c.isHistorySnapshotRow);
+          const total = onlyContracts.length;
+          const draft = onlyContracts.filter((c) => c.contractStatus === 'draft').length;
+          const notRenewing = onlyContracts.filter((c) => c.contractStatus === 'not_renewing').length;
+          const active = onlyContracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
+          const expiring = onlyContracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
+          const expired = onlyContracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
+          const renewCount = contracts.filter((c) => contractListBadgeKey(c) === 'renew').length;
           const stats = [
             { filter: 'All' as const, number: String(total), label: 'All Contracts' },
             { filter: 'Active' as const, number: String(active), label: 'Active Contracts' },
             { filter: 'Expiring' as const, number: String(expiring), label: 'Expiring Contracts' },
             { filter: 'Expired' as const, number: String(expired), label: 'Expired Contracts' },
             { filter: 'Draft' as const, number: String(draft), label: 'Draft Contracts' },
-            { filter: 'Not renewing' as const, number: String(notRenewing), label: 'Not renewing' },
+            { filter: 'Renew' as const, number: String(renewCount), label: 'Renew Contracts' },
+            { filter: 'Terminated' as const, number: String(notRenewing), label: 'Terminated Contracts' },
           ];
           return (
         <div className="@container min-w-0 w-full max-w-full">
-        <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-white p-4 shadow-sm rounded-2xl border border-slate-200 @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-6 @[56rem]:gap-8 @[56rem]:p-10">
+        <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-white p-4 shadow-sm rounded-2xl border border-slate-200 @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-4 @[72rem]:grid-cols-7 @[56rem]:gap-8 @[56rem]:p-10">
           {stats.map((stat, idx) => {
             const isSelected = activeFilter === stat.filter;
             return (
@@ -1646,7 +1925,7 @@ function ContractEditorPageContent() {
         {/* Filters */}
         <div className="flex gap-4 flex-nowrap items-center overflow-x-auto pb-1">
           <div className="flex gap-2 shrink-0">
-            {['All', 'Active', 'Expiring', 'Expired', 'Draft', 'Not renewing'].map((filter) => (
+            {['All', 'Active', 'Expiring', 'Expired', 'Draft', 'Renew', 'Terminated'].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setActiveFilter(filter)}
@@ -1735,18 +2014,14 @@ function ContractEditorPageContent() {
         {!contractsLoading && (
         viewMode === 'card' ? (
         <div>
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(350px,1fr))] gap-6">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(350px,1fr))] items-stretch gap-6">
           {paginatedContracts.map((contract, idx) => {
-            const incomingCard = getContractExpiryIncomingLabel(
-              contract.endDate,
-              contract.contractStatus === 'not_renewing',
-            );
+            const showRenewBtn = contractListShowsRenewAction(contract);
+            const editDisabled = contractListDisablesEdit(contract);
             return (
             <div
               key={contract.id}
-              className="bg-white border border-slate-200 rounded-[2rem] p-6 
-  transition-all duration-300 relative overflow-hidden 
-  group hover:-translate-y-1 hover:shadow-md"
+              className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 transition-all duration-300 group hover:-translate-y-1 hover:shadow-md"
               style={{ 
                 animation: `fadeInUp 0.6s ease-out ${idx * 0.1}s both`
               }}
@@ -1758,10 +2033,18 @@ function ContractEditorPageContent() {
   group-hover:scale-y-100" />
               <div className="flex justify-between items-start mb-5 gap-3">
                 <div className="text-xl font-bold text-slate-800 flex-1 min-w-0 flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contract.isHistorySnapshotRow ? (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100/90 px-2 py-0.5 text-xs font-semibold text-amber-900"
+                      title="From contract_history"
+                    >
+                      <History size={14} aria-hidden /> History
+                    </span>
+                  ) : null}
                   {contract.contractSiteName ?? contract.partner ?? '—'}
                 </div>
-                <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
-                  {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
+                <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contractListBadgeKey(contract))}`}>
+                  {getStatusText(contractListBadgeKey(contract))}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
@@ -1795,44 +2078,7 @@ function ContractEditorPageContent() {
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">End Date:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedEndDate}</span>
               </div>
-              <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><AlertCircle size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Incoming:</span>
-                <span
-                  className={`font-medium min-w-0 flex-1 ${
-                    incomingCard.tone === 'future'
-                      ? 'text-sky-700'
-                      : incomingCard.tone === 'overdue'
-                        ? 'text-red-700'
-                        : incomingCard.tone === 'due'
-                          ? 'text-amber-800'
-                          : 'text-slate-400'
-                  }`}
-                  style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}
-                  title="Within 3 months before end date, or how many days since the contract expired"
-                >
-                  {incomingCard.text}
-                </span>
-              </div>
-              <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><DollarSign size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Value:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>฿{contract.formattedValue}</span>
-              </div>
-              <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><CheckCircle2 size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Status:</span>
-                <span className="min-w-0 flex-1">
-                  <span
-                    className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(
-                      contract.contractStatus === 'draft' ? 'draft' : contract.status
-                    )}`}
-                  >
-                    {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
-                  </span>
-                </span>
-              </div>
-              <div className="mt-6 min-w-0 overflow-hidden border-t border-slate-200 pt-6">
+              <div className="mt-auto min-w-0 overflow-hidden border-t border-slate-200 pt-6">
                 <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
                   <div className="flex items-center gap-2">
                     <button
@@ -1843,44 +2089,68 @@ function ContractEditorPageContent() {
                       <Info size={18} className="text-white" />
                     </button>
                     <button
-                      onClick={() => openAssignSiteForContract(contract)}
-                      className={`flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 text-white ${
+                      type="button"
+                      disabled={contract.isHistorySnapshotRow}
+                      onClick={() => {
+                        if (contract.isHistorySnapshotRow) return;
+                        openAssignSiteForContract(contract);
+                      }}
+                      className={`flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 text-white ${
+                        contract.isHistorySnapshotRow
+                          ? 'cursor-not-allowed opacity-40'
+                          : 'cursor-pointer'
+                      } ${
                         contract.devicesSlidAligned
                           ? 'bg-green-600 hover:bg-green-700'
                           : 'bg-amber-500 hover:bg-amber-600'
                       }`}
-                      title="View/Edit Site"
+                      title={
+                        contract.isHistorySnapshotRow
+                          ? 'History snapshot — site assignment not available'
+                          : 'View/Edit Site'
+                      }
                     >
                       <MapPin size={18} className="text-white" />
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    {contract.status === 'expired' && contract.contractStatus !== 'draft' && (
+                    {contract.status === 'expired' &&
+                      contract.contractStatus !== 'draft' &&
+                      !contract.isHistorySnapshotRow && (
                       <button
                         type="button"
                         onClick={() => handleContractDoNotRenew(contract)}
-                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-600 transition-all duration-300 hover:border-slate-400 hover:bg-slate-50"
+                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-red-500 text-xs font-medium text-white transition-all duration-300 hover:bg-red-600"
                         title="Do not renew — hide days past end date in Incoming"
                       >
-                        <Ban size={18} className="shrink-0" strokeWidth={2.25} />
+                        <Ban size={18} className="shrink-0 text-white" strokeWidth={2.25} />
                       </button>
                     )}
                     <button
-                      onClick={() =>
-                        contractListShowsRenewAction(contract)
-                          ? renewContract(contract)
-                          : editContract(contract)
-                      }
-                      className={`flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 ${
-                        contractListShowsRenewAction(contract)
-                          ? 'bg-red-500 text-white hover:bg-red-600'
-                          : 'border border-slate-200 bg-white text-slate-700 hover:border-blue-500 hover:text-blue-600'
+                      type="button"
+                      disabled={!showRenewBtn && editDisabled}
+                      onClick={() => {
+                        if (!showRenewBtn && editDisabled) return;
+                        showRenewBtn ? renewContract(contract) : editContract(contract);
+                      }}
+                      className={`flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 ${
+                        showRenewBtn
+                          ? 'cursor-pointer border border-yellow-300 bg-yellow-100 text-yellow-900 hover:bg-yellow-200'
+                          : `border border-slate-200 bg-white text-slate-700 ${
+                              editDisabled
+                                ? 'cursor-not-allowed opacity-40'
+                                : 'cursor-pointer hover:border-blue-500 hover:text-blue-600'
+                            }`
                       }`}
                       title={
-                        contractListShowsRenewAction(contract) ? 'Renew Contract' : 'Edit Contract'
+                        showRenewBtn
+                          ? 'Renew Contract'
+                          : editDisabled
+                            ? 'History snapshot is read-only'
+                            : 'Edit Contract'
                       }
                     >
-                      {contractListShowsRenewAction(contract) ? (
+                      {showRenewBtn ? (
                         <RefreshCw size={18} className="shrink-0" />
                       ) : (
                         <Edit size={18} className="shrink-0" />
@@ -1907,7 +2177,11 @@ function ContractEditorPageContent() {
               >
                 <ChevronLeft size={16} /> Previous Page
               </button>
-              <span className="text-sm text-slate-600">Page {currentPage} / {cardTotalPages}</span>
+              <ContractListPageJump
+                currentPage={currentPage}
+                totalPages={cardTotalPages}
+                onGoTo={setContractPage}
+              />
               <button
                 type="button"
                 onClick={() => setContractPage((p) => Math.min(cardTotalPages, p + 1))}
@@ -1935,7 +2209,7 @@ function ContractEditorPageContent() {
                     className="text-left py-4 px-4 text-sm font-semibold text-slate-700 whitespace-nowrap"
                     title="Countdown if the contract ends within 3 months; days since expiry if the end date has passed"
                   >
-                    Incoming
+                    Expiry Status
                   </th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Status</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Actions</th>
@@ -1946,9 +2220,16 @@ function ContractEditorPageContent() {
                   const incoming = getContractExpiryIncomingLabel(
                     contract.endDate,
                     contract.contractStatus === 'not_renewing',
+                    contract,
                   );
+                  const renewHistSub = renewHistoryTableSubtitle(contract);
+                  const showRenewBtn = contractListShowsRenewAction(contract);
+                  const editDisabled = contractListDisablesEdit(contract);
                   return (
-                  <tr key={contract.id} className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors">
+                  <tr
+                    key={contract.id}
+                    className="border-b border-slate-100 bg-white transition-colors hover:bg-slate-50/50"
+                  >
                     <td className="py-4 px-4 text-sm font-medium text-slate-800">
                       {contract.contractSiteName?.trim() ? contract.contractSiteName : '—'}
                     </td>
@@ -1975,10 +2256,27 @@ function ContractEditorPageContent() {
                         {incoming.text}
                       </span>
                     </td>
-                    <td className="py-4 px-4">
-                      <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(contract.contractStatus === 'draft' ? 'draft' : contract.status)}`}>
-                        {getStatusText(contract.contractStatus === 'draft' ? 'draft' : contract.status)}
-                      </span>
+                    <td className="py-4 px-4 align-top">
+                      <div className="flex min-w-0 max-w-[14rem] flex-col gap-1">
+                        <span
+                          className={`inline-block w-fit px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(contractListBadgeKey(contract))}`}
+                        >
+                          {getStatusText(contractListBadgeKey(contract))}
+                        </span>
+                        {renewHistSub ? (
+                          <div
+                            className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-snug text-slate-500"
+                            title={[renewHistSub.sof, renewHistSub.dateLine].filter(Boolean).join('\n')}
+                          >
+                            {renewHistSub.sof ? (
+                              <span className="break-words">{renewHistSub.sof}</span>
+                            ) : null}
+                            {renewHistSub.dateLine ? (
+                              <span className="break-words">{renewHistSub.dateLine}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="min-w-[11rem] py-4 px-4">
                       <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
@@ -1991,46 +2289,68 @@ function ContractEditorPageContent() {
                             <Info size={14} className="text-white" />
                           </button>
                           <button
-                            onClick={() => openAssignSiteForContract(contract)}
+                            type="button"
+                            disabled={contract.isHistorySnapshotRow}
+                            onClick={() => {
+                              if (contract.isHistorySnapshotRow) return;
+                              openAssignSiteForContract(contract);
+                            }}
                             className={`flex size-8 shrink-0 items-center justify-center rounded-md text-[10px] font-medium text-white transition-all duration-200 ${
+                              contract.isHistorySnapshotRow
+                                ? 'cursor-not-allowed opacity-40'
+                                : ''
+                            } ${
                               contract.devicesSlidAligned
                                 ? 'bg-green-600 hover:bg-green-700'
                                 : 'bg-amber-500 hover:bg-amber-600'
                             }`}
-                            title="View/Edit Site"
+                            title={
+                              contract.isHistorySnapshotRow
+                                ? 'History snapshot — site assignment not available'
+                                : 'View/Edit Site'
+                            }
                           >
                             <MapPin size={14} className="text-white" />
                           </button>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {contract.status === 'expired' && contract.contractStatus !== 'draft' && (
+                          {contract.status === 'expired' &&
+                            contract.contractStatus !== 'draft' &&
+                            !contract.isHistorySnapshotRow && (
                             <button
                               type="button"
                               onClick={() => handleContractDoNotRenew(contract)}
-                              className="flex size-8 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-all duration-200 hover:bg-slate-50"
+                              className="flex size-8 shrink-0 items-center justify-center rounded-md bg-red-500 text-white transition-all duration-200 hover:bg-red-600"
                               title="Do not renew — hide days past end date in Incoming"
                             >
-                              <Ban size={14} className="shrink-0" strokeWidth={2.25} />
+                              <Ban size={14} className="shrink-0 text-white" strokeWidth={2.25} />
                             </button>
                           )}
                           <button
-                            onClick={() =>
-                              contractListShowsRenewAction(contract)
-                                ? renewContract(contract)
-                                : editContract(contract)
-                            }
+                            type="button"
+                            disabled={!showRenewBtn && editDisabled}
+                            onClick={() => {
+                              if (!showRenewBtn && editDisabled) return;
+                              showRenewBtn ? renewContract(contract) : editContract(contract);
+                            }}
                             className={`flex size-8 shrink-0 items-center justify-center rounded-md font-medium transition-all duration-200 ${
-                              contractListShowsRenewAction(contract)
-                                ? 'bg-red-500 text-white hover:bg-red-600'
-                                : 'border border-slate-200 bg-white text-slate-700 hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600'
+                              showRenewBtn
+                                ? 'border border-yellow-300 bg-yellow-100 text-yellow-900 hover:bg-yellow-200'
+                                : `border border-slate-200 bg-white text-slate-700 ${
+                                    editDisabled
+                                      ? 'cursor-not-allowed opacity-40'
+                                      : 'hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600'
+                                  }`
                             }`}
                             title={
-                              contractListShowsRenewAction(contract)
+                              showRenewBtn
                                 ? 'Renew Contract'
-                                : 'Edit Contract'
+                                : editDisabled
+                                  ? 'History snapshot is read-only'
+                                  : 'Edit Contract'
                             }
                           >
-                            {contractListShowsRenewAction(contract) ? (
+                            {showRenewBtn ? (
                               <RefreshCw size={14} className="shrink-0" />
                             ) : (
                               <Edit size={14} className="shrink-0" />
@@ -2059,7 +2379,11 @@ function ContractEditorPageContent() {
                 >
                   <ChevronLeft size={16} /> Previous Page
                 </button>
-                <span className="text-sm text-slate-600">Page {currentPage} / {tableTotalPages}</span>
+                <ContractListPageJump
+                  currentPage={currentPage}
+                  totalPages={tableTotalPages}
+                  onGoTo={setContractPage}
+                />
                 <button
                   type="button"
                   onClick={() => setContractPage((p) => Math.min(tableTotalPages, p + 1))}
@@ -2485,6 +2809,7 @@ function ContractEditorPageContent() {
                 </div>
               ) : fullContractDetails ? (
                 <div className="space-y-6">
+
                   {/* General Information */}
                   <div className="bg-white rounded-lg border border-slate-200">
                     <div className="px-6 py-4 border-b border-slate-200">
@@ -2499,30 +2824,41 @@ function ContractEditorPageContent() {
                         <div>
                           <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Status</span>
                           <span className="inline-block mt-1">
-                            {currentContract.status === 'active' && (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-green-50 text-green-700 text-sm font-medium border border-green-200">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                 Active
+                            {contractListBadgeKey(currentContract) === 'renew' ? (
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-sm font-medium ${getStatusBadgeClass('renew')}`}
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                {getStatusText('renew')}
                               </span>
-                            )}
-                            {currentContract.status === 'expiring' && (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 text-sm font-medium border border-amber-200">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                ⚠️ Expiring Soon
-                              </span>
-                            )}
-                            {currentContract.status === 'expired' && (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-50 text-red-700 text-sm font-medium border border-red-200">
-                                <XCircle className="w-3.5 h-3.5" />
-                                ❌ Expired
-                              </span>
-                            )}
-                            {(currentContract.contractStatus === 'not_renewing' ||
-                              currentContract.status === 'closed') && (
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium border border-slate-200">
-                                <Ban className="w-3.5 h-3.5" />
-                                Not renewing
-                              </span>
+                            ) : (
+                              <>
+                                {currentContract.status === 'active' && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-green-50 text-green-700 text-sm font-medium border border-green-200">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    Active
+                                  </span>
+                                )}
+                                {currentContract.status === 'expiring' && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 text-sm font-medium border border-amber-200">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    ⚠️ Expiring Soon
+                                  </span>
+                                )}
+                                {currentContract.status === 'expired' && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-50 text-red-700 text-sm font-medium border border-red-200">
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    ❌ Expired
+                                  </span>
+                                )}
+                                {(currentContract.contractStatus === 'not_renewing' ||
+                                  currentContract.status === 'closed') && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium border border-slate-200">
+                                    <Ban className="w-3.5 h-3.5" />
+                                    Terminated
+                                  </span>
+                                )}
+                              </>
                             )}
                           </span>
                         </div>
@@ -2572,6 +2908,7 @@ function ContractEditorPageContent() {
                             {fullContractDetails.pm_time_per_year != null ? `${fullContractDetails.pm_time_per_year} times/year` : '—'}
                           </span>
                         </div>
+
                       </div>
                     </div>
                   </div>
@@ -2579,7 +2916,7 @@ function ContractEditorPageContent() {
                   {/* Duration & Value */}
                   <div className="bg-white rounded-lg border border-slate-200">
                     <div className="px-6 py-4 border-b border-slate-200">
-                      <h3 className="text-lg font-semibold text-slate-800">Duration & Value</h3>
+                      <h3 className="text-lg font-semibold text-slate-800">Duration</h3>
                     </div>
                     <div className="p-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -2614,10 +2951,12 @@ function ContractEditorPageContent() {
                       fullContractDetails,
                     );
                     const devices = fullContractDetails.devices;
-                    const contractSiteSlids = new Set(sites.map((s) => Number(s.SLid)));
+                    const detailBadgeKey = currentContract ? contractListBadgeKey(currentContract) : '';
+                    const isRenewOrTerminatedDetail =
+                      detailBadgeKey === 'renew' || detailBadgeKey === 'closed';
 
                     const getDevicesForSite = (slid: number) =>
-                      devices.filter((d) => Number(d.contract_SLid ?? NaN) === Number(slid));
+                      devices.filter((d) => deviceRowMatchesContractSiteSlid(d, slid));
 
                     const renderDeviceTable = (deviceList: typeof devices) => {
                       const total = deviceList.length;
@@ -2638,7 +2977,9 @@ function ContractEditorPageContent() {
                                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Site</th>
                                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Type</th>
                                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Role</th>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Status</th>
+                                  {!isRenewOrTerminatedDetail ? (
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Status</th>
+                                  ) : null}
                                 </tr>
                               </thead>
                               <tbody>
@@ -2661,7 +3002,9 @@ function ContractEditorPageContent() {
                                         <span className="text-xs text-slate-400">—</span>
                                       )}
                                     </td>
-                                    <td className="px-4 py-3 text-slate-600 text-xs">{device.Asset_State || '—'}</td>
+                                    {!isRenewOrTerminatedDetail ? (
+                                      <td className="px-4 py-3 text-slate-600 text-xs">{device.Asset_State || '—'}</td>
+                                    ) : null}
                                   </tr>
                                 ))}
                               </tbody>
@@ -2702,10 +3045,21 @@ function ContractEditorPageContent() {
                           ? formatSitePillLabel(sites[0], fullContractDetails)
                           : 'Equipment in Contract';
                       return (
-                        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <div className="bg-white rounded-lg border border-slate-200">
                           <div className="px-6 py-4 border-b border-slate-200">
                             <h3 className="text-lg font-semibold text-slate-800">
-                              {sites.length === 1 ? <span className="flex items-center gap-1"><MapPin size={14} className="text-slate-500 flex-shrink-0" /> {siteLabel}</span> : 'Equipment in Contract'}
+                              {isRenewOrTerminatedDetail ? (
+                                <span className="flex items-center gap-1.5">
+                                  <Wrench size={16} className="text-slate-500 flex-shrink-0" aria-hidden />
+                                  Devices in contract
+                                </span>
+                              ) : sites.length === 1 ? (
+                                <span className="flex items-center gap-1">
+                                  <MapPin size={14} className="text-slate-500 flex-shrink-0" aria-hidden /> {siteLabel}
+                                </span>
+                              ) : (
+                                'Equipment in Contract'
+                              )}
                               <span className="ml-2 text-sm font-normal text-slate-500">({devices.length} items)</span>
                             </h3>
                           </div>
@@ -2717,11 +3071,9 @@ function ContractEditorPageContent() {
                     const selectedSlid = selectedDetailSiteSlid ?? sites[0]?.SLid ?? null;
                     const displayDevices = selectedSlid != null ? getDevicesForSite(selectedSlid) : devices;
 
-                    const unassignedList = devices.filter((d) => {
-                      const cid = d.contract_SLid;
-                      if (cid == null) return true;
-                      return !contractSiteSlids.has(Number(cid));
-                    });
+                    const unassignedList = devices.filter(
+                      (d) => !sites.some((s) => deviceRowMatchesContractSiteSlid(d, Number(s.SLid))),
+                    );
                     const detailSitePickItems = [
                       ...sites.map((site) => {
                         const count = getDevicesForSite(site.SLid).length;
@@ -2742,10 +3094,17 @@ function ContractEditorPageContent() {
                       detailSitePickItems.find((i) => i.value === selectedDetailSiteValueStr)?.label ?? '';
 
                     return (
-                      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="bg-white rounded-lg border border-slate-200">
                         <div className="px-6 py-4 border-b border-slate-200">
                           <h3 className="text-lg font-semibold text-slate-800 mb-3">
-                            Equipment in Contract
+                            {isRenewOrTerminatedDetail ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Wrench size={16} className="text-slate-500 flex-shrink-0" aria-hidden />
+                                Devices in contract
+                              </span>
+                            ) : (
+                              'Equipment in Contract'
+                            )}
                           </h3>
                           <div className="w-full min-w-0">
                             <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -2753,6 +3112,7 @@ function ContractEditorPageContent() {
                             </span>
                             <ContractSimpleSearchListDropdown
                               rootId="contract-detail-site-view-dropdown"
+                              portalPanel
                               className="w-full"
                               open={detailSiteViewDropdownOpen}
                               onToggle={() => {
@@ -2876,39 +3236,7 @@ function ContractEditorPageContent() {
                     </div>
                   )}
 
-                  {/* Contract History */}
-                  {fullContractDetails.history && fullContractDetails.history.length > 0 && (
-                    <div className="bg-white rounded-lg border border-slate-200">
-                      <div className="px-6 py-4 border-b border-slate-200">
-                        <h3 className="text-lg font-semibold text-slate-800">
-                          Renewal History
-                          <span className="ml-2 text-sm font-normal text-slate-500">({fullContractDetails.history.length} items)</span>
-                        </h3>
-                      </div>
-                      <div className="p-6">
-                        <div className="space-y-3">
-                          {fullContractDetails.history.map((hist) => (
-                            <div key={hist.history_id} className="p-4 rounded-lg border border-slate-200 bg-slate-50">
-                              <div className="text-sm font-medium text-slate-800 mb-1">
-                                {hist.old_sof && hist.new_sof ? (
-                                  <>
-                                    SOF: {hist.old_sof} → {hist.new_sof}
-                                  </>
-                                ) : (
-                                  <>Contract ID: {hist.contract_id}</>
-                                )}
-                              </div>
-                              {hist.renewed_at && (
-                                <div className="text-xs text-slate-500">
-                                  Renewed: {formatDateThai(hist.renewed_at)}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+
                 </div>
               ) : (
                 <div className="bg-white rounded-lg border border-slate-200 p-12">
@@ -2930,11 +3258,23 @@ function ContractEditorPageContent() {
               </button>
               {currentContract && (
                 <button
+                  type="button"
+                  disabled={contractListDisablesEdit(currentContract)}
                   onClick={() => {
+                    if (contractListDisablesEdit(currentContract)) return;
                     closeModal();
                     editContract(currentContract);
                   }}
-                  className="flex-1 py-3 px-6 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                  title={
+                    contractListDisablesEdit(currentContract)
+                      ? 'Editing is disabled for Renew / Terminated contracts'
+                      : undefined
+                  }
+                  className={`flex-1 py-3 px-6 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2 ${
+                    contractListDisablesEdit(currentContract)
+                      ? 'cursor-not-allowed bg-slate-300 text-slate-500'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
                 >
                   <Edit className="w-4 h-4" />
                   Edit Contract
@@ -3099,14 +3439,11 @@ function ContractEditorPageContent() {
                       allContractSites,
                       fullContractDetails,
                     );
-                    const contractSiteSlids = new Set(sitesForPills.map((s) => Number(s.SLid)));
                     const getDevicesForSite = (slid: number) =>
-                      allDevices.filter((d: { contract_SLid?: number | null }) => Number(d.contract_SLid ?? NaN) === Number(slid));
-                    const unassignedDevices = allDevices.filter((d: { contract_SLid?: number | null }) => {
-                      const cid = d.contract_SLid;
-                      if (cid == null) return true;
-                      return !contractSiteSlids.has(Number(cid));
-                    });
+                      allDevices.filter((d) => deviceRowMatchesContractSiteSlid(d, slid));
+                    const unassignedDevices = allDevices.filter(
+                      (d) => !sitesForPills.some((s) => deviceRowMatchesContractSiteSlid(d, Number(s.SLid))),
+                    );
                     const showSitePills = sitesForPills.length >= 1 || unassignedDevices.length > 0;
                     const assignModalSitePickItems = [
                       { value: '__all__', label: 'All sites' },
@@ -3200,6 +3537,7 @@ function ContractEditorPageContent() {
                       </span>
                       <ContractSimpleSearchListDropdown
                         rootId="assign-modal-view-site-dropdown"
+                        portalPanel
                         className="w-full"
                         open={assignModalViewSiteDropdownOpen}
                         onToggle={() => {
@@ -3869,7 +4207,7 @@ function ContractEditorPageContent() {
                 <p className="text-xs font-medium text-slate-500 mb-1">Contract</p>
                 <p className="font-semibold text-slate-800 truncate">{renewContractTarget.name}</p>
                 <p className="text-xs text-slate-500 mt-1">
-                  ID: {renewContractTarget.id} · {renewContractTarget.partner}
+                  ID: {contractRowApiId(renewContractTarget)} · {renewContractTarget.partner}
                 </p>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Ends: {renewContractTarget.formattedEndDate || renewContractTarget.endDate}
@@ -3922,10 +4260,14 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
         }
       }}
     >
-      <div style={{ animation: 'slideUp 0.4s ease-out' }}>{children}</div>
+      <div
+        className="w-full max-w-[min(96vw,1320px)] flex justify-center items-start"
+        style={{ animation: 'slideUp 0.4s ease-out' }}
+      >
+        {children}
+      </div>
     </div>
   );
-  //asd
 }
 
 export default function ContractEditorPage() {

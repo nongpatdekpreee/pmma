@@ -1379,8 +1379,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
                              OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned'
                              OR LOWER(TRIM(d.Refer_SOF)) = 'n/a'
                              OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
-    const notInContract = `d.Did NOT IN (SELECT device_id FROM contract WHERE device_id IS NOT NULL)
-      AND d.Did NOT IN (SELECT device_id FROM contract_device)`;
+    const notInContract = `d.Did NOT IN (SELECT device_id FROM contract_device WHERE device_id IS NOT NULL)`;
     const inStore = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
     
     if (sid) {
@@ -1441,7 +1440,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
 };
 
 // GET - ดึง Devices ที่ยังไม่มี SOF และสถานะ In Store ภายใต้คลัง (sites.Name ตรง DEFAULT_IN_STORE_SITE_NAME)
-// รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญาอื่น (ทั้ง contract.device_id และ contract_device)
+// รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญาอื่น (contract_device)
 const getDevicesNoSofInStore = async (req, res) => {
   try {
     const contractId = req.query.contract_id;
@@ -1457,14 +1456,12 @@ const getDevicesNoSofInStore = async (req, res) => {
       const cid = parseInt(contractId, 10);
       if (!isNaN(cid)) {
         contractExclusionCondition = `
-          AND d.Did NOT IN (SELECT device_id FROM contract WHERE contract_id != ? AND device_id IS NOT NULL)
           AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE contract_id != ? AND device_id IS NOT NULL)
         `;
-        params.push(cid, cid);
+        params.push(cid);
       }
     } else {
       contractExclusionCondition = `
-        AND d.Did NOT IN (SELECT device_id FROM contract WHERE device_id IS NOT NULL)
         AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE device_id IS NOT NULL)
       `;
     }

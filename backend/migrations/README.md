@@ -37,6 +37,18 @@ mysql -u USER -p DB_NAME < migrations/apply_tccstock7_compat.sql
 
 ---
 
+### drop_contract_device_id_site_id.sql
+
+ย้ายความสัมพันธ์ **device / site** ไปที่ **`contract_device` เท่านั้น** แล้วลบคอลัมน์ `device_id` และ `site_id` ออกจากตาราง **`contract`** (backend ใช้ `MIN(SLid)` จาก `contract_device` เป็น “ไซต์หลัก” ใน API แทน)
+
+1. รันไฟล์เพื่อ **INSERT** ข้อมูลจากคอลัมน์เก่าเข้า `contract_device` (ถ้ายังไม่มีแถวเดียวกัน)
+2. ดูชื่อ FK: `SHOW CREATE TABLE contract;` แล้ว `ALTER TABLE contract DROP FOREIGN KEY ...` สำหรับ FK ที่อ้าง `device_id` / `site_id`
+3. Uncomment และรัน `ALTER TABLE contract DROP COLUMN device_id;` และ `DROP COLUMN site_id;` ท้ายไฟล์ (หรือรันเอง)
+
+รัน: `mysql -u USER -p DB_NAME < migrations/drop_contract_device_id_site_id.sql`
+
+---
+
 ### add_contract_history_fk.sql
 
 เพิ่ม Foreign Key ให้ตาราง `contract_history` เพื่อความถูกต้องของข้อมูล (referential integrity):
@@ -45,6 +57,30 @@ mysql -u USER -p DB_NAME < migrations/apply_tccstock7_compat.sql
 - `old_contract_id` → `contract(contract_id)` ON DELETE SET NULL
 
 รัน: `mysql -u USER -p app_db < migrations/add_contract_history_fk.sql`
+
+---
+
+### contract_snapshot ใน `contract_history` (แทน `device_json`)
+
+เก็บ snapshot แถวจากตาราง `contract` (ไม่ใส่ `contract_id` ที่ซ้ำกับคอลัมน์ใน `contract_history`) และรายการ `devices[{ CI_Name }]` ใน JSON คอลัมน์ **`contract_snapshot`**
+
+- **Renew:** สร้าง snapshot **ก่อน** `UPDATE contract` และ **ก่อน** ลบ/ใส่ `contract_device` ใหม่ จึงเป็นสถานะก่อนต่อสัญญา (SOF เดิม + เครื่องจาก `contract_device` ชุดเดิม) คอลัมน์ `old_sof` / `new_sof` ยังบอกการเปลี่ยน SOF แยกต่างหาก
+
+- **DB ใหม่ / ยังไม่มี `device_json`:**  
+  `mysql -u USER -p app_db < migrations/add_contract_history_contract_snapshot.sql`
+- **เคยรัน migration เก่าแล้วมี `device_json`:**  
+  `mysql -u USER -p app_db < migrations/migrate_contract_history_device_json_to_contract_snapshot.sql`  
+  (เปลี่ยนชื่อคอลัมน์เป็น `contract_snapshot`)
+
+ไฟล์ `add_contract_history_device_json.sql` เป็นเพียงคำอธิบาย — อย่ารันเป็น migration หลัก
+
+---
+
+### add_contract_history_status_history.sql
+
+เพิ่มคอลัมน์ `status_history` (VARCHAR) ใน `contract_history` สำหรับเก็บ `Renew` (ต่อสัญญา) หรือ `Terminated` (ไม่ต่อสัญญา)
+
+รัน: `mysql -u USER -p app_db < migrations/add_contract_history_status_history.sql`
 
 ---
 

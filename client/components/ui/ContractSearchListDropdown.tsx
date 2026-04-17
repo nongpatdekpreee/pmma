@@ -2,6 +2,8 @@
 
 import { Check, ChevronDown, X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /** เปลือก control — ให้สอดคล้อง input ชื่อสัญญา (p-3, border-slate-200/90, shadow, focus ring) */
 export const contractDropdownShellClass =
@@ -41,8 +43,13 @@ export function NativeSelectDropdownShell({ children }: { children: ReactNode })
 
 export type ContractSearchListItem = { value: string; label: string; description?: string };
 
-const panelClassName =
-  'absolute left-0 right-0 top-full z-[300] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg shadow-slate-900/[0.06]';
+/** แผงแบบ absolute ใต้ทริกเกอร์ (z สูงพอให้เหนือ sticky ใน modal) */
+const DROPDOWN_PANEL_OUTER_DEFAULT =
+  'absolute left-0 right-0 top-full z-[12050] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg shadow-slate-900/[0.06]';
+
+/** แผงใน portal (fixed wrapper ด้านนอก) */
+const DROPDOWN_PANEL_OUTER_PORTAL_INNER =
+  'flex max-h-[min(24rem,calc(100vh-2rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg shadow-slate-900/[0.06]';
 
 type SearchListPanelProps = {
   panelTitle: string;
@@ -70,6 +77,8 @@ type SearchListPanelProps = {
   listMaxHeightClass?: string;
   /** ปิดได้เมื่อมีช่องพิมพ์ใน footer — กันโฟกัสไปช่องค้นหาด้านบนโดยไม่ตั้งใจ */
   filterInputAutoFocus?: boolean;
+  /** class ของ wrapper แผง (ค่าเริ่มต้น = absolute ใต้ทริกเกอร์) */
+  outerClassName?: string;
 };
 
 function SearchListDropdownPanel({
@@ -93,6 +102,7 @@ function SearchListDropdownPanel({
   countNoun = 'items',
   listMaxHeightClass = 'max-h-[11rem]',
   filterInputAutoFocus = true,
+  outerClassName = DROPDOWN_PANEL_OUTER_DEFAULT,
 }: SearchListPanelProps) {
   const q = filter.trim().toLowerCase();
   const filtered = items.filter((i) => {
@@ -105,7 +115,7 @@ function SearchListDropdownPanel({
   });
 
   return (
-    <div className={panelClassName}>
+    <div className={outerClassName}>
       <p className="shrink-0 border-b border-slate-100 bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
         {panelTitle}
       </p>
@@ -210,6 +220,10 @@ export function ContractSimpleSearchListDropdown({
   emptyText = 'No matches',
   showClearOption,
   onClear,
+  /** แสดงปุ่มกากบาทบนแถวทริกเกอร์ (คู่กับ onClear) */
+  showClearButton = false,
+  clearButtonTitle = 'ล้าง',
+  clearAriaLabel,
   betweenTitleAndSearch,
   showFilterCountHint,
   countNoun,
@@ -221,6 +235,8 @@ export function ContractSimpleSearchListDropdown({
   panelFooter,
   itemLabelClassName,
   filterInputAutoFocus,
+  /** แผงลอยไป document.body (แก้ถูกตัดใน modal / overflow-y-auto) */
+  portalPanel = false,
 }: {
   rootId: string;
   disabled?: boolean;
@@ -238,6 +254,9 @@ export function ContractSimpleSearchListDropdown({
   emptyText?: string;
   showClearOption?: boolean;
   onClear?: () => void;
+  showClearButton?: boolean;
+  clearButtonTitle?: string;
+  clearAriaLabel?: string;
   betweenTitleAndSearch?: ReactNode;
   showFilterCountHint?: boolean;
   countNoun?: string;
@@ -250,66 +269,152 @@ export function ContractSimpleSearchListDropdown({
   panelFooter?: ReactNode;
   itemLabelClassName?: string;
   filterInputAutoFocus?: boolean;
+  portalPanel?: boolean;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [portalBox, setPortalBox] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!portalPanel || !open || disabled) {
+      setPortalBox(null);
+      return;
+    }
+    const measure = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setPortalBox({ top: r.bottom + 6, left: r.left, width: r.width });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [portalPanel, open, disabled, displayText, items.length, filter]);
+
+  const hasValue =
+    Boolean(displayText?.trim()) ||
+    (multiSelect && (selectedValues?.length ?? 0) > 0);
+  const showTrailingDivider = Boolean(hasValue);
+
+  const panelNode =
+    open && !disabled ? (
+      <SearchListDropdownPanel
+        panelTitle={panelTitle}
+        filter={filter}
+        onFilterChange={onFilterChange}
+        searchPlaceholder={searchPlaceholder}
+        items={items}
+        selectedValue={selectedValue}
+        onPick={onPick}
+        multiSelect={multiSelect}
+        selectedValues={selectedValues}
+        onToggleItem={onToggleItem}
+        emptyText={emptyText}
+        showClearOption={showClearOption}
+        onClear={onClear}
+        betweenTitleAndSearch={betweenTitleAndSearch}
+        showFilterCountHint={showFilterCountHint}
+        countNoun={countNoun}
+        listMaxHeightClass={listMaxHeightClass}
+        panelFooter={panelFooter}
+        itemLabelClassName={itemLabelClassName}
+        filterInputAutoFocus={filterInputAutoFocus}
+        outerClassName={portalPanel ? DROPDOWN_PANEL_OUTER_PORTAL_INNER : undefined}
+      />
+    ) : null;
+
   return (
     <div
+      ref={rootRef}
       id={rootId}
-      className={`relative block w-full min-w-0 align-bottom ${open ? 'z-[200]' : ''} ${className}`}
+      className={`relative block w-full min-w-0 align-bottom ${open && !portalPanel ? 'z-[12050]' : ''} ${className}`}
     >
-      <button
-        type="button"
-        disabled={disabled}
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-multiselectable={multiSelect || undefined}
-        onClick={() => {
-          if (disabled) return;
-          onToggle();
-        }}
-        className={`${contractDropdownShellClass} w-full min-w-0 cursor-pointer gap-0 p-0 text-left outline-none disabled:cursor-not-allowed disabled:opacity-50 ${multiSelect ? 'items-stretch' : 'items-center'}`}
+      <div
+        className={`${contractDropdownShellClass} w-full min-w-0 gap-0 p-0 ${multiSelect ? 'items-stretch' : 'items-center'}`}
       >
-        <span
-          className={`flex min-h-0 min-w-0 flex-1 px-3 py-3 text-left text-sm font-medium ${
-            multiSelect && displayText
-              ? 'items-start overflow-hidden line-clamp-3 break-words leading-snug text-slate-900'
-              : 'items-center overflow-hidden truncate'
-          } ${displayText ? 'text-slate-900' : 'text-slate-500'}`}
-          title={displayText || undefined}
+        <button
+          type="button"
+          disabled={disabled}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          aria-multiselectable={multiSelect || undefined}
+          onClick={() => {
+            if (disabled) return;
+            onToggle();
+          }}
+          className={`${contractDropdownTextButtonClass} w-full min-w-0 cursor-pointer outline-none disabled:cursor-not-allowed disabled:opacity-50 ${multiSelect ? 'items-start' : 'items-center'}`}
         >
-          {displayText || emptyPlaceholder}
-        </span>
-        <span className="flex shrink-0 items-center self-stretch border-l border-slate-100 py-0 pl-1 pr-2 text-slate-500">
-          <ChevronDown
-            size={18}
-            className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          <span
+            className={`min-w-0 flex-1 text-left text-sm font-medium ${
+              multiSelect && displayText
+                ? 'line-clamp-3 break-words leading-snug text-slate-900'
+                : 'truncate'
+            } ${displayText ? 'text-slate-900' : 'text-slate-500'}`}
+            title={displayText || undefined}
+          >
+            {displayText || emptyPlaceholder}
+          </span>
+        </button>
+        <div
+          className={contractDropdownTrailingClass(showTrailingDivider)}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {hasValue && showClearButton && onClear && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onClear();
+              }}
+              className={contractDropdownClearBtnClass}
+              title={clearButtonTitle}
+              aria-label={clearAriaLabel ?? clearButtonTitle}
+            >
+              <X size={16} strokeWidth={2} />
+            </button>
+          )}
+          <button
+            type="button"
+            tabIndex={-1}
+            disabled={disabled}
+            onClick={(e) => {
+              e.preventDefault();
+              if (!disabled) onToggle();
+            }}
+            className={contractDropdownChevronBtnClass}
             aria-hidden
-          />
-        </span>
-      </button>
-      {open && !disabled && (
-        <SearchListDropdownPanel
-          panelTitle={panelTitle}
-          filter={filter}
-          onFilterChange={onFilterChange}
-          searchPlaceholder={searchPlaceholder}
-          items={items}
-          selectedValue={selectedValue}
-          onPick={onPick}
-          multiSelect={multiSelect}
-          selectedValues={selectedValues}
-          onToggleItem={onToggleItem}
-          emptyText={emptyText}
-          showClearOption={showClearOption}
-          onClear={onClear}
-          betweenTitleAndSearch={betweenTitleAndSearch}
-          showFilterCountHint={showFilterCountHint}
-          countNoun={countNoun}
-          listMaxHeightClass={listMaxHeightClass}
-          panelFooter={panelFooter}
-          itemLabelClassName={itemLabelClassName}
-          filterInputAutoFocus={filterInputAutoFocus}
-        />
-      )}
+          >
+            <ChevronDown
+              size={18}
+              className={`transition-transform ${open ? 'rotate-180' : ''}`}
+            />
+          </button>
+        </div>
+      </div>
+      {!portalPanel && panelNode}
+      {portalPanel &&
+        portalBox &&
+        panelNode &&
+        createPortal(
+          <div
+            data-dropdown-portal-for={rootId}
+            style={{
+              position: 'fixed',
+              top: portalBox.top,
+              left: portalBox.left,
+              width: portalBox.width,
+              zIndex: 10050,
+            }}
+            className="pointer-events-auto min-w-0"
+          >
+            {panelNode}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -391,7 +496,7 @@ export function ContractShellSearchListDropdown({
   const showTrailingDivider = Boolean(hasValue && !loading);
 
   return (
-    <div id={rootId} className={`relative w-full min-w-0 ${open ? 'z-[200]' : ''} ${className}`}>
+    <div id={rootId} className={`relative w-full min-w-0 ${open ? 'z-[12050]' : ''} ${className}`}>
       <div className={contractDropdownShellClass}>
         <button
           type="button"

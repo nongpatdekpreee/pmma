@@ -19,10 +19,213 @@ function validateMultilineTels(telAcc) {
   const lines = String(telAcc).split(/\n/).map((s) => s.trim());
   for (const line of lines) {
     if (!line) continue;
+    // รูปแบบ เบอร์หลัก-ต่อ (เช่น 0893444444-12345): หลัก 9–15 หลัก, ต่อ 1–5 หลัก
+    const extForm = line.match(/^(\d{9,15})-(\d{1,5})$/);
+    if (extForm) continue;
     const digitsOnly = line.replace(/\D/g, '');
     if (digitsOnly.length < 9 || digitsOnly.length > 15) return { ok: false };
   }
   return { ok: true };
+}
+
+/**
+ * Snapshot สำหรับ contract_history.contract_snapshot — รูปแบบ:
+ * { "contract": { ...แถว contract รวม contract_id }, "devices": [{ "device_id", "SLid" }, ...] }
+ * devices มาจาก contract_device ณ เวลาเรียก (ก่อน renew / ก่อนอัปเดต)
+ */
+async function buildContractHistorySnapshot(conn, contractId) {
+  const cid = parseInt(contractId, 10);
+  if (Number.isNaN(cid)) return null;
+  const [cRows] = await conn.execute('SELECT * FROM contract WHERE contract_id = ?', [cid]);
+  if (!cRows || cRows.length === 0) return null;
+  const contract = { ...cRows[0] };
+
+  for (const k of Object.keys(contract)) {
+    const v = contract[k];
+    if (v instanceof Date) {
+      const iso = v.toISOString();
+      contract[k] = iso.length >= 10 ? iso.slice(0, 10) : iso;
+    }
+  }
+
+  const [cdRows] = await conn.execute(
+    `SELECT device_id, SLid FROM contract_device WHERE contract_id = ?
+     ORDER BY COALESCE(device_id, 0), COALESCE(SLid, 0)`,
+    [cid]
+  );
+  const devices = (cdRows || []).map((r) => ({
+    device_id: r.device_id != null ? parseInt(String(r.device_id), 10) : null,
+    SLid: r.SLid != null ? parseInt(String(r.SLid), 10) : null,
+  }));
+
+  const [primRows] = await conn.execute(
+    `SELECT MIN(SLid) AS primary_slid FROM contract_device WHERE contract_id = ? AND SLid IS NOT NULL`,
+    [cid]
+  );
+  const ps = primRows?.[0]?.primary_slid;
+  if (ps != null && !Number.isNaN(parseInt(String(ps), 10))) {
+    contract.site_id = parseInt(String(ps), 10);
+  }
+  if (Object.prototype.hasOwnProperty.call(contract, 'device_id')) {
+    delete contract.device_id;
+  }
+
+  return JSON.stringify({ contract, devices });
+}
+
+/**
+ * แยก contract + devices จาก contract_snapshot — รองรับรูปแบบใหม่ { contract, devices } และแบบเก่า
+ */
+function parseContractSnapshotJson(raw) {
+  if (raw == null || String(raw).trim() === '') {
+    return { contract: null, devices: [] };
+  }
+  try {
+    const j = JSON.parse(String(raw));
+    if (Array.isArray(j)) {
+      return {
+        contract: null,
+        devices: j.map((x) => ({
+          device_id: null,
+          SLid: null,
+          CI_Name: x && x.CI_Name != null ? String(x.CI_Name) : null,
+        })),
+      };
+    }
+    if (j && typeof j === 'object') {
+      if (j.contract && typeof j.contract === 'object') {
+        return {
+          contract: j.contract,
+          devices: Array.isArray(j.devices) ? j.devices : [],
+        };
+      }
+      const devArr = Array.isArray(j.devices) ? j.devices : [];
+      const { devices: _d, ...rest } = j;
+      const keys = Object.keys(rest).filter((k) => rest[k] !== undefined);
+      return {
+        contract: keys.length ? rest : null,
+        devices: devArr,
+      };
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return { contract: null, devices: [] };
+}
+
+/** แปลงรายการจาก snapshot เป็นรูปแบบ devices ใน GET history detail (ดึงชื่อเครื่องจาก DB เมื่อมี device_id) */
+async function enrichSnapshotDevicesForHistoryDetail(db, snapDevEntries) {
+  const entries = Array.isArray(snapDevEntries) ? snapDevEntries : [];
+  if (entries.length === 0) return [];
+
+  const ids = [
+    ...new Set(
+      entries
+        .map((e) => (e.device_id != null ? parseInt(String(e.device_id), 10) : NaN))
+        .filter((n) => !Number.isNaN(n))
+    ),
+  ];
+
+  const deviceByDid = new Map();
+  if (ids.length > 0) {
+    const ph = ids.map(() => '?').join(',');
+    const [rows] = await db.execute(
+      `SELECT d.Did, d.CI_Name, d.Asset_Number, d.serial, d.Asset_State, d.SLid,
+              dt.model AS type_name, dr.name AS roleName
+       FROM devices d
+       LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+       LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+       WHERE d.Did IN (${ph})`,
+      ids
+    );
+    for (const r of rows || []) {
+      deviceByDid.set(Number(r.Did), r);
+    }
+  }
+
+  const slids = [
+    ...new Set(
+      entries
+        .map((e) => (e.SLid != null ? parseInt(String(e.SLid), 10) : null))
+        .filter((n) => n != null && !Number.isNaN(n))
+    ),
+  ];
+  const siteBySlid = new Map();
+  if (slids.length > 0) {
+    const ph2 = slids.map(() => '?').join(',');
+    const [slRows] = await db.execute(
+      `SELECT sl.SLid, s.Name AS SiteName, IFNULL(l.Location2, '') AS Location2
+       FROM sites_location sl
+       LEFT JOIN sites s ON sl.Sid = s.Sid
+       LEFT JOIN location l ON sl.lid = l.lid
+       WHERE sl.SLid IN (${ph2})`,
+      slids
+    );
+    for (const r of slRows || []) {
+      siteBySlid.set(Number(r.SLid), {
+        SiteName: r.SiteName != null ? String(r.SiteName) : null,
+        Location2: r.Location2 != null ? String(r.Location2) : '',
+      });
+    }
+  }
+
+  let neg = 1;
+  const out = [];
+  for (const e of entries) {
+    const slid = e.SLid != null ? parseInt(String(e.SLid), 10) : null;
+    const site =
+      slid != null && !Number.isNaN(slid) ? siteBySlid.get(slid) : undefined;
+    const didNum = e.device_id != null ? parseInt(String(e.device_id), 10) : NaN;
+
+    if (!Number.isNaN(didNum)) {
+      const r = deviceByDid.get(didNum);
+      if (r) {
+        out.push({
+          Did: r.Did,
+          CI_Name: r.CI_Name ?? null,
+          Asset_Number: r.Asset_Number ?? null,
+          serial: r.serial ?? null,
+          Asset_State: r.Asset_State ?? null,
+          SLid: r.SLid != null ? Number(r.SLid) : null,
+          contract_SLid: slid != null && !Number.isNaN(slid) ? slid : null,
+          SiteName: site?.SiteName ?? null,
+          Location2: site?.Location2 ?? null,
+          type_name: r.type_name ?? null,
+          roleName: r.roleName ?? null,
+        });
+      } else {
+        out.push({
+          Did: -(neg++),
+          CI_Name: e.CI_Name != null ? String(e.CI_Name) : `Device #${didNum}`,
+          Asset_Number: null,
+          serial: null,
+          Asset_State: null,
+          SLid: null,
+          contract_SLid: slid != null && !Number.isNaN(slid) ? slid : null,
+          SiteName: site?.SiteName ?? null,
+          Location2: site?.Location2 ?? null,
+          type_name: null,
+          roleName: null,
+        });
+      }
+    } else {
+      const ci = e.CI_Name != null ? String(e.CI_Name) : null;
+      out.push({
+        Did: -(neg++),
+        CI_Name: ci,
+        Asset_Number: null,
+        serial: null,
+        Asset_State: null,
+        SLid: slid != null && !Number.isNaN(slid) ? slid : null,
+        contract_SLid: slid != null && !Number.isNaN(slid) ? slid : null,
+        SiteName: site?.SiteName ?? null,
+        Location2: site?.Location2 ?? null,
+        type_name: null,
+        roleName: null,
+      });
+    }
+  }
+  return out;
 }
 
 // Helper function - สร้าง contract_id ถัดไปโดยอัตโนมัติ (ใช้เลขที่ว่างก่อน)
@@ -100,8 +303,7 @@ const uploadContractFile = (req, res) => {
   }
 };
 
-// POST - สร้าง Contract ใหม่ (ตรงตามตาราง contract ใน TccStock)
-// ฟิลด์: contract_name, start_date, end_date, device_id, site_id(SLid), sof_name, sla_term, sla_detail, sale_account
+// POST - สร้าง Contract ใหม่ — device/site อยู่ที่ contract_device เท่านั้น (ไม่เก็บ device_id/site_id บน contract)
 const createContract = async (req, res) => {
   try {
     const {
@@ -183,32 +385,16 @@ const createContract = async (req, res) => {
         if (!isNaN(single)) siteIdList = [single];
       }
     }
-    const firstDeviceId = deviceIdList.length > 0 ? deviceIdList[0] : null;
-    // contract.site_id: ใช้ site_id จาก body (เลือกจากฟอร์ม Site/Location) ก่อน ไม่ใช้แค่ค่าแรกจาก site_device_pairs
-    const primaryFromBody =
-      site_id != null && site_id !== '' ? parseInt(String(site_id), 10) : NaN;
-    const siteId =
-      !Number.isNaN(primaryFromBody) && primaryFromBody > 0
-        ? primaryFromBody
-        : siteIdList.length > 0
-          ? siteIdList[0]
-          : null;
-
-    // เช็คว่า device ที่เลือกมี contract อยู่แล้วหรือยัง (contract.device_id หรือ contract_device)
+    // เช็คว่า device ที่เลือกมี contract อยู่แล้วหรือยัง (contract_device)
     // แต่ถ้าเป็นการต่อสัญญา (มี old_contract_id) ให้ข้ามการตรวจสอบนี้
     if (deviceIdList.length > 0 && !old_contract_id) {
       const placeholders = deviceIdList.map(() => '?').join(',');
-      const [inContractCol] = await db.execute(
-        `SELECT device_id FROM contract WHERE device_id IN (${placeholders}) AND device_id IS NOT NULL`,
-        deviceIdList
-      );
       const [inContractDevice] = await db.execute(
         `SELECT DISTINCT device_id FROM contract_device WHERE device_id IN (${placeholders})`,
         deviceIdList
       );
       const alreadyInContract = [
         ...new Set([
-          ...(Array.isArray(inContractCol) ? inContractCol : []).map((r) => r.device_id),
           ...(Array.isArray(inContractDevice) ? inContractDevice : []).map((r) => r.device_id),
         ]),
       ].filter((id) => id != null);
@@ -265,15 +451,14 @@ const createContract = async (req, res) => {
       }
     }
 
-    const insertCols = 'contract_id, contract_name, start_date, end_date, device_id, site_id, sof_name, sla_term, Assigned_Service, sale_account, tel_acc, email_acc, coverage_scope, file_paths, image_paths';
-    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+    const insertCols =
+      'contract_id, contract_name, start_date, end_date, sof_name, sla_term, Assigned_Service, sale_account, tel_acc, email_acc, coverage_scope, file_paths, image_paths';
+    const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
     const insertParams = [
       finalContractId,
       contract_name && String(contract_name).trim() ? contract_name.trim() : null,
       start_date || null,
       end_date || null,
-      firstDeviceId,
-      siteId && !isNaN(siteId) ? siteId : null,
       sofValue,
       slaTermInt,
       (assignedServiceVal && String(assignedServiceVal).trim()) ? assignedServiceVal.trim() : '',
@@ -413,6 +598,14 @@ const createContract = async (req, res) => {
           });
         }
 
+        // Snapshot ก่อนแก้ contract + contract_device — เก็บแถวสัญญาและเครื่องชุดเก่า (ก่อนเปลี่ยน SOF / ก่อนรีเฟรช device)
+        let contractSnapshotForHistory = null;
+        try {
+          contractSnapshotForHistory = await buildContractHistorySnapshot(conn, oldContractIdVal);
+        } catch (snapErr) {
+          console.error('Error building contract history snapshot (pre-renew):', snapErr);
+        }
+
         updateValues.push(oldContractIdVal);
         const updateSql = `UPDATE contract SET ${updateFields.join(', ')} WHERE contract_id = ?`;
         await conn.execute(updateSql, updateValues);
@@ -458,11 +651,11 @@ const createContract = async (req, res) => {
           }
         }
 
-        // บันทึกประวัติการต่อสัญญา (ใช้ contract_id เดิม)
+        // บันทึกประวัติการต่อสัญญา (ใช้ contract_id เดิม) + snapshot ที่สร้างไว้ก่อน UPDATE/รีเฟรช device
         try {
           await conn.execute(
-            'INSERT INTO contract_history (contract_id, old_contract_id, old_sof, new_sof, renewed_at) VALUES (?, ?, ?, ?, NOW())',
-            [contractId, contractId, oldSofFromDb, sofValue]
+            'INSERT INTO contract_history (contract_id, old_contract_id, old_sof, new_sof, renewed_at, contract_snapshot, status_history) VALUES (?, ?, ?, ?, NOW(), ?, ?)',
+            [contractId, contractId, oldSofFromDb, sofValue, contractSnapshotForHistory, 'Renew']
           );
         } catch (historyErr) {
           console.error('Error saving contract history:', historyErr);
@@ -581,6 +774,21 @@ const createContract = async (req, res) => {
 
 // GET - ดึง Contracts: ไม่ส่ง site_id = ดึงทั้งหมด; ส่ง site_id = กรองตาม site
 // ถ้า expand=sites คืนหนึ่งแถวต่อ (contract, site) สำหรับหน้า contract แบบตาราง
+/** Subqueries: แถว contract_history ล่าสุดที่เป็น Renew (หรือ legacy ไม่มี status_history แต่มี old/new SOF) */
+const RENEW_HIST_SUBQUERIES = `
+        (SELECT ch.old_sof FROM contract_history ch
+          WHERE ch.contract_id = c.contract_id
+            AND (ch.status_history = 'Renew' OR (ch.status_history IS NULL AND ch.old_sof IS NOT NULL AND ch.new_sof IS NOT NULL))
+          ORDER BY ch.history_id DESC LIMIT 1) AS renew_hist_old_sof,
+        (SELECT ch.new_sof FROM contract_history ch
+          WHERE ch.contract_id = c.contract_id
+            AND (ch.status_history = 'Renew' OR (ch.status_history IS NULL AND ch.old_sof IS NOT NULL AND ch.new_sof IS NOT NULL))
+          ORDER BY ch.history_id DESC LIMIT 1) AS renew_hist_new_sof,
+        (SELECT ch.renewed_at FROM contract_history ch
+          WHERE ch.contract_id = c.contract_id
+            AND (ch.status_history = 'Renew' OR (ch.status_history IS NULL AND ch.old_sof IS NOT NULL AND ch.new_sof IS NOT NULL))
+          ORDER BY ch.history_id DESC LIMIT 1) AS renew_hist_at`;
+
 const getContractsBySite = async (req, res) => {
   try {
     const siteId = req.query.site_id;
@@ -592,34 +800,39 @@ const getContractsBySite = async (req, res) => {
       let sql = `
         SELECT c.contract_id, c.contract_name, c.start_date, c.end_date, c.status,
           s.Name AS site_name, l.Location2 AS site_location,
-          COUNT(cd.device_id) AS device_count
+          COUNT(cd.device_id) AS device_count,
+          (SELECT ch.status_history FROM contract_history ch WHERE ch.contract_id = c.contract_id ORDER BY ch.history_id DESC LIMIT 1) AS history_status,
+          ${RENEW_HIST_SUBQUERIES}
         FROM contract c
         INNER JOIN contract_device cd ON c.contract_id = cd.contract_id AND cd.SLid IS NOT NULL
         INNER JOIN sites_location sl ON cd.SLid = sl.SLid
         LEFT JOIN sites s ON sl.Sid = s.Sid
         LEFT JOIN location l ON sl.lid = l.lid
-        WHERE 1=1
+        WHERE c.status <> 'not_renewing'
       `;
       const params = [];
       if (siteId) {
         const siteIdNum = parseInt(siteId, 10);
         if (!isNaN(siteIdNum)) {
-          sql += ' AND (c.site_id = ? OR cd.SLid = ?)';
-          params.push(siteIdNum, siteIdNum);
+          sql += ' AND cd.SLid = ?';
+          params.push(siteIdNum);
         }
       }
       sql += ` GROUP BY c.contract_id, c.contract_name, c.start_date, c.end_date, c.status, sl.SLid, s.Name, l.Location2
         UNION ALL
         SELECT c.contract_id, c.contract_name, c.start_date, c.end_date, c.status,
-          NULL AS site_name, NULL AS site_location, 0 AS device_count
+          NULL AS site_name, NULL AS site_location, 0 AS device_count,
+          (SELECT ch.status_history FROM contract_history ch WHERE ch.contract_id = c.contract_id ORDER BY ch.history_id DESC LIMIT 1) AS history_status,
+          ${RENEW_HIST_SUBQUERIES}
         FROM contract c
         LEFT JOIN (SELECT DISTINCT contract_id FROM contract_device WHERE SLid IS NOT NULL) cd ON c.contract_id = cd.contract_id
-        WHERE cd.contract_id IS NULL
+        WHERE cd.contract_id IS NULL AND c.status <> 'not_renewing'
       `;
       if (siteId) {
         const siteIdNum = parseInt(siteId, 10);
         if (!isNaN(siteIdNum)) {
-          sql += ' AND c.site_id = ?';
+          sql +=
+            ' AND EXISTS (SELECT 1 FROM contract_device cdx WHERE cdx.contract_id = c.contract_id AND cdx.SLid = ?)';
           params.push(siteIdNum);
         }
       }
@@ -635,7 +848,7 @@ const getContractsBySite = async (req, res) => {
         c.contract_name,
         c.start_date,
         c.end_date,
-        c.site_id,
+        prim.primary_slid AS site_id,
         c.sla_term,
         c.sale_account,
         c.sof_name,
@@ -645,9 +858,17 @@ const getContractsBySite = async (req, res) => {
         agg.site_name AS site_name,
         agg.site_location AS site_location,
         COALESCE(cnt.device_count, 0) AS device_count,
-        COALESCE(slim.devices_slid_aligned, 1) AS devices_slid_aligned
+        COALESCE(slim.devices_slid_aligned, 1) AS devices_slid_aligned,
+        (SELECT ch.status_history FROM contract_history ch WHERE ch.contract_id = c.contract_id ORDER BY ch.history_id DESC LIMIT 1) AS history_status,
+        ${RENEW_HIST_SUBQUERIES}
       FROM contract c
-      LEFT JOIN sites_location sl_c ON c.site_id IS NOT NULL AND sl_c.SLid = c.site_id
+      LEFT JOIN (
+        SELECT contract_id, MIN(SLid) AS primary_slid
+        FROM contract_device
+        WHERE SLid IS NOT NULL
+        GROUP BY contract_id
+      ) prim ON c.contract_id = prim.contract_id
+      LEFT JOIN sites_location sl_c ON prim.primary_slid IS NOT NULL AND sl_c.SLid = prim.primary_slid
       LEFT JOIN sites s_c ON sl_c.Sid = s_c.Sid
       LEFT JOIN location l_c ON sl_c.lid = l_c.lid
       LEFT JOIN (
@@ -687,7 +908,7 @@ const getContractsBySite = async (req, res) => {
       // Client ส่ง site_id = SLid (sites_location). สัญญาหลายฉบับอาจผูกคนละ SLid แต่ Sid เดียวกัน — รวมทุกสัญญาใน site นั้น
       if (!isNaN(siteIdNum)) {
         sql = `${baseSelect} WHERE (
-          c.site_id IN (
+          prim.primary_slid IN (
             SELECT slb.SLid FROM sites_location slb
             WHERE slb.Sid = (SELECT sl0.Sid FROM sites_location sl0 WHERE sl0.SLid = ? LIMIT 1)
           )
@@ -704,16 +925,16 @@ const getContractsBySite = async (req, res) => {
           )
           OR (
             (SELECT sl0.Sid FROM sites_location sl0 WHERE sl0.SLid = ? LIMIT 1) IS NULL
-            AND (c.site_id = ? OR d.SLid = ? OR cd.SLid = ?)
+            AND (prim.primary_slid = ? OR d.SLid = ? OR cd.SLid = ?)
           )
-        ) ORDER BY c.contract_id DESC`;
+        ) AND c.status <> 'not_renewing' ORDER BY c.contract_id DESC`;
         params = [siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum];
       } else {
-        sql = `${baseSelect} ORDER BY c.contract_id DESC`;
+        sql = `${baseSelect} WHERE c.status <> 'not_renewing' ORDER BY c.contract_id DESC`;
         params = [];
       }
     } else {
-      sql = `${baseSelect} ORDER BY c.contract_id DESC`;
+      sql = `${baseSelect} WHERE c.status <> 'not_renewing' ORDER BY c.contract_id DESC`;
     }
 
     const [rows] = await db.execute(sql, params);
@@ -917,6 +1138,376 @@ const getDevicesByContract = async (req, res) => {
   }
 };
 
+/**
+ * POST body: { contract_ids: number[], include_history_for_not_renewing_contracts?: boolean }
+ * — แถวประวัติจาก contract_history สำหรับรายการสัญญา
+ * — ถ้า include_history_for_not_renewing_contracts !== false: ดึงเพิ่มแถว Renew/Terminated (รวม Renew แบบ legacy ที่ status_history เป็น NULL แต่มี old/new SOF) ของสัญญาที่ status = not_renewing
+ *   (ไม่ถูกส่งใน GET /api/contracts) เพื่อให้โชว์ snapshot ประวัติได้
+ */
+const postContractHistoryDisplayRows = async (req, res) => {
+  try {
+    const rawIds = req.body && Array.isArray(req.body.contract_ids) ? req.body.contract_ids : [];
+    const includeNrHistory =
+      req.body == null ||
+      req.body.include_history_for_not_renewing_contracts === undefined ||
+      req.body.include_history_for_not_renewing_contracts === true;
+    const contractIds = [
+      ...new Set(
+        rawIds
+          .map((x) => parseInt(String(x), 10))
+          .filter((n) => !Number.isNaN(n) && n > 0)
+      ),
+    ];
+
+    const historySelectCols = `
+        history_id,
+        contract_id,
+        old_contract_id,
+        old_sof,
+        new_sof,
+        renewed_at,
+        created_at,
+        contract_snapshot,
+        status_history`;
+    /** เหมือน historySelectCols แต่มี alias ch. — ใช้เมื่อ JOIN กับ contract (กัน contract_id ซ้ำซ้อน) */
+    const historySelectColsJoined = `
+        ch.history_id,
+        ch.contract_id,
+        ch.old_contract_id,
+        ch.old_sof,
+        ch.new_sof,
+        ch.renewed_at,
+        ch.created_at,
+        ch.contract_snapshot,
+        ch.status_history`;
+
+    let histRows = [];
+    if (contractIds.length > 0) {
+      const placeholders = contractIds.map(() => '?').join(',');
+      const sql = `
+      SELECT ${historySelectCols}
+      FROM contract_history
+      WHERE contract_id IN (${placeholders})
+      ORDER BY COALESCE(renewed_at, created_at) DESC, history_id DESC
+    `;
+      const [rowsMain] = await db.execute(sql, contractIds);
+      histRows = rowsMain || [];
+    }
+
+    if (includeNrHistory) {
+      const [rowsNr] = await db.execute(
+        `
+        SELECT ${historySelectColsJoined}
+        FROM contract_history ch
+        INNER JOIN contract c ON c.contract_id = ch.contract_id AND c.status = 'not_renewing'
+        WHERE (
+          ch.status_history IN ('Renew', 'Terminated')
+          OR (ch.status_history IS NULL AND ch.old_sof IS NOT NULL AND ch.new_sof IS NOT NULL)
+        )
+        ORDER BY COALESCE(ch.renewed_at, ch.created_at) DESC, ch.history_id DESC
+        `
+      );
+      const seen = new Set((histRows || []).map((r) => Number(r.history_id)));
+      for (const row of rowsNr || []) {
+        const hid = Number(row.history_id);
+        if (!seen.has(hid)) {
+          seen.add(hid);
+          histRows.push(row);
+        }
+      }
+    }
+
+    if (!histRows || histRows.length === 0) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+
+    const slidsNeeded = new Set();
+    const cidsNeedContractFallback = new Set();
+
+    const parsed = (histRows || []).map((row) => {
+      const { contract: snap, devices } = parseContractSnapshotJson(row.contract_snapshot);
+      const devicesLen = devices.length;
+      let slid = null;
+      if (snap && snap.site_id != null && String(snap.site_id).trim() !== '') {
+        const n = parseInt(String(snap.site_id), 10);
+        if (!Number.isNaN(n)) slid = n;
+      }
+      if (slid != null) slidsNeeded.add(slid);
+      else cidsNeedContractFallback.add(Number(row.contract_id));
+
+      return { row, snap, devicesLen, snapSlid: slid };
+    });
+
+    if (cidsNeedContractFallback.size > 0) {
+      const cids = [...cidsNeedContractFallback];
+      const ph = cids.map(() => '?').join(',');
+      const [cRows] = await db.execute(
+        `SELECT c.contract_id,
+          (SELECT MIN(cd.SLid) FROM contract_device cd WHERE cd.contract_id = c.contract_id AND cd.SLid IS NOT NULL) AS site_id
+         FROM contract c WHERE c.contract_id IN (${ph})`,
+        cids
+      );
+      const siteByCid = new Map();
+      for (const cr of cRows || []) {
+        siteByCid.set(Number(cr.contract_id), cr.site_id != null ? parseInt(String(cr.site_id), 10) : NaN);
+      }
+      for (const p of parsed) {
+        if (p.snapSlid != null) continue;
+        const sid = siteByCid.get(Number(p.row.contract_id));
+        if (sid != null && !Number.isNaN(sid)) {
+          p.snapSlid = sid;
+          slidsNeeded.add(sid);
+        }
+      }
+    }
+
+    const slidList = [...slidsNeeded].filter((n) => !Number.isNaN(n));
+    const siteBySlid = new Map();
+    if (slidList.length > 0) {
+      const ph2 = slidList.map(() => '?').join(',');
+      const [slRows] = await db.execute(
+        `
+        SELECT sl.SLid, s.Name AS site_name, IFNULL(l.Location2, '') AS site_location
+        FROM sites_location sl
+        LEFT JOIN sites s ON sl.Sid = s.Sid
+        LEFT JOIN location l ON sl.lid = l.lid
+        WHERE sl.SLid IN (${ph2})
+        `,
+        slidList
+      );
+      for (const r of slRows || []) {
+        siteBySlid.set(Number(r.SLid), {
+          site_name: r.site_name != null ? String(r.site_name) : '',
+          site_location: r.site_location != null ? String(r.site_location) : '',
+        });
+      }
+    }
+
+    const data = parsed.map(({ row, snap, devicesLen, snapSlid }) => {
+      const sl = snapSlid != null ? siteBySlid.get(snapSlid) : undefined;
+      const site_name = sl?.site_name ?? null;
+      const site_location = sl?.site_location ?? null;
+
+      const start_date = snap && snap.start_date != null ? String(snap.start_date).slice(0, 10) : null;
+      const end_date = snap && snap.end_date != null ? String(snap.end_date).slice(0, 10) : null;
+      const contract_name = snap && snap.contract_name != null ? String(snap.contract_name) : null;
+      const rawSof = snap && snap.sof_name != null ? String(snap.sof_name).trim() : '';
+      const sof_name =
+        rawSof !== ''
+          ? rawSof
+          : row.new_sof != null && String(row.new_sof).trim() !== ''
+            ? String(row.new_sof).trim()
+            : row.old_sof != null && String(row.old_sof).trim() !== ''
+              ? String(row.old_sof).trim()
+              : null;
+      const status = snap && snap.status != null ? String(snap.status) : 'official';
+      const sale_account = snap && snap.sale_account != null ? String(snap.sale_account) : null;
+
+      return {
+        row_type: 'history',
+        history_id: row.history_id,
+        contract_id: row.contract_id,
+        contract_name,
+        start_date,
+        end_date,
+        sale_account,
+        sof_name,
+        site_id: snapSlid,
+        contract_site_name: site_name && site_name.trim() !== '' ? site_name : null,
+        contract_site_location: site_location && site_location.trim() !== '' ? site_location : null,
+        site_name,
+        site_location,
+        device_count: devicesLen,
+        status,
+        devices_slid_aligned: 1,
+        history_status: row.status_history,
+        renew_hist_old_sof: row.old_sof,
+        renew_hist_new_sof: row.new_sof,
+        renew_hist_at: row.renewed_at ?? row.created_at,
+      };
+    });
+
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    console.error('Error getting contract history display rows:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error getting contract history display rows',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * GET /api/contracts/history/:historyId — รายละเอียดจากแถว contract_history เดียว (contract_snapshot) สำหรับ modal แถวประวัติ
+ */
+const getContractHistoryDetailByHistoryId = async (req, res) => {
+  try {
+    const hid = parseInt(String(req.params.historyId), 10);
+    if (Number.isNaN(hid) || hid <= 0) {
+      return res.status(400).json({ success: false, message: 'history_id is not valid' });
+    }
+
+    const [rows] = await db.execute(
+      `SELECT history_id, contract_id, old_contract_id, old_sof, new_sof, renewed_at, created_at, contract_snapshot, status_history
+       FROM contract_history WHERE history_id = ?`,
+      [hid]
+    );
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Contract history not found' });
+    }
+
+    const histRow = rows[0];
+    const cid = parseInt(String(histRow.contract_id), 10);
+
+    const { contract: snap, devices: snapDevEntries } = parseContractSnapshotJson(histRow.contract_snapshot);
+
+    let siteIdVal = null;
+    if (snap && snap.site_id != null && String(snap.site_id).trim() !== '') {
+      const n = parseInt(String(snap.site_id), 10);
+      if (!Number.isNaN(n)) siteIdVal = n;
+    }
+    if (siteIdVal == null && Array.isArray(snapDevEntries) && snapDevEntries.length > 0) {
+      const sls = snapDevEntries
+        .map((e) => e.SLid)
+        .filter((x) => x != null && String(x).trim() !== '')
+        .map((x) => parseInt(String(x), 10))
+        .filter((n) => !Number.isNaN(n));
+      if (sls.length > 0) siteIdVal = Math.min(...sls);
+    }
+    if (siteIdVal == null) {
+      const [cRows] = await db.execute(
+        `SELECT (
+          SELECT MIN(cd.SLid) FROM contract_device cd WHERE cd.contract_id = c.contract_id AND cd.SLid IS NOT NULL
+        ) AS site_id
+         FROM contract c WHERE c.contract_id = ?`,
+        [cid]
+      );
+      if (cRows && cRows[0] && cRows[0].site_id != null) {
+        const sv = parseInt(String(cRows[0].site_id), 10);
+        if (!Number.isNaN(sv)) siteIdVal = sv;
+      }
+    }
+
+    let site_name = null;
+    let site_location = null;
+    if (siteIdVal != null) {
+      const [slRows] = await db.execute(
+        `SELECT s.Name AS site_name, IFNULL(l.Location2, '') AS site_location
+         FROM sites_location sl
+         LEFT JOIN sites s ON sl.Sid = s.Sid
+         LEFT JOIN location l ON sl.lid = l.lid
+         WHERE sl.SLid = ?`,
+        [siteIdVal]
+      );
+      if (slRows && slRows[0]) {
+        site_name = slRows[0].site_name != null ? String(slRows[0].site_name) : null;
+        site_location = slRows[0].site_location != null ? String(slRows[0].site_location) : '';
+      }
+    }
+
+    const toDateStr = (v) => {
+      if (v == null) return null;
+      if (v instanceof Date) {
+        const iso = v.toISOString();
+        return iso.length >= 10 ? iso.slice(0, 10) : null;
+      }
+      const s = String(v).trim();
+      return s.length >= 10 ? s.slice(0, 10) : s || null;
+    };
+
+    const snapStr = (k) => {
+      if (!snap || snap[k] == null || snap[k] === '') return null;
+      return String(snap[k]);
+    };
+
+    const rawSof = snapStr('sof_name');
+    const sofName =
+      rawSof && rawSof.trim() !== ''
+        ? rawSof.trim()
+        : histRow.new_sof != null && String(histRow.new_sof).trim() !== ''
+          ? String(histRow.new_sof).trim()
+          : histRow.old_sof != null && String(histRow.old_sof).trim() !== ''
+            ? String(histRow.old_sof).trim()
+            : null;
+
+    const devicesMapped = await enrichSnapshotDevicesForHistoryDetail(db, snapDevEntries);
+
+    let sitesRows = [];
+    if (siteIdVal != null) {
+      sitesRows = [
+        {
+          SLid: siteIdVal,
+          SiteName: site_name,
+          Location2: site_location || null,
+        },
+      ];
+    }
+
+    const contractBase = {
+      contract_id: cid,
+      history_id: histRow.history_id,
+      history_detail: true,
+      status: snapStr('status') || 'official',
+      contract_name: snapStr('contract_name'),
+      start_date: snap ? toDateStr(snap.start_date) : null,
+      end_date: snap ? toDateStr(snap.end_date) : null,
+      site_id: siteIdVal,
+      sla_term:
+        snap && snap.sla_term != null && String(snap.sla_term).trim() !== ''
+          ? parseFloat(String(snap.sla_term))
+          : null,
+      sale_account: snapStr('sale_account'),
+      email_acc: snapStr('email_acc'),
+      tel_acc: snapStr('tel_acc'),
+      sof_name: sofName,
+      Assigned_Service: snapStr('Assigned_Service'),
+      coverage_scope: snapStr('coverage_scope'),
+      file_paths: snapStr('file_paths'),
+      image_paths: snapStr('image_paths'),
+      pm_time_per_year:
+        snap && snap.pm_time_per_year != null && String(snap.pm_time_per_year).trim() !== ''
+          ? parseInt(String(snap.pm_time_per_year), 10)
+          : null,
+      contract_sign_date: snap ? toDateStr(snap.contract_sign_date) : null,
+      remark: snapStr('remark'),
+      site_name,
+      site_location: site_location || null,
+    };
+
+    const historyOne = [
+      {
+        history_id: histRow.history_id,
+        contract_id: histRow.contract_id,
+        old_contract_id: histRow.old_contract_id,
+        old_sof: histRow.old_sof,
+        new_sof: histRow.new_sof,
+        renewed_at: histRow.renewed_at,
+        created_at: histRow.created_at,
+        contract_snapshot: histRow.contract_snapshot,
+        status_history: histRow.status_history,
+      },
+    ];
+
+    const result = {
+      ...contractBase,
+      devices: devicesMapped,
+      sites: sitesRows,
+      history: historyOne,
+    };
+
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('Error getting contract history detail:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error getting contract history detail',
+      error: error.message,
+    });
+  }
+};
+
 // GET - ดึงประวัติการต่อสัญญา (contract_history)
 const getContractHistory = async (req, res) => {
   try {
@@ -936,7 +1527,9 @@ const getContractHistory = async (req, res) => {
         old_sof,
         new_sof,
         renewed_at,
-        created_at
+        created_at,
+        contract_snapshot,
+        status_history
       FROM contract_history
       WHERE contract_id = ? OR old_contract_id = ?
       ORDER BY renewed_at DESC, created_at DESC
@@ -1256,7 +1849,7 @@ const getContractById = async (req, res) => {
       'c.contract_name',
       'c.start_date',
       'c.end_date',
-      'c.site_id',
+      'prim.primary_slid AS site_id',
       'c.sla_term',
       'c.sale_account',
       'c.sof_name',
@@ -1282,7 +1875,13 @@ const getContractById = async (req, res) => {
       SELECT 
         ${contractFields.join(',\n        ')}
       FROM contract c
-      LEFT JOIN sites_location sl ON c.site_id = sl.SLid
+      LEFT JOIN (
+        SELECT contract_id, MIN(SLid) AS primary_slid
+        FROM contract_device
+        WHERE SLid IS NOT NULL
+        GROUP BY contract_id
+      ) prim ON c.contract_id = prim.contract_id
+      LEFT JOIN sites_location sl ON prim.primary_slid IS NOT NULL AND sl.SLid = prim.primary_slid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l_site ON sl.lid = l_site.lid
       WHERE c.contract_id = ?
@@ -1353,7 +1952,9 @@ const getContractById = async (req, res) => {
         old_sof,
         new_sof,
         renewed_at,
-        created_at
+        created_at,
+        contract_snapshot,
+        status_history
       FROM contract_history
       WHERE contract_id = ? OR old_contract_id = ?
       ORDER BY renewed_at DESC, created_at DESC
@@ -1422,9 +2023,9 @@ const updateContract = async (req, res) => {
       tel_acc,
     } = req.body;
 
-    // ตรวจสอบว่ามี contract นี้หรือไม่
+    // ตรวจสอบว่ามี contract นี้หรือไม่ + สถานะเดิม (สำหรับบันทึก Terminated เมื่อเปลี่ยนเป็น not_renewing)
     const [existingContract] = await conn.execute(
-      'SELECT contract_id FROM contract WHERE contract_id = ?',
+      'SELECT contract_id, status FROM contract WHERE contract_id = ?',
       [cid]
     );
 
@@ -1435,6 +2036,8 @@ const updateContract = async (req, res) => {
         message: 'Contract not found'
       });
     }
+
+    const prevDbStatus = existingContract[0].status;
 
     // Validate SLA Term
     const contractStatus =
@@ -1585,13 +2188,7 @@ const updateContract = async (req, res) => {
       updateValues.push(status);
     }
 
-    if (site_id !== undefined && site_id !== null && site_id !== '') {
-      const sid = parseInt(String(site_id), 10);
-      if (!Number.isNaN(sid) && sid > 0) {
-        updateFields.push('site_id = ?');
-        updateValues.push(sid);
-      }
-    }
+    // ไซต์หลักอยู่ที่ contract_device.SLid เท่านั้น — ไม่อัปเดต site_id บนตาราง contract
 
     // อัปเดต contract
     if (updateFields.length > 0) {
@@ -1640,6 +2237,25 @@ const updateContract = async (req, res) => {
       );
     }
 
+    // บันทึกประวัติ Terminated เมื่อกด "Do not renew" (เปลี่ยนเป็น not_renewing ครั้งแรก)
+    if (
+      status !== undefined &&
+      status === 'not_renewing' &&
+      prevDbStatus != null &&
+      String(prevDbStatus).toLowerCase() !== 'not_renewing'
+    ) {
+      try {
+        const contractSnapshot = await buildContractHistorySnapshot(conn, cid);
+        await conn.execute(
+          `INSERT INTO contract_history (contract_id, old_contract_id, old_sof, new_sof, renewed_at, contract_snapshot, status_history)
+           VALUES (?, NULL, NULL, NULL, NOW(), ?, ?)`,
+          [cid, contractSnapshot, 'Terminated']
+        );
+      } catch (histErr) {
+        console.error('Error saving contract history (terminated):', histErr);
+      }
+    }
+
     await conn.commit();
 
     res.status(200).json({
@@ -1671,6 +2287,8 @@ module.exports = {
   createContract,
   uploadContractFile,
   getContractsBySite,
+  postContractHistoryDisplayRows,
+  getContractHistoryDetailByHistoryId,
   getAvailableDevices,
   getSitesByContract,
   getDevicesByContract,

@@ -7,6 +7,8 @@ const {
   createContract,
   uploadContractFile,
   getContractsBySite,
+  postContractHistoryDisplayRows,
+  getContractHistoryDetailByHistoryId,
   getAvailableDevices,
   getSitesByContract,
   getDevicesByContract,
@@ -56,6 +58,12 @@ router.get('/statistics/vendor', getVendorStatistics);
 router.get('/statistics/top-sites', getTopSitesByContractDevice);
 
 router.get('/statistics/top-sites-heatmap', getTopSitesHeatmap);
+
+// POST /api/contracts/history-display-rows — แถวจาก contract_history สำหรับตารางรายการสัญญา (body: { contract_ids, include_history_for_not_renewing_contracts? })
+router.post('/history-display-rows', postContractHistoryDisplayRows);
+
+// GET /api/contracts/history/:historyId — รายละเอียดจาก contract_history ตาม history_id (ต้องมาก่อน /:id)
+router.get('/history/:historyId', getContractHistoryDetailByHistoryId);
 
 // GET /api/contracts/:id/devices — ดึง Devices ที่ผูกกับ Contract (ต้องมาก่อน GET / เพื่อไม่ให้ conflict)
 router.get('/:id/devices', getDevicesByContract);
