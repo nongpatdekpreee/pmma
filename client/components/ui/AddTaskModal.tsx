@@ -28,6 +28,15 @@ import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import {
+  formatTenDigitUsDisplay,
+  parseTelLineFromDb,
+  formatTelLineForDb,
+  PHONE_MAIN_MAX_DIGITS,
+  PHONE_EXT_MAX_DIGITS,
+  validateEmployeePhoneInline,
+  validateEmployeePhoneSubmit,
+} from '@/lib/phoneFormat';
+import {
   ContractShellSearchListDropdown,
   ContractSimpleSearchListDropdown,
 } from '@/components/ui/ContractSearchListDropdown';
@@ -203,9 +212,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [vendorName, setVendorName] = useState('');
   const [vendorTel, setVendorTel] = useState('');
   const [vendorTelError, setVendorTelError] = useState('');
-  const [reporterTelError, setReporterTelError] = useState('');
+  const [reporterPhoneError, setReporterPhoneError] = useState('');
   const [reporterName, setReporterName] = useState('');
   const [reporterTel, setReporterTel] = useState('');
+  const [reporterTelExt, setReporterTelExt] = useState('');
+  const reporterPhoneMainOverflowWarned = useRef(false);
+  const reporterPhoneExtOverflowWarned = useRef(false);
   const [ticket, setTicket] = useState('');
   const [rootCause, setRootCause] = useState('');
   const [resolution, setResolution] = useState('');
@@ -284,9 +296,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setVendorName('');
     setVendorTel('');
     setVendorTelError('');
-    setReporterTelError('');
+    setReporterPhoneError('');
     setReporterName('');
     setReporterTel('');
+    setReporterTelExt('');
+    reporterPhoneMainOverflowWarned.current = false;
+    reporterPhoneExtOverflowWarned.current = false;
     setTicket('');
     setRootCause('');
     setResolution('');
@@ -651,7 +666,15 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setVendorName(editingEvent.vendorName || '');
       setVendorTel(editingEvent.vendorTel || editingEvent.vendor_tel || '');
       setReporterName(editingEvent.reporterName || (editingEvent as any).reporter_name || '');
-      setReporterTel(editingEvent.reporterTel || (editingEvent as any).reporter_tel || '');
+      {
+        const reporterLine = String(
+          editingEvent.reporterTel || (editingEvent as any).reporter_tel || ''
+        ).trim();
+        const rp = parseTelLineFromDb(reporterLine);
+        setReporterTel(formatTenDigitUsDisplay(rp.tel));
+        setReporterTelExt(rp.telExt);
+      }
+      setReporterPhoneError('');
       setTicket(editingEvent.ticket || '');
       setRootCause(editingEvent.rootCause || (editingEvent as any).root_cause || '');
       setResolution(editingEvent.resolution || '');
@@ -1004,7 +1027,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setVendorName('');
       setReporterName('');
       setReporterTel('');
-      setReporterTelError('');
+      setReporterTelExt('');
+      setReporterPhoneError('');
+      reporterPhoneMainOverflowWarned.current = false;
+      reporterPhoneExtOverflowWarned.current = false;
       setTicket('');
       setRootCause('');
       setResolution('');
@@ -1575,10 +1601,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         showWarning('Phone number must be between 4 and 10 digits');
         return;
       }
-      // Validate Client Phone number: if provided, must be 4-10 digits
-      if (reporterTel && (reporterTel.length < 4 || reporterTel.length > 10)) {
-        showWarning('Phone number must be between 4 and 10 digits');
-        return;
+      // Client phone (optional): ถ้ามีตัวเลข ต้องตรงกฎเดียวกับ Employee (หลัก 10 + ต่อสูงสุด 6)
+      {
+        const mainD = reporterTel.replace(/\D/g, '');
+        const extD = reporterTelExt.replace(/\D/g, '');
+        if (mainD || extD) {
+          const repErr = validateEmployeePhoneSubmit(reporterTel, reporterTelExt);
+          if (repErr) {
+            showWarning(`Client phone: ${repErr}`);
+            return;
+          }
+        }
       }
       // Contract is required for MA because broken devices must come from contract
       if (selectedContractIds.length === 0) {
@@ -1654,7 +1687,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         vendorName: taskType === 'MA' ? vendorName : null,
         vendorTel: taskType === 'MA' ? vendorTel : null,
         reporterName: taskType === 'MA' ? reporterName : null,
-        reporterTel: taskType === 'MA' ? reporterTel : null,
+        reporterTel:
+          taskType === 'MA' ? formatTelLineForDb(reporterTel, reporterTelExt) || null : null,
         ticket: taskType === 'MA' ? ticket : null,
         rootCause: taskType === 'MA' ? rootCause : null,
         resolution: taskType === 'MA' ? resolution : null,
@@ -2561,8 +2595,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           {taskType === 'MA' && (
             <div className={sectionCard}>
               <h3 className="text-xs font-bold text-slate-700">Client</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start mt-3">
-                <div>
+              <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-5">
+                <div className="flex min-w-0 flex-1 basis-0 flex-col">
                   <label className={fieldLabel}>Reporter name</label>
                   <input
                     type="text"
@@ -2576,74 +2610,135 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <p className="text-[10px] text-red-500 mt-1">Reporter name must be at least 5 characters</p>
                   )}
                 </div>
-                <div>
-                  <label className={fieldLabel}>Phone number</label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={reporterTel}
-                      onKeyDown={(e) => {
-                        const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Home', 'End'];
-                        const isDigit = /^[0-9]$/.test(e.key);
-                        const isAllowedKey = allowedKeys.includes(e.key) || (e.ctrlKey && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase()));
-                        if (!isDigit && !isAllowedKey) {
-                          e.preventDefault();
-                          setReporterTelError('Please enter only numbers');
-                          setTimeout(() => setReporterTelError(''), 2000);
-                          return;
-                        }
-                        if (reporterTel.length >= 10 && isDigit) {
-                          e.preventDefault();
-                          setReporterTelError('Only 10 digits');
-                          setTimeout(() => setReporterTelError(''), 2000);
-                        }
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pastedText = e.clipboardData.getData('text').replace(/[^\d]/g, '');
-                        const newValue = reporterTel + pastedText;
-                        if (newValue.length <= 10) {
-                          setReporterTel(newValue);
-                          setReporterTelError('');
-                        } else {
-                          setReporterTelError('Only 10 digits');
-                          setTimeout(() => setReporterTelError(''), 2000);
-                        }
-                      }}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/[^\d]/g, '');
-                        if (value.length <= 10) {
-                          setReporterTel(value);
-                          setReporterTelError('');
-                        } else {
-                          setReporterTel(value.slice(0, 10));
-                          setReporterTelError('Only 10 digits');
-                          setTimeout(() => setReporterTelError(''), 2000);
-                        }
-                      }}
-                      placeholder="Enter phone number (4-10 digits)"
-                      maxLength={10}
-                      className={`${inputBase} pr-10 ${reporterTel && reporterTel.length < 4 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''} ${reporterTelError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
-                    />
-                    {reporterTel && (
-                      <button
-                        type="button"
-                        onClick={() => { setReporterTel(''); setReporterTelError(''); }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-                        title="Clear"
-                      >
-                        <X size={16} />
-                      </button>
-                    )}
+                <div className="flex min-w-0 w-full flex-1 basis-0 flex-col">
+                  {/* แถวป้ายใช้คอลัมน์เดียวกับแถวช่องกรอก (หลัก | - | ต่อ) */}
+                  <div className="mb-1 grid w-full min-w-0 grid-cols-[minmax(0,1fr)_1.25rem_5.5rem] items-end gap-x-0 sm:grid-cols-[minmax(0,1fr)_1.5rem_6rem]">
+                    <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                      Phone number
+                    </label>
+                    <span
+                      className="invisible w-full shrink-0 select-none text-center text-base font-medium leading-none"
+                      aria-hidden
+                    >
+                      -
+                    </span>
+                    <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                      EXT
+                    </span>
                   </div>
-                  {reporterTelError && (
-                    <p className="text-[10px] text-red-500 mt-1">{reporterTelError}</p>
-                  )}
-                  {!reporterTelError && reporterTel && reporterTel.length < 4 && (
-                    <p className="text-[10px] text-red-500 mt-1">Phone number must be at least 4 digits</p>
-                  )}
+                  <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_1.25rem_5.5rem] items-center gap-x-0 sm:grid-cols-[minmax(0,1fr)_1.5rem_6rem]">
+                    <div className="relative min-w-0">
+                      <input
+                        type="text"
+                        inputMode="tel"
+                        value={reporterTel}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const n = raw.replace(/\D/g, '').length;
+                          if (n > PHONE_MAIN_MAX_DIGITS) {
+                            if (!reporterPhoneMainOverflowWarned.current) {
+                              reporterPhoneMainOverflowWarned.current = true;
+                              showWarning(
+                                `เบอร์ Client ใส่ได้สูงสุด ${PHONE_MAIN_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                                2600
+                              );
+                            }
+                          } else {
+                            reporterPhoneMainOverflowWarned.current = false;
+                          }
+                          const v = formatTenDigitUsDisplay(raw);
+                          setReporterTel(v);
+                          setReporterPhoneError(validateEmployeePhoneInline(v, reporterTelExt));
+                        }}
+                        onBlur={() =>
+                          setReporterPhoneError(
+                            validateEmployeePhoneInline(reporterTel, reporterTelExt)
+                          )
+                        }
+                        placeholder="0xx-xxx-xxxx"
+                        autoComplete="tel"
+                        className={`${inputBase} tabular-nums pr-9 ${reporterPhoneError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
+                      />
+                      {reporterTel ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReporterTel('');
+                            setReporterTelExt('');
+                            setReporterPhoneError('');
+                            reporterPhoneMainOverflowWarned.current = false;
+                            reporterPhoneExtOverflowWarned.current = false;
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                          title="Clear"
+                        >
+                          <X size={16} />
+                        </button>
+                      ) : null}
+                    </div>
+                    <span
+                      className="flex shrink-0 select-none items-center justify-center text-base font-medium leading-none text-slate-400"
+                      aria-hidden
+                    >
+                      -
+                    </span>
+                    <div className="relative w-full min-w-0">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={reporterTelExt}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const n = raw.replace(/\D/g, '').length;
+                          if (n > PHONE_EXT_MAX_DIGITS) {
+                            if (!reporterPhoneExtOverflowWarned.current) {
+                              reporterPhoneExtOverflowWarned.current = true;
+                              showWarning(
+                                `เลขต่อ Client ใส่ได้สูงสุด ${PHONE_EXT_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                                2600
+                              );
+                            }
+                          } else {
+                            reporterPhoneExtOverflowWarned.current = false;
+                          }
+                          const v = raw.replace(/\D/g, '').slice(0, PHONE_EXT_MAX_DIGITS);
+                          setReporterTelExt(v);
+                          setReporterPhoneError(validateEmployeePhoneInline(reporterTel, v));
+                        }}
+                        onBlur={() =>
+                          setReporterPhoneError(
+                            validateEmployeePhoneInline(reporterTel, reporterTelExt)
+                          )
+                        }
+                        placeholder="xxxx"
+                        autoComplete="off"
+                        aria-label="Extension (max 6 digits)"
+                        title="Extension (max 6 digits)"
+                        className={`${inputBase} box-border px-2.5 text-left text-sm tabular-nums ${reporterTelExt ? 'pr-7' : ''} ${reporterPhoneError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
+                      />
+                      {reporterTelExt ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReporterTelExt('');
+                            setReporterPhoneError(
+                              validateEmployeePhoneInline(reporterTel, '')
+                            );
+                            reporterPhoneExtOverflowWarned.current = false;
+                          }}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                          title="Clear extension"
+                        >
+                          <X size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  {reporterPhoneError ? (
+                    <p className="text-[10px] text-red-500 mt-1">{reporterPhoneError}</p>
+                  ) : null}
                 </div>
-                <div>
+                <div className="flex w-full min-w-0 flex-col sm:w-[10.5rem] sm:max-w-[10.5rem] sm:shrink-0">
                   <label className={fieldLabel}>Ticket</label>
                   <input
                     type="text"
@@ -2653,7 +2748,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     maxLength={MA_MAX_TICKET_DIGITS}
                     onChange={(e) => setTicket(e.target.value.replace(/\D/g, '').slice(0, MA_MAX_TICKET_DIGITS))}
                     placeholder="Digits only"
-                    className={inputBase}
+                    className={`${inputBase} w-full min-w-0`}
                   />
                 </div>
               </div>

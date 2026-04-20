@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 const db = require('../config/database');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
@@ -83,6 +85,111 @@ const toDateOnlyString = (val) => {
     return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   }
   return null;
+};
+
+/** รวบรวม path string จาก tasks.photos / report file_path (array ของ string หรือ { path }) */
+function collectPathStringsFromPhotos(photos) {
+  if (!photos) return [];
+  const arr = Array.isArray(photos) ? photos : [];
+  const out = [];
+  for (const p of arr) {
+    if (typeof p === 'string' && p.trim()) out.push(p.trim());
+    else if (p && typeof p === 'object') {
+      if (typeof p.path === 'string' && p.path.trim()) out.push(p.path.trim());
+      if (typeof p.url === 'string' && p.url.trim()) out.push(p.url.trim());
+    }
+  }
+  return out;
+}
+
+function pathListIncludesBasename(pathList, basename) {
+  const b = String(basename);
+  for (const p of pathList) {
+    const s = String(p);
+    const last = s.split(/[/\\]/).filter(Boolean).pop();
+    if (last === b || s.endsWith(b)) return true;
+  }
+  return false;
+}
+
+function safeParseJsonArray(val) {
+  if (val == null) return [];
+  try {
+    const v = typeof val === 'string' ? JSON.parse(val) : val;
+    return Array.isArray(v) ? v : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+/**
+ * GET /api/tasks/:taskId/ma-notice/:filename
+ * เปิดไฟล์ repair notice ที่เก็บใต้ uploads/reports (ตรงกับ taskMaNoticeUrl ใน client)
+ */
+const getMaNoticeFile = async (req, res) => {
+  try {
+    const taskId = parseInt(String(req.params.taskId), 10);
+    if (Number.isNaN(taskId) || taskId <= 0) {
+      return res.status(400).send('Bad request');
+    }
+    let rawName = req.params.filename;
+    try {
+      rawName = decodeURIComponent(rawName);
+    } catch (_) {
+      /* keep raw */
+    }
+    const safe = path.basename(String(rawName).replace(/\\/g, '/'));
+    if (!safe) {
+      return res.status(400).send('Bad request');
+    }
+    if (safe.includes('..')) {
+      return res.status(400).send('Bad request');
+    }
+
+    const [taskRows] = await db.execute('SELECT photos FROM tasks WHERE id = ?', [taskId]);
+    if (!taskRows.length) {
+      return res.status(404).send('Not found');
+    }
+
+    const photosParsed = safeParseJsonArray(taskRows[0].photos);
+    const fromTask = collectPathStringsFromPhotos(photosParsed);
+    let allowed = pathListIncludesBasename(fromTask, safe);
+
+    if (!allowed) {
+      const [repRows] = await db.execute(
+        'SELECT file_path, image_path FROM report WHERE id = ? LIMIT 50',
+        [taskId]
+      );
+      for (const row of repRows) {
+        const fp = safeParseJsonArray(row.file_path);
+        const ip = safeParseJsonArray(row.image_path);
+        const combined = [...collectPathStringsFromPhotos(fp), ...collectPathStringsFromPhotos(ip)];
+        if (pathListIncludesBasename(combined, safe)) {
+          allowed = true;
+          break;
+        }
+      }
+    }
+
+    if (!allowed) {
+      return res.status(404).send('Not found');
+    }
+
+    const reportsDir = path.resolve(path.join(__dirname, '..', 'uploads', 'reports'));
+    const absFile = path.resolve(path.join(reportsDir, safe));
+    const rel = path.relative(reportsDir, absFile);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) {
+      return res.status(400).send('Bad request');
+    }
+    if (!fs.existsSync(absFile) || !fs.statSync(absFile).isFile()) {
+      return res.status(404).send('Not found');
+    }
+
+    return res.sendFile(absFile);
+  } catch (error) {
+    console.error('[getMaNoticeFile]', error);
+    return res.status(500).send('Error');
+  }
 };
 
 const mapTaskRow = (row) => {
@@ -886,6 +993,7 @@ module.exports = {
   createTask,
   getTasks,
   getTaskById,
+  getMaNoticeFile,
   updateTask,
   deleteTask,
   checkEngineerConflict,

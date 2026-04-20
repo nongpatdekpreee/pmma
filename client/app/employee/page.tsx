@@ -1,9 +1,19 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { LucideIcon, UserCheck, UserRoundCog, Wrench, Search, UserPlus, X, FileUp, Edit, Trash2, Download } from "lucide-react";
 import { apiUrl, getEmployees, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
+import {
+  formatEmployeeTelForDisplay,
+  formatTelLineForDb,
+  formatTenDigitUsDisplay,
+  parseTelLineFromDb,
+  PHONE_EXT_MAX_DIGITS,
+  PHONE_MAIN_MAX_DIGITS,
+  validateEmployeePhoneInline,
+  validateEmployeePhoneSubmit,
+} from "@/lib/phoneFormat";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { useToast, ToastContainer } from "@/components/ui/Toast";
@@ -45,6 +55,7 @@ const EmployeeManagement = () => {
     name: "",
     gmail: "",
     tel: "",
+    telExt: "",
     positionType: "Technical" as "Technical" | "Management",
     employmentType: "Full-Time",
     photo: null as string | null,
@@ -61,6 +72,7 @@ const EmployeeManagement = () => {
     name: "",
     gmail: "",
     tel: "",
+    telExt: "",
     positionType: "Technical" as "Technical" | "Management",
     employmentType: "Full-Time",
     photo: null as string | null,
@@ -73,6 +85,11 @@ const EmployeeManagement = () => {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const { showConfirm, alertModal } = useAlertModal();
+
+  const addPhoneMainOverflowWarned = useRef(false);
+  const addPhoneExtOverflowWarned = useRef(false);
+  const editPhoneMainOverflowWarned = useRef(false);
+  const editPhoneExtOverflowWarned = useRef(false);
 
   const fetchEmployees = async () => {
     try {
@@ -99,12 +116,28 @@ const EmployeeManagement = () => {
     fetchEmployees();
   }, []);
 
+  useEffect(() => {
+    if (addModalOpen && addModalTab === "form") {
+      addPhoneMainOverflowWarned.current = false;
+      addPhoneExtOverflowWarned.current = false;
+    }
+  }, [addModalOpen, addModalTab]);
+
+  useEffect(() => {
+    if (editingEmployee) {
+      editPhoneMainOverflowWarned.current = false;
+      editPhoneExtOverflowWarned.current = false;
+    }
+  }, [editingEmployee?.id]);
+
   const openEditModal = (emp: Employee) => {
     setEditingEmployee(emp);
+    const parsed = parseTelLineFromDb(emp.tel ?? "");
     setEditForm({
       name: emp.name ?? "",
       gmail: emp.gmail ?? "",
-      tel: emp.tel ?? "",
+      tel: formatTenDigitUsDisplay(parsed.tel),
+      telExt: parsed.telExt,
       positionType: (emp.positionType === "Management" ? "Management" : "Technical") as "Technical" | "Management",
       employmentType: emp.employmentType ?? "Full-Time",
       photo: emp.photo ?? null,
@@ -171,11 +204,11 @@ const EmployeeManagement = () => {
     if (!editingEmployee) return;
     const nameErr = validateEmpName(editForm.name);
     const gmailErr = validateEmpGmail(editForm.gmail);
-    const telErr = validateEmpTel(editForm.tel);
+    const telErr = validateEmployeePhoneSubmit(editForm.tel, editForm.telExt);
     setEditFormErrors({ name: nameErr, gmail: gmailErr, tel: telErr });
     if (nameErr || gmailErr || telErr) return;
     const nameTrim = editForm.name.trim();
-    const telTrim = editForm.tel.trim().replace(/\s/g, "");
+    const telTrim = formatTelLineForDb(editForm.tel, editForm.telExt);
     const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/png?seed=${editingEmployee.id}`;
     const photoToSend = editForm.photo == null ? defaultAvatar : editForm.photo;
     setEditSaving(true);
@@ -240,32 +273,15 @@ const EmployeeManagement = () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) return "Please enter a valid email address.";
     return "";
   };
-  const validateEmpTel = (val: string): string => {
-    const t = val.replace(/\s/g, "");
-    if (!t) return "Phone is required.";
-    if (!/^\d+$/.test(t)) return "Phone must contain digits only.";
-    if (t.length < 4) return "Phone must be at least 4 digits.";
-    if (t.length > 10) return "Phone must be at most 10 digits.";
-    return "";
-  };
-
-  const validateEmployeeForm = (nameVal: string, gmailVal: string, telVal: string): string | null => {
-    const nameErr = validateEmpName(nameVal);
-    const gmailErr = validateEmpGmail(gmailVal);
-    const telErr = validateEmpTel(telVal);
-    if (nameErr || gmailErr || telErr) return nameErr || gmailErr || telErr;
-    return null;
-  };
-
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const nameErr = validateEmpName(addForm.name);
     const gmailErr = validateEmpGmail(addForm.gmail);
-    const telErr = validateEmpTel(addForm.tel);
+    const telErr = validateEmployeePhoneSubmit(addForm.tel, addForm.telExt);
     setAddFormErrors({ name: nameErr, gmail: gmailErr, tel: telErr });
     if (nameErr || gmailErr || telErr) return;
     const nameTrim = addForm.name.trim();
-    const telTrim = addForm.tel.trim().replace(/\s/g, "");
+    const telTrim = formatTelLineForDb(addForm.tel, addForm.telExt);
     setAddSaving(true);
     try {
       const res = await createEmployee({
@@ -278,7 +294,7 @@ const EmployeeManagement = () => {
       });
       if (res.success) {
         setAddModalOpen(false);
-        setAddForm({ name: "", gmail: "", tel: "", positionType: "Technical", employmentType: "Full-Time", photo: null });
+        setAddForm({ name: "", gmail: "", tel: "", telExt: "", positionType: "Technical", employmentType: "Full-Time", photo: null });
         setAddFormErrors({ name: "", gmail: "", tel: "" });
         setAddPhotoFile(null);
         await fetchEmployees();
@@ -420,14 +436,13 @@ const EmployeeManagement = () => {
     const invalidRows = new Set<number>();
     const gmailCount: Record<string, number[]> = {};
     const nameAllowed = /^[a-zA-Z\u0E00-\u0E7F\s.]+$/;
-    const telNumbersOnly = /^\d+$/;
-
     rows.forEach((r, i) => {
       const rowNum = i + 1;
       let hasError = false;
       const name = (r.name ?? "").trim();
       const gmail = (r.gmail ?? "").trim().toLowerCase();
-      const tel = (r.tel ?? "").trim().replace(/\s/g, "");
+      const telRaw = (r.tel ?? "").trim();
+      const parsed = parseTelLineFromDb(telRaw.replace(/\s/g, ""));
 
       if (!name) {
         errors.push(`Row ${rowNum}: Please enter a Name`);
@@ -443,12 +458,15 @@ const EmployeeManagement = () => {
         if (!gmailCount[gmail]) gmailCount[gmail] = [];
         gmailCount[gmail].push(rowNum);
       }
-      if (!tel) {
+      if (!telRaw) {
         errors.push(`Row ${rowNum}: Please enter a phone number`);
         hasError = true;
-      } else if (!telNumbersOnly.test(tel)) {
-        errors.push(`Row ${rowNum}: Phone number must be a number`);
-        hasError = true;
+      } else {
+        const telErr = validateEmployeePhoneSubmit(parsed.tel, parsed.telExt);
+        if (telErr) {
+          errors.push(`Row ${rowNum}: ${telErr}`);
+          hasError = true;
+        }
       }
       if (hasError) invalidRows.add(i);
     });
@@ -480,13 +498,16 @@ const EmployeeManagement = () => {
     setImportSaving(true);
     try {
       const res = await importEmployees(
-        valid.map((r) => ({
-          name: r.name.trim(),
-          gmail: r.gmail.trim(),
-          tel: r.tel.trim(),
-          positionType: r.positionType || "Technical",
-          employmentType: r.employmentType || "Full-Time",
-        }))
+        valid.map((r) => {
+          const p = parseTelLineFromDb((r.tel ?? "").trim().replace(/\s/g, ""));
+          return {
+            name: r.name.trim(),
+            gmail: r.gmail.trim(),
+            tel: formatTelLineForDb(p.tel, p.telExt),
+            positionType: r.positionType || "Technical",
+            employmentType: r.employmentType || "Full-Time",
+          };
+        })
       );
       if (res.success && res.data) {
         setAddModalOpen(false);
@@ -719,7 +740,7 @@ const EmployeeManagement = () => {
                           <td className="max-w-[240px] truncate px-3 py-2 text-gray-700" title={emp.gmail}>
                             {emp.gmail || '-'}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-gray-700">{emp.tel || '-'}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-gray-700">{formatEmployeeTelForDisplay(emp.tel) || '-'}</td>
                           <td className="px-3 py-2 text-center">
                             <span
                               className={`inline-block max-w-full truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium ${getPositionTypeColor(
@@ -871,20 +892,71 @@ const EmployeeManagement = () => {
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">Phone <span className="text-red-500">*</span></label>
-                    <input
-                      type="tel"
-                      value={addForm.tel}
-                      onChange={(e) => {
-                        const v = e.target.value.replace(/\D/g, "").slice(0, 10);
-                        setAddForm((f) => ({ ...f, tel: v }));
-                        setAddFormErrors((prev) => ({ ...prev, tel: validateEmpTel(v) }));
-                      }}
-                      onBlur={() => setAddFormErrors((prev) => ({ ...prev, tel: validateEmpTel(addForm.tel) }))}
-                      placeholder="Phone Number (4–10 digits)"
-                      minLength={4}
-                      maxLength={10}
-                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${addFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
-                    />
+                    <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+                      <div className="relative min-w-0 flex-1">
+                        <input
+                          type="text"
+                          inputMode="tel"
+                          value={addForm.tel}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const n = raw.replace(/\D/g, "").length;
+                            if (n > PHONE_MAIN_MAX_DIGITS) {
+                              if (!addPhoneMainOverflowWarned.current) {
+                                addPhoneMainOverflowWarned.current = true;
+                                toastWarning(
+                                  `Phone must be at most ${PHONE_MAIN_MAX_DIGITS} digits (already full)`,
+                                  2600
+                                );
+                              }
+                            } else {
+                              addPhoneMainOverflowWarned.current = false;
+                            }
+                            const v = formatTenDigitUsDisplay(raw);
+                            setAddForm((f) => ({ ...f, tel: v }));
+                            setAddFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(v, addForm.telExt) }));
+                          }}
+                          onBlur={() => setAddFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(addForm.tel, addForm.telExt) }))}
+                          placeholder="0xx-xxx-xxxx"
+                          autoComplete="tel"
+                          className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${addFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                        />
+                      </div>
+                      <span className="shrink-0 select-none text-base font-medium text-gray-400" aria-hidden>
+                        -
+                      </span>
+                      <div className="relative w-[4.5rem] shrink-0 sm:w-24">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={addForm.telExt}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const n = raw.replace(/\D/g, "").length;
+                            if (n > PHONE_EXT_MAX_DIGITS) {
+                              if (!addPhoneExtOverflowWarned.current) {
+                                addPhoneExtOverflowWarned.current = true;
+                                toastWarning(
+                                  `Extension must be at most ${PHONE_EXT_MAX_DIGITS} digits (already full)`,
+                                  2600
+                                );
+                              }
+                            } else {
+                              addPhoneExtOverflowWarned.current = false;
+                            }
+                            const v = raw.replace(/\D/g, "").slice(0, PHONE_EXT_MAX_DIGITS);
+                            setAddForm((f) => ({ ...f, telExt: v }));
+                            setAddFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(addForm.tel, v) }));
+                          }}
+                          onBlur={() => setAddFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(addForm.tel, addForm.telExt) }))}
+                          placeholder="Ext"
+                          autoComplete="off"
+                          aria-label="Extension (max 6 digits)"
+                          title="Extension (max 6 digits)"
+                          className={`w-full rounded-xl border-2 px-2.5 py-2.5 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${addFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                        />
+                      </div>
+                    </div>
                     {addFormErrors.tel && <p className="mt-1 text-sm text-red-500">{addFormErrors.tel}</p>}
                   </div>
                   <div>
@@ -949,9 +1021,9 @@ const EmployeeManagement = () => {
                       <div className="text-xs text-blue-700 space-y-1">
                         <p><strong>Required columns in the file:</strong></p>
                         <ul className="ml-4 list-disc space-y-0.5">
-                          <li><strong>Name</strong> = employee name</li>
+                          <li><strong>Name</strong> = employee name</li>  
                           <li><strong>Email</strong> = email address</li>
-                          <li><strong>Phone_Number</strong> = phone number</li>
+                          <li><strong>Phone_Number</strong> = 10 digits (0xx-xxx-xxxx), optional extension (up to 6 digits) e.g. <code className="bg-blue-100 px-1 rounded">0812345678-123456</code></li>
                           <li><strong>Position_Type</strong> = Technical or Management</li>
                           <li><strong>Employment_Type</strong> = Full-Time, Contract, or Part-time</li>
                         </ul>
@@ -1130,20 +1202,71 @@ const EmployeeManagement = () => {
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">Phone <span className="text-red-500">*</span></label>
-                    <input
-                      type="tel"
-                      value={editForm.tel}
-                      onChange={(e) => {
-                        const v = e.target.value.replace(/\D/g, "").slice(0, 10);
-                        setEditForm((f) => ({ ...f, tel: v }));
-                        setEditFormErrors((prev) => ({ ...prev, tel: validateEmpTel(v) }));
-                      }}
-                      onBlur={() => setEditFormErrors((prev) => ({ ...prev, tel: validateEmpTel(editForm.tel) }))}
-                      placeholder="Phone Number (4–10 digits)"
-                      minLength={4}
-                      maxLength={10}
-                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${editFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
-                    />
+                    <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+                      <div className="relative min-w-0 flex-1">
+                        <input
+                          type="text"
+                          inputMode="tel"
+                          value={editForm.tel}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const n = raw.replace(/\D/g, "").length;
+                            if (n > PHONE_MAIN_MAX_DIGITS) {
+                              if (!editPhoneMainOverflowWarned.current) {
+                                editPhoneMainOverflowWarned.current = true;
+                                toastWarning(
+                                  `เบอร์หลักใส่ได้สูงสุด ${PHONE_MAIN_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                                  2600
+                                );
+                              }
+                            } else {
+                              editPhoneMainOverflowWarned.current = false;
+                            }
+                            const v = formatTenDigitUsDisplay(raw);
+                            setEditForm((f) => ({ ...f, tel: v }));
+                            setEditFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(v, editForm.telExt) }));
+                          }}
+                          onBlur={() => setEditFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(editForm.tel, editForm.telExt) }))}
+                          placeholder="0xx-xxx-xxxx"
+                          autoComplete="tel"
+                          className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${editFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                        />
+                      </div>
+                      <span className="shrink-0 select-none text-base font-medium text-gray-400" aria-hidden>
+                        -
+                      </span>
+                      <div className="relative w-[4.5rem] shrink-0 sm:w-24">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={editForm.telExt}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const n = raw.replace(/\D/g, "").length;
+                            if (n > PHONE_EXT_MAX_DIGITS) {
+                              if (!editPhoneExtOverflowWarned.current) {
+                                editPhoneExtOverflowWarned.current = true;
+                                toastWarning(
+                                  `เลขต่อใส่ได้สูงสุด ${PHONE_EXT_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                                  2600
+                                );
+                              }
+                            } else {
+                              editPhoneExtOverflowWarned.current = false;
+                            }
+                            const v = raw.replace(/\D/g, "").slice(0, PHONE_EXT_MAX_DIGITS);
+                            setEditForm((f) => ({ ...f, telExt: v }));
+                            setEditFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(editForm.tel, v) }));
+                          }}
+                          onBlur={() => setEditFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(editForm.tel, editForm.telExt) }))}
+                          placeholder="Ext"
+                          autoComplete="off"
+                          aria-label="Extension (max 6 digits)"
+                          title="Extension (max 6 digits)"
+                          className={`w-full rounded-xl border-2 px-2.5 py-2.5 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${editFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                        />
+                      </div>
+                    </div>
                     {editFormErrors.tel && <p className="mt-1 text-sm text-red-500">{editFormErrors.tel}</p>}
                   </div>
                   <div>

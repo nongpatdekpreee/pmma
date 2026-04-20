@@ -546,15 +546,33 @@ function ReportPageContent() {
   /** Thai Excel uses ";" between function args; US/UK Excel uses "," — wrong separator breaks HYPERLINK into a bad path (e.g. C:\\api\\...) */
   const excelFormulaArgSep =
     typeof navigator !== 'undefined' && /^th/i.test(navigator.language || '') ? ';' : ',';
-  const buildRepairNoticeCsvCell = (report: MAReport): string => {
+  /** ข้อความที่เห็นในเซลล์ — n_ticket_ใบงานซ่อม_site (n = ลำดับทั่วทั้งไฟล์ export 1,2,3,… ไม่รีเซ็ตทุกแถว) */
+  const buildMaRepairNoticeExcelLinkLabel = (
+    ordinal: number,
+    ticket: string | undefined,
+    site: string | undefined
+  ) => {
+    const clean = (v: string) => String(v ?? '').trim().replace(/[\r\n"]/g, ' ');
+    const t = clean(ticket ?? '') || 'xxxx';
+    const s = clean(site ?? '') || '-';
+    return `${ordinal}_${t}_ใบงานซ่อม_${s}`;
+  };
+  const buildRepairNoticeCsvCell = (
+    report: MAReport,
+    opts?: { ticket?: string; site?: string },
+    /** ถ้ามี จะใช้เลขลำดับต่อเนื่องทั้ง export (และหลายไฟล์ในเซลล์เดียว = n, n+1, …) */
+    excelSeq?: { n: number }
+  ): string => {
     const paths = report.repairNoticePaths || [];
     const tid = report.taskId;
     if (paths.length === 0) return '';
 
     const segments: string[] = [];
+    let localOrdinal = 0;
     for (const raw of paths) {
       const trimmed = String(raw).trim();
       if (!trimmed) continue;
+      const ordinal = excelSeq ? (excelSeq.n += 1) : (localOrdinal += 1);
       const basename = trimmed.split('/').filter(Boolean).pop() || trimmed;
       let url: string;
       if (/^https?:\/\//i.test(trimmed)) {
@@ -565,8 +583,9 @@ function ReportPageContent() {
         url = apiUrl(trimmed.startsWith('/') ? trimmed : `/${trimmed}`);
       }
       url = absoluteUrlForHyperlink(url);
+      const linkLabel = buildMaRepairNoticeExcelLinkLabel(ordinal, opts?.ticket, opts?.site);
       segments.push(
-        `HYPERLINK("${escapeExcelStr(url)}"${excelFormulaArgSep}"${escapeExcelStr(basename)}")`
+        `HYPERLINK("${escapeExcelStr(url)}"${excelFormulaArgSep}"${escapeExcelStr(linkLabel)}")`
       );
     }
     if (segments.length === 0) return '';
@@ -727,6 +746,7 @@ function ReportPageContent() {
     row([`${taskLabel} Checklist Report - Export (Generated: ${gen})`, ...Array(headers.length - 1).fill('')]);
     row(Array(headers.length).fill(''));
     row(headers);
+    const repairNoticeExcelSeq = tab === 'ma' ? { n: 0 } : undefined;
     sourceReports.forEach((r: PMReport | MAReport) => {
       const dev = r.device as Record<string, unknown> | undefined;
       const rSite = (r as PMReport).site_name ?? (r as MAReport).site_name;
@@ -806,10 +826,14 @@ function ReportPageContent() {
       const newSiteStr = newSites.length > 0 ? newSites.join('; ') : '-';
       const newLocationStr = newLocations.length > 0 ? newLocations.join('; ') : '-';
       const maR = r as MAReport;
-      const repairCell = buildRepairNoticeCsvCell({
-        taskId: maR.taskId,
-        repairNoticePaths: getMaExportRepairPaths(maR),
-      } as MAReport);
+      const repairCell = buildRepairNoticeCsvCell(
+        {
+          taskId: maR.taskId,
+          repairNoticePaths: getMaExportRepairPaths(maR),
+        } as MAReport,
+        { ticket: maR.ticket != null ? String(maR.ticket) : '', site },
+        repairNoticeExcelSeq
+      );
       row([
         serialStr,
         modelStr,
@@ -921,10 +945,17 @@ function ReportPageContent() {
       const newSiteStr = newSites.length > 0 ? newSites.join('; ') : '-';
       const newLocationStr = newLocations.length > 0 ? newLocations.join('; ') : '-';
       const photosArr = normalizeRepairPathsFromPhotos(task?.photos);
-      const repairCell = buildRepairNoticeCsvCell({
-        taskId: task?.id,
-        repairNoticePaths: photosArr,
-      } as MAReport);
+      const repairCell = buildRepairNoticeCsvCell(
+        {
+          taskId: task?.id,
+          repairNoticePaths: photosArr,
+        } as MAReport,
+        {
+          ticket: task?.ticket != null ? String(task.ticket) : '',
+          site: siteFromTask,
+        },
+        repairNoticeExcelSeq
+      );
       row([
         serialStr,
         modelStr,

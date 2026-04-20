@@ -17,6 +17,14 @@ import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apiUrl, getAssignedServices } from '@/lib/api';
+import {
+  formatTelLineForDb,
+  formatTenDigitUsDisplay,
+  parseTelLineFromDb,
+  PHONE_EXT_MAX_DIGITS,
+  PHONE_MAIN_MAX_DIGITS,
+  validateEmployeePhoneSubmit,
+} from '@/lib/phoneFormat';
 import { MAX_VISIBLE_SELECTED_DEVICES_PER_ENTRY } from '@/lib/contractLimits';
 import { randomUUID } from '@/lib/utils';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
@@ -248,25 +256,6 @@ function primaryContractSiteIdFromEntries(entries: SiteEntry[]): number | null {
 
 type SaleContactRow = { id: string; name: string; email: string; tel: string; telExt: string };
 
-/** แยกเบอร์หลัก / ต่อ จากบรรทัด DB (รูปแบบ 0893444444-12345) */
-function parseTelLineFromDb(line: string): { tel: string; telExt: string } {
-  const t = line.trim();
-  if (!t) return { tel: '', telExt: '' };
-  const m = t.match(/^(\d{9,15})-(\d{1,5})$/);
-  if (m) return { tel: m[1], telExt: m[2] };
-  const digits = t.replace(/\D/g, '').slice(0, 15);
-  return { tel: digits, telExt: '' };
-}
-
-/** บันทึก tel_acc หนึ่งบรรทัด: มีต่อ → หลัก-ต่อ */
-function formatTelLineForDb(tel: string, telExt: string): string {
-  const m = tel.replace(/\D/g, '').slice(0, 15);
-  const x = telExt.replace(/\D/g, '').slice(0, 5);
-  if (!m && !x) return '';
-  if (m && x) return `${m}-${x}`;
-  return m;
-}
-
 /** โหลดจาก DB: หลายบรรทัดใน sale_account / email_acc / tel_acc = หลายคน (แถวเดียวกัน) */
 function saleContactsFromDb(
   sale: string | null | undefined,
@@ -284,7 +273,7 @@ function saleContactsFromDb(
       id: randomUUID(),
       name: (nameLines[i] ?? '').trim(),
       email: (emailLines[i] ?? '').trim(),
-      tel: parsed.tel,
+      tel: formatTenDigitUsDisplay(parsed.tel),
       telExt: parsed.telExt,
     });
   }
@@ -345,6 +334,7 @@ function AddContractPageContent() {
     ]);
   };
   const removeSaleContactRow = (id: string) => {
+    saleTelOverflowWarned.current.delete(id);
     setSaleContacts((prev) => (prev.length <= 1 ? prev : prev.filter((r) => r.id !== id)));
   };
   const updateSaleContactRow = (
@@ -418,7 +408,9 @@ function AddContractPageContent() {
   const [uploading, setUploading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [saveError, setSaveError] = useState('');
-  const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
+  const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
+  /** แจ้งเตือนเต็ม/เกินหลักต่อผู้ติดต่อ — key = row.id */
+  const saleTelOverflowWarned = useRef<Map<string, { main?: boolean; ext?: boolean }>>(new Map());
 
   /** SOF แรกที่เลือกและมีใน DB (ใช้กับ locations-by-sof / by-sof-and-site เท่านั้น) */
   const referSofInDb = useMemo(() => {
@@ -1488,7 +1480,8 @@ function AddContractPageContent() {
 
     // ดักรูปแบบ Email และ Telephone ต่อผู้ติดต่อ (ถ้ามีการกรอก)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    for (const row of saleContacts) {
+    for (let si = 0; si < saleContacts.length; si++) {
+      const row = saleContacts[si];
       const et = row.email.trim();
       if (et && !emailRegex.test(et)) {
         const msg = 'Please enter a valid email for each sale contact row.';
@@ -1499,15 +1492,9 @@ function AddContractPageContent() {
       const mainD = row.tel.replace(/\D/g, '');
       const extD = row.telExt.replace(/\D/g, '');
       if (mainD || extD) {
-        if (!mainD || mainD.length < 9 || mainD.length > 15) {
-          const msg =
-            'Please enter a valid main phone number (9–15 digits) for each sale contact row.';
-          setSaveError(msg);
-          toastError(msg);
-          return;
-        }
-        if (extD && (extD.length < 1 || extD.length > 5)) {
-          const msg = 'Extension must be 1–5 digits when provided.';
+        const telErr = validateEmployeePhoneSubmit(row.tel, row.telExt);
+        if (telErr) {
+          const msg = `Sale contact row ${si + 1}: ${telErr}`;
           setSaveError(msg);
           toastError(msg);
           return;
@@ -2220,11 +2207,29 @@ function AddContractPageContent() {
                             inputMode="tel"
                             value={row.tel}
                             onChange={(e) => {
-                              const v = e.target.value.replace(/\D/g, '').slice(0, 15);
+                              const raw = e.target.value;
+                              const n = raw.replace(/\D/g, '').length;
+                              const map = saleTelOverflowWarned.current;
+                              let w = map.get(row.id) ?? {};
+                              if (n > PHONE_MAIN_MAX_DIGITS) {
+                                if (!w.main) {
+                                  w = { ...w, main: true };
+                                  map.set(row.id, w);
+                                  toastWarning(
+                                    `Contact ${index + 1}: Phone main must be at most ${PHONE_MAIN_MAX_DIGITS} digits (already full)`,
+                                    2600
+                                  );
+                                }
+                              } else {
+                                w = { ...w, main: false };
+                                map.set(row.id, w);
+                              }
+                              const v = formatTenDigitUsDisplay(raw);
                               updateSaleContactRow(row.id, { tel: v });
                             }}
-                            placeholder="9–15 digits"
-                            className={saleContactInputClass}
+                            placeholder="0xx-xxx-xxxx"
+                            autoComplete="tel"
+                            className={`${saleContactInputClass} tabular-nums`}
                           />
                           {row.tel ? (
                             <button
@@ -2251,13 +2256,30 @@ function AddContractPageContent() {
                             inputMode="numeric"
                             value={row.telExt}
                             onChange={(e) => {
-                              const v = e.target.value.replace(/\D/g, '').slice(0, 5);
+                              const raw = e.target.value;
+                              const n = raw.replace(/\D/g, '').length;
+                              const map = saleTelOverflowWarned.current;
+                              let w = map.get(row.id) ?? {};
+                              if (n > PHONE_EXT_MAX_DIGITS) {
+                                if (!w.ext) {
+                                  w = { ...w, ext: true };
+                                  map.set(row.id, w);
+                                  toastWarning(
+                                    `Contact ${index + 1}: Extension must be at most ${PHONE_EXT_MAX_DIGITS} digits (already full)`,
+                                    2600
+                                  );
+                                }
+                              } else {
+                                w = { ...w, ext: false };
+                                map.set(row.id, w);
+                              }
+                              const v = raw.replace(/\D/g, '').slice(0, PHONE_EXT_MAX_DIGITS);
                               updateSaleContactRow(row.id, { telExt: v });
                             }}
                             placeholder="Ext"
                             autoComplete="off"
-                            aria-label="Extension (max 5 digits)"
-                            title="Extension (max 5 digits)"
+                            aria-label="Extension (max 6 digits)"
+                            title="Extension (max 6 digits)"
                             className={`${inputBase} box-border px-2.5 py-3 text-left text-sm tabular-nums ${
                               row.telExt ? 'pr-7' : ''
                             }`}
