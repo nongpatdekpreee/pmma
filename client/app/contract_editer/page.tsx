@@ -373,9 +373,17 @@ function contractListBadgeKey(c: Contract): string {
   return c.status;
 }
 
-/** ไม่แสดงการนับวันใน Expiry Status / Incoming เมื่อเป็นสัญญา Renew หรือ Terminated */
+/**
+ * ไม่แสดงการนับวันใน Expiry Status เมื่อเป็นแถว snapshot ประวัติ (Renew/Terminated)
+ * หรือ badge Renew (หมดอายุแล้วแต่ประวัติล่าสุดเป็น Renew) / สถานะปิด
+ *
+ * หมายเหตุ: แถวสัญญาปัจจุบันมักได้ history_status = 'Renew' จากแถวประวัติล่าสุด
+ * (การต่อสัญญาเข้ามาเป็นสัญญานี้) — ต้องไม่บล็อก; ยังต้องนับวันจาก end_date ปัจจุบัน
+ */
 function contractListBlocksExpiryIncoming(c: Contract): boolean {
-  if (c.historyStatus === 'Renew' || c.historyStatus === 'Terminated') return true;
+  if (c.isHistorySnapshotRow && (c.historyStatus === 'Renew' || c.historyStatus === 'Terminated')) {
+    return true;
+  }
   if (contractListBadgeKey(c) === 'renew') return true;
   if (c.status === 'closed') return true;
   return false;
