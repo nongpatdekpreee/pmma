@@ -4,6 +4,7 @@ const {
   createTask,
   getTasks,
   getTaskById,
+  getMaNoticeFile,
   updateTask,
   deleteTask,
   checkEngineerConflict,
@@ -30,6 +31,9 @@ router.get('/inprocess', getInprocessTasks);
 
 // GET - pending tasks แยก MA/PM
 router.get('/pending', getPendingTasks);
+
+// GET - เปิดไฟล์ MA repair notice (ต้องอยู่ก่อน /:id เพื่อไม่ให้ชนกับ id เดียว)
+router.get('/:taskId/ma-notice/:filename', getMaNoticeFile);
 
 // GET - task by id (ต้องอยู่หลัง specific routes)
 router.get('/:id', getTaskById);

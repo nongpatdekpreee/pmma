@@ -234,41 +234,92 @@ function AddMAReportPageContent() {
     if (a == null) return '';
     if (typeof a === 'number') return String(a);
     if (typeof a === 'string') return a.trim();
-    const id = a.id ?? a.Did ?? a.deviceId ?? a.device_id ?? (a as any).ID;
+    const id =
+      a.id ?? a.Did ?? a.did ?? a.deviceId ?? a.device_id ?? (a as any).ID;
     return id != null ? String(id).trim() : '';
   };
 
-  // Device ที่เลือกได้ต้องมาจาก Task (assets + อุปกรณ์ที่เอามาแลกเปลี่ยน ทุกคู่ replacementDeviceId)
-  const allowedDeviceIds = useMemo(() => {
-    const ids = new Set<string>();
-    const addTaskDevices = (task: any) => {
-      task.assets?.forEach((a: any, i: number) => {
-        const id = getDeviceIdFromAsset(a);
-        if (id) ids.add(id);
-        const repId = a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null);
-        if (repId != null) ids.add(String(repId));
-      });
-      if (task.replacementDeviceId != null) ids.add(String(task.replacementDeviceId));
+  /** ใช้ snapshot จาก task.assets เมื่อ Did ไม่อยู่ใน GET /api/devices (เช่น limit 1000 + ORDER BY Did DESC) */
+  const deviceFromTaskAssetSnapshot = (raw: any, didNum: number): Device => {
+    const a = raw as Record<string, unknown>;
+    return {
+      Did: didNum,
+      Asset_State: a.Asset_State as string | undefined,
+      CI_Name: (a.CI_Name ?? a.name ?? '') as string | undefined,
+      Asset_Number: (a.Asset_Number ?? a.assetNumber ?? '') as string | undefined,
+      serial: (a.serial ?? a.serialNumber ?? '') as string | undefined,
+      model: (a.model ?? a.type ?? '') as string | undefined,
+      Manufacturername: a.Manufacturername as string | undefined,
+      Sitename: (a.Sitename ?? a.sitename ?? a.siteName ?? '') as string | undefined,
+      Location2: (a.Location2 ?? a.location2 ?? '') as string | undefined,
+      PR_No: a.PR_No as string | undefined,
+      Vendor: a.Vendor as string | undefined,
+      SLid: a.SLid as number | undefined,
     };
-    if (selectedTaskId !== null) {
-      const task = availableMATasks.find((t: any) => t.id === selectedTaskId);
-      if (task) addTaskDevices(task);
-    } else {
-      availableMATasks.forEach(addTaskDevices);
-    }
-    return ids;
-  }, [availableMATasks, selectedTaskId]);
+  };
 
-  // แสดงเฉพาะ Device ที่มาจาก Task (ไม่ fallback เป็น devices ทั้งหมด)
+  // Device จาก Task ที่เลือก (assets + replacement) — ใช้ snapshot ใน task ถ้าไม่พบในรายการ devices ที่โหลดมา
   const allowedDevices = useMemo(() => {
-    if (allowedDeviceIds.size === 0) return [];
-    return devices.filter((d) => allowedDeviceIds.has(String(d.Did)));
-  }, [devices, allowedDeviceIds]);
+    if (selectedTaskId == null) return [];
+    const task = availableMATasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    if (!task) return [];
 
-  // เคลียร์ Device ที่เลือกถ้าไม่อยู่ในรายการที่อนุญาต (เมื่อเปลี่ยน Task)
+    const seen = new Set<string>();
+    const out: Device[] = [];
+
+    const addOne = (d: Device) => {
+      const key = String(d.Did);
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(d);
+    };
+
+    const addReplacement = (repId: unknown) => {
+      if (repId == null || repId === '') return;
+      const rid = String(repId);
+      if (seen.has(rid)) return;
+      const fromPool = devices.find((d) => String(d.Did) === rid);
+      if (fromPool) addOne(fromPool);
+      else {
+        const n = Number(repId);
+        if (!Number.isNaN(n)) addOne({ Did: n } as Device);
+      }
+    };
+
+    (task.assets || []).forEach((a: any, i: number) => {
+      const idStr = getDeviceIdFromAsset(a);
+      if (idStr) {
+        const fromPool = devices.find((d) => String(d.Did) === String(idStr));
+        if (fromPool) addOne(fromPool);
+        else {
+          const didNum = parseInt(String(idStr), 10);
+          if (!Number.isNaN(didNum)) addOne(deviceFromTaskAssetSnapshot(a, didNum));
+        }
+      }
+      const repId = a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null);
+      addReplacement(repId);
+    });
+
+    if (task.replacementDeviceId != null) {
+      addReplacement(task.replacementDeviceId);
+    }
+
+    return out;
+  }, [devices, availableMATasks, selectedTaskId]);
+
   useEffect(() => {
+    if (selectedTaskId == null) {
+      setSelectedDeviceId('');
+      return;
+    }
     if (selectedDeviceId && allowedDevices.length > 0 && !allowedDevices.some((d) => d.Did.toString() === selectedDeviceId)) {
       setSelectedDeviceId('');
+    }
+  }, [selectedTaskId, allowedDevices, selectedDeviceId]);
+
+  useEffect(() => {
+    if (allowedDevices.length > 0 && !selectedDeviceId) {
+      setSelectedDeviceId(allowedDevices[0].Did.toString());
     }
   }, [allowedDevices, selectedDeviceId]);
 
@@ -297,7 +348,7 @@ function AddMAReportPageContent() {
     if (st == null || String(st).trim() === '') return 70;
     const n = typeof st === 'number' ? st : parseInt(String(st).trim(), 10);
     return Number.isNaN(n) ? 70 : n;
-  }, [availableMATasks, selectedTaskId, contractSlaMap]);
+  }, [doneMATasks, selectedTaskId, contractSlaMap]);
 
   // Handle file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -342,7 +393,9 @@ function AddMAReportPageContent() {
       toastWarning('Please select a device.');
       return;
     }
-    const selectedDevice = devices.find(d => d.Did.toString() === selectedDeviceId);
+    const selectedDevice =
+      allowedDevices.find((d) => d.Did.toString() === selectedDeviceId) ??
+      devices.find((d) => d.Did.toString() === selectedDeviceId);
 
     setSaving(true);
     try {
@@ -646,7 +699,13 @@ function AddMAReportPageContent() {
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">
-                {loadingDevices ? 'Loading...' : availableMATasks.length > 0 && allowedDevices.length === 0 ? 'Please select a task above first' : 'Select device...'}
+                {loadingDevices
+                  ? 'Loading...'
+                  : selectedTaskId == null && availableMATasks.length > 0
+                    ? 'Please select a task above first'
+                    : selectedTaskId != null && allowedDevices.length === 0
+                      ? 'No devices found for this task'
+                      : 'Select device...'}
               </option>
               {allowedDevices.map(device => {
                 const task = selectedTaskId != null ? availableMATasks.find((t: any) => t.id === selectedTaskId) : null;

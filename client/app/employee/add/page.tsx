@@ -1,11 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, UserPlus, Trash2 } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { apiUrl, createEmployee, uploadEmployeePhoto } from "@/lib/api";
+import {
+  formatTelLineForDb,
+  formatTenDigitUsDisplay,
+  PHONE_EXT_MAX_DIGITS,
+  PHONE_MAIN_MAX_DIGITS,
+  validateEmployeePhoneInline,
+  validateEmployeePhoneSubmit,
+} from "@/lib/phoneFormat";
 import { useToast, ToastContainer } from "@/components/ui/Toast";
 
 const AddEmployeePage = () => {
@@ -15,11 +23,14 @@ const AddEmployeePage = () => {
   const [name, setName] = useState("");
   const [gmail, setGmail] = useState("");
   const [tel, setTel] = useState("");
+  const [telExt, setTelExt] = useState("");
   const [positionType, setPositionType] = useState<"Technical" | "Management">("Technical");
   const [employmentType, setEmploymentType] = useState<string>("Full-Time");
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [errors, setErrors] = useState<{ name: string; gmail: string; tel: string }>({ name: "", gmail: "", tel: "" });
+  const mainDigitsOverflowWarned = useRef(false);
+  const extDigitsOverflowWarned = useRef(false);
 
   const validateName = (val: string): string => {
     const t = val.trim();
@@ -34,20 +45,10 @@ const AddEmployeePage = () => {
     if (!/^[^\s@]+@tcc-technology\.com$/.test(t)) return "Please enter a valid email address.";
     return "";
   };
-  const validateTel = (val: string): string => {
-    const t = val.replace(/\s/g, "");
-    if (!t) return "Phone is required.";
-    if (!/^\d+$/.test(t)) return "Phone must contain digits only.";
-    if (t.length < 4) return "Phone must be at least 4 digits.";
-    if (t.length > 10) return "Phone must be at most 10 digits.";
-    return "";
-  };
-
   const validateForm = (): string | null => {
     const nameTrim = name.trim();
-    const telTrim = tel.trim().replace(/\s/g, "");
     const gmailTrim = gmail.trim();
-    if (!nameTrim || !gmailTrim || !telTrim) {
+    if (!nameTrim || !gmailTrim || !tel.replace(/\D/g, "")) {
       return "Please fill in Name, Gmail and Phone.";
     }
     if (!/^[a-zA-Z\u0E00-\u0E7F\s]+$/.test(nameTrim)) {
@@ -56,15 +57,8 @@ const AddEmployeePage = () => {
     if (nameTrim.length < 10) {
       return "Name must be at least 10 characters.";
     }
-    if (!/^\d+$/.test(telTrim)) {
-      return "Phone must contain digits only.";
-    }
-    if (telTrim.length < 4) {
-      return "Phone must be at least 4 digits.";
-    }
-    if (telTrim.length > 10) {
-      return "Phone must be at most 10 digits.";
-    }
+    const telCombinedErr = validateEmployeePhoneSubmit(tel, telExt);
+    if (telCombinedErr) return telCombinedErr;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gmailTrim)) {
       return "Please enter a valid email address.";
     }
@@ -75,17 +69,17 @@ const AddEmployeePage = () => {
     e.preventDefault();
     const nameErr = validateName(name);
     const gmailErr = validateGmail(gmail);
-    const telErr = validateTel(tel);
+    const telErr = validateEmployeePhoneSubmit(tel, telExt);
     setErrors({ name: nameErr, gmail: gmailErr, tel: telErr });
     if (nameErr || gmailErr || telErr) return;
     const nameTrim = name.trim();
-    const telTrim = tel.trim().replace(/\s/g, "");
+    const telForDb = formatTelLineForDb(tel, telExt);
     setSaving(true);
     try {
       const res = await createEmployee({
         name: nameTrim,
         gmail: gmail.trim(),
-        tel: telTrim,
+        tel: telForDb,
         positionType,
         employmentType,
         photo: photo || undefined,
@@ -211,20 +205,71 @@ const AddEmployeePage = () => {
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
                 Phone <span className="text-red-500">*</span>
               </label>
-              <input
-                type="tel"
-                value={tel}
-                onChange={(e) => {
-                  const v = e.target.value.replace(/\D/g, "").slice(0, 10);
-                  setTel(v);
-                  setErrors((prev) => ({ ...prev, tel: validateTel(v) }));
-                }}
-                onBlur={() => setErrors((prev) => ({ ...prev, tel: validateTel(tel) }))}
-                placeholder="Phone Number (4–10 digits)"
-                minLength={4}
-                maxLength={10}
-                className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm outline-none focus:border-indigo-500 box-border ${errors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
-              />
+              <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <input
+                    type="text"
+                    inputMode="tel"
+                    value={tel}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const n = raw.replace(/\D/g, "").length;
+                      if (n > PHONE_MAIN_MAX_DIGITS) {
+                        if (!mainDigitsOverflowWarned.current) {
+                          mainDigitsOverflowWarned.current = true;
+                          toastWarning(
+                            `เบอร์หลักใส่ได้สูงสุด ${PHONE_MAIN_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                            2600
+                          );
+                        }
+                      } else {
+                        mainDigitsOverflowWarned.current = false;
+                      }
+                      const v = formatTenDigitUsDisplay(raw);
+                      setTel(v);
+                      setErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(v, telExt) }));
+                    }}
+                    onBlur={() => setErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(tel, telExt) }))}
+                    placeholder="0xx-xxx-xxxx"
+                    autoComplete="tel"
+                    className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${errors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                  />
+                </div>
+                <span className="shrink-0 select-none text-base font-medium text-gray-400" aria-hidden>
+                  -
+                </span>
+                <div className="relative w-[4.5rem] shrink-0 sm:w-24">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={telExt}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const n = raw.replace(/\D/g, "").length;
+                      if (n > PHONE_EXT_MAX_DIGITS) {
+                        if (!extDigitsOverflowWarned.current) {
+                          extDigitsOverflowWarned.current = true;
+                          toastWarning(
+                            `เลขต่อใส่ได้สูงสุด ${PHONE_EXT_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                            2600
+                          );
+                        }
+                      } else {
+                        extDigitsOverflowWarned.current = false;
+                      }
+                      const v = raw.replace(/\D/g, "").slice(0, PHONE_EXT_MAX_DIGITS);
+                      setTelExt(v);
+                      setErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(tel, v) }));
+                    }}
+                    onBlur={() => setErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(tel, telExt) }))}
+                    placeholder="Ext"
+                    autoComplete="off"
+                    aria-label="Extension (max 6 digits)"
+                    title="Extension (max 6 digits)"
+                    className={`w-full rounded-xl border-2 px-2.5 py-3 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${errors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                  />
+                </div>
+              </div>
               {errors.tel && <p className="mt-1 text-sm text-red-500">{errors.tel}</p>}
             </div>
 
