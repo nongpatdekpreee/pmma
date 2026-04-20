@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
@@ -60,7 +60,7 @@ interface Device {
   Reason?: string;
 }
 
-export default function AddPMReportPage() {
+function AddPMReportPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -947,5 +947,13 @@ export default function AddPMReportPage() {
       </div>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>
+  );
+}
+
+export default function AddPMReportPage() {
+  return (
+    <Suspense fallback={null}>
+      <AddPMReportPageContent />
+    </Suspense>
   );
 }

@@ -2210,7 +2210,7 @@ function ContractEditorPageContent() {
                         type="button"
                         onClick={() => handleContractDoNotRenew(contract)}
                         className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-red-500 text-xs font-medium text-white transition-all duration-300 hover:bg-red-600"
-                        title="Do not renew — hide days past end date in Incoming"
+                        title="Do not renew"
                       >
                         <Ban size={18} className="shrink-0 text-white" strokeWidth={2.25} />
                       </button>
@@ -2410,7 +2410,7 @@ function ContractEditorPageContent() {
                               type="button"
                               onClick={() => handleContractDoNotRenew(contract)}
                               className="flex size-8 shrink-0 items-center justify-center rounded-md bg-red-500 text-white transition-all duration-200 hover:bg-red-600"
-                              title="Do not renew — hide days past end date in Incoming"
+                              title="Do not renew"
                             >
                               <Ban size={14} className="shrink-0 text-white" strokeWidth={2.25} />
                             </button>
