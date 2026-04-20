@@ -336,6 +336,9 @@ function buildContractForHistorySnapshot(base: Contract, row: ContractHistoryRow
   };
 }
 
+/** ช่วงก่อนวันสิ้นสุดที่ถือว่า "ใกล้หมดอายุ" / เปิด Renew ได้ (เดือนปฏิทิน — สอดคล้องกับคอลัมน์ Incoming) */
+const CONTRACT_EXPIRING_BEFORE_END_MONTHS = 3;
+
 function deriveStatus(endDate: string | null | undefined): 'active' | 'expiring' | 'expired' {
   if (!endDate) return 'active';
   const end = new Date(endDate);
@@ -343,9 +346,9 @@ function deriveStatus(endDate: string | null | undefined): 'active' | 'expiring'
   today.setHours(0, 0, 0, 0);
   end.setHours(0, 0, 0, 0);
   if (end < today) return 'expired';
-  const in30Days = new Date(today);
-  in30Days.setDate(in30Days.getDate() + 30);
-  return end <= in30Days ? 'expiring' : 'active';
+  const windowEnd = new Date(today);
+  windowEnd.setMonth(windowEnd.getMonth() + CONTRACT_EXPIRING_BEFORE_END_MONTHS);
+  return end.getTime() <= windowEnd.getTime() ? 'expiring' : 'active';
 }
 
 /** รายการสัญญา: ถ้า status DB = not_renewing และเลยวันสิ้นสุดแล้ว → แสดงเป็น closed (ไม่ใช้คำว่า Expired ใน badge) */
@@ -400,12 +403,14 @@ function renewHistoryTableSubtitle(
   return { sof, dateLine };
 }
 
-/** ปุ่ม Renew ในการ์ด/ตาราง: หมดอายุ หรือ not_renewing — ไม่ใช่ draft */
+/** ปุ่ม Renew ในการ์ด/ตาราง: ใกล้หมดอายุ (ภายในก่อนสิ้นสุด N เดือน), หมดอายุ, หรือ not_renewing — ไม่ใช่ draft */
 function contractListShowsRenewAction(contract: Contract): boolean {
   if (contract.isHistorySnapshotRow) return false;
   return (
     contract.contractStatus !== 'draft' &&
-    (contract.status === 'expired' || contract.contractStatus === 'not_renewing')
+    (contract.status === 'expiring' ||
+      contract.status === 'expired' ||
+      contract.contractStatus === 'not_renewing')
   );
 }
 
@@ -431,7 +436,7 @@ function getContractExpiryIncomingLabel(
   end.setHours(0, 0, 0, 0);
 
   const windowEnd = new Date(today);
-  windowEnd.setMonth(windowEnd.getMonth() + 3);
+  windowEnd.setMonth(windowEnd.getMonth() + CONTRACT_EXPIRING_BEFORE_END_MONTHS);
 
   const msDay = 86400000;
   const diffDays = Math.round((end.getTime() - today.getTime()) / msDay);
@@ -1349,15 +1354,20 @@ function ContractEditorPageContent() {
 
   const calculateRemainingDays = (endDate: string) => {
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const end = new Date(endDate);
+    end.setHours(0, 0, 0, 0);
     const diffTime = end.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const windowEnd = new Date(today);
+    windowEnd.setMonth(windowEnd.getMonth() + CONTRACT_EXPIRING_BEFORE_END_MONTHS);
+    const inRenewWindow = end.getTime() <= windowEnd.getTime() && end >= today;
 
     if (diffDays < 0) {
       return `Expired ${Math.abs(diffDays)} days`;
     } else if (diffDays === 0) {
       return 'Expired today';
-    } else if (diffDays <= 30) {
+    } else if (inRenewWindow) {
       return `Remaining ${diffDays} days ⚠️`;
     } else {
       return `Remaining ${diffDays} days`;
@@ -3024,7 +3034,7 @@ function ContractEditorPageContent() {
                                     <Clock className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                                     <div className="flex-1 min-w-0">
                                       <div className="text-xs text-slate-500 mb-1">
-                                        {when ? formatDateThai(String(when)) : '—'} · history_id {row.history_id}
+                                        {when ? formatDateThai(String(when)) : '—'}
                                       </div>
                                       <div className="text-sm text-slate-800">
                                         <span className="text-slate-500">Old SOF</span>{' '}

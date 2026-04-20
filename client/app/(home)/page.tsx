@@ -91,20 +91,20 @@ function calendarDaysBetween(earlier: Date, later: Date): number {
   return Math.round((b - a) / 86400000);
 }
 
-/** งานที่ยังไม่ถึงวันเริ่ม: อีกกี่วันถึง (เทียบกับวันนี้) */
-function formatThaiDaysUntil(startDateIso: string, todayStart: Date): string | null {
-  const start = startOfDay(new Date(startDateIso));
+/** วันเริ่มงานเทียบวันนี้: เฉพาะวันนี้และอนาคต (งานเลยวันเริ่มไม่แสดงใน Incoming — ไปอยู่ Missing Events) */
+function formatThaiRelativeToTaskStart(startDateIso: string, todayStart: Date): string | null {
+  const start = parseISODateLocal(startDateIso);
   if (Number.isNaN(start.getTime())) return null;
   const n = calendarDaysBetween(todayStart, start);
   if (n < 0) return null;
-  if (n === 0) return 'Today';
-  if (n === 1) return 'Tomorrow';
-  return `In ${n} days`;
+  if (n === 0) return 'today';
+  if (n === 1) return 'in 1 day';
+  return `in ${n} days`;
 }
 
 /** งานเลยกำหนด (เทียบ endDate กับวันนี้) */
 function formatThaiDaysPastDue(endDateIso: string, todayStart: Date): string | null {
-  const end = startOfDay(new Date(endDateIso));
+  const end = parseISODateLocal(endDateIso);
   if (Number.isNaN(end.getTime())) return null;
   if (end >= todayStart) return null;
   const n = calendarDaysBetween(end, todayStart);
@@ -477,31 +477,58 @@ export default function DashboardPage() {
         (t: any) =>
           !Number.isNaN(t._start.getTime()) && taskStartInPeriodBounds(t._start, periodBounds)
       )
+      .filter((t: any) => {
+        const raw = t.startDate || t.start_date;
+        const startDay = parseISODateLocal(String(raw));
+        if (Number.isNaN(startDay.getTime())) return false;
+        return calendarDaysBetween(todayStart, startDay) >= 0;
+      })
       .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
       .slice(0, 80)
       .map(toEventItem);
     return nearest;
-  }, [allTasks, periodBounds, toEventItem]);
+  }, [allTasks, periodBounds, todayStart, toEventItem]);
 
   const missingEvents = useMemo(() => {
-    const missing = allTasks
+    const rows = allTasks
       .filter(
         (t: any) =>
           (t.status || 'not-started') !== 'done' &&
-          (t.endDate || t.end_date) &&
           (t.startDate || t.start_date)
       )
-      .map((t: any) => ({ ...t, _end: taskEnd(t)!, _start: taskStart(t)! }))
-      .filter(
-        (t: any) =>
-          !Number.isNaN(t._end.getTime()) &&
-          !Number.isNaN(t._start.getTime()) &&
-          t._end < todayStart &&
-          taskStartInPeriodBounds(t._start, periodBounds)
-      )
-      .sort((a: any, b: any) => b._end.getTime() - a._end.getTime())
-      .slice(0, 80)
-      .map(toEventItem);
+      .map((t: any) => ({
+        ...t,
+        _end: (t.endDate || t.end_date) && taskEnd(t) ? taskEnd(t)! : null,
+        _start: taskStart(t)!,
+      }))
+      .filter((t: any) => !Number.isNaN(t._start.getTime()) && taskStartInPeriodBounds(t._start, periodBounds))
+      .filter((t: any) => {
+        const rawStart = t.startDate || t.start_date;
+        const startDay = parseISODateLocal(String(rawStart));
+        if (Number.isNaN(startDay.getTime())) return false;
+        const startPast = calendarDaysBetween(todayStart, startDay) < 0;
+        const rawEnd = t.endDate || t.end_date;
+        let endPast = false;
+        if (rawEnd && t._end && !Number.isNaN(t._end.getTime())) {
+          const endDay = parseISODateLocal(String(rawEnd));
+          if (!Number.isNaN(endDay.getTime())) endPast = endDay.getTime() < todayStart.getTime();
+        }
+        return endPast || startPast;
+      });
+
+    const endPastRows = rows.filter((t: any) => {
+      const rawEnd = t.endDate || t.end_date;
+      if (!rawEnd || !t._end || Number.isNaN(t._end.getTime())) return false;
+      const endDay = parseISODateLocal(String(rawEnd));
+      return !Number.isNaN(endDay.getTime()) && endDay.getTime() < todayStart.getTime();
+    });
+    const endPastIds = new Set(endPastRows.map((t: any) => String(t.id)));
+    const startOnlyPast = rows.filter((t: any) => !endPastIds.has(String(t.id)));
+
+    endPastRows.sort((a: any, b: any) => b._end!.getTime() - a._end!.getTime());
+    startOnlyPast.sort((a: any, b: any) => a._start.getTime() - b._start.getTime());
+
+    const missing = [...endPastRows, ...startOnlyPast].slice(0, 80).map(toEventItem);
     return missing;
   }, [allTasks, todayStart, periodBounds, toEventItem]);
 
@@ -717,11 +744,11 @@ export default function DashboardPage() {
               <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">Preventive Maintenance</h3>
               <div
                 className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/90 px-3 py-1.5 text-xs text-blue-900 shadow-sm"
-                title="จำนวน site locations ในระบบ (รายการจาก sites / locations)"
+                title="Total site locations in the system (from sites / locations)"
               >
                 <Building2 size={16} className="text-blue-500 shrink-0" aria-hidden />
                 <span>
-                  ทั้งหมด <span className="font-bold tabular-nums">{systemSiteCount ?? '—'}</span> sites ในระบบ
+                  Total <span className="font-bold tabular-nums">{systemSiteCount ?? '—'}</span> sites in the system
                 </span>
               </div>
             </div>
@@ -857,7 +884,7 @@ export default function DashboardPage() {
                         </p>
                         {ev.startDate &&
                           (() => {
-                            const rel = formatThaiDaysUntil(ev.startDate, todayStart);
+                            const rel = formatThaiRelativeToTaskStart(ev.startDate, todayStart);
                             return rel ? (
                               <p
                                 className={`text-[10px] mt-0.5 font-medium ${

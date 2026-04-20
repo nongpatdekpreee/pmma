@@ -837,6 +837,9 @@ function AddContractPageContent() {
           if (contract.contract_name) {
             setContractName(contract.contract_name);
           }
+          if (contract.Assigned_Service != null && String(contract.Assigned_Service).trim() !== '') {
+            setAssignedService(String(contract.Assigned_Service).trim());
+          }
           setSaleContacts(
             saleContactsFromDb(contract.sale_account, contract.email_acc, contract.tel_acc),
           );
