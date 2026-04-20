@@ -218,7 +218,7 @@ const AddEmployeePage = () => {
                         if (!mainDigitsOverflowWarned.current) {
                           mainDigitsOverflowWarned.current = true;
                           toastWarning(
-                            `เบอร์หลักใส่ได้สูงสุด ${PHONE_MAIN_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                            `Phone main must be at most ${PHONE_MAIN_MAX_DIGITS} digits (already full)`,
                             2600
                           );
                         }
@@ -250,7 +250,7 @@ const AddEmployeePage = () => {
                         if (!extDigitsOverflowWarned.current) {
                           extDigitsOverflowWarned.current = true;
                           toastWarning(
-                            `เลขต่อใส่ได้สูงสุด ${PHONE_EXT_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                            `Extension must be at most ${PHONE_EXT_MAX_DIGITS} digits (already full)`,
                             2600
                           );
                         }

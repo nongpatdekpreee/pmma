@@ -35,6 +35,7 @@ import {
   PHONE_EXT_MAX_DIGITS,
   validateEmployeePhoneInline,
   validateEmployeePhoneSubmit,
+  validateOptionalEmployeePhoneSubmit,
 } from '@/lib/phoneFormat';
 import {
   ContractShellSearchListDropdown,
@@ -212,6 +213,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [vendorName, setVendorName] = useState('');
   const [vendorTel, setVendorTel] = useState('');
   const [vendorTelError, setVendorTelError] = useState('');
+  const vendorPhoneMainOverflowWarned = useRef(false);
   const [reporterPhoneError, setReporterPhoneError] = useState('');
   const [reporterName, setReporterName] = useState('');
   const [reporterTel, setReporterTel] = useState('');
@@ -296,6 +298,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setVendorName('');
     setVendorTel('');
     setVendorTelError('');
+    vendorPhoneMainOverflowWarned.current = false;
     setReporterPhoneError('');
     setReporterName('');
     setReporterTel('');
@@ -664,7 +667,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setTaskAttachmentPaths(normalizeTaskPhotos(editingEvent.photos));
       setTaskAttachmentFilesPending([]);
       setVendorName(editingEvent.vendorName || '');
-      setVendorTel(editingEvent.vendorTel || editingEvent.vendor_tel || '');
+      {
+        const vendorLine = String(editingEvent.vendorTel || editingEvent.vendor_tel || '').trim();
+        const vp = parseTelLineFromDb(vendorLine);
+        setVendorTel(formatTenDigitUsDisplay(vp.tel));
+        setVendorTelError('');
+      }
+      vendorPhoneMainOverflowWarned.current = false;
       setReporterName(editingEvent.reporterName || (editingEvent as any).reporter_name || '');
       {
         const reporterLine = String(
@@ -1596,10 +1605,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         showWarning('Reporter name must be at least 5 characters');
         return;
       }
-      // Validate Contract Phone number: if provided, must be 4-10 digits
-      if (vendorTel && (vendorTel.length < 4 || vendorTel.length > 10)) {
-        showWarning('Phone number must be between 4 and 10 digits');
-        return;
+      // Contract vendor phone (optional): หลัก 10 หลัก ไม่มีต่อ — เหมือน employee แต่ไม่บังคับ
+      {
+        const vendErr = validateOptionalEmployeePhoneSubmit(vendorTel, '');
+        if (vendErr) {
+          showWarning(`Contract phone: ${vendErr}`);
+          return;
+        }
       }
       // Client phone (optional): ถ้ามีตัวเลข ต้องตรงกฎเดียวกับ Employee (หลัก 10 + ต่อสูงสุด 6)
       {
@@ -1685,7 +1697,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         coverageScope,
         assets,
         vendorName: taskType === 'MA' ? vendorName : null,
-        vendorTel: taskType === 'MA' ? vendorTel : null,
+        vendorTel: taskType === 'MA' ? formatTelLineForDb(vendorTel, '') || null : null,
         reporterName: taskType === 'MA' ? reporterName : null,
         reporterTel:
           taskType === 'MA' ? formatTelLineForDb(reporterTel, reporterTelExt) || null : null,
@@ -2520,72 +2532,51 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   <div className="relative">
                     <input
                       type="text"
+                      inputMode="tel"
+                      autoComplete="tel"
                       value={vendorTel}
-                      onKeyDown={(e) => {
-                        const allowedKeys = ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Home', 'End'];
-                        const isDigit = /^[0-9]$/.test(e.key);
-                        const isAllowedKey = allowedKeys.includes(e.key) || (e.ctrlKey && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase()));
-                        
-                        if (!isDigit && !isAllowedKey) {
-                          e.preventDefault();
-                          setVendorTelError('Please enter only numbers');
-                          setTimeout(() => setVendorTelError(''), 2000);
-                          return;
-                        }
-                        
-                        if (vendorTel.length >= 10 && isDigit) {
-                          e.preventDefault();
-                          setVendorTelError('Only 10 digits');
-                          setTimeout(() => setVendorTelError(''), 2000);
-                        }
-                      }}
-                      onPaste={(e) => {
-                        e.preventDefault();
-                        const pastedText = e.clipboardData.getData('text').replace(/[^\d]/g, '');
-                        const newValue = vendorTel + pastedText;
-                        if (newValue.length <= 10) {
-                          setVendorTel(newValue);
-                          setVendorTelError('');
-                        } else {
-                          setVendorTelError('Only 10 digits');
-                          setTimeout(() => setVendorTelError(''), 2000);
-                        }
-                      }}
                       onChange={(e) => {
-                        const value = e.target.value.replace(/[^\d]/g, '');
-                        if (value.length <= 10) {
-                          setVendorTel(value);
-                          setVendorTelError('');
+                        const raw = e.target.value;
+                        const n = raw.replace(/\D/g, '').length;
+                        if (n > PHONE_MAIN_MAX_DIGITS) {
+                          if (!vendorPhoneMainOverflowWarned.current) {
+                            vendorPhoneMainOverflowWarned.current = true;
+                            showWarning(
+                              `Phone main must be at most ${PHONE_MAIN_MAX_DIGITS} digits (already full)`,
+                              2600
+                            );
+                          }
                         } else {
-                          setVendorTel(value.slice(0, 10));
-                          setVendorTelError('Only 10 digits');
-                          setTimeout(() => setVendorTelError(''), 2000);
+                          vendorPhoneMainOverflowWarned.current = false;
                         }
+                        const v = formatTenDigitUsDisplay(raw);
+                        setVendorTel(v);
+                        setVendorTelError(validateEmployeePhoneInline(v, ''));
                       }}
-                      placeholder="Enter phone number (4-10 digits)"
-                      maxLength={10}
-                      className={`${inputBase} pr-10 ${vendorTel && vendorTel.length < 4 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''} ${vendorTelError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
+                      onBlur={() =>
+                        setVendorTelError(validateEmployeePhoneInline(vendorTel, ''))
+                      }
+                      placeholder="xxx-xxx-xxxx"
+                      className={`${inputBase} tabular-nums pr-10 ${vendorTelError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
                     />
-                    {vendorTel && (
+                    {vendorTel.replace(/\D/g, '').length > 0 ? (
                       <button
                         type="button"
                         onClick={() => {
                           setVendorTel('');
                           setVendorTelError('');
+                          vendorPhoneMainOverflowWarned.current = false;
                         }}
                         className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
                         title="Clear"
                       >
                         <X size={16} />
                       </button>
-                    )}
+                    ) : null}
                   </div>
-                  {vendorTelError && (
+                  {vendorTelError ? (
                     <p className="text-[10px] text-red-500 mt-1">{vendorTelError}</p>
-                  )}
-                  {!vendorTelError && vendorTel && vendorTel.length < 4 && (
-                    <p className="text-[10px] text-red-500 mt-1">Phone number must be at least 4 digits</p>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -2639,7 +2630,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             if (!reporterPhoneMainOverflowWarned.current) {
                               reporterPhoneMainOverflowWarned.current = true;
                               showWarning(
-                                `เบอร์ Client ใส่ได้สูงสุด ${PHONE_MAIN_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                                `Phone main must be at most ${PHONE_MAIN_MAX_DIGITS} digits (already full)`,
                                 2600
                               );
                             }
