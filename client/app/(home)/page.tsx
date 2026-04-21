@@ -50,6 +50,14 @@ function parseISODateLocal(iso: string): Date {
   return startOfDay(new Date(y, m - 1, d));
 }
 
+/** Local calendar date → YYYY-MM-DD (สำหรับ query กรองสัญญาตาม period dashboard) */
+function formatDateISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** ช่วงเดียวกับ backend analytics `getRange` / `getRangeFromYearMonth` สำหรับกรองงานบน dashboard */
 function getDashboardPeriodBounds(
   months: number,
@@ -98,8 +106,8 @@ function formatThaiRelativeToTaskStart(startDateIso: string, todayStart: Date): 
   const n = calendarDaysBetween(todayStart, start);
   if (n < 0) return null;
   if (n === 0) return 'today';
-  if (n === 1) return 'in 1 day';
-  return `in ${n} days`;
+  if (n === 1) return 'Incoming 1 day';
+  return `Incoming ${n} days`;
 }
 
 /** งานเลยกำหนด (เทียบ endDate กับวันนี้) */
@@ -211,40 +219,6 @@ export default function DashboardPage() {
       }
     };
     load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadHeatmap = async () => {
-      setLoadingHeatmap(true);
-      setHeatmapError(null);
-      try {
-        const res = await getTopSitesHeatmap({ site_limit: 5, contract_limit: 10 });
-        if (cancelled) return;
-        if (!res || res.success === false) {
-          setHeatmapError((res as { message?: string })?.message || 'Failed to load heatmap');
-          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
-        } else {
-          setHeatmap({
-            sites: Array.isArray(res.sites) ? res.sites! : [],
-            contracts: Array.isArray(res.contracts) ? res.contracts! : [],
-            matrix: Array.isArray(res.matrix) ? res.matrix! : [],
-            max_value: Math.max(1, Number(res.max_value ?? 1)),
-          });
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setHeatmapError(e instanceof Error ? e.message : 'Failed to load heatmap');
-          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
-        }
-      } finally {
-        if (!cancelled) setLoadingHeatmap(false);
-      }
-    };
-    void loadHeatmap();
     return () => {
       cancelled = true;
     };
@@ -419,14 +393,60 @@ export default function DashboardPage() {
 
   /** กรองงานให้ตรงกับช่วงที่เลือก (เดียวกับ PM analytics: start_date ∈ [start, endExclusive)) */
   const periodBounds = useMemo(() => {
+    // Custom year/month: คำนวณจาก UI ทันที — อย่าใช้ periodRange ค้างจากโหมดก่อน (เช่น 6 เดือนล่าสุด)
+    // จนกว่า getPmDashboard จะตอบ ไม่งั้น Top sites / heatmap จะดึงช่วงเดิมตลอด
+    if (dashboardParams != null) {
+      return getDashboardPeriodBounds(months, dashboardParams);
+    }
     if (periodRange?.start && periodRange?.endExclusive) {
       return {
         start: parseISODateLocal(periodRange.start),
         endExclusive: parseISODateLocal(periodRange.endExclusive),
       };
     }
-    return getDashboardPeriodBounds(months, dashboardParams);
+    return getDashboardPeriodBounds(months, null);
   }, [periodRange, months, dashboardParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHeatmap = async () => {
+      setLoadingHeatmap(true);
+      setHeatmapError(null);
+      const period_start = formatDateISO(periodBounds.start);
+      const period_end_exclusive = formatDateISO(periodBounds.endExclusive);
+      try {
+        const res = await getTopSitesHeatmap({
+          site_limit: 5,
+          contract_limit: 10,
+          period_start,
+          period_end_exclusive,
+        });
+        if (cancelled) return;
+        if (!res || res.success === false) {
+          setHeatmapError((res as { message?: string })?.message || 'Failed to load heatmap');
+          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
+        } else {
+          setHeatmap({
+            sites: Array.isArray(res.sites) ? res.sites! : [],
+            contracts: Array.isArray(res.contracts) ? res.contracts! : [],
+            matrix: Array.isArray(res.matrix) ? res.matrix! : [],
+            max_value: Math.max(1, Number(res.max_value ?? 1)),
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setHeatmapError(e instanceof Error ? e.message : 'Failed to load heatmap');
+          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
+        }
+      } finally {
+        if (!cancelled) setLoadingHeatmap(false);
+      }
+    };
+    void loadHeatmap();
+    return () => {
+      cancelled = true;
+    };
+  }, [periodBounds.start.getTime(), periodBounds.endExclusive.getTime()]);
 
   const pmCards = useMemo(() => {
     const upcomingPm = allTasks
