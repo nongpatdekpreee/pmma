@@ -212,7 +212,13 @@ export async function getTopSitesByContractDevice(params?: { limit?: number }): 
 }
 
 /** GET /api/contracts/statistics/top-sites-heatmap — เมทริกซ์ site × contract (device ต่อเซลล์) */
-export async function getTopSitesHeatmap(params?: { site_limit?: number; contract_limit?: number }): Promise<{
+export async function getTopSitesHeatmap(params?: {
+  site_limit?: number;
+  contract_limit?: number;
+  /** YYYY-MM-DD — กรองสัญญาที่ทับช่วง [period_start, period_end_exclusive) */
+  period_start?: string;
+  period_end_exclusive?: string;
+}): Promise<{
   success: boolean;
   sites?: Array<{
     slid: number;
@@ -225,12 +231,15 @@ export async function getTopSitesHeatmap(params?: { site_limit?: number; contrac
   contracts?: Array<{ contract_id: number; short_id: string; title: string }>;
   matrix?: number[][];
   max_value?: number;
+  period?: { period_start: string; period_end_exclusive: string };
   message?: string;
   error?: string;
 }> {
   const q = new URLSearchParams();
   if (params?.site_limit != null) q.set('site_limit', String(params.site_limit));
   if (params?.contract_limit != null) q.set('contract_limit', String(params.contract_limit));
+  if (params?.period_start) q.set('period_start', params.period_start);
+  if (params?.period_end_exclusive) q.set('period_end_exclusive', params.period_end_exclusive);
   const qs = q.toString();
   const res = await fetch(apiUrl(`/api/contracts/statistics/top-sites-heatmap${qs ? `?${qs}` : ''}`));
   return res.json();
