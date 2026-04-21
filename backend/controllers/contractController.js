@@ -1593,7 +1593,7 @@ const getVendorStatistics = async (req, res) => {
 };
 
 // GET /api/contracts/statistics/top-sites — Top sites จาก contract_device (devices + contracts ต่อ SLid)
-// Optional query: period_start, period_end_exclusive (YYYY-MM-DD) — กรองสัญญาตามช่วงทับซ้อน (เดียวกับ heatmap)
+// Optional query: period_start, period_end_exclusive (YYYY-MM-DD) — กรองสัญญาที่วันเริ่มสัญญา start_date ∈ [start, endExclusive)
 const getTopSitesByContractDevice = async (req, res) => {
   try {
     const lim = parseInt(String(req.query.limit ?? '8'), 10);
@@ -1609,13 +1609,14 @@ const getTopSitesByContractDevice = async (req, res) => {
     const contractJoin = usePeriod
       ? `
       INNER JOIN contract c ON c.contract_id = cd.contract_id
-        AND (c.start_date IS NULL OR DATE(c.start_date) < ?)
-        AND (c.end_date IS NULL OR DATE(c.end_date) >= ?)
+        AND c.start_date IS NOT NULL
+        AND DATE(c.start_date) >= ?
+        AND DATE(c.start_date) < ?
     `
       : `
       LEFT JOIN contract c ON c.contract_id = cd.contract_id
     `;
-    const periodBindFirst = usePeriod ? [periodEndEx, periodStart] : [];
+    const periodBindFirst = usePeriod ? [periodStart, periodEndEx] : [];
 
     const [rows] = await db.execute(
       `
@@ -1693,8 +1694,7 @@ const getTopSitesByContractDevice = async (req, res) => {
 };
 
 // GET /api/contracts/statistics/top-sites-heatmap — เมทริกซ์ site × contract (จำนวน device ต่อเซลล์)
-// Optional: period_start & period_end_exclusive (YYYY-MM-DD) — นับเฉพาะสัญญาที่ทับซ้อนช่วง [start, endExclusive)
-// ทับซ้อน: start_date < endExclusive AND (end_date IS NULL OR end_date >= period_start)
+// Optional: period_start & period_end_exclusive (YYYY-MM-DD) — นับเฉพาะสัญญาที่วันเริ่มสัญญา start_date ∈ [start, endExclusive)
 const getTopSitesHeatmap = async (req, res) => {
   try {
     const parseLim = (v, fb, min, max) => {
@@ -1713,16 +1713,17 @@ const getTopSitesHeatmap = async (req, res) => {
     const periodStart = usePeriod ? String(ps).trim() : null;
     const periodEndEx = usePeriod ? String(pe).trim() : null;
 
-    /** JOIN กรองสัญญาตามช่วงวันที่ (ทับซ้อนกับ [period_start, period_end_exclusive)) */
+    /** JOIN กรองสัญญาที่วันเริ่มสัญญาอยู่ในช่วง [period_start, period_end_exclusive) — ตรงกับ dashboard / PM period */
     const contractPeriodJoin = usePeriod
       ? `
       INNER JOIN contract c ON c.contract_id = cd.contract_id
-        AND (c.start_date IS NULL OR DATE(c.start_date) < ?)
-        AND (c.end_date IS NULL OR DATE(c.end_date) >= ?)
+        AND c.start_date IS NOT NULL
+        AND DATE(c.start_date) >= ?
+        AND DATE(c.start_date) < ?
     `
       : '';
 
-    const periodBindFirst = usePeriod ? [periodEndEx, periodStart] : [];
+    const periodBindFirst = usePeriod ? [periodStart, periodEndEx] : [];
 
     const [siteRows] = await db.execute(
       `

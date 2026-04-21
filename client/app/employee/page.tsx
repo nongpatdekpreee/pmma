@@ -14,6 +14,15 @@ import {
   validateEmployeePhoneInline,
   validateEmployeePhoneSubmit,
 } from "@/lib/phoneFormat";
+import {
+  EMPLOYEE_PHOTO_ACCEPT,
+  EMPLOYEE_PHOTO_EXTENSIONS_LABEL,
+  EMPLOYEE_PHOTO_MAX_SIZE_LABEL,
+  employeePhotoExtensionErrorMessage,
+  employeePhotoSizeErrorMessage,
+  isAllowedEmployeePhotoFile,
+  isEmployeePhotoOverSize,
+} from "@/lib/employeePhoto";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { useToast, ToastContainer } from "@/components/ui/Toast";
@@ -56,7 +65,7 @@ const EmployeeManagement = () => {
     gmail: "",
     tel: "",
     telExt: "",
-    positionType: "Technical" as "Technical" | "Management",
+    positionType: "Technical" as "Technical" | "Management" | "Engineer",
     employmentType: "Full-Time",
     photo: null as string | null,
   });
@@ -73,7 +82,7 @@ const EmployeeManagement = () => {
     gmail: "",
     tel: "",
     telExt: "",
-    positionType: "Technical" as "Technical" | "Management",
+    positionType: "Technical" as "Technical" | "Management" | "Engineer",
     employmentType: "Full-Time",
     photo: null as string | null,
   });
@@ -138,7 +147,13 @@ const EmployeeManagement = () => {
       gmail: emp.gmail ?? "",
       tel: formatTenDigitUsDisplay(parsed.tel),
       telExt: parsed.telExt,
-      positionType: (emp.positionType === "Management" ? "Management" : "Technical") as "Technical" | "Management",
+      positionType: (
+        emp.positionType === "Management"
+          ? "Management"
+          : emp.positionType === "Engineer"
+            ? "Engineer"
+            : "Technical"
+      ) as "Technical" | "Management" | "Engineer",
       employmentType: emp.employmentType ?? "Full-Time",
       photo: emp.photo ?? null,
     });
@@ -147,8 +162,15 @@ const EmployeeManagement = () => {
 
   const handleEditPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) {
-      if (file) toastWarning("Please select an image file (jpg, png, gif, webp)");
+    if (!file) return;
+    if (!isAllowedEmployeePhotoFile(file)) {
+      toastError(employeePhotoExtensionErrorMessage());
+      e.target.value = "";
+      return;
+    }
+    if (isEmployeePhotoOverSize(file)) {
+      toastError(employeePhotoSizeErrorMessage());
+      e.target.value = "";
       return;
     }
     setEditPhotoUploading(true);
@@ -239,8 +261,15 @@ const EmployeeManagement = () => {
 
   const handleAddPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !file.type.startsWith("image/")) {
-      if (file) toastWarning("Please select an image file (jpg, png, gif, webp)");
+    if (!file) return;
+    if (!isAllowedEmployeePhotoFile(file)) {
+      toastError(employeePhotoExtensionErrorMessage());
+      e.target.value = "";
+      return;
+    }
+    if (isEmployeePhotoOverSize(file)) {
+      toastError(employeePhotoSizeErrorMessage());
+      e.target.value = "";
       return;
     }
     setAddPhotoUploading(true);
@@ -452,7 +481,7 @@ const EmployeeManagement = () => {
         hasError = true;
       }
       if (!gmail) {
-        errors.push(`Row ${rowNum}: Please enter a Gmail`);
+        errors.push(`Row ${rowNum}: Please enter a Email`);
         hasError = true;
       } else {
         if (!gmailCount[gmail]) gmailCount[gmail] = [];
@@ -473,7 +502,7 @@ const EmployeeManagement = () => {
 
     Object.entries(gmailCount).forEach(([email, rowNums]) => {
       if (rowNums.length > 1) {
-        errors.push(`Gmail "${email}" is duplicated in rows ${rowNums.join(", ")}`);
+        errors.push(`Email "${email}" is duplicated in rows ${rowNums.join(", ")}`);
         rowNums.forEach((rn) => invalidRows.add(rn - 1));
       }
     });
@@ -704,7 +733,7 @@ const EmployeeManagement = () => {
                     <tr>
                       <th className="w-12 px-3 py-2.5 text-center">Picture</th>
                       <th className="min-w-[140px] px-3 py-2.5 text-left">Name</th>
-                      <th className="min-w-[180px] px-3 py-2.5 text-left">Gmail</th>
+                      <th className="min-w-[180px] px-3 py-2.5 text-left">Email</th>
                       <th className="w-28 px-3 py-2.5 text-left">Phone</th>
                       <th className="w-32 px-3 py-2.5 text-center">Type</th>
                       <th className="w-36 px-3 py-2.5 text-center">Employment</th>
@@ -848,7 +877,7 @@ const EmployeeManagement = () => {
                         ) : (
                           <span className="text-xs text-gray-400 select-none">{addPhotoUploading ? "Uploading..." : "Select Image"}</span>
                         )}
-                        <input type="file" accept="image/*" className="sr-only" aria-label="Select profile picture" onChange={handleAddPhotoChange} disabled={addPhotoUploading} />
+                        <input type="file" accept={EMPLOYEE_PHOTO_ACCEPT} className="sr-only" aria-label="Select profile picture" onChange={handleAddPhotoChange} disabled={addPhotoUploading} />
                       </label>
                       {addForm.photo && (
                         <button type="button" onClick={() => setAddForm((f) => ({ ...f, photo: null }))} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-500 hover:bg-red-50" title="Remove photo">
@@ -856,6 +885,9 @@ const EmployeeManagement = () => {
                         </button>
                       )}
                     </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                          Max {EMPLOYEE_PHOTO_MAX_SIZE_LABEL} · {EMPLOYEE_PHOTO_EXTENSIONS_LABEL}
+                        </p>
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">Name <span className="text-red-500">*</span></label>
@@ -875,7 +907,7 @@ const EmployeeManagement = () => {
                     {addFormErrors.name && <p className="mt-1 text-sm text-red-500">{addFormErrors.name}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Gmail <span className="text-red-500">*</span></label>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
                     <input
                       type="email"
                       value={addForm.gmail}
@@ -963,11 +995,12 @@ const EmployeeManagement = () => {
                     <label className="mb-1 block text-sm font-medium text-gray-700">Position Type</label>
                     <select
                       value={addForm.positionType}
-                      onChange={(e) => setAddForm((f) => ({ ...f, positionType: e.target.value as "Technical" | "Management" }))}
+                      onChange={(e) => setAddForm((f) => ({ ...f, positionType: e.target.value as "Technical" | "Management" | "Engineer" }))}
                       className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
                     >
                       <option value="Technical">Technical</option>
                       <option value="Management">Management</option>
+                      <option value="Engineer">Engineer</option>
                     </select>
                   </div>
                   <div>
@@ -1024,7 +1057,7 @@ const EmployeeManagement = () => {
                           <li><strong>Name</strong> = employee name</li>  
                           <li><strong>Email</strong> = email address</li>
                           <li><strong>Phone_Number</strong> = 10 digits (0xx-xxx-xxxx), optional extension (up to 6 digits) e.g. <code className="bg-blue-100 px-1 rounded">0812345678-123456</code></li>
-                          <li><strong>Position_Type</strong> = Technical or Management</li>
+                          <li><strong>Position_Type</strong> = Technical, Management, or Engineer</li>
                           <li><strong>Employment_Type</strong> = Full-Time, Contract, or Part-time</li>
                         </ul>
                         <p className="mt-2 text-[10px] text-blue-600">
@@ -1082,7 +1115,7 @@ const EmployeeManagement = () => {
                             <thead className="bg-slate-50 sticky top-0 z-10">
                               <tr>
                                 <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Name</th>
-                                <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Gmail</th>
+                                <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Email</th>
                                 <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Tel</th>
                                 <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Position</th>
                                 <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Employment</th>
@@ -1158,7 +1191,7 @@ const EmployeeManagement = () => {
                         ) : (
                           <span className="text-xs text-gray-400 select-none">{editPhotoUploading ? "Uploading..." : "Select Image"}</span>
                         )}
-                        <input type="file" accept="image/*" className="sr-only" aria-label="Select Profile Picture" onChange={handleEditPhotoChange} disabled={editPhotoUploading} />
+                        <input type="file" accept={EMPLOYEE_PHOTO_ACCEPT} className="sr-only" aria-label="Select Profile Picture" onChange={handleEditPhotoChange} disabled={editPhotoUploading} />
                       </label>
                       {editForm.photo && (
                         <button type="button" onClick={() => setEditForm((f) => ({ ...f, photo: null }))} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-500 hover:bg-red-50" title="Remove photo">
@@ -1166,6 +1199,9 @@ const EmployeeManagement = () => {
                         </button>
                       )}
                     </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                          Max {EMPLOYEE_PHOTO_MAX_SIZE_LABEL} · {EMPLOYEE_PHOTO_EXTENSIONS_LABEL}
+                        </p>
                   </div>
                   <div>
                     <label className="mb-1 block text-sm font-medium text-gray-700">Name <span className="text-red-500">*</span></label>
@@ -1185,7 +1221,7 @@ const EmployeeManagement = () => {
                     {editFormErrors.name && <p className="mt-1 text-sm text-red-500">{editFormErrors.name}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Gmail <span className="text-red-500">*</span></label>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
                     <input
                       type="email"
                       value={editForm.gmail}
@@ -1273,11 +1309,12 @@ const EmployeeManagement = () => {
                     <label className="mb-1 block text-sm font-medium text-gray-700">Position Type</label>
                     <select
                       value={editForm.positionType}
-                      onChange={(e) => setEditForm((f) => ({ ...f, positionType: e.target.value as "Technical" | "Management" }))}
+                      onChange={(e) => setEditForm((f) => ({ ...f, positionType: e.target.value as "Technical" | "Management" | "Engineer" }))}
                       className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
                     >
                       <option value="Technical">Technical</option>
                       <option value="Management">Management</option>
+                      <option value="Engineer">Engineer</option>
                     </select>
                   </div>
                   <div>
