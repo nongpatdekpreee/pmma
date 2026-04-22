@@ -2750,7 +2750,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <Paperclip size={18} strokeWidth={2} aria-hidden />
                   </span>
                   <div className="min-w-0 flex-1 pt-0.5">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Repair notice</p>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Remark</p>
                     <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
                       PDF or images. Files are sent to the server when you save the task.
                     </p>

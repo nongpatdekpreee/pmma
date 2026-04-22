@@ -624,7 +624,7 @@ function AddMAReportPageContent() {
                       <div className="mt-2 pt-2 border-t border-slate-200 w-full">
                         <p className="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
                           <Paperclip size={14} className="text-sky-600 shrink-0" aria-hidden />
-                          Repair notice
+                          Remark
                         </p>
                         <ul className="text-xs space-y-1">
                           {normalizeRepairPathsFromPhotos(task.photos).map((path) => {

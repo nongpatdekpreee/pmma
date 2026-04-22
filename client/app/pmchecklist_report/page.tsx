@@ -728,7 +728,7 @@ function ReportPageContent() {
       'Ticket',
       'Status',
       'Report status',
-      'Repair notice',
+      'Remark',
       'comment',
     ];
 
@@ -2380,7 +2380,7 @@ function ReportPageContent() {
                           <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center">
                             <Paperclip size={20} className="text-sky-700" />
                           </div>
-                          <h3 className="font-bold text-slate-800">Repair notice</h3>
+                          <h3 className="font-bold text-slate-800">Remark</h3>
                         </div>
                         <ul className="space-y-2">
                           {repairPaths.map((path) => {

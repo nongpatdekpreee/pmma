@@ -628,7 +628,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
                   <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
                     <Paperclip size={16} className="text-slate-500 shrink-0" aria-hidden />
-                    Repair notice
+                    Remark
                   </h3>
                   <ul className="space-y-2">
                     {repairPaths.map((path) => {
