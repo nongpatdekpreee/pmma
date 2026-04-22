@@ -1960,14 +1960,23 @@ function ContractEditorPageContent() {
         {/* Stats Bar - กดแล้ว filter รายการสัญญาตามสถานะ */}
         {(() => {
           const onlyContracts = contracts.filter((c) => !c.isHistorySnapshotRow);
-          const total = onlyContracts.length;
           const draft = onlyContracts.filter((c) => c.contractStatus === 'draft').length;
-          const active = onlyContracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
-          const expiring = onlyContracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
-          const expired = onlyContracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
-          const terminated = contracts.filter(
-            (c) => c.isHistorySnapshotRow && (c.historyStatus === 'Terminated' || c.contractStatus === 'not_renewing')
+          const active = onlyContracts.filter(
+            (c) => c.status === 'active' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
           ).length;
+          const expiring = onlyContracts.filter(
+            (c) => c.status === 'expiring' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
+          ).length;
+          const expired = onlyContracts.filter(
+            (c) => c.status === 'expired' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
+          ).length;
+          const terminatedSnapshots = contracts.filter(
+            (c) => c.isHistorySnapshotRow && c.historyStatus === 'Terminated'
+          ).length;
+          const terminatedMain = onlyContracts.filter((c) => c.contractStatus === 'not_renewing').length;
+          const terminated = terminatedSnapshots + terminatedMain;
+          // ให้ All เป็นผลรวมหมวดที่แสดงจริง เพื่อให้ตัวเลขตรงกับการ์ดย่อย
+          const total = active + expiring + expired + draft + terminated;
           const stats = [
             { filter: 'All' as const, number: String(total), label: 'All Contracts' },
             { filter: 'Active' as const, number: String(active), label: 'Active Contracts' },
