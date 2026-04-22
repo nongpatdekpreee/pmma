@@ -29,13 +29,45 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${(file.originalname || 'photo').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 50)}`);
   },
 });
+
+const ALLOWED_PHOTO_EXT = new Set(['.jpg', '.jpeg', '.png']);
+const ALLOWED_PHOTO_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png']);
+
+const employeePhotoFilter = (req, file, cb) => {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (!ALLOWED_PHOTO_EXT.has(ext)) {
+    return cb(new Error('Only JPG and PNG files are allowed.'));
+  }
+  if (file.mimetype && !ALLOWED_PHOTO_MIME.has(file.mimetype)) {
+    return cb(new Error('Invalid image type.'));
+  }
+  return cb(null, true);
+};
+
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 500 * 1024 }, // 500KB
+  fileFilter: employeePhotoFilter,
 });
 
 // POST - อัปโหลดรูปพนักงาน (ต้องอยู่ก่อน /:id)
-router.post('/upload', upload.single('file'), uploadEmployeePhoto);
+router.post('/upload', (req, res) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({
+          success: false,
+          message: 'Image must be 500 KB or smaller.',
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        message: err.message || 'Upload failed',
+      });
+    }
+    return uploadEmployeePhoto(req, res);
+  });
+});
 
 // GET - ดึงข้อมูล Employees ทั้งหมด
 router.get('/', getEmployees);

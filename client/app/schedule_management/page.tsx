@@ -25,7 +25,7 @@ import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
-import { mapEmployeesToEngineerRoster, engineerRosterLabel } from '@/lib/engineerRoster';
+import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import * as XLSX from 'xlsx';
 
 
@@ -715,10 +715,13 @@ function ScheduleManagementContent() {
   const enrichedCalendarEvents = useMemo(() => {
     return calendarEvents.map((event) => ({
       ...event,
-      Eng_ids: event.Eng_ids?.map((eng) => ({
-        ...eng,
-        photo: availableEngineers.find((a) => a.id === String(eng.id))?.photo ?? null,
-      })) ?? [],
+      Eng_ids:
+        event.Eng_ids?.map((eng) => {
+          const id = rawEngineerIdFromTaskJson(eng);
+          const photo =
+            id ? availableEngineers.find((a) => String(a.id) === id)?.photo ?? null : null;
+          return { ...eng, ...(id ? { id } : {}), photo };
+        }) ?? [],
     }));
   }, [calendarEvents, availableEngineers]);
 
@@ -2632,6 +2635,8 @@ function ScheduleManagementContent() {
               const BAR_HEIGHT = 28;
               const TASK_GAP = 4; // ระยะห่างเท่ากันทุกที่: ระหว่างแถบ-แถบ, แถบ-pill, pill-pill
               const MULTI_DAY_TOP_OFFSET = 32;
+              /** เผื่อหัวเลขวันจริงต่ำกว่า DAY_HEADER_PX — ไม่ให้ pill ถูกแถบหลายวันทับ */
+              const PILL_BELOW_MULTI_DAY_EXTRA_PX = 8;
               /** ความสูงพื้นที่แถบงานหลายวัน + ระยะห่างก่อน pills ให้เท่ากับ TASK_GAP */
               const multiDayAreaHeight = (rows: number) =>
                 MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
@@ -2655,7 +2660,12 @@ function ScheduleManagementContent() {
                 const pillsStackPx = nPillsForHeight * PILL_ROW_PX;
                 const headerPx = DAY_HEADER_PX + (holidayForDay ? HOLIDAY_EXTRA_PX : 0);
                 const pillsMtPx = hasMultiDayBarAbove
-                  ? Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)
+                  ? Math.max(
+                      0,
+                      multiDayAreaHeight(multiDayRowsThisDay) -
+                        MULTI_DAY_TOP_OFFSET +
+                        PILL_BELOW_MULTI_DAY_EXTRA_PX
+                    )
                   : nPillsForHeight > 0
                     ? 6
                     : 0;
@@ -2739,7 +2749,12 @@ function ScheduleManagementContent() {
                               style={{
                                 ...(hasMultiDayBarAbove
                                   ? {
-                                      marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px`,
+                                      marginTop: `${Math.max(
+                                        0,
+                                        multiDayAreaHeight(multiDayRowsThisDay) -
+                                          MULTI_DAY_TOP_OFFSET +
+                                          PILL_BELOW_MULTI_DAY_EXTRA_PX
+                                      )}px`,
                                     }
                                   : {}),
                                 ...(pillsStackPx > 0 ? { minHeight: pillsStackPx } : {}),
@@ -2792,12 +2807,12 @@ function ScheduleManagementContent() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'} ${highlightTaskId === String(ev.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
+                                    className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'} ${highlightTaskId === String(ev.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                                   >
-                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
-                                    <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                                    <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                                       {scheduleInProcessTitleText(ev)}
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
@@ -2875,7 +2890,6 @@ function ScheduleManagementContent() {
                           top: `${topPx}px`,
                           left: '8px',
                           right: '8px',
-                          height: `${BAR_HEIGHT}px`,
                         }}
                         draggable={!isDone}
                         onDragStart={() => !isDone && setDraggedEvent(event)}
@@ -2899,12 +2913,12 @@ function ScheduleManagementContent() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20 ${highlightTaskId === String(event.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
+                        className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20 ${highlightTaskId === String(event.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                       >
-                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
-                        <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                        <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                           {scheduleInProcessTitleText(event)}
                         </span>
                         {event.Eng_ids && event.Eng_ids.length > 0 && (

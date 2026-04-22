@@ -38,7 +38,7 @@ CREATE TABLE employees (
     last_name VARCHAR(100) NOT NULL,
     department VARCHAR(100) NOT NULL,
     position VARCHAR(100) NOT NULL,
-    position_type ENUM('Technical', 'Management') NOT NULL,
+    position_type ENUM('Technical', 'Management', 'Engineer') NOT NULL,
     employment_type ENUM('Full-time', 'Contract', 'Part-time') NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -273,7 +273,7 @@ INSERT INTO departments (department_name) VALUES
 CREATE TABLE positions (
     position_id INT AUTO_INCREMENT PRIMARY KEY,
     position_name VARCHAR(100) NOT NULL,
-    position_type ENUM('Technical', 'Management') NOT NULL,
+    position_type ENUM('Technical', 'Management', 'Engineer') NOT NULL,
     UNIQUE KEY unique_position_type (position_name, position_type)
 );
 
