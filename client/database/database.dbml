@@ -13,7 +13,7 @@ Table employees {
   name varchar(100) [not null]
   gmail varchar(100) [not null]
   tel number [not null]
-  position_type enum('Technical', 'Management') [not null]
+  position_type enum('Technical', 'Management', 'Engineer') [not null]
   employment_type enum('Full-time', 'Contract', 'Part-time') [not null]
   created_at timestamp [default: `CURRENT_TIMESTAMP`]
   updated_at timestamp [default: `CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP`]
@@ -240,7 +240,7 @@ Table departments {
 Table positions {
   position_id int [primary key, increment]
   position_name varchar(100) [not null]
-  position_type enum('Technical', 'Management') [not null]
+  position_type enum('Technical', 'Management', 'Engineer') [not null]
   
   Note: 'ข้อมูลตำแหน่งงาน'
   

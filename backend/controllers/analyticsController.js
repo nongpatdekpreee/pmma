@@ -105,6 +105,25 @@ function getRangeFromYearMonth(year, month) {
   return { start, endExclusive };
 }
 
+/** ช่วงหลายเดือนในปีเดียว — startMonth/endMonth = 1–12 (รวมถึงเดือนสุดท้าย); ถ้า end &lt; start จะสลับ */
+function getRangeFromYearMonthRange(year, startMonth, endMonth) {
+  const y = parseInt(String(year ?? ''), 10);
+  if (Number.isNaN(y) || y < 2000 || y > 2100) return null;
+  let sm = parseInt(String(startMonth), 10);
+  let em = parseInt(String(endMonth), 10);
+  if (Number.isNaN(sm) || sm < 1 || sm > 12 || Number.isNaN(em) || em < 1 || em > 12) return null;
+  if (em < sm) {
+    const t = sm;
+    sm = em;
+    em = t;
+  }
+  const start = new Date(y, sm - 1, 1);
+  start.setHours(0, 0, 0, 0);
+  const endExclusive = new Date(y, em, 1);
+  endExclusive.setHours(0, 0, 0, 0);
+  return { start, endExclusive };
+}
+
 // GET /api/analytics/ma-pm?months=6
 // นิยาม:
 // - maCoverage: % งาน MA ที่เป็น done ต่อจำนวนงาน MA ทั้งหมดในเดือน
@@ -377,7 +396,7 @@ const getSlaContracts = async (req, res) => {
   }
 };
 
-// GET /api/analytics/ma-dashboard?months=6 | ?year=2024 | ?year=2024&month=3
+// GET /api/analytics/ma-dashboard?months=6 | ?year=2024 | ?year=2024&month=3 | ?year=2024&month=3&end_month=8
 // Detailed MA dashboard: top equipment, top vendors, failure ranking, monthly MA counts
 // Overdue = past end_date and status 'not-started' only (matches GET /api/tasks/overdue).
 const getMaDashboard = async (req, res) => {
@@ -385,6 +404,8 @@ const getMaDashboard = async (req, res) => {
     const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
     const yearParam = req.query.year;
     const monthParam = req.query.month != null && req.query.month !== '' ? parseInt(String(req.query.month), 10) : null;
+    const endMonthParam =
+      req.query.end_month != null && req.query.end_month !== '' ? parseInt(String(req.query.end_month), 10) : null;
 
     // Optional filters for MA top-model / equipment analytics
     const roleFilterRaw = req.query.role_id;
@@ -399,11 +420,32 @@ const getMaDashboard = async (req, res) => {
         : null;
 
     let start, endExclusive, effectiveMonths = months;
-    const rangeFromYear = yearParam != null && yearParam !== '' ? getRangeFromYearMonth(parseInt(String(yearParam), 10), (monthParam >= 1 && monthParam <= 12) ? monthParam : null) : null;
+    let rangeFromYear = null;
+    if (yearParam != null && yearParam !== '') {
+      const yNum = parseInt(String(yearParam), 10);
+      const hasMonth = monthParam != null && monthParam >= 1 && monthParam <= 12;
+      const hasEndMonth = endMonthParam != null && endMonthParam >= 1 && endMonthParam <= 12;
+      if (hasMonth && hasEndMonth) {
+        rangeFromYear = getRangeFromYearMonthRange(yNum, monthParam, endMonthParam);
+        let sm = monthParam;
+        let em = endMonthParam;
+        if (em < sm) {
+          const t = sm;
+          sm = em;
+          em = t;
+        }
+        effectiveMonths = Math.max(1, em - sm + 1);
+      } else if (hasMonth) {
+        rangeFromYear = getRangeFromYearMonth(yNum, monthParam);
+        effectiveMonths = 1;
+      } else {
+        rangeFromYear = getRangeFromYearMonth(yNum, null);
+        effectiveMonths = 12;
+      }
+    }
     if (rangeFromYear) {
       start = rangeFromYear.start;
       endExclusive = rangeFromYear.endExclusive;
-      effectiveMonths = monthParam >= 1 && monthParam <= 12 ? 1 : 12;
     } else {
       const range = getRange(months);
       start = range.start;
@@ -855,7 +897,7 @@ const getMaDashboard = async (req, res) => {
   }
 };
 
-// GET /api/analytics/pm-dashboard?months=6 | ?year=2024 | ?year=2024&month=3
+// GET /api/analytics/pm-dashboard?months=6 | ?year=2024 | ?year=2024&month=3 | ?year=2024&month=3&end_month=8
 // Same structure as MA dashboard but for task_type = 'PM'
 // Overdue = past end_date and status 'not-started' only.
 const getPmDashboard = async (req, res) => {
@@ -863,13 +905,36 @@ const getPmDashboard = async (req, res) => {
     const months = clampInt(req.query.months, { min: 1, max: 120, fallback: 6 });
     const yearParam = req.query.year;
     const monthParam = req.query.month != null && req.query.month !== '' ? parseInt(String(req.query.month), 10) : null;
+    const endMonthParam =
+      req.query.end_month != null && req.query.end_month !== '' ? parseInt(String(req.query.end_month), 10) : null;
 
     let start, endExclusive, effectiveMonths = months;
-    const rangeFromYear = yearParam != null && yearParam !== '' ? getRangeFromYearMonth(parseInt(String(yearParam), 10), (monthParam >= 1 && monthParam <= 12) ? monthParam : null) : null;
+    let rangeFromYear = null;
+    if (yearParam != null && yearParam !== '') {
+      const yNum = parseInt(String(yearParam), 10);
+      const hasMonth = monthParam != null && monthParam >= 1 && monthParam <= 12;
+      const hasEndMonth = endMonthParam != null && endMonthParam >= 1 && endMonthParam <= 12;
+      if (hasMonth && hasEndMonth) {
+        rangeFromYear = getRangeFromYearMonthRange(yNum, monthParam, endMonthParam);
+        let sm = monthParam;
+        let em = endMonthParam;
+        if (em < sm) {
+          const t = sm;
+          sm = em;
+          em = t;
+        }
+        effectiveMonths = Math.max(1, em - sm + 1);
+      } else if (hasMonth) {
+        rangeFromYear = getRangeFromYearMonth(yNum, monthParam);
+        effectiveMonths = 1;
+      } else {
+        rangeFromYear = getRangeFromYearMonth(yNum, null);
+        effectiveMonths = 12;
+      }
+    }
     if (rangeFromYear) {
       start = rangeFromYear.start;
       endExclusive = rangeFromYear.endExclusive;
-      effectiveMonths = monthParam >= 1 && monthParam <= 12 ? 1 : 12;
     } else {
       const range = getRange(months);
       start = range.start;

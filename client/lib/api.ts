@@ -212,7 +212,13 @@ export async function getTopSitesByContractDevice(params?: { limit?: number }): 
 }
 
 /** GET /api/contracts/statistics/top-sites-heatmap — เมทริกซ์ site × contract (device ต่อเซลล์) */
-export async function getTopSitesHeatmap(params?: { site_limit?: number; contract_limit?: number }): Promise<{
+export async function getTopSitesHeatmap(params?: {
+  site_limit?: number;
+  contract_limit?: number;
+  /** YYYY-MM-DD — กรองสัญญาที่วันเริ่มสัญญา start_date ∈ [period_start, period_end_exclusive) */
+  period_start?: string;
+  period_end_exclusive?: string;
+}): Promise<{
   success: boolean;
   sites?: Array<{
     slid: number;
@@ -225,12 +231,15 @@ export async function getTopSitesHeatmap(params?: { site_limit?: number; contrac
   contracts?: Array<{ contract_id: number; short_id: string; title: string }>;
   matrix?: number[][];
   max_value?: number;
+  period?: { period_start: string; period_end_exclusive: string };
   message?: string;
   error?: string;
 }> {
   const q = new URLSearchParams();
   if (params?.site_limit != null) q.set('site_limit', String(params.site_limit));
   if (params?.contract_limit != null) q.set('contract_limit', String(params.contract_limit));
+  if (params?.period_start) q.set('period_start', params.period_start);
+  if (params?.period_end_exclusive) q.set('period_end_exclusive', params.period_end_exclusive);
   const qs = q.toString();
   const res = await fetch(apiUrl(`/api/contracts/statistics/top-sites-heatmap${qs ? `?${qs}` : ''}`));
   return res.json();
@@ -274,7 +283,14 @@ export async function getDeviceTypes(): Promise<{
 }
 
 /** GET /api/analytics/ma-dashboard - ข้อมูล MA Dashboard แบบละเอียด (รองรับ months หรือ year+month) */
-export async function getMaDashboard(params?: { months?: number; year?: number; month?: number; roleId?: number; slId?: number }): Promise<{
+export async function getMaDashboard(params?: {
+  months?: number;
+  year?: number;
+  month?: number;
+  endMonth?: number;
+  roleId?: number;
+  slId?: number;
+}): Promise<{
   success: boolean;
   data?: {
     months: number;
@@ -337,6 +353,7 @@ export async function getMaDashboard(params?: { months?: number; year?: number; 
   if (params?.months != null) q.set('months', String(params.months));
   if (params?.year != null) q.set('year', String(params.year));
   if (params?.month != null) q.set('month', String(params.month));
+  if (params?.endMonth != null) q.set('end_month', String(params.endMonth));
   if (params?.roleId != null) q.set('role_id', String(params.roleId));
   if (params?.slId != null) q.set('sl_id', String(params.slId));
   const query = q.toString();
@@ -346,7 +363,7 @@ export async function getMaDashboard(params?: { months?: number; year?: number; 
 }
 
 /** GET /api/analytics/pm-dashboard - ข้อมูล PM Dashboard (โครงเดียวกับ MA, รองรับ year+month) */
-export async function getPmDashboard(params?: { months?: number; year?: number; month?: number }): Promise<{
+export async function getPmDashboard(params?: { months?: number; year?: number; month?: number; endMonth?: number }): Promise<{
   success: boolean;
   data?: {
     months: number;
@@ -398,6 +415,7 @@ export async function getPmDashboard(params?: { months?: number; year?: number; 
   if (params?.months != null) q.set('months', String(params.months));
   if (params?.year != null) q.set('year', String(params.year));
   if (params?.month != null) q.set('month', String(params.month));
+  if (params?.endMonth != null) q.set('end_month', String(params.endMonth));
   const res = await fetch(apiUrl(`/api/analytics/pm-dashboard?${q.toString()}`));
   return res.json();
 }

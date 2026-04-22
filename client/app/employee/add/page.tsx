@@ -14,6 +14,15 @@ import {
   validateEmployeePhoneInline,
   validateEmployeePhoneSubmit,
 } from "@/lib/phoneFormat";
+import {
+  EMPLOYEE_PHOTO_ACCEPT,
+  EMPLOYEE_PHOTO_EXTENSIONS_LABEL,
+  EMPLOYEE_PHOTO_MAX_SIZE_LABEL,
+  employeePhotoExtensionErrorMessage,
+  employeePhotoSizeErrorMessage,
+  isAllowedEmployeePhotoFile,
+  isEmployeePhotoOverSize,
+} from "@/lib/employeePhoto";
 import { useToast, ToastContainer } from "@/components/ui/Toast";
 
 const AddEmployeePage = () => {
@@ -24,7 +33,7 @@ const AddEmployeePage = () => {
   const [gmail, setGmail] = useState("");
   const [tel, setTel] = useState("");
   const [telExt, setTelExt] = useState("");
-  const [positionType, setPositionType] = useState<"Technical" | "Management">("Technical");
+  const [positionType, setPositionType] = useState<"Technical" | "Management" | "Engineer">("Technical");
   const [employmentType, setEmploymentType] = useState<string>("Full-Time");
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -49,7 +58,7 @@ const AddEmployeePage = () => {
     const nameTrim = name.trim();
     const gmailTrim = gmail.trim();
     if (!nameTrim || !gmailTrim || !tel.replace(/\D/g, "")) {
-      return "Please fill in Name, Gmail and Phone.";
+      return "Please fill in Name, Email and Phone.";
     }
     if (!/^[a-zA-Z\u0E00-\u0E7F\s]+$/.test(nameTrim)) {
       return "Name must contain letters only (no numbers or special characters).";
@@ -132,13 +141,20 @@ const AddEmployeePage = () => {
                   )}
                   <input
                     type="file"
-                    accept="image/*"
+                    accept={EMPLOYEE_PHOTO_ACCEPT}
                     className="sr-only"
                     aria-label="Select Profile Picture"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
-                      if (!file || !file.type.startsWith("image/")) {
-                        if (file) toastWarning("Please select an image file");
+                      if (!file) return;
+                      if (!isAllowedEmployeePhotoFile(file)) {
+                        toastError(employeePhotoExtensionErrorMessage());
+                        e.target.value = "";
+                        return;
+                      }
+                      if (isEmployeePhotoOverSize(file)) {
+                        toastError(employeePhotoSizeErrorMessage());
+                        e.target.value = "";
                         return;
                       }
                       setPhotoUploading(true);
@@ -161,6 +177,12 @@ const AddEmployeePage = () => {
                   </button>
                 )}
               </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Max {EMPLOYEE_PHOTO_MAX_SIZE_LABEL} · {EMPLOYEE_PHOTO_EXTENSIONS_LABEL}
+              </p>
+              <p className="mt-1 text-xs font-medium text-red-500">
+                Warning: Only {EMPLOYEE_PHOTO_EXTENSIONS_LABEL} files are allowed and size must not exceed {EMPLOYEE_PHOTO_MAX_SIZE_LABEL}.
+              </p>
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
@@ -184,7 +206,7 @@ const AddEmployeePage = () => {
 
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
-                Gmail <span className="text-red-500">*</span>
+                Email <span className="text-red-500">*</span>
               </label>
               <input
                 type="email"
@@ -279,11 +301,12 @@ const AddEmployeePage = () => {
               </label>
               <select
                 value={positionType}
-                onChange={(e) => setPositionType(e.target.value as "Technical" | "Management")}
+                onChange={(e) => setPositionType(e.target.value as "Technical" | "Management" | "Engineer")}
                 className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-3 text-sm outline-none focus:border-indigo-500"
               >
                 <option value="Technical">Technical</option>
                 <option value="Management">Management</option>
+                <option value="Engineer">Engineer</option>
               </select>
             </div>
 

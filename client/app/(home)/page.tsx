@@ -16,7 +16,18 @@ import Link from 'next/link';
 import DashboardHeader from '@/components/ui/Header';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getTasks, getTopSitesHeatmap, getEmployees, apiUrl, getPmDashboard, getSitesLocation } from '@/lib/api';
+import {
+  formatDashboardRangeLabel,
+  getDashboardPeriodBounds,
+} from '@/lib/dashboardPeriod';
 import { TopSitesWidget, type TopSitesHeatmapData } from '@/components/ui/TopSitesWidget';
+
+type EventEngineer = {
+  /** Employee id — must match employees API for roster photo */
+  id?: string;
+  name: string;
+  lastName?: string;
+};
 
 type EventItem = {
   id: string;
@@ -28,10 +39,45 @@ type EventItem = {
   startDate?: string;
   endDate?: string;
   location?: string;
-  engineers?: Array<{ name: string; lastName?: string }>;
+  engineers?: EventEngineer[];
   status?: string;
   vendorName?: string;
 };
+
+/** Avatar from Employee roster only; initials if no photo or unknown id */
+function EngineerRosterAvatar({
+  eng,
+  employeePhotoById,
+  borderClassName = 'border-2 border-white',
+}: {
+  eng: EventEngineer;
+  employeePhotoById: Record<string, string>;
+  borderClassName?: string;
+}) {
+  const eid = eng.id ?? '';
+  const url = eid ? employeePhotoById[eid] : undefined;
+  const initial = (eng.name?.[0] || eid?.[0] || '?').toUpperCase();
+  const [broken, setBroken] = useState(false);
+
+  if (!url || broken) {
+    return (
+      <span
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 shadow-sm ${borderClassName}`}
+      >
+        {initial}
+      </span>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt=""
+      className={`h-8 w-8 shrink-0 rounded-full object-cover bg-slate-200 shadow-sm ${borderClassName}`}
+      onError={() => setBroken(true)}
+    />
+  );
+}
 
 function startOfDay(d: Date): Date {
   const x = new Date(d);
@@ -50,33 +96,12 @@ function parseISODateLocal(iso: string): Date {
   return startOfDay(new Date(y, m - 1, d));
 }
 
-/** ช่วงเดียวกับ backend analytics `getRange` / `getRangeFromYearMonth` สำหรับกรองงานบน dashboard */
-function getDashboardPeriodBounds(
-  months: number,
-  dashboardParams: { year: number; month?: number } | null
-): { start: Date; endExclusive: Date } {
-  if (dashboardParams != null) {
-    const y = dashboardParams.year;
-    const mo = dashboardParams.month;
-    if (mo != null && mo >= 1 && mo <= 12) {
-      const start = startOfDay(new Date(y, mo - 1, 1));
-      const endExclusive = startOfDay(new Date(y, mo, 1));
-      return { start, endExclusive };
-    }
-    const start = startOfDay(new Date(y, 0, 1));
-    const endExclusive = startOfDay(new Date(y + 1, 0, 1));
-    return { start, endExclusive };
-  }
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  start.setDate(1);
-  start.setMonth(start.getMonth() - (months - 1));
-  const endExclusive = new Date(now);
-  endExclusive.setHours(0, 0, 0, 0);
-  endExclusive.setDate(1);
-  endExclusive.setMonth(endExclusive.getMonth() + 1);
-  return { start: startOfDay(start), endExclusive: startOfDay(endExclusive) };
+/** Local calendar date → YYYY-MM-DD (สำหรับ query กรองสัญญาตาม period dashboard) */
+function formatDateISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function taskStartInPeriodBounds(taskStart: Date, bounds: { start: Date; endExclusive: Date }): boolean {
@@ -98,8 +123,8 @@ function formatThaiRelativeToTaskStart(startDateIso: string, todayStart: Date): 
   const n = calendarDaysBetween(todayStart, start);
   if (n < 0) return null;
   if (n === 0) return 'today';
-  if (n === 1) return 'in 1 day';
-  return `in ${n} days`;
+  if (n === 1) return 'Incoming 1 day';
+  return `Incoming ${n} days`;
 }
 
 /** งานเลยกำหนด (เทียบ endDate กับวันนี้) */
@@ -154,6 +179,7 @@ export default function DashboardPage() {
   const [timeFilter, setTimeFilter] = useState('6 Months');
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('all');
+  const [selectedEndMonth, setSelectedEndMonth] = useState('all');
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const periodDropdownRef = useRef<HTMLDivElement>(null);
   const periodMenuRef = useRef<HTMLDivElement>(null);
@@ -165,6 +191,8 @@ export default function DashboardPage() {
   const PM_CARDS_PAGE_SIZE = 3;
   const NEAREST_EVENTS_PAGE_SIZE = 3;
   const MISSING_EVENTS_PAGE_SIZE = 3;
+  /** Incoming events: วันเริ่มงานภายใน 30 วันนับจากวันนี้ (ยังกรอง periodBounds เหมือนเดิม) */
+  const INCOMING_EVENTS_HORIZON_DAYS = 30;
 
   useEffect(() => {
     let cancelled = false;
@@ -218,40 +246,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const loadHeatmap = async () => {
-      setLoadingHeatmap(true);
-      setHeatmapError(null);
-      try {
-        const res = await getTopSitesHeatmap({ site_limit: 5, contract_limit: 10 });
-        if (cancelled) return;
-        if (!res || res.success === false) {
-          setHeatmapError((res as { message?: string })?.message || 'Failed to load heatmap');
-          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
-        } else {
-          setHeatmap({
-            sites: Array.isArray(res.sites) ? res.sites! : [],
-            contracts: Array.isArray(res.contracts) ? res.contracts! : [],
-            matrix: Array.isArray(res.matrix) ? res.matrix! : [],
-            max_value: Math.max(1, Number(res.max_value ?? 1)),
-          });
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setHeatmapError(e instanceof Error ? e.message : 'Failed to load heatmap');
-          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
-        }
-      } finally {
-        if (!cancelled) setLoadingHeatmap(false);
-      }
-    };
-    void loadHeatmap();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
     getSitesLocation()
       .then((res) => {
         if (!cancelled && res?.success && Array.isArray(res.data)) setSystemSiteCount(res.data.length);
@@ -280,16 +274,20 @@ export default function DashboardPage() {
         : `PM: ${siteName || 'Preventive Maintenance'}`;
     const timeStr = t.time || '09:00';
     const dateStr = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+    const mapEng = (e: any): EventEngineer => {
+      const rawId = e?.id ?? e?.user_id;
+      const id =
+        rawId !== null && rawId !== undefined && String(rawId).trim() !== '' ? String(rawId) : undefined;
+      return {
+        id,
+        name: e?.name || String(rawId ?? '') || '',
+        lastName: e?.lastName || e?.last_name || '',
+      };
+    };
     const engineers = Array.isArray(t.engineers)
-      ? t.engineers.map((e: any) => ({
-          name: e.name || e.id || '',
-          lastName: e.lastName || e.last_name || '',
-        }))
+      ? t.engineers.map(mapEng)
       : Array.isArray(t.Eng_ids)
-        ? t.Eng_ids.map((e: any) => ({
-            name: e.name || e.id || '',
-            lastName: e.lastName || e.last_name || '',
-          }))
+        ? t.Eng_ids.map(mapEng)
         : undefined;
     return {
       id: String(t.id),
@@ -331,10 +329,16 @@ export default function DashboardPage() {
     if (selectedYear && selectedYear !== '') {
       const year = parseInt(selectedYear, 10);
       const month = selectedMonth && selectedMonth !== 'all' ? parseInt(selectedMonth, 10) : undefined;
-      return { year, month };
+      if (month == null) return { year };
+      const endRaw =
+        selectedEndMonth && selectedEndMonth !== 'all' ? parseInt(selectedEndMonth, 10) : month;
+      const endMonth =
+        !Number.isNaN(endRaw) && endRaw >= 1 && endRaw <= 12 ? Math.max(month, endRaw) : month;
+      if (endMonth === month) return { year, month };
+      return { year, month, endMonth };
     }
     return null;
-  }, [selectedYear, selectedMonth]);
+  }, [selectedYear, selectedMonth, selectedEndMonth]);
 
   useEffect(() => {
     if (!periodDropdownOpen) return;
@@ -359,11 +363,16 @@ export default function DashboardPage() {
     };
     updatePos();
     window.addEventListener('resize', updatePos);
-    window.addEventListener('scroll', updatePos, true);
     return () => {
       window.removeEventListener('resize', updatePos);
-      window.removeEventListener('scroll', updatePos, true);
     };
+  }, [periodDropdownOpen]);
+
+  useEffect(() => {
+    if (!periodDropdownOpen) return;
+    const onScroll = () => setPeriodDropdownOpen(false);
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
   }, [periodDropdownOpen]);
 
   useEffect(() => {
@@ -396,37 +405,94 @@ export default function DashboardPage() {
     if (selectedYear) {
       const y = selectedYear;
       if (selectedMonth && selectedMonth !== 'all') {
-        const m = parseInt(selectedMonth, 10);
-        const label = m >= 1 && m <= 12 ? MONTH_LABELS[m - 1] : 'All';
-        return `Custom: ${label} ${y}`;
+        const sm = parseInt(selectedMonth, 10);
+        const em =
+          selectedEndMonth && selectedEndMonth !== 'all' ? parseInt(selectedEndMonth, 10) : sm;
+        const startLabel = sm >= 1 && sm <= 12 ? MONTH_LABELS[sm - 1] : 'All';
+        const endLabel = em >= 1 && em <= 12 ? MONTH_LABELS[em - 1] : startLabel;
+        if (em !== sm && !Number.isNaN(em) && em >= sm) {
+          return `Custom: ${startLabel} – ${endLabel} ${y}`;
+        }
+        return `Custom: ${startLabel} ${y}`;
       }
       return `Custom: ${y}`;
     }
     return timeFilter;
-  }, [selectedYear, selectedMonth, timeFilter]);
+  }, [selectedYear, selectedMonth, selectedEndMonth, timeFilter]);
 
+  /** ช่วงวันใน pill ขวา — custom ใช้คำนวณจาก UI เหมือน periodBounds (API range ไม่มี end_month ครบได้) */
   const rangeLabel = useMemo(() => {
+    if (dashboardParams != null) {
+      const b = getDashboardPeriodBounds(months, dashboardParams);
+      return formatDashboardRangeLabel(b, MONTH_LABELS);
+    }
     if (!periodRange?.start || !periodRange?.endExclusive) return null;
     const startStr = periodRange.start.split('T')[0];
     const endStr = periodRange.endExclusive.split('T')[0];
-    const [sy, sm] = startStr.split('-').map(Number);
-    const [ey, em] = endStr.split('-').map(Number);
-    const startDate = new Date(sy, sm - 1, 1);
-    const endDate = new Date(ey, em, 0);
+    const startDate = parseISODateLocal(startStr);
+    const endExclusiveDay = parseISODateLocal(endStr);
+    const endInclusive = new Date(endExclusiveDay);
+    endInclusive.setDate(endInclusive.getDate() - 1);
     const fmt = (d: Date) => `${d.getDate()} ${MONTH_LABELS[d.getMonth()]} ${d.getFullYear()}`;
-    return `${fmt(startDate)} - ${fmt(endDate)}`;
-  }, [periodRange]);
+    return `${fmt(startDate)} - ${fmt(endInclusive)}`;
+  }, [dashboardParams, months, periodRange]);
 
   /** กรองงานให้ตรงกับช่วงที่เลือก (เดียวกับ PM analytics: start_date ∈ [start, endExclusive)) */
   const periodBounds = useMemo(() => {
+    // Custom year/month: คำนวณจาก UI ทันที — อย่าใช้ periodRange ค้างจากโหมดก่อน (เช่น 6 เดือนล่าสุด)
+    // จนกว่า getPmDashboard จะตอบ ไม่งั้น Top sites / heatmap จะดึงช่วงเดิมตลอด
+    if (dashboardParams != null) {
+      return getDashboardPeriodBounds(months, dashboardParams);
+    }
     if (periodRange?.start && periodRange?.endExclusive) {
       return {
         start: parseISODateLocal(periodRange.start),
         endExclusive: parseISODateLocal(periodRange.endExclusive),
       };
     }
-    return getDashboardPeriodBounds(months, dashboardParams);
+    return getDashboardPeriodBounds(months, null);
   }, [periodRange, months, dashboardParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHeatmap = async () => {
+      setLoadingHeatmap(true);
+      setHeatmapError(null);
+      const period_start = formatDateISO(periodBounds.start);
+      const period_end_exclusive = formatDateISO(periodBounds.endExclusive);
+      try {
+        const res = await getTopSitesHeatmap({
+          site_limit: 5,
+          contract_limit: 10,
+          period_start,
+          period_end_exclusive,
+        });
+        if (cancelled) return;
+        if (!res || res.success === false) {
+          setHeatmapError((res as { message?: string })?.message || 'Failed to load heatmap');
+          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
+        } else {
+          setHeatmap({
+            sites: Array.isArray(res.sites) ? res.sites! : [],
+            contracts: Array.isArray(res.contracts) ? res.contracts! : [],
+            matrix: Array.isArray(res.matrix) ? res.matrix! : [],
+            max_value: Math.max(1, Number(res.max_value ?? 1)),
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setHeatmapError(e instanceof Error ? e.message : 'Failed to load heatmap');
+          setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
+        }
+      } finally {
+        if (!cancelled) setLoadingHeatmap(false);
+      }
+    };
+    void loadHeatmap();
+    return () => {
+      cancelled = true;
+    };
+  }, [periodBounds.start.getTime(), periodBounds.endExclusive.getTime()]);
 
   const pmCards = useMemo(() => {
     const upcomingPm = allTasks
@@ -481,7 +547,8 @@ export default function DashboardPage() {
         const raw = t.startDate || t.start_date;
         const startDay = parseISODateLocal(String(raw));
         if (Number.isNaN(startDay.getTime())) return false;
-        return calendarDaysBetween(todayStart, startDay) >= 0;
+        const n = calendarDaysBetween(todayStart, startDay);
+        return n >= 0 && n <= INCOMING_EVENTS_HORIZON_DAYS;
       })
       .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
       .slice(0, 80)
@@ -610,91 +677,120 @@ export default function DashboardPage() {
                   {periodDropdownOpen && periodMenuPos && createPortal(
                     <div
                       ref={periodMenuRef}
-                      className="fixed w-[320px] rounded-2xl bg-white shadow-xl border border-slate-100 p-2 z-[9999]"
+                      className="fixed w-max max-w-[calc(100vw-24px)] rounded-xl bg-white shadow-lg border border-slate-100 p-1.5 z-[9999]"
                       style={{ top: periodMenuPos.top, right: periodMenuPos.right }}
                     >
-                      <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                      <div className="px-2 py-0.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
                         Period
                       </div>
-                      <div className="space-y-1">
-                        {['3 Months', '6 Months'].map((label) => (
-                          <button
-                            key={label}
-                            type="button"
-                            onClick={() => {
-                              setTimeFilter(label);
-                              setSelectedYear('');
-                              setSelectedMonth('all');
-                              setPeriodDropdownOpen(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
-                              !selectedYear && timeFilter === label
-                                ? 'bg-slate-50 font-semibold text-slate-800'
-                                : 'text-slate-700'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
+                      <div className="grid grid-cols-2 items-start gap-x-2 px-1">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                          {['3 Months', '6 Months'].map((label) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => {
+                                setTimeFilter(label);
+                                setSelectedYear('');
+                                setSelectedMonth('all');
+                                setSelectedEndMonth('all');
+                                setPeriodDropdownOpen(false);
+                              }}
+                              className={`text-left px-2 py-1 rounded-md text-xs hover:bg-slate-50 ${
+                                !selectedYear && timeFilter === label
+                                  ? 'bg-slate-50 font-semibold text-slate-800'
+                                  : 'text-slate-700'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex min-w-0 flex-col gap-0.5 border-l border-slate-100 pl-2">
+                          {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => {
+                                setTimeFilter(label);
+                                setSelectedYear('');
+                                setSelectedMonth('all');
+                                setSelectedEndMonth('all');
+                                setPeriodDropdownOpen(false);
+                              }}
+                              className={`text-left px-2 py-1 rounded-md text-xs hover:bg-slate-50 ${
+                                !selectedYear && timeFilter === label
+                                  ? 'bg-slate-50 font-semibold text-slate-800'
+                                  : 'text-slate-700'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
 
-                      <div className="my-2 h-px bg-slate-100" />
-                      <div className="space-y-1">
-                        {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
-                          <button
-                            key={label}
-                            type="button"
-                            onClick={() => {
-                              setTimeFilter(label);
-                              setSelectedYear('');
-                              setSelectedMonth('all');
-                              setPeriodDropdownOpen(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
-                              !selectedYear && timeFilter === label
-                                ? 'bg-slate-50 font-semibold text-slate-800'
-                                : 'text-slate-700'
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="my-2 h-px bg-slate-100" />
-                      <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                      <div className="my-0.5 h-px bg-slate-100" />
+                      <div className="px-2 pb-1.5 pt-0">
+                      <div className="pb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
                         Custom
                       </div>
-                      <div className="px-3 pb-3">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-1">
-                            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Year</label>
+                      <div className="space-y-1">
+                        <div className="flex flex-nowrap items-end gap-1.5">
+                          <div className="shrink-0">
+                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                              Year
+                            </label>
                             <select
                               aria-label="Year"
                               value={selectedYear}
                               onChange={(e) => {
-                                setSelectedYear(e.target.value);
-                                if (!e.target.value) setSelectedMonth('all');
+                                const v = e.target.value;
+                                setSelectedYear(v);
+                                if (!v) {
+                                  setSelectedMonth('all');
+                                  setSelectedEndMonth('all');
+                                }
                               }}
-                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
+                              className="w-[5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] tabular-nums leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
                             >
                               {yearOptions.map((o) => (
                                 <option key={o.value || 'x'} value={o.value}>
-                                  {o.value ? o.label : 'Select year'}
+                                  {o.value ? o.label : '—'}
                                 </option>
                               ))}
                             </select>
                           </div>
-                          <div className="flex-1">
-                            <label className="mb-1 block text-[11px] font-semibold text-slate-500">Month</label>
+                          <div className="shrink-0">
+                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                              Start Month
+                            </label>
                             <select
-                              aria-label="Month"
+                              aria-label="Start month"
                               value={selectedMonth}
-                              onChange={(e) => setSelectedMonth(e.target.value)}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setSelectedMonth(v);
+                                if (v === 'all') setSelectedEndMonth('all');
+                                else {
+                                  const sm = parseInt(v, 10);
+                                  const em =
+                                    selectedEndMonth !== 'all'
+                                      ? parseInt(selectedEndMonth, 10)
+                                      : sm;
+                                  if (
+                                    Number.isNaN(em) ||
+                                    selectedEndMonth === 'all' ||
+                                    em < sm
+                                  ) {
+                                    setSelectedEndMonth(v);
+                                  }
+                                }
+                              }}
                               disabled={!selectedYear}
-                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                              className="w-[4.5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
                             >
-                              <option value="all">All months</option>
+                              <option value="all">All</option>
                               {MONTH_LABELS.map((label, i) => (
                                 <option key={label} value={String(i + 1)}>
                                   {label}
@@ -702,26 +798,61 @@ export default function DashboardPage() {
                               ))}
                             </select>
                           </div>
+                          <div className="shrink-0">
+                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                              End Month
+                            </label>
+                            <select
+                              aria-label="End month"
+                              value={
+                                selectedMonth === 'all'
+                                  ? 'all'
+                                  : selectedEndMonth !== 'all'
+                                    ? selectedEndMonth
+                                    : selectedMonth
+                              }
+                              onChange={(e) => setSelectedEndMonth(e.target.value)}
+                              disabled={!selectedYear || selectedMonth === 'all'}
+                              className="w-[4.5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                            >
+                              {selectedMonth === 'all' && (
+                                <option value="all">—</option>
+                              )}
+                              {MONTH_LABELS.map((label, i) => {
+                                const m = i + 1;
+                                const sm =
+                                  selectedMonth !== 'all' ? parseInt(selectedMonth, 10) : 1;
+                                if (selectedMonth !== 'all' && m < sm) return null;
+                                return (
+                                  <option key={label} value={String(m)}>
+                                    {label}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
                         </div>
-                        <div className="mt-2 flex items-center justify-end gap-2">
+                        <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => {
                               setSelectedYear('');
                               setSelectedMonth('all');
+                              setSelectedEndMonth('all');
                             }}
-                            className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                            className="px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
                           >
                             Clear
                           </button>
                           <button
                             type="button"
                             onClick={() => setPeriodDropdownOpen(false)}
-                            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
                           >
                             Done
                           </button>
                         </div>
+                      </div>
                       </div>
                     </div>,
                     document.body
@@ -742,15 +873,16 @@ export default function DashboardPage() {
           <div>
             <div className="flex justify-between items-center gap-2 mb-4 flex-wrap">
               <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">Preventive Maintenance</h3>
-              <div
-                className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/90 px-3 py-1.5 text-xs text-blue-900 shadow-sm"
-                title="Total site locations in the system (from sites / locations)"
+              <Link
+                href="/report#pm-sites-registry"
+                className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/90 px-3 py-1.5 text-xs text-blue-900 shadow-sm transition-colors hover:bg-blue-100/90 hover:border-blue-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-1"
+                title="Open Sites & locations on Report (registry from sites / sites_location)"
               >
                 <Building2 size={16} className="text-blue-500 shrink-0" aria-hidden />
                 <span>
                   Total <span className="font-bold tabular-nums">{systemSiteCount ?? '—'}</span> sites in the system
                 </span>
-              </div>
+              </Link>
             </div>
             <div className="space-y-3">
               {loadingTasks ? (
@@ -876,25 +1008,40 @@ export default function DashboardPage() {
                             : 'border-l-blue-400 bg-blue-50/30 hover:bg-blue-50/50'
                         }`}
                       >
-                        <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                        <p
-                          className={`text-[10px] mt-1 ${ev.taskType === 'MA' ? 'text-red-600' : 'text-gray-500'}`}
-                        >
-                          {ev.dateStr}
-                        </p>
-                        {ev.startDate &&
-                          (() => {
-                            const rel = formatThaiRelativeToTaskStart(ev.startDate, todayStart);
-                            return rel ? (
-                              <p
-                                className={`text-[10px] mt-0.5 font-medium ${
-                                  ev.taskType === 'MA' ? 'text-red-700/90' : 'text-blue-600/90'
-                                }`}
-                              >
-                                {rel}
-                              </p>
-                            ) : null;
-                          })()}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
+                            <p
+                              className={`text-[10px] mt-1 ${ev.taskType === 'MA' ? 'text-red-600' : 'text-gray-500'}`}
+                            >
+                              {ev.dateStr}
+                            </p>
+                            {ev.startDate &&
+                              (() => {
+                                const rel = formatThaiRelativeToTaskStart(ev.startDate, todayStart);
+                                return rel ? (
+                                  <p
+                                    className={`text-[10px] mt-0.5 font-medium ${
+                                      ev.taskType === 'MA' ? 'text-red-700/90' : 'text-blue-600/90'
+                                    }`}
+                                  >
+                                    {rel}
+                                  </p>
+                                ) : null;
+                              })()}
+                          </div>
+                          {ev.engineers && ev.engineers.length > 0 && (
+                            <div className="flex -space-x-2 shrink-0 pt-0.5" aria-hidden>
+                              {ev.engineers.slice(0, 4).map((eng, i) => (
+                                <EngineerRosterAvatar
+                                  key={eng.id || `${ev.id}-eng-${i}`}
+                                  eng={eng}
+                                  employeePhotoById={employeePhotoById}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </Link>
                     ))}
                   </div>
@@ -981,15 +1128,30 @@ export default function DashboardPage() {
                       }}
                       className="block rounded-2xl border border-gray-50 border-l-4 border-l-amber-400 p-4 bg-amber-50/30 hover:bg-amber-50/50 transition-colors"
                     >
-                      <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
-                      <p className="text-[10px] text-amber-600 mt-1">From {ev.dateStr}</p>
-                      {ev.endDate &&
-                        (() => {
-                          const overdue = formatThaiDaysPastDue(ev.endDate, todayStart);
-                          return overdue ? (
-                            <p className="text-[10px] text-amber-800 font-semibold mt-0.5">{overdue}</p>
-                          ) : null;
-                        })()}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
+                          <p className="text-[10px] text-amber-600 mt-1">From {ev.dateStr}</p>
+                          {ev.endDate &&
+                            (() => {
+                              const overdue = formatThaiDaysPastDue(ev.endDate, todayStart);
+                              return overdue ? (
+                                <p className="text-[10px] text-amber-800 font-semibold mt-0.5">{overdue}</p>
+                              ) : null;
+                            })()}
+                        </div>
+                        {ev.engineers && ev.engineers.length > 0 && (
+                          <div className="flex -space-x-2 shrink-0 pt-0.5" aria-hidden>
+                            {ev.engineers.slice(0, 4).map((eng, i) => (
+                              <EngineerRosterAvatar
+                                key={eng.id || `${ev.id}-eng-${i}`}
+                                eng={eng}
+                                employeePhotoById={employeePhotoById}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </Link>
                   ))}
                 </div>
@@ -1116,13 +1278,20 @@ export default function DashboardPage() {
 
             {hoveredEvent.engineers && hoveredEvent.engineers.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
-                <div className="flex flex-wrap gap-1">
+                <p className="text-xs font-semibold text-slate-500 mb-1">Engineers</p>
+                <div className="flex flex-col gap-1.5">
                   {hoveredEvent.engineers.map((eng, idx) => (
-                    <span key={idx} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded">
-                      {eng.name}
-                      {eng.lastName ? ` ${eng.lastName}` : ''}
-                    </span>
+                    <div key={eng.id || idx} className="flex items-center gap-2">
+                      <EngineerRosterAvatar
+                        eng={eng}
+                        employeePhotoById={employeePhotoById}
+                        borderClassName="border border-slate-200"
+                      />
+                      <span className="text-xs font-medium text-slate-800">
+                        {eng.name}
+                        {eng.lastName ? ` ${eng.lastName}` : ''}
+                      </span>
+                    </div>
                   ))}
                 </div>
               </div>

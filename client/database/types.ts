@@ -16,7 +16,7 @@ export interface Site {
 // ============================================
 // 2. EMPLOYEES
 // ============================================
-export type PositionType = 'Technical' | 'Management';
+export type PositionType = 'Technical' | 'Management' | 'Engineer';
 export type EmploymentType = 'Full-time' | 'Contract' | 'Part-time';
 
 export interface Employee {

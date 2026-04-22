@@ -1593,10 +1593,30 @@ const getVendorStatistics = async (req, res) => {
 };
 
 // GET /api/contracts/statistics/top-sites — Top sites จาก contract_device (devices + contracts ต่อ SLid)
+// Optional query: period_start, period_end_exclusive (YYYY-MM-DD) — กรองสัญญาที่วันเริ่มสัญญา start_date ∈ [start, endExclusive)
 const getTopSitesByContractDevice = async (req, res) => {
   try {
     const lim = parseInt(String(req.query.limit ?? '8'), 10);
     const limit = Number.isNaN(lim) ? 8 : Math.min(Math.max(lim, 1), 25);
+
+    const ps = req.query.period_start;
+    const pe = req.query.period_end_exclusive;
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const usePeriod =
+      ps && pe && dateRe.test(String(ps).trim()) && dateRe.test(String(pe).trim());
+    const periodStart = usePeriod ? String(ps).trim() : null;
+    const periodEndEx = usePeriod ? String(pe).trim() : null;
+    const contractJoin = usePeriod
+      ? `
+      INNER JOIN contract c ON c.contract_id = cd.contract_id
+        AND c.start_date IS NOT NULL
+        AND DATE(c.start_date) >= ?
+        AND DATE(c.start_date) < ?
+    `
+      : `
+      LEFT JOIN contract c ON c.contract_id = cd.contract_id
+    `;
+    const periodBindFirst = usePeriod ? [periodStart, periodEndEx] : [];
 
     const [rows] = await db.execute(
       `
@@ -1612,24 +1632,26 @@ const getTopSitesByContractDevice = async (req, res) => {
             AND c.end_date >= CURDATE()
           THEN c.contract_id END) AS contracts_expiring_soon
       FROM contract_device cd
+      ${contractJoin}
       INNER JOIN sites_location sl ON sl.SLid = cd.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
-      LEFT JOIN contract c ON c.contract_id = cd.contract_id
       WHERE cd.SLid IS NOT NULL AND cd.device_id IS NOT NULL
       GROUP BY cd.SLid, s.Name, l.Location2
       ORDER BY device_count DESC, contract_count DESC
       LIMIT ?
       `,
-      [limit]
+      [...periodBindFirst, limit]
     );
 
     const [totalRows] = await db.execute(
       `
       SELECT COUNT(DISTINCT cd.device_id) AS total
       FROM contract_device cd
+      ${contractJoin}
       WHERE cd.SLid IS NOT NULL AND cd.device_id IS NOT NULL
-      `
+      `,
+      [...periodBindFirst]
     );
     const totalDevices = Number(totalRows[0]?.total || 0);
 
@@ -1652,6 +1674,14 @@ const getTopSitesByContractDevice = async (req, res) => {
       success: true,
       total_devices: totalDevices,
       data,
+      ...(usePeriod
+        ? {
+            period: {
+              period_start: periodStart,
+              period_end_exclusive: periodEndEx,
+            },
+          }
+        : {}),
     });
   } catch (error) {
     console.error('Error getting top sites by contract/device:', error);
@@ -1664,6 +1694,7 @@ const getTopSitesByContractDevice = async (req, res) => {
 };
 
 // GET /api/contracts/statistics/top-sites-heatmap — เมทริกซ์ site × contract (จำนวน device ต่อเซลล์)
+// Optional: period_start & period_end_exclusive (YYYY-MM-DD) — นับเฉพาะสัญญาที่วันเริ่มสัญญา start_date ∈ [start, endExclusive)
 const getTopSitesHeatmap = async (req, res) => {
   try {
     const parseLim = (v, fb, min, max) => {
@@ -1674,6 +1705,26 @@ const getTopSitesHeatmap = async (req, res) => {
     const siteLimit = parseLim(req.query.site_limit, 8, 3, 15);
     const contractLimit = parseLim(req.query.contract_limit, 5, 2, 10);
 
+    const ps = req.query.period_start;
+    const pe = req.query.period_end_exclusive;
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const usePeriod =
+      ps && pe && dateRe.test(String(ps).trim()) && dateRe.test(String(pe).trim());
+    const periodStart = usePeriod ? String(ps).trim() : null;
+    const periodEndEx = usePeriod ? String(pe).trim() : null;
+
+    /** JOIN กรองสัญญาที่วันเริ่มสัญญาอยู่ในช่วง [period_start, period_end_exclusive) — ตรงกับ dashboard / PM period */
+    const contractPeriodJoin = usePeriod
+      ? `
+      INNER JOIN contract c ON c.contract_id = cd.contract_id
+        AND c.start_date IS NOT NULL
+        AND DATE(c.start_date) >= ?
+        AND DATE(c.start_date) < ?
+    `
+      : '';
+
+    const periodBindFirst = usePeriod ? [periodStart, periodEndEx] : [];
+
     const [siteRows] = await db.execute(
       `
       SELECT
@@ -1682,6 +1733,7 @@ const getTopSitesHeatmap = async (req, res) => {
         IFNULL(l.Location2, '') AS location2,
         COUNT(DISTINCT cd.device_id) AS total_devices
       FROM contract_device cd
+      ${contractPeriodJoin}
       INNER JOIN sites_location sl ON sl.SLid = cd.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
@@ -1690,7 +1742,7 @@ const getTopSitesHeatmap = async (req, res) => {
       ORDER BY total_devices DESC
       LIMIT ?
       `,
-      [siteLimit]
+      [...periodBindFirst, siteLimit]
     );
 
     if (!siteRows.length) {
@@ -1700,6 +1752,14 @@ const getTopSitesHeatmap = async (req, res) => {
         contracts: [],
         matrix: [],
         max_value: 0,
+        ...(usePeriod
+          ? {
+              period: {
+                period_start: periodStart,
+                period_end_exclusive: periodEndEx,
+              },
+            }
+          : {}),
       });
     }
 
@@ -1711,10 +1771,11 @@ const getTopSitesHeatmap = async (req, res) => {
       `
       SELECT cd.SLid AS slid, cd.contract_id, COUNT(DISTINCT cd.device_id) AS cnt
       FROM contract_device cd
+      ${contractPeriodJoin}
       WHERE cd.SLid IN (${slph}) AND cd.device_id IS NOT NULL
       GROUP BY cd.SLid, cd.contract_id
       `,
-      [...slids]
+      [...periodBindFirst, ...slids]
     );
 
     const pairList = Array.isArray(allPairRows) ? allPairRows : [];
@@ -1797,6 +1858,14 @@ const getTopSitesHeatmap = async (req, res) => {
       contracts: contractMeta,
       matrix,
       max_value: maxVal,
+      ...(usePeriod
+        ? {
+            period: {
+              period_start: periodStart,
+              period_end_exclusive: periodEndEx,
+            },
+          }
+        : {}),
     });
   } catch (error) {
     console.error('Error getting top sites heatmap:', error);
