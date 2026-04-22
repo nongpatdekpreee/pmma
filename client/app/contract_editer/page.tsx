@@ -241,8 +241,9 @@ function mapApiRowToContract(c: {
     rawStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
   const status = resolveContractListStatus(endDate, markedNotRenewing);
   const hs = c.history_status != null ? String(c.history_status).trim() : '';
+  const hsLower = hs.toLowerCase();
   const historyStatus: Contract['historyStatus'] =
-    hs === 'Renew' || hs === 'Terminated' ? hs : null;
+    hsLower === 'renew' ? 'Renew' : hsLower === 'terminated' ? 'Terminated' : null;
   const alignedRaw = c.devices_slid_aligned;
   const devicesSlidAligned =
     alignedRaw === 1 ||
@@ -298,7 +299,7 @@ type HistoryDisplayApiRow = Parameters<typeof mapApiRowToContract>[0] & {
 
 function mapHistoryDisplayRowToContract(h: HistoryDisplayApiRow): Contract {
   const base = mapApiRowToContract(h);
-  const terminated = String(h.history_status ?? '').trim() === 'Terminated';
+  const terminated = String(h.history_status ?? '').trim().toLowerCase() === 'terminated';
   return {
     ...base,
     id: `h-${h.history_id}`,
@@ -694,7 +695,7 @@ function ContractEditorPageContent() {
       const hjson = await hres.json();
       if (!hjson.success || !Array.isArray(hjson.data)) return list;
       const terminatedOnly = (hjson.data as HistoryDisplayApiRow[]).filter(
-        (h) => String(h.history_status ?? '').trim() === 'Terminated',
+        (h) => String(h.history_status ?? '').trim().toLowerCase() === 'terminated',
       );
       const extra: Contract[] = terminatedOnly.map((h) => mapHistoryDisplayRowToContract(h));
       if (extra.length === 0) return list;
@@ -1961,17 +1962,19 @@ function ContractEditorPageContent() {
           const onlyContracts = contracts.filter((c) => !c.isHistorySnapshotRow);
           const total = onlyContracts.length;
           const draft = onlyContracts.filter((c) => c.contractStatus === 'draft').length;
-          const notRenewing = onlyContracts.filter((c) => c.contractStatus === 'not_renewing').length;
           const active = onlyContracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
           const expiring = onlyContracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
           const expired = onlyContracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
+          const terminated = contracts.filter(
+            (c) => c.isHistorySnapshotRow && (c.historyStatus === 'Terminated' || c.contractStatus === 'not_renewing')
+          ).length;
           const stats = [
             { filter: 'All' as const, number: String(total), label: 'All Contracts' },
             { filter: 'Active' as const, number: String(active), label: 'Active Contracts' },
             { filter: 'Expiring' as const, number: String(expiring), label: 'Expiring Contracts' },
             { filter: 'Expired' as const, number: String(expired), label: 'Expired Contracts' },
             { filter: 'Draft' as const, number: String(draft), label: 'Draft Contracts' },
-            { filter: 'Terminated' as const, number: String(notRenewing), label: 'Terminated Contracts' },
+            { filter: 'Terminated' as const, number: String(terminated), label: 'Terminated Contracts' },
           ];
           return (
         <div className="@container min-w-0 w-full max-w-full">
