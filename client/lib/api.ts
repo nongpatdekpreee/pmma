@@ -89,6 +89,11 @@ export async function responseJsonOrThrow<T = unknown>(res: Response, hint?: str
   }
 }
 
+async function jsonWithFallback<T>(res: Response, fallback: T): Promise<T> {
+  const data = await responseJsonSafe<T>(res);
+  return data ?? fallback;
+}
+
 /** Parse response as JSON; if server returns HTML (e.g. 404 page), return a safe error object instead of throwing */
 async function parseJsonResponse<T>(res: Response, fallback: T): Promise<T> {
   const text = await res.text();
@@ -109,7 +114,7 @@ export async function getSitesLocation(): Promise<{
   data: { SLid: number; Sid: number; lid: number; SiteName: string; Location2: string }[];
 }> {
   const res = await fetch(apiUrl('/api/sites/locations'));
-  return res.json();
+  return jsonWithFallback(res, { success: false, data: [] });
 }
 
 /** GET /api/sites/registry-counts — จำนวนแถวในตาราง sites และ sites_location */
@@ -125,7 +130,7 @@ export async function getSiteRegistryCounts(): Promise<{
 /** GET /api/sites/locations-with-contracts - สำหรับ dropdown Site เฉพาะที่มี contract (SLid, SiteName, Location2) */
 export async function getSitesLocationWithContracts(): Promise<{ success: boolean; data: { SLid: number; SiteName: string; Location2?: string }[] }> {
   const res = await fetch(apiUrl('/api/sites/locations-with-contracts'));
-  return res.json();
+  return jsonWithFallback(res, { success: false, data: [] });
 }
 
 /** GET /api/devices/by-site?site_id= - Devices ตาม SLid */
@@ -147,7 +152,7 @@ export async function getContractsBySite(siteId?: number | string | null): Promi
 }> {
   const url = siteId ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteId))}`) : apiUrl('/api/contracts');
   const res = await fetch(url);
-  return res.json();
+  return jsonWithFallback(res, { success: false, data: [] });
 }
 
 /** GET /api/contracts/:id/sites - Sites ที่ผูกกับ Contract */
@@ -165,7 +170,7 @@ export async function getContractById(contractId: number | string): Promise<{
   data?: { contract_id: number; contract_name?: string; sla_term?: number | string };
 }> {
   const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}`));
-  return res.json();
+  return jsonWithFallback(res, { success: false });
 }
 
 /** GET /api/contracts/:id/devices - Devices ที่ผูกกับ Contract (จาก contract_device). ส่ง site_id (= SLid) เพื่อกรองเฉพาะ site นั้น */
@@ -175,7 +180,7 @@ export async function getDevicesByContract(contractId: number | string, siteId?:
 }> {
   const q = siteId != null && siteId !== '' ? `?site_id=${encodeURIComponent(String(siteId))}` : '';
   const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/devices${q}`));
-  return res.json();
+  return jsonWithFallback(res, { success: false, data: [] });
 }
 
 /** GET /api/contracts/statistics/vendor - Vendor Statistics จาก Devices ที่มี Contract */
@@ -491,7 +496,7 @@ export async function getTasks(params?: { month?: number; year?: number }): Prom
   if (params?.month != null) q.set('month', String(params.month));
   if (params?.year != null) q.set('year', String(params.year));
   const res = await fetch(apiUrl(`/api/tasks?${q.toString()}`));
-  return res.json();
+  return jsonWithFallback(res, { success: false, data: [], count: 0 });
 }
 
 /** GET /api/tasks/overdue?task_type=MA|PM&sid=&lid= - ดึงงานเกินกำหนด (รองรับ filter Sid/lid) */
