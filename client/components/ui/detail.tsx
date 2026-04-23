@@ -738,14 +738,14 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   <div className="space-y-2">
                     <div>
                       <p className="text-[10px] font-semibold uppercase text-blue-600/90 mb-0.5">
-                        ย้ายมาจาก / Moved from
+                        Moved from
                       </p>
                       <p className="text-sm font-semibold text-blue-950">{parsed.originLine}</p>
                     </div>
                     {parsed.reasonBody ? (
                       <div>
                         <p className="text-[10px] font-semibold uppercase text-blue-600/90 mb-0.5">
-                          เหตุผล / Reason
+                          Reason
                         </p>
                         <p className="text-sm font-medium text-blue-900 leading-relaxed whitespace-pre-wrap">
                           {parsed.reasonBody}

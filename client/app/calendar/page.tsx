@@ -1123,7 +1123,7 @@ function CalendarPageContent() {
                         <span className="block">Date</span>
                         <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
                       </th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Incoming</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Status Date</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Engineer</th>
