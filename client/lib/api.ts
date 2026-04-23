@@ -139,6 +139,19 @@ export async function getDevicesBySite(siteId: number | string): Promise<{ succe
   return res.json();
 }
 
+/** GET /api/devices/import-location2-hints — SLid + Location2 on contract where Refer_SOF matches SOF (import hints) */
+export async function getImportLocation2HintsByContractAndSof(
+  contractId: number,
+  referSof: string
+): Promise<{ success: boolean; data: { SLid: number; Location2: string }[] }> {
+  const q = new URLSearchParams({
+    contract_id: String(contractId),
+    refer_sof: String(referSof).trim(),
+  });
+  const res = await fetch(apiUrl(`/api/devices/import-location2-hints?${q.toString()}`));
+  return jsonWithFallback(res, { success: false, data: [] });
+}
+
 /** GET /api/devices/assigned-services - รายการ Assigned_Service (DISTINCT จาก devices สำหรับ Add Contract) */
 export async function getAssignedServices(): Promise<{ success: boolean; data: string[] }> {
   const res = await fetch(apiUrl('/api/devices/assigned-services'));

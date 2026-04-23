@@ -13,6 +13,7 @@ const {
   getReferSOFList,
   getAssignedServicesList,
   getDevicesBySOFAndSite,
+  getImportLocation2HintsByContractAndSof,
   getDevicesByContractAndSite,
   getDevicesBySerials,
   getDevicesBySiteNoSOF,
@@ -51,6 +52,9 @@ router.get('/by-sof-and-site', getDevicesBySOFAndSite);
 
 // GET - Devices จาก contract_device ตาม contract_id + slid (Site+Location)
 router.get('/by-contract-and-site', getDevicesByContractAndSite);
+
+// GET - Distinct Location2 per SLid on contract where device Refer_SOF matches (schedule import hints)
+router.get('/import-location2-hints', getImportLocation2HintsByContractAndSof);
 
 // GET - Devices ตาม Serial หลายตัว (สำหรับ Import Contract) ?serials=FGL2314A91L,FGL2314A92L
 router.get('/by-serials', getDevicesBySerials);

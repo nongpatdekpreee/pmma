@@ -24,7 +24,7 @@ import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import * as XLSX from 'xlsx';
@@ -90,6 +90,8 @@ interface CalendarEvent {
   notes?: string;
   rescheduleNote?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
+  /** MA — จาก tasks.assigned_service */
+  assignedService?: string | null;
 }
 
 /**
@@ -108,12 +110,10 @@ function normalizeImportText(value: unknown): string {
   return collapsed;
 }
 
-/** Min combined similarity to accept a sites_location row (0–1). */
-const IMPORT_FIELD_SIMILARITY_MIN = 0.78;
-/** When location fails, list DB rows whose site name is at least this similar (hints). */
-const IMPORT_SITE_HINT_MIN = 0.68;
-const IMPORT_SITE_LOC_SITE_WEIGHT = 0.4;
-const IMPORT_SITE_LOC_LOC_WEIGHT = 0.6;
+/** Site/Location in import: must match DB text exactly after trim; only letter case may differ. */
+function importSiteLocTextEquals(a: unknown, b: unknown): boolean {
+  return String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+}
 
 function levenshteinDistance(a: string, b: string): number {
   const m = a.length;
@@ -159,57 +159,77 @@ type ImportSiteRow = {
   lid?: number | null;
 };
 
+/**
+ * Legacy one-line errors (no values marker) still name Site / Location / SOF in prose — extract for the table column.
+ */
+function synthesizeFromYourFileLineFromErrorText(s: string): string | null {
+  const pick = (re: RegExp) => {
+    const m = re.exec(s);
+    const v = m?.[1]?.trim();
+    return v || null;
+  };
+  const site =
+    pick(/\bSite\s+"([^"]+)"/i) ||
+    pick(/\bSite\s+'([^']+)'/i) ||
+    pick(/\bSite\s+\u201c([^\u201d]+)\u201d/i);
+  const location =
+    pick(/\bLocation\s+"([^"]+)"/i) ||
+    pick(/\bLocation\s+'([^']+)'/i) ||
+    pick(/\bLocation\s+\u201c([^\u201d]+)\u201d/i);
+  const sof =
+    pick(/\bSOF\s+"([^"]+)"/i) ||
+    pick(/\bSOF\s+'([^']+)'/i) ||
+    pick(/\bSOF\s+\u201c([^\u201d]+)\u201d/i);
+  const engineer =
+    pick(/\bEngineer\s+"([^"]+)"/i) ||
+    pick(/\bEngineer\s+'([^']+)'/i) ||
+    pick(/\bEngineer\s+\u201c([^\u201d]+)\u201d/i);
+  const planStart =
+    pick(/\bPlan start\s+"([^"]+)"/i) ||
+    pick(/\bPlan start\s+'([^']+)'/i) ||
+    pick(/\bPlan start\s+\u201c([^\u201d]+)\u201d/i);
+  if (!site && !location && !sof && !engineer && !planStart) return null;
+  const bits: string[] = [];
+  if (site) bits.push(`Site "${site}"`);
+  if (location) bits.push(`Location "${location}"`);
+  if (sof) bits.push(`SOF "${sof}"`);
+  if (engineer) bits.push(`Engineer "${engineer}"`);
+  if (planStart) bits.push(`Plan start "${planStart}"`);
+  return `${bits.join(', ')}.`;
+}
+
+/** Strip internal "From your file:" labels before showing the values column. */
+function formatImportDetailColumn(detail: string): string {
+  if (!detail.trim()) return '';
+  return detail
+    .replace(/^\s*From your file:\s*/i, '')
+    .replace(/\n\s*From your file:\s*/gi, '\n')
+    .trim();
+}
+
 function pickBestSiteRowForImport(
   options: ImportSiteRow[],
-  siteNeedleNorm: string,
-  locNeedleNorm: string
+  fileSiteName: string,
+  fileLocation: string
 ): {
   best: ImportSiteRow | undefined;
   bestCombined: number;
 } {
-  if (!siteNeedleNorm) return { best: undefined, bestCombined: -1 };
+  const siteT = String(fileSiteName ?? '').trim();
+  const locT = String(fileLocation ?? '').trim();
+  if (!siteT) return { best: undefined, bestCombined: -1 };
 
-  let best: ImportSiteRow | undefined;
-  let bestCombined = -1;
-  let bestLocSc = -1;
-  let bestLocLenDelta = Infinity;
-
+  const matches: ImportSiteRow[] = [];
   for (const s of options) {
-    const dbSite = normalizeImportText(s.name);
-    const siteSc = importFieldSimilarityScore(siteNeedleNorm, dbSite);
-
-    let combined: number;
-    let locSc = 1;
-    let locLenDelta = 0;
-
-    if (locNeedleNorm) {
-      const dbLoc = normalizeImportText(s.location || '');
-      locSc = dbLoc ? importFieldSimilarityScore(locNeedleNorm, dbLoc) : 0;
-      locLenDelta = dbLoc ? Math.abs(dbLoc.length - locNeedleNorm.length) : 9999;
-      combined =
-        IMPORT_SITE_LOC_SITE_WEIGHT * siteSc + IMPORT_SITE_LOC_LOC_WEIGHT * locSc;
-    } else {
-      combined = siteSc;
+    if (!importSiteLocTextEquals(siteT, s.name)) continue;
+    if (locT) {
+      if (!importSiteLocTextEquals(locT, s.location || '')) continue;
     }
-
-    if (combined < IMPORT_FIELD_SIMILARITY_MIN) continue;
-
-    const better =
-      combined > bestCombined ||
-      (combined === bestCombined &&
-        locNeedleNorm &&
-        (locLenDelta < bestLocLenDelta ||
-          (locLenDelta === bestLocLenDelta && locSc > bestLocSc)));
-
-    if (better) {
-      best = s;
-      bestCombined = combined;
-      bestLocSc = locSc;
-      bestLocLenDelta = locLenDelta;
-    }
+    matches.push(s);
   }
-
-  return { best, bestCombined };
+  if (matches.length === 0) return { best: undefined, bestCombined: -1 };
+  matches.sort((a, b) => Number(a.id) - Number(b.id));
+  return { best: matches[0], bestCombined: 1 };
 }
 
 /** จับคู่ SOF กับสัญญา: เลขล้วนใช้ pad 4 หลัก; ไม่ใช่เลขใช้ normalizeImportText */
@@ -282,6 +302,8 @@ function ScheduleManagementContent() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importedTasks, setImportedTasks] = useState<any[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
+  /** After file upload: switch between ready-to-import rows vs validation issues */
+  const [importResultTab, setImportResultTab] = useState<'ready' | 'issues'>('ready');
   const [isImporting, setIsImporting] = useState(false);
   const [siteOptions, setSiteOptions] = useState<Array<{
     id: string; // SLid — คีย์แถว sites_location (Site+Location2 ใน Excel ใช้จับคู่มาที่นี่)
@@ -448,6 +470,10 @@ function ScheduleManagementContent() {
         task.uptimeTime ?? task.downTimeEndTime ?? task.down_time_end_time,
       downtimeTotalHours:
         task.downtimeTotalHours ?? task.down_time_total_hours ?? undefined,
+      assignedService:
+        task.assignedService ??
+        task.assigned_service ??
+        null,
       assetBinding: task.assetBinding || task.asset_binding,
       travelMethod: task.travelMethod || task.travel_method,
       travelCost: task.travelCost,
@@ -1172,6 +1198,7 @@ function ScheduleManagementContent() {
           downtimeTime: item.downtimeTime,
           uptimeDate: item.uptimeDate,
           uptimeTime: item.uptimeTime,
+          assignedService: item.assignedService ?? item.assigned_service ?? null,
           assetBinding: item.assetBinding,
           ...(item.slaTerm ? { slaTerm: item.slaTerm } : {}),
           coverageScope: item.coverageScope,
@@ -1453,7 +1480,93 @@ function ScheduleManagementContent() {
     return names;
   };
 
-  const parseExcelFile = async (file: File): Promise<any[]> => {
+  /**
+   * Split import error: row badge, why (reason before “From your file:”), detail (upload values), hints.
+   * Errors should be built as: `Row N: <why>\n<detail>` then optional `Hints: ...`.
+   */
+  const splitImportErrorLine = (
+    raw: string
+  ): { rowBadge: string; why: string; detail: string; hintChunks: string[] } => {
+    const hintSplit = raw.split(/\bHints:\s*/i);
+    const mainPart = (hintSplit[0] ?? raw).trim();
+    const hintsPart = hintSplit.length > 1 ? hintSplit.slice(1).join('Hints:').trim() : '';
+
+    let rowBadge = '';
+    let body = mainPart;
+
+    const previewParens = /^Preview row (\d+) \(([\s\S]+?)\):\s*([\s\S]+)$/.exec(mainPart);
+    const rowOnly = /^Row (\d+):\s*([\s\S]+)$/.exec(mainPart);
+    if (previewParens) {
+      const inner = previewParens[2].trim();
+      const innerSpread = /^spreadsheet row (\d+)$/i.exec(inner);
+      if (innerSpread) {
+        rowBadge = `Row ${innerSpread[1]} (sheet)`;
+        body = previewParens[3].trim();
+      } else {
+        rowBadge = `Preview ${previewParens[1]}`;
+        body = `${inner} — ${previewParens[3].trim()}`;
+      }
+    } else if (rowOnly) {
+      rowBadge = `Row ${rowOnly[1]}`;
+      body = rowOnly[2].trim();
+    } else {
+      rowBadge = 'General';
+      body = mainPart;
+    }
+
+    const bodyNorm = body.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u2028/g, '\n');
+
+    let why = '';
+    let detail = '';
+
+    const multilineFrom = /\n\s*From your file:\s*/i.exec(bodyNorm);
+    if (multilineFrom) {
+      why = bodyNorm.slice(0, multilineFrom.index).trim();
+      detail = bodyNorm.slice(multilineFrom.index + 1).trim();
+    } else {
+      const inlineFrom = /\bFrom your file:\s*/i.exec(bodyNorm);
+      if (inlineFrom) {
+        if (inlineFrom.index > 0) {
+          why = bodyNorm.slice(0, inlineFrom.index).trim();
+          detail = bodyNorm.slice(inlineFrom.index).trim();
+        } else {
+          why = '—';
+          detail = bodyNorm.trim();
+        }
+      } else {
+        const nl = bodyNorm.indexOf('\n');
+        why = nl >= 0 ? bodyNorm.slice(0, nl).trim() : bodyNorm.trim();
+        detail = nl >= 0 ? bodyNorm.slice(nl + 1).trim() : '';
+      }
+    }
+
+    if (!detail && bodyNorm.includes(' — ')) {
+      const parts = bodyNorm.split(' — ');
+      if (parts.length >= 2) {
+        why = (parts[0] || '').trim();
+        detail = parts.slice(1).join(' — ').trim();
+      }
+    }
+
+    const hintChunks = hintsPart
+      ? hintsPart
+          .split(/\s*;\s*/)
+          .map((s) => s.replace(/^[\s"']+|[\s"']+$/g, '').trim())
+          .filter(Boolean)
+      : [];
+
+    if (!detail.trim()) {
+      const synth =
+        synthesizeFromYourFileLineFromErrorText(bodyNorm) ||
+        synthesizeFromYourFileLineFromErrorText(mainPart) ||
+        synthesizeFromYourFileLineFromErrorText(raw);
+      if (synth) detail = synth;
+    }
+
+    return { rowBadge, why, detail, hintChunks };
+  };
+
+  const parseExcelFile = async (file: File): Promise<{ tasks: any[]; errors: string[] }> => {
     return new Promise(async (resolve, reject) => {
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -1536,6 +1649,8 @@ function ScheduleManagementContent() {
               if (mappedKey) {
                 // taskType is always 'PM', skip any taskType mapping
                 if (mappedKey === 'engineer' || mappedKey === 'engineerId') {
+                  const rawEngCell = String(value ?? '').trim();
+                  if (rawEngCell) task._importEngineerRaw = rawEngCell;
                   if (!task.Eng_ids) task.Eng_ids = [];
                   const engineerNames = parseEngineerNames(String(value));
                   engineerNames.forEach(val => {
@@ -1620,7 +1735,7 @@ function ScheduleManagementContent() {
               if (!siteByPair) {
                 const sofL = String(task.sofName || '').trim() || '(no SOF)';
                 errors.push(
-                  `Row ${i + 1}: No contracted site row for Sid ${sidN} + Lid ${lidN} (no SLid). SOF "${sofL}". Check Sid/lid against sites + location in the database.`
+                  `Row ${i + 1}: Sid ${sidN} + Lid ${lidN} ไม่มีคู่ Site+Location ในแถวสัญญา (SOF "${sofL}")\nFrom your file: Sid ${sidN}, Lid ${lidN}, SOF "${sofL}".`
                 );
                 continue;
               }
@@ -1641,13 +1756,11 @@ function ScheduleManagementContent() {
             if (task.siteSid && task.siteLid) {
               task.title = `${task.siteSid}-${task.siteLid}`;
             } else if (!resolvedSlidFromSidLid) {
-              // If sid/lid not found, try to find from siteOptions (best similarity vs DB)
-              const siteNeedle = normalizeImportText(task.Sname || task.siteName || '');
-              const locNeedle = normalizeImportText(task.location || '');
+              // If sid/lid not found, try Site + Location vs DB (exact text, case-insensitive)
               const { best: matchedSite } = pickBestSiteRowForImport(
                 siteOptions,
-                siteNeedle,
-                locNeedle
+                String(task.Sname || task.siteName || ''),
+                String(task.location || '')
               );
 
               if (matchedSite && matchedSite.sid && matchedSite.lid) {
@@ -1676,33 +1789,101 @@ function ScheduleManagementContent() {
             // Ensure taskType is always PM
             task.taskType = 'PM';
 
-            // จับคู่ SiteName + Location2 → SLid (best similarity vs DB rows)
+            // จับคู่ SiteName + Location2 → SLid (ข้อความตรงทุกตัวหลัง trim; ตัวพิมพ์เล็ก/ใหญ่ไม่สน)
             if (!resolvedSlidFromSidLid && !task.siteId && task.siteName) {
-              const siteNeedle = normalizeImportText(task.siteName);
-              const locNeedle = normalizeImportText(task.location || '');
+              const siteNeedleNorm = normalizeImportText(task.siteName);
+              const fileLocT = String(task.location || '').trim();
 
-              const { best: site } = pickBestSiteRowForImport(siteOptions, siteNeedle, locNeedle);
+              const { best: site } = pickBestSiteRowForImport(
+                siteOptions,
+                String(task.siteName || ''),
+                String(task.location || '')
+              );
               const sofForMsg = String(task.sofName || '').trim() || '(no SOF)';
-              if (locNeedle) {
+              if (fileLocT) {
                 if (!site) {
-                  const siteOnlyHits = siteOptions.filter((s) => {
-                    const siteSc = importFieldSimilarityScore(
-                      siteNeedle,
-                      normalizeImportText(s.name)
-                    );
-                    return siteSc >= IMPORT_SITE_HINT_MIN;
-                  });
+                  const siteOnlyHits = siteOptions.filter((s) =>
+                    importSiteLocTextEquals(task.siteName, s.name)
+                  );
                   if (siteOnlyHits.length === 0) {
-                    errors.push(
-                      `Row ${i + 1}: Site name "${task.siteName}" does not match any contracted site (after normalize). Location "${task.location || ''}". SOF "${sofForMsg}".`
-                    );
-                  } else {
-                    const locHints = siteOnlyHits
-                      .map((s) => `"${(s.location || '').trim() || '(empty Location2)'}" (SLid ${s.id})`)
-                      .slice(0, 5)
+                    const closestDbSites = siteOptions
+                      .map((s) => ({
+                        name: (s.name || '').trim() || '—',
+                        sim: importFieldSimilarityScore(siteNeedleNorm, normalizeImportText(s.name)),
+                      }))
+                      .filter((x) => x.name !== '—')
+                      .sort((a, b) => b.sim - a.sim)
+                      .slice(0, 4);
+                    const closestStr = closestDbSites
+                      .map((x) => `DB SiteName "${x.name}" (~${Math.round(Math.min(1, Math.max(0, x.sim)) * 100)}% vs your Site)`)
                       .join('; ');
                     errors.push(
-                      `Row ${i + 1}: Site "${task.siteName}" matched ${siteOnlyHits.length} row(s) but Location "${task.location || ''}" did not match their Location2. SOF "${sofForMsg}". Hints: ${locHints}${siteOnlyHits.length > 5 ? ' …' : ''}`
+                      `Row ${i + 1}: Site และ Location ในไฟล์ต้องตรงกับ SiteName และ Location2 ในระบบทุกตัว (ตัวพิมพ์เล็ก/ใหญ่ไม่สน) — ไม่พบแถวที่ Site ตรงกันเลย (SOF "${sofForMsg}"). ${closestStr ? `ใกล้เคียงใน DB: ${closestStr}.` : ''}\nFrom your file: Site "${task.siteName}", Location "${task.location || '—'}", SOF "${sofForMsg}".`
+                    );
+                  } else {
+                    const dbSiteNamesFromHits: string[] = [];
+                    const seenSiteLower = new Set<string>();
+                    for (const row of siteOnlyHits) {
+                      const nm = String(row.name ?? '').trim();
+                      if (!nm) continue;
+                      const k = nm.toLowerCase();
+                      if (seenSiteLower.has(k)) continue;
+                      seenSiteLower.add(k);
+                      dbSiteNamesFromHits.push(nm);
+                    }
+                    const quotedDbSites = dbSiteNamesFromHits.slice(0, 3).map((n) => `"${n}"`);
+                    let dbSiteThaiList = '';
+                    if (quotedDbSites.length === 0) {
+                      dbSiteThaiList = '(ไม่มีชื่อ Site บนแถวที่ชื่อ Site ตรงกับไฟล์)';
+                    } else if (quotedDbSites.length === 1) {
+                      dbSiteThaiList = quotedDbSites[0];
+                    } else if (quotedDbSites.length === 2) {
+                      dbSiteThaiList = `${quotedDbSites[0]} และ ${quotedDbSites[1]}`;
+                    } else {
+                      dbSiteThaiList = `${quotedDbSites[0]} ${quotedDbSites[1]} และ ${quotedDbSites[2]}${
+                        dbSiteNamesFromHits.length > 3
+                          ? ` (และอีก ${dbSiteNamesFromHits.length - 3} ชื่อในระบบ)`
+                          : ''
+                      }`;
+                    }
+                    const hitSlids = new Set(siteOnlyHits.map((s) => String(s.id)));
+                    const fallbackHints = () =>
+                      siteOnlyHits
+                        .map((s) => `"${(s.location || '').trim() || '(empty Location2)'}" (SLid ${s.id})`)
+                        .slice(0, 5)
+                        .join('; ');
+
+                    let locHints = fallbackHints();
+                    const sofTrimRow = String(task.sofName || '').trim();
+                    if (task.contractId && sofTrimRow) {
+                      try {
+                        const hintRes = await getImportLocation2HintsByContractAndSof(
+                          Number(task.contractId),
+                          sofTrimRow
+                        );
+                        const rows = hintRes.data || [];
+                        const pairs = rows
+                          .map((r: { SLid?: number; Location2?: string }) => ({
+                            id: String(r.SLid ?? ''),
+                            loc: String(r.Location2 ?? '').trim(),
+                          }))
+                          .filter((p) => p.id && p.loc);
+                        const onSameSiteName = pairs.filter((p) => hitSlids.has(p.id));
+                        const useList = onSameSiteName.length > 0 ? onSameSiteName : pairs;
+                        if (useList.length > 0) {
+                          locHints = useList
+                            .slice(0, 15)
+                            .map((p) => `"${p.loc}" (SLid ${p.id})`)
+                            .join('; ');
+                        }
+                      } catch (hintErr) {
+                        console.warn('import Location2 hints fetch failed', hintErr);
+                      }
+                    }
+
+                    errors.push(
+                      `Row ${i + 1}: Site ในไฟล์ "${task.siteName}" ตรงชื่อ Site ในระบบ ${dbSiteThaiList} (มี ${siteOnlyHits.length} แถว) แต่ Location ในไฟล์ "${task.location || '—'}" ไม่ตรง Location2 ใดแบบตัวต่อตัว (ไม่สนตัวพิมพ์) สำหรับแถวเหล่านั้น — SOF "${sofForMsg}"\n` +
+                        `From your file: Site "${task.siteName}", Location "${task.location || '—'}", SOF "${sofForMsg}". Hints: ${locHints}${siteOnlyHits.length > 5 && !task.contractId ? ' …' : ''}`
                     );
                   }
                   console.warn(`Available sites:`, siteOptions.map((s) => `${s.name} - ${s.location} (SLid: ${s.id})`));
@@ -1710,8 +1891,19 @@ function ScheduleManagementContent() {
                 }
               } else {
                 if (!site) {
+                  const closestDbSitesNoLoc = siteOptions
+                    .map((s) => ({
+                      name: (s.name || '').trim() || '—',
+                      sim: importFieldSimilarityScore(siteNeedleNorm, normalizeImportText(s.name)),
+                    }))
+                    .filter((x) => x.name !== '—')
+                    .sort((a, b) => b.sim - a.sim)
+                    .slice(0, 4);
+                  const closestNoLocStr = closestDbSitesNoLoc
+                    .map((x) => `DB SiteName "${x.name}" (~${Math.round(Math.min(1, Math.max(0, x.sim)) * 100)}%)`)
+                    .join('; ');
                   errors.push(
-                    `Row ${i + 1}: Site "${task.siteName}" does not match any contracted site (after normalize). SOF "${sofForMsg}".`
+                    `Row ${i + 1}: Site ในไฟล์ต้องตรง SiteName ในระบบทุกตัว (ไม่สนตัวพิมพ์) — ไม่มี Location ในไฟล์ และไม่พบ Site ตรงกัน (SOF "${sofForMsg}"). ${closestNoLocStr ? `ใกล้เคียงใน DB: ${closestNoLocStr}.` : ''}\nFrom your file: Site "${task.siteName}", SOF "${sofForMsg}".`
                   );
                   console.warn(`Available sites:`, siteOptions.map((s) => `${s.name} - ${s.location} (SLid: ${s.id})`));
                   continue;
@@ -1731,7 +1923,7 @@ function ScheduleManagementContent() {
               const site = siteOptions.find((s) => s.id === String(task.siteId));
               if (!site) {
                 errors.push(
-                  `Row ${i + 1}: Site ID (SLid) "${task.siteId}" is not in contracted sites. SOF "${sofCsv}".`
+                  `Row ${i + 1}: SLid "${task.siteId}" ไม่มีในรายการแถวสัญญา (SOF "${sofCsv}")\nFrom your file: SLid "${task.siteId}", SOF "${sofCsv}".`
                 );
                 continue;
               }
@@ -1741,14 +1933,10 @@ function ScheduleManagementContent() {
               task.siteLid = site.lid;
               const locCsv = (task.location || '').trim();
               if (locCsv && !/^\d+$/.test(locCsv)) {
-                const locNeedle = normalizeImportText(locCsv);
-                const loc = normalizeImportText(site.location || '');
-                const locSim =
-                  !!locNeedle && !!loc ? importFieldSimilarityScore(locNeedle, loc) : 0;
-                const ok = !!locNeedle && !!loc && locSim >= IMPORT_FIELD_SIMILARITY_MIN;
+                const ok = importSiteLocTextEquals(locCsv, site.location || '');
                 if (!ok) {
                   errors.push(
-                    `Row ${i + 1}: Location "${task.location}" does not match Location2 for SLid ${task.siteId} ("${site.location || '—'}"). SOF "${sofCsv}".`
+                    `Row ${i + 1}: SLid ${task.siteId}: DB SiteName "${(site.name || '').trim() || '—'}", DB Location2 "${(site.location || '').trim() || '—'}" — file Location "${task.location || '—'}" did not match that Location2 (SOF "${sofCsv}")${String(task.siteName || task.Sname || '').trim() ? `; file Site "${String(task.siteName || task.Sname).trim()}"` : ''}.\nFrom your file: SLid ${task.siteId}, Location "${task.location || '—'}", SOF "${sofCsv}".`
                   );
                   continue;
                 }
@@ -1757,16 +1945,20 @@ function ScheduleManagementContent() {
 
             if (!task.Sid && !task.siteId) {
               errors.push(
-                `Row ${i + 1}: Missing site: provide Site name, SLid, or Sid+Lid columns. SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+                `Row ${i + 1}: หา Site/SLid ไม่ได้ — ในไฟล์ Site "${task.siteName || '—'}", Location "${task.location || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}"\nFrom your file: Site "${task.siteName || '—'}", Location "${task.location || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
               );
               continue;
             }
             if (!task.startDate) {
-              errors.push(`Row ${i + 1}: Missing start date. SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`);
+              errors.push(
+                `Row ${i + 1}: วันเริ่มในไฟล์ "${String(task.startDate ?? '').trim() || '—'}" ว่างหรือรูปแบบผิด (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}")\nFrom your file: Plan start "${String(task.startDate ?? '').trim() || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
+              );
               continue;
             }
             if (!task.Eng_ids || task.Eng_ids.length === 0) {
-              errors.push(`Row ${i + 1}: Missing engineer (no match in roster). SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`);
+              errors.push(
+                `Row ${i + 1}: ชื่อวิศวกรในไฟล์ "${String(task._importEngineerRaw || '').trim() || '—'}" ไม่ตรงรายชื่อในระบบ (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}")\nFrom your file: Engineer "${String(task._importEngineerRaw || '').trim() || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
+              );
               continue;
             }
             
@@ -1814,14 +2006,14 @@ function ScheduleManagementContent() {
             // Import: ต้องมี SOF → เช็คสัญญาในระบบ → ยังไม่หมดอายุ ก่อนรับแถวและก่อนดึง device
             const sofTrim = (task.sofName && String(task.sofName).trim()) || '';
             if (!sofTrim) {
-              errors.push(
-                `Row ${i + 1}: Missing SOF (required to match contract and devices at this site, SLid ${task.Sid || task.siteId || '—'}).`
-              );
+                errors.push(
+                  `Row ${i + 1}: SOF ว่าง — มี SLid ${task.Sid || task.siteId || '—'} แต่ต้องระบุ SOF เพื่อผูกสัญญา\nFrom your file: SOF ว่าง, SLid ${task.Sid || task.siteId || '—'}.`
+                );
               continue;
             }
             if (!task.contractId) {
               errors.push(
-                `Row ${i + 1}: SOF "${sofTrim}" does not match any contract in the system (check sof_name). Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+                `Row ${i + 1}: SOF ในไฟล์ "${sofTrim}" ไม่ตรงค่า sof_name ของสัญญาในระบบ (Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${sofTrim}", Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}.`
               );
               continue;
             }
@@ -1835,7 +2027,7 @@ function ScheduleManagementContent() {
               today.setHours(0, 0, 0, 0);
               if (endDate < today) {
                 errors.push(
-                  `Row ${i + 1}: Contract for SOF "${sofTrim}" is expired — cannot import. Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+                  `Row ${i + 1}: สัญญาของ SOF "${sofTrim}" หมดอายุแล้ว (Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${sofTrim}", Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}.`
                 );
                 continue;
               }
@@ -1892,7 +2084,7 @@ function ScheduleManagementContent() {
                     ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
                     : `Preview row ${previewN}`;
                 errors.push(
-                  `${rowRef}: No devices found for SOF "${task.sofName}" at this site (SLid ${task.Sid}, "${task.Sname || task.siteName || '—'}", location "${task.location || '—'}"). Check contract_device and Refer_SOF for this SLid.`
+                  `${rowRef}: ไม่พบอุปกรณ์ที่ SLid ${task.Sid} + Location "${task.location || '—'}" + SOF "${task.sofName}" ในสัญญานี้\nFrom your file: SOF "${task.sofName}", SLid ${task.Sid}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
                 );
               }
             } else {
@@ -1909,7 +2101,7 @@ function ScheduleManagementContent() {
                   ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
                   : `Preview row ${previewN}`;
               errors.push(
-                `${rowRef}: Missing SLid after import (no devices can be resolved). SOF "${String(task.sofName || '').trim() || '(no SOF)'}". Provide Site name + Location, SLid column, or Sid+Lid that match contracted sites.`
+                `${rowRef}: ไม่มี SLid — SOF "${String(task.sofName || '').trim() || '(ว่าง)'}", Site "${task.Sname || task.siteName || '—'}"\nFrom your file: SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
               );
               // Set default values
               task.deviceIds = [];
@@ -1930,10 +2122,7 @@ function ScheduleManagementContent() {
             });
           });
 
-          if (errors.length > 0) {
-            setImportErrors(errors);
-          }
-          resolve(tasks);
+          resolve({ tasks, errors });
         } catch (error: any) {
           reject(new Error(`Failed to parse file: ${error.message}`));
         }
@@ -1960,9 +2149,11 @@ function ScheduleManagementContent() {
       setIsImporting(true);
       setImportErrors([]);
       console.log('Starting file upload...');
-      const tasks = await parseExcelFile(file);
+      const { tasks, errors: parseErrors } = await parseExcelFile(file);
       console.log('Parsed tasks:', tasks.length, tasks);
       setImportedTasks(tasks);
+      setImportErrors(parseErrors);
+      setImportResultTab(parseErrors.length > 0 ? 'issues' : 'ready');
       setIsImportModalOpen(true);
     } catch (error: any) {
       toastError(`Error importing file: ${error.message}`);
@@ -1988,28 +2179,34 @@ function ScheduleManagementContent() {
         (task as { _importPreviewRow?: number })._importPreviewRow ??
         (task as { _importSheetRow?: number })._importSheetRow ??
         idx + 1;
+      const sheetNForBulk = (task as { _importSheetRow?: number })._importSheetRow;
+      const bulkRowHead =
+        sheetNForBulk != null
+          ? `Preview row ${bulkRow} (spreadsheet row ${sheetNForBulk}):`
+          : `Preview row ${bulkRow}:`;
       try {
         if (!task.Sid && !task.siteId) {
           errors.push(
-            `Preview row ${bulkRow}: Missing site (SLid). SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+            `${bulkRowHead} ไม่มี SLid/Site — SOF "${String(task.sofName || '').trim() || '(ว่าง)'}", Site "${task.Sname || task.siteName || '—'}"\nFrom your file: SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
           );
           continue;
         }
         if (!task.startDate) {
           errors.push(
-            `Preview row ${bulkRow}: Missing start date. SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+            `${bulkRowHead} วันเริ่ม "${String(task.startDate ?? '').trim() || '—'}" ว่างหรือผิด (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}")\nFrom your file: Plan start "${String(task.startDate ?? '').trim() || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
           );
           continue;
         }
         if (!task.Eng_ids || task.Eng_ids.length === 0) {
+          const engRawBulk = String((task as { _importEngineerRaw?: string })._importEngineerRaw ?? '').trim() || '—';
           errors.push(
-            `Preview row ${bulkRow}: Missing engineer (no match in roster). SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+            `${bulkRowHead} ชื่อวิศวกรในไฟล์ "${engRawBulk}" ไม่ตรงในระบบ (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}")\nFrom your file: Engineer "${engRawBulk}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
           );
           continue;
         }
         if (!task.title) {
           errors.push(
-            `Preview row ${bulkRow}: Missing title / coverage scope. SOF "${String(task.sofName || '').trim() || '(no SOF)'}".`
+            `${bulkRowHead} ไม่มี Title/Coverage scope (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
           );
           continue;
         }
@@ -2017,14 +2214,14 @@ function ScheduleManagementContent() {
         const sofTrimBulk = (task.sofName && String(task.sofName).trim()) || '';
         if (!sofTrimBulk) {
           errors.push(
-            `Preview row ${bulkRow}: Missing SOF (required). Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+            `${bulkRowHead} SOF ว่าง — SLid ${task.Sid || task.siteId || '—'}, Site "${task.Sname || task.siteName || '—'}"\nFrom your file: Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}, SOF ว่าง.`
           );
           continue;
         }
         const contractIdBulk = task.contractId ? Number(task.contractId) : null;
         if (!contractIdBulk) {
           errors.push(
-            `Preview row ${bulkRow}: SOF "${sofTrimBulk}" does not match any contract (check sof_name). Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+            `${bulkRowHead} SOF "${sofTrimBulk}" ไม่ตรงสัญญาในระบบ (Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${sofTrimBulk}", Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}.`
           );
           continue;
         }
@@ -2036,7 +2233,7 @@ function ScheduleManagementContent() {
           today.setHours(0, 0, 0, 0);
           if (endDate < today) {
             errors.push(
-              `Row ${bulkRow}: Contract for SOF "${sofTrimBulk}" is expired — cannot create. Site "${task.Sname || task.siteName || '—'}" (SLid ${task.Sid || task.siteId || '—'}).`
+              `${bulkRowHead} สัญญา SOF "${sofTrimBulk}" หมดอายุแล้ว (Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${sofTrimBulk}", Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}.`
             );
             continue;
           }
@@ -2047,7 +2244,7 @@ function ScheduleManagementContent() {
           (task.devices && task.devices.length > 0);
         if (!hasDevices) {
           errors.push(
-            `Preview row ${bulkRow}: No devices for SOF "${sofTrimBulk}" at this site (SLid ${task.Sid || task.siteId || '—'}, "${task.Sname || task.siteName || '—'}", location "${task.location || '—'}"). Fix contract_device / Refer_SOF or import data, then retry.`
+            `${bulkRowHead} ไม่พบอุปกรณ์ที่ SLid ${task.Sid || task.siteId || '—'} + Location "${task.location || '—'}" + SOF "${sofTrimBulk}"\nFrom your file: SOF "${sofTrimBulk}", SLid ${task.Sid || task.siteId || '—'}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
           );
           continue;
         }
@@ -2182,8 +2379,13 @@ function ScheduleManagementContent() {
         setCalendarEvents((events) => [...events, mapped]);
         successCount++;
       } catch (error: any) {
+        const sheetN = (task as { _importSheetRow?: number })._importSheetRow;
+        const head =
+          sheetN != null
+            ? `Preview row ${bulkRow} (spreadsheet row ${sheetN}):`
+            : `Preview row ${bulkRow}:`;
         errors.push(
-          `Preview row ${bulkRow} (${task.Sname || task.siteName || task.title || 'Unknown'}): ${error.message || 'Failed to create task'}`
+          `${head} สร้างงานไม่สำเร็จ (Site "${task.Sname || task.siteName || '—'}", SOF "${String(task.sofName || '').trim() || '—'}"): ${error.message || 'ไม่ทราบสาเหตุ'}\nFrom your file: Site "${task.Sname || task.siteName || '—'}", SOF "${String(task.sofName || '').trim() || '—'}".`
         );
       }
     }
@@ -2192,8 +2394,9 @@ function ScheduleManagementContent() {
 
     if (errors.length > 0) {
       setImportErrors(errors);
+      setImportResultTab('issues');
     }
-    
+
     if (errors.length > 0 && successCount === 0) {
       toastError(`Failed to create tasks. ${errors.slice(0, 5).join(', ')}${errors.length > 5 ? `... and ${errors.length - 5} more` : ''}`);
     } else if (errors.length > 0) {
@@ -2204,6 +2407,7 @@ function ScheduleManagementContent() {
       setIsImportModalOpen(false);
       setImportedTasks([]);
       setImportErrors([]);
+      setImportResultTab('ready');
       await loadTasksFromApi();
     }
   };
@@ -2222,56 +2426,64 @@ function ScheduleManagementContent() {
     const originalStartDate = originalEvent?.startDate;
     const originalEndDate = originalEvent?.endDate;
 
-    // Update local state immediately
-    setCalendarEvents((prevEvents) => {
-      const updatedEvents = prevEvents.map((event) =>
-        event.id === updatedTask.id 
-          ? { 
-              ...event, 
-              status: updatedTask.status,
-              ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
-              // Preserve original dates
-              startDate: originalStartDate || event.startDate,
-              endDate: originalEndDate || event.endDate,
-            } 
-          : event
-      );
-
-      // Update selectedTask if it's the same event
-      if (selectedTask && selectedTask.id === updatedTask.id) {
-        const updated = updatedEvents.find(e => e.id === updatedTask.id);
-        if (updated) {
-          setSelectedTask(updated);
-        }
-      }
-
-      return updatedEvents;
-    });
-
-    // Update backend
+    let serverTask: Record<string, unknown> | null = null;
     try {
       const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const json = await responseJsonOrThrow<{ success: boolean; message?: string }>(
-        res,
-        'Update status failed: server returned non-JSON (check API URL).'
-      );
+      const json = await responseJsonOrThrow<{
+        success: boolean;
+        message?: string;
+        data?: Record<string, unknown>;
+      }>(res, 'Update status failed: server returned non-JSON (check API URL).');
       if (!json.success) {
         throw new Error(json.message || 'Update status failed');
       }
+      serverTask = json.data && typeof json.data === 'object' ? json.data : null;
       toastSuccess('Update status successfully');
-      setIsDetailModalOpen(false);
-      setSelectedTask(null);
-      router.push('/calendar');
     } catch (error) {
       console.error('handleTaskUpdate error', error);
       toastError('Update status failed');
-      // Only reload on error to get correct state
       await loadTasksFromApi();
+      return;
     }
+
+    const mergeFromServer = (ev: (typeof calendarEvents)[number]) => {
+      const base = {
+        ...ev,
+        status: updatedTask.status,
+        ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
+        startDate: originalStartDate || ev.startDate,
+        endDate: originalEndDate || ev.endDate,
+      };
+      if (!serverTask) return base;
+      const d = serverTask;
+      return {
+        ...base,
+        ...(typeof d.uptimeDate === 'string' && d.uptimeDate ? { uptimeDate: d.uptimeDate } : {}),
+        ...(typeof d.uptimeTime === 'string' && d.uptimeTime ? { uptimeTime: d.uptimeTime } : {}),
+        ...(d.downtimeTotalHours != null && d.downtimeTotalHours !== ''
+          ? { downtimeTotalHours: Number(d.downtimeTotalHours) }
+          : {}),
+      };
+    };
+
+    setCalendarEvents((prevEvents) => {
+      const updatedEvents = prevEvents.map((event) =>
+        event.id === updatedTask.id ? mergeFromServer(event) : event
+      );
+      if (selectedTask && selectedTask.id === updatedTask.id) {
+        const updated = updatedEvents.find((e) => e.id === updatedTask.id);
+        if (updated) setSelectedTask(updated);
+      }
+      return updatedEvents;
+    });
+
+    setIsDetailModalOpen(false);
+    setSelectedTask(null);
+    router.push('/calendar');
   };
 
   /* ================= Render ================= */
@@ -2292,7 +2504,12 @@ function ScheduleManagementContent() {
             </h1>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
               <button
-                onClick={() => setIsImportModalOpen(true)}
+                onClick={() => {
+                  setImportedTasks([]);
+                  setImportErrors([]);
+                  setImportResultTab('ready');
+                  setIsImportModalOpen(true);
+                }}
                 className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
               >
                 <Download size={16} /> Import Plans
@@ -3426,6 +3643,7 @@ function ScheduleManagementContent() {
               setIsImportModalOpen(false);
               setImportedTasks([]);
               setImportErrors([]);
+              setImportResultTab('ready');
             }
           }}
         >
@@ -3450,6 +3668,7 @@ function ScheduleManagementContent() {
                   setIsImportModalOpen(false);
                   setImportedTasks([]);
                   setImportErrors([]);
+                  setImportResultTab('ready');
                 }}
                 className="p-1.5 bg-white rounded-full hover:bg-slate-100 transition-colors"
               >
@@ -3534,76 +3753,181 @@ function ScheduleManagementContent() {
                 </div>
               </div>
 
-              {/* Import Errors */}
-              {importErrors.length > 0 && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                  <h4 className="text-xs font-bold text-red-800 mb-2">Validation Errors:</h4>
-                  <ul className="text-xs text-red-700 space-y-1 max-h-32 overflow-y-auto">
-                    {importErrors.map((error, idx) => (
-                      <li key={idx}>• {error}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Imported Tasks Preview */}
-              {importedTasks.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-bold text-slate-700 mb-2">
-                    Preview ({importedTasks.length} tasks ready to import):
-                  </h4>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <div className="max-h-64 overflow-x-auto overflow-y-auto">
-                      <table className="w-full text-xs min-w-full">
-                        <thead className="bg-slate-100 sticky top-0">
-                          <tr>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Site</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Location</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Plan Start</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Plan End</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Engineer</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">SOF</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Devices</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Coverage Scope</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {importedTasks.map((task, idx) => (
-                            <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
-                              <td className="px-2 py-2 min-w-[200px]">{task.Sname || task.siteName || '—'}</td>
-                              <td className="px-2 py-2 min-w-[120px]">{task.location || '—'}</td>
-                              <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.startDate)}</td>
-                              <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.endDate)}</td>
-                              <td className="px-2 py-2 min-w-[100px]">
-                                {task.Eng_ids && task.Eng_ids.length > 0 ? (
-                                  <div className="flex flex-col gap-0.5">
-                                    {task.Eng_ids.map((e: Engineer) => (
-                                      <div key={e.id} className="text-sm">
-                                        {e.name}{e.lastName ? ` ${e.lastName}` : ''}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : '—'}
-                              </td>
-                              <td className="px-2 py-2 whitespace-nowrap">
-                                {task.sofName || (task.contractId ? `#${task.contractId}` : '—')}
-                              </td>
-                              <td className="px-2 py-2 text-center whitespace-nowrap">
-                                {task.deviceCount !== undefined && task.deviceCount > 0 ? (
-                                  <span className="font-semibold text-blue-600">{task.deviceCount}</span>
-                                ) : task.deviceIds?.length ? (
-                                  <span className="font-semibold text-blue-600">{task.deviceIds.length}</span>
-                                ) : (
-                                  <span className="text-slate-400">{task.sofName ? '0' : '—'}</span>
-                                )}
-                              </td>
-                              <td className="px-2 py-2 min-w-[150px]">{task.coverageScope || '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+              {/* Parse result: tabs + tables */}
+              {(importedTasks.length > 0 || importErrors.length > 0) && (
+                <div className="space-y-3">
+                  {importedTasks.length > 0 && importErrors.length > 0 && (
+                    <p className="text-xs text-slate-600 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                      <strong className="text-emerald-700">{importedTasks.length}</strong> row(s) ready to import —{' '}
+                      <strong className="text-amber-800">{importErrors.length}</strong> issue(s) to fix (other rows in
+                      the file did not enter preview).
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setImportResultTab('ready')}
+                      className={`flex-1 min-w-[140px] rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
+                        importResultTab === 'ready'
+                          ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Ready to import ({importedTasks.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImportResultTab('issues')}
+                      disabled={importErrors.length === 0}
+                      className={`flex-1 min-w-[140px] rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
+                        importResultTab === 'issues'
+                          ? 'bg-white text-red-900 shadow-sm ring-1 ring-red-200'
+                          : importErrors.length === 0
+                            ? 'text-slate-400 cursor-not-allowed'
+                            : 'text-slate-600 hover:text-red-900'
+                      }`}
+                    >
+                      Issues ({importErrors.length})
+                    </button>
                   </div>
+
+                  {importResultTab === 'ready' && importedTasks.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-700 mb-2">
+                        Preview table — use Import below to create tasks
+                      </h4>
+                      <div className="border border-slate-200 rounded-lg overflow-hidden">
+                        <div className="max-h-[min(28rem,55vh)] overflow-x-auto overflow-y-auto">
+                          <table className="w-full text-xs min-w-full">
+                            <thead className="bg-slate-100 sticky top-0">
+                              <tr>
+                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Site</th>
+                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Location</th>
+                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Plan Start</th>
+                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Plan End</th>
+                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Engineer</th>
+                                <th className="px-2 py-2 text-left font-semibold text-slate-700">SOF</th>
+                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Devices</th>
+                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Coverage Scope</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {importedTasks.map((task, idx) => (
+                                <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
+                                  <td className="px-2 py-2 min-w-[200px]">{task.Sname || task.siteName || '—'}</td>
+                                  <td className="px-2 py-2 min-w-[120px]">{task.location || '—'}</td>
+                                  <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.startDate)}</td>
+                                  <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.endDate)}</td>
+                                  <td className="px-2 py-2 min-w-[100px]">
+                                    {task.Eng_ids && task.Eng_ids.length > 0 ? (
+                                      <div className="flex flex-col gap-0.5">
+                                        {task.Eng_ids.map((e: Engineer) => (
+                                          <div key={e.id} className="text-sm">
+                                            {e.name}{e.lastName ? ` ${e.lastName}` : ''}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      '—'
+                                    )}
+                                  </td>
+                                  <td className="px-2 py-2 whitespace-nowrap">
+                                    {task.sofName || (task.contractId ? `#${task.contractId}` : '—')}
+                                  </td>
+                                  <td className="px-2 py-2 text-center whitespace-nowrap">
+                                    {task.deviceCount !== undefined && task.deviceCount > 0 ? (
+                                      <span className="font-semibold text-blue-600">{task.deviceCount}</span>
+                                    ) : task.deviceIds?.length ? (
+                                      <span className="font-semibold text-blue-600">{task.deviceIds.length}</span>
+                                    ) : (
+                                      <span className="text-slate-400">{task.sofName ? '0' : '—'}</span>
+                                    )}
+                                  </td>
+                                  <td className="px-2 py-2 min-w-[150px]">{task.coverageScope || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {importResultTab === 'ready' && importedTasks.length === 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
+                      No rows passed validation — open the <strong>Issues</strong> tab to see causes and fix your file.
+                    </div>
+                  )}
+
+                  {importResultTab === 'issues' && importErrors.length > 0 && (
+                    <div className="rounded-xl border border-red-200 bg-red-50/60 overflow-hidden">
+                      <div className="px-3 py-2 border-b border-red-200/80 bg-red-100/50">
+                        <h4 className="text-xs font-bold text-red-900">Items to fix ({importErrors.length})</h4>
+                      </div>
+                      <div className="max-h-[min(28rem,55vh)] overflow-x-auto overflow-y-auto border-t border-red-100/80 bg-white">
+                        <table className="w-full text-xs min-w-[900px] border-collapse">
+                          <thead className="bg-red-50/90 sticky top-0 z-10 shadow-sm">
+                            <tr className="text-left text-[10px] font-bold uppercase tracking-wide text-red-900">
+                              <th className="px-2 py-2 w-10 border-b border-red-200/80">#</th>
+                              <th className="px-2 py-2 w-[7.5rem] whitespace-nowrap border-b border-red-200/80">Row</th>
+                              <th className="px-2 py-2 min-w-[200px] border-b border-red-200/80">Why it did not match</th>
+                              <th className="px-2 py-2 min-w-[220px] border-b border-red-200/80">
+                                Upload row values
+                              </th>
+                              <th className="px-2 py-2 min-w-[220px] border-b border-red-200/80">
+                                Hints (contract + SOF)
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {importErrors.map((error, idx) => {
+                              const { rowBadge, why, detail, hintChunks } = splitImportErrorLine(error);
+                              return (
+                                <tr key={idx} className="border-b border-slate-100 align-top hover:bg-slate-50/80">
+                                  <td className="px-2 py-2 tabular-nums text-slate-500">{idx + 1}</td>
+                                  <td className="px-2 py-2 whitespace-nowrap">
+                                    <span className="inline-flex items-center rounded-md bg-red-700 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                      {rowBadge}
+                                    </span>
+                                  </td>
+                                  <td className="px-2 py-2 text-slate-900 leading-relaxed font-medium whitespace-pre-line break-words">
+                                    {why}
+                                  </td>
+                                  <td className="px-2 py-2 min-w-[200px] max-w-md text-slate-700 leading-relaxed text-[11px] break-words">
+                                    {(() => {
+                                      const shown = formatImportDetailColumn(detail);
+                                      return shown ? (
+                                        <span className="whitespace-pre-line">{shown}</span>
+                                      ) : (
+                                        <span className="text-slate-400">—</span>
+                                      );
+                                    })()}
+                                  </td>
+                                  <td className="px-2 py-2 text-slate-600">
+                                    {hintChunks.length === 0 ? (
+                                      <span className="text-slate-400">—</span>
+                                    ) : (
+                                      <ul className="list-disc pl-4 space-y-0.5 marker:text-slate-400">
+                                        {hintChunks.map((h, hi) => (
+                                          <li key={hi} className="break-words text-[11px] leading-snug">
+                                            {h}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {importResultTab === 'issues' && importErrors.length === 0 && (
+                    <p className="text-sm text-slate-500 text-center py-6">No errors</p>
+                  )}
                 </div>
               )}
             </div>
@@ -3615,6 +3939,7 @@ function ScheduleManagementContent() {
                   setIsImportModalOpen(false);
                   setImportedTasks([]);
                   setImportErrors([]);
+                  setImportResultTab('ready');
                 }}
                 className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
               >

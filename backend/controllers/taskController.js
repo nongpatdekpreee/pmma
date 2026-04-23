@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const db = require('../config/database');
+const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
@@ -199,6 +200,78 @@ function downtimeApiFieldsFromRow(row) {
   return out;
 }
 
+/**
+ * MA: uptime ต้องไม่ก่อน downtime เริ่ม — ไม่งั้น computeDownTimeTotalHours ได้ null
+ * คืน { date, time } โดย time เป็นรูปแบบที่ normalizeMysqlTime ให้แล้ว
+ */
+function clampMaUptimeAfterDowntimeStart(existingRow, uptimeDateStr, uptimeTimeSql) {
+  if (!uptimeDateStr || !uptimeTimeSql) return { date: uptimeDateStr, time: uptimeTimeSql };
+  const sd = toDateOnlyString(existingRow.downtime_date ?? existingRow.down_time_start_date);
+  if (!sd) return { date: uptimeDateStr, time: normalizeMysqlTime(uptimeTimeSql) };
+  const downT = normalizeMysqlTime(existingRow.downtime_time ?? existingRow.down_time_start_time) || '00:00:00';
+  const upT = normalizeMysqlTime(uptimeTimeSql) || '00:00:00';
+  const uds = String(uptimeDateStr).trim().slice(0, 10);
+  if (uds > sd) return { date: uds, time: upT };
+  if (uds < sd) return { date: sd, time: downT };
+  if (upT >= downT) return { date: uds, time: upT };
+  return { date: sd, time: downT };
+}
+
+/** หลัง uptime เปลี่ยน — คำนวณ downtime_total_hours (รองรับชื่อคอลัมน์ใหม่/เก่า) */
+async function persistMaDowntimeTotalHoursForTask(taskId) {
+  try {
+    let [taskRows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
+    let tr = taskRows[0];
+    if (!tr) return;
+    const isMa = String(tr.task_type || '').toUpperCase() === 'MA';
+    if (isMa) {
+      const ud = toDateOnlyString(tr.uptime_date ?? tr.down_time_end_date);
+      const ut = normalizeMysqlTime(tr.uptime_time ?? tr.down_time_end_time);
+      if (ud && ut) {
+        const c = clampMaUptimeAfterDowntimeStart(tr, ud, ut);
+        if (c.date && c.time && (c.date !== ud || c.time !== ut)) {
+          const udCol = await resolveUptimeDateCol();
+          const utCol = await resolveUptimeTimeCol();
+          if (udCol && utCol) {
+            try {
+              await db.execute(`UPDATE tasks SET ${udCol} = ?, ${utCol} = ? WHERE id = ?`, [c.date, c.time, taskId]);
+              const [again] = await db.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
+              if (again[0]) tr = again[0];
+            } catch (updErr) {
+              console.warn('[persistMaDowntimeTotalHoursForTask] clamp uptime:', updErr.message);
+            }
+          }
+        }
+      }
+    }
+    const hours = computeDownTimeTotalHours(
+      tr.downtime_date ?? tr.down_time_start_date,
+      tr.uptime_date ?? tr.down_time_end_date,
+      tr.uptime_time ?? tr.down_time_end_time,
+      tr.downtime_time ?? tr.down_time_start_time
+    );
+    if (hours == null) {
+      try {
+        await db.execute('UPDATE tasks SET downtime_total_hours = NULL WHERE id = ?', [taskId]);
+      } catch (e) {
+        if (e.code === 'ER_BAD_FIELD_ERROR' || (e.message && e.message.includes('Unknown column'))) {
+          await db.execute('UPDATE tasks SET down_time_total_hours = NULL WHERE id = ?', [taskId]).catch(() => {});
+        }
+      }
+      return;
+    }
+    try {
+      await db.execute('UPDATE tasks SET downtime_total_hours = ? WHERE id = ?', [hours, taskId]);
+    } catch (e) {
+      if (e.code === 'ER_BAD_FIELD_ERROR' || (e.message && e.message.includes('Unknown column'))) {
+        await db.execute('UPDATE tasks SET down_time_total_hours = ? WHERE id = ?', [hours, taskId]).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.warn('[persistMaDowntimeTotalHoursForTask]', e.message);
+  }
+}
+
 /** รวบรวม path string จาก tasks.photos / report file_path (array ของ string หรือ { path }) */
 function collectPathStringsFromPhotos(photos) {
   if (!photos) return [];
@@ -304,6 +377,15 @@ const getMaNoticeFile = async (req, res) => {
   }
 };
 
+/** MA: assigned_service จาก body (camelCase หรือ snake_case) */
+const normalizeAssignedServiceFromBody = (body) => {
+  const raw = body?.assignedService ?? body?.assigned_service;
+  if (raw == null || raw === '') return null;
+  const s = String(raw).trim();
+  if (s === '') return null;
+  return s.length > 255 ? s.slice(0, 255) : s;
+};
+
 const mapTaskRow = (row) => {
   const slaVal = row.contract_sla_term;
   const sofRaw = row.contract_sof_name != null ? String(row.contract_sof_name).trim() : '';
@@ -339,6 +421,14 @@ const mapTaskRow = (row) => {
   notes: row.notes,
   rescheduleNote: row.reschedule_note != null ? row.reschedule_note : null,
   photos: row.photos ? (typeof row.photos === 'string' ? JSON.parse(row.photos) : row.photos) : [],
+  ...(row.assigned_service !== undefined
+    ? {
+        assignedService:
+          row.assigned_service == null || String(row.assigned_service).trim() === ''
+            ? null
+            : String(row.assigned_service).trim(),
+      }
+    : {}),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 };
@@ -523,6 +613,14 @@ const createTask = async (req, res) => {
       insertColumns.push(utCol);
       insertValues.push(endTimeNorm);
     }
+    if (await taskColumnExists('assigned_service')) {
+      insertColumns.push('assigned_service');
+      const asVal =
+        String(taskType || '').toUpperCase() === 'MA'
+          ? normalizeAssignedServiceFromBody(req.body)
+          : null;
+      insertValues.push(asVal);
+    }
     const insertSql = `INSERT INTO tasks (${insertColumns.join(', ')}) VALUES (${insertColumns.map(() => '?').join(', ')})`;
 
     await db.execute(insertSql, insertValues);
@@ -633,6 +731,8 @@ const updateTask = async (req, res) => {
       notes,
       rescheduleNote,
       photos,
+      assignedService,
+      assigned_service,
     } = req.body;
 
     const dtPatch = parseDowntimePatch(req.body);
@@ -641,6 +741,32 @@ const updateTask = async (req, res) => {
     if (!existing[0]) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
+
+    /** Done + มี report แล้ว — ห้ามเปลี่ยน status (รองรับ UI ล็อก + กันยิง API) */
+    if (status !== undefined) {
+      try {
+        const [repRows] = await db.execute('SELECT 1 FROM report WHERE id = ? LIMIT 1', [id]);
+        const hasReport = Array.isArray(repRows) && repRows.length > 0;
+        const wasDone = String(existing[0].status || '').toLowerCase() === 'done';
+        const nextSt = String(status || 'not-started').toLowerCase();
+        if (hasReport && wasDone && nextSt !== 'done') {
+          return res.status(403).json({
+            success: false,
+            message: 'Cannot change status: task is Done and a checklist report already exists.',
+          });
+        }
+      } catch (e) {
+        console.warn('[updateTask] report check:', e.message);
+      }
+    }
+
+    const newStatusEarly = status !== undefined ? (status || 'not-started') : existing[0].status;
+    const effTaskTypeEarly = taskType !== undefined ? taskType : existing[0].task_type;
+    /** MA: เมื่อเปลี่ยนเป็น Done จาก Calendar/Schedule — ตั้ง uptime = เวลาปัจจุบัน (ไม่ต้องกรอกใน report) */
+    const maAutoUptimeOnDone =
+      String(effTaskTypeEarly || '').toUpperCase() === 'MA' &&
+      String(existing[0].status || '').toLowerCase() !== 'done' &&
+      String(newStatusEarly || '').toLowerCase() === 'done';
 
     // Helper function to safely parse integer
     const safeParseInt = (value) => {
@@ -694,11 +820,11 @@ const updateTask = async (req, res) => {
       addUpdate(dtColU, normalizeMysqlTime(dtPatch.downtimeTime));
     }
     const udColU = await resolveUptimeDateCol();
-    if (dtPatch.uptimeDate !== undefined && udColU) {
+    if (dtPatch.uptimeDate !== undefined && udColU && !maAutoUptimeOnDone) {
       addUpdate(udColU, dtPatch.uptimeDate || null);
     }
     const utColU = await resolveUptimeTimeCol();
-    if (dtPatch.uptimeTime !== undefined && utColU) {
+    if (dtPatch.uptimeTime !== undefined && utColU && !maAutoUptimeOnDone) {
       addUpdate(utColU, normalizeMysqlTime(dtPatch.uptimeTime));
     }
     // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
@@ -710,6 +836,21 @@ const updateTask = async (req, res) => {
     if (assets !== undefined) addUpdate('assets', assets && assets.length > 0 ? JSON.stringify(assets) : null);
     if (assetBinding !== undefined) addUpdate('asset_binding', assetBinding || null);
     if (status !== undefined) addUpdate('status', status || 'not-started');
+    if (maAutoUptimeOnDone && udColU && utColU) {
+      const now = new Date();
+      let endD = toDateOnlyString(now);
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mi = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      let timeSql = normalizeMysqlTime(`${hh}:${mi}:${ss}`);
+      if (endD && timeSql) {
+        const clamped = clampMaUptimeAfterDowntimeStart(existing[0], endD, timeSql);
+        endD = clamped.date;
+        timeSql = clamped.time;
+        addUpdate(udColU, endD);
+        addUpdate(utColU, timeSql);
+      }
+    }
     if (actuallyWent !== undefined) addUpdate('actually_went', actuallyWent ? 1 : 0);
     if (notes !== undefined) {
       const nextStatus = status !== undefined ? status : existing[0].status;
@@ -718,6 +859,21 @@ const updateTask = async (req, res) => {
     if (rescheduleNote !== undefined) addUpdate('reschedule_note', rescheduleNote || null);
     if (photos !== undefined) addUpdate('photos', photos && photos.length > 0 ? JSON.stringify(photos) : null);
 
+    if (await taskColumnExists('assigned_service')) {
+      const nextTT = String(
+        taskType !== undefined ? taskType : existing[0].task_type || ''
+      ).toUpperCase();
+      const asInBody = assignedService !== undefined || assigned_service !== undefined;
+      if (asInBody) {
+        addUpdate(
+          'assigned_service',
+          nextTT === 'MA' ? normalizeAssignedServiceFromBody(req.body) : null
+        );
+      } else if (taskType !== undefined && nextTT === 'PM') {
+        addUpdate('assigned_service', null);
+      }
+    }
+
     if (updates.length === 0) {
         return res.status(400).json({ success: false, message: 'No data to update' });
     }
@@ -725,6 +881,10 @@ const updateTask = async (req, res) => {
     values.push(id);
     const updateSql = `UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`;
     await db.execute(updateSql, values);
+
+    if (maAutoUptimeOnDone) {
+      await persistMaDowntimeTotalHoursForTask(id);
+    }
 
     // Handle replacement device asset state changes and contract_device update
     // MA: อัปเดต Asset_State และ SLid เฉพาะเมื่อ status = 'done' (กด Done ใน detail)

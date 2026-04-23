@@ -1252,7 +1252,7 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 gap-2">
               {hoveredEvent.startDate && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date</p>
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date (mm/dd/yyyy)</p>
                   <p className="text-sm text-slate-700">
                     {new Date(hoveredEvent.startDate).toLocaleDateString('en-US', {
                       year: 'numeric',

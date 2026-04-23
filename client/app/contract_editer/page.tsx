@@ -1003,7 +1003,7 @@ function ContractEditorPageContent() {
 
         const sheetRows: any[][] = [];
         sheetRows.push(['Contract Name', c.name]);
-        sheetRows.push(['Start Date', startDate, 'End Date', endDate]);
+        sheetRows.push(['Start Date (mm/dd/yyyy)', startDate, 'End Date (mm/dd/yyyy)', endDate]);
         sheetRows.push([]);
         sheetRows.push(['Site', 'Location', 'Serial']);
         if (siteOrder.length === 0) {
@@ -1032,7 +1032,7 @@ function ContractEditorPageContent() {
       const wsContracts =
         contractSiteRows.length > 0
           ? XLSX.utils.json_to_sheet(contractSiteRows)
-          : XLSX.utils.aoa_to_sheet([['Contract Name', 'Site', 'Location', 'SOF', 'Device Count', 'Start Date', 'End Date']]);
+          : XLSX.utils.aoa_to_sheet([['Contract Name', 'Site', 'Location', 'SOF', 'Device Count', 'Start Date (mm/dd/yyyy)', 'End Date (mm/dd/yyyy)']]);
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, wsContracts, 'Contracts');
@@ -2268,12 +2268,12 @@ function ContractEditorPageContent() {
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Calendar size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Start Date:</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Start Date (mm/dd/yyyy):</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedStartDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Clock size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">End Date:</span>
+                <span className="text-slate-500 min-w-[100px] flex-shrink-0">End Date (mm/dd/yyyy):</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedEndDate}</span>
               </div>
               {renewCol ? (
@@ -2700,7 +2700,7 @@ function ContractEditorPageContent() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                   <label htmlFor="startDate" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    Start Date *
+                    Start Date (mm/dd/yyyy) *
                   </label>
                   <input
                     type="date"
@@ -2713,7 +2713,7 @@ function ContractEditorPageContent() {
                 </div>
                 <div>
                   <label htmlFor="endDate" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    End Date *
+                    End Date (mm/dd/yyyy) *
                   </label>
                   <input
                     type="date"
@@ -2889,7 +2889,7 @@ function ContractEditorPageContent() {
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                   <label htmlFor="editStartDate" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    Start Date *
+                    Start Date (mm/dd/yyyy) *
                   </label>
                   <input
                     type="date"
@@ -2902,7 +2902,7 @@ function ContractEditorPageContent() {
                 </div>
                 <div>
                   <label htmlFor="editEndDate" className="block mb-2 text-slate-700 font-semibold text-sm">
-                    End Date *
+                    End Date (mm/dd/yyyy) *
                   </label>
                   <input
                     type="date"
@@ -4483,8 +4483,8 @@ function ContractEditorPageContent() {
                     <li><strong>SOF</strong> — sof number</li>
                     <li><strong>Site</strong> — site name (must match Site + Location)</li>
                     <li><strong>Location</strong> — optional, helps match site</li>
-                    <li><strong>Start Date</strong> — start date (e.g. 2026-01-01)</li>
-                    <li><strong>End Date</strong> — end date (optional, defaults to start)</li>
+                    <li><strong>Start Date (mm/dd/yyyy)</strong> — start date (e.g. 2026-01-01)</li>
+                    <li><strong>End Date (mm/dd/yyyy)</strong> — end date (optional, defaults to start)</li>
                     <li><strong>SLA Term</strong> — sla term (e.g. 100)</li>
                   </ul>
                   <p className="mt-2"><strong>Optional:</strong> Sale Account, Service, Email, Tel, Coverage Scope</p>

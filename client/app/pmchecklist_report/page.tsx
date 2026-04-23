@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
@@ -36,7 +36,7 @@ import {
   Paperclip,
 } from 'lucide-react';
 
-/** Paths จาก task.photos / report.repairNoticePaths สำหรับลิงก์ Repair notice */
+/** Paths จาก task.photos / report.repairNoticePaths (fallback) สำหรับลิงก์ Repair notice */
 function normalizeRepairPathsFromPhotos(photos: unknown): string[] {
   if (!Array.isArray(photos)) return [];
   const out: string[] = [];
@@ -117,10 +117,103 @@ interface MAReport {
   downtimeTotalHours?: number;
   /** paths สำหรับ Repair notice (export CSV / ZIP) */
   repairNoticePaths?: string[];
+  /** ถ้า API แนบจากงาน */
+  assignedService?: string | null;
+}
+
+/** ลำดับ path จาก Upload Images/Documents/MA Results ของรายงาน (uploadedFiles[].path) */
+function pathsFromMaReportUploadedFiles(ma: MAReport): string[] {
+  const files = Array.isArray(ma.uploadedFiles) ? ma.uploadedFiles : [];
+  const out: string[] = [];
+  for (const f of files) {
+    if (!f || typeof f !== 'object') continue;
+    const raw = (f as { path?: string }).path;
+    const path = typeof raw === 'string' ? raw.trim() : '';
+    if (path) out.push(path);
+  }
+  return out;
 }
 
 const ITEMS_PER_PAGE = 5;
 const DOWNLOAD_MODAL_PAGE_SIZE = 8;
+
+/**
+ * แยกคอลัมน์ Site / Location: ข้อความจาก DB/UI มักเป็น "ชื่อไซต์ - สถานที่" รวมในฟิลด์เดียว
+ * ถ้ามี Location จาก device/asset ให้ใช้เป็นคอลัมน์ Location ก่อน (ข้อมูลจากอุปกรณ์)
+ */
+function exportSiteAndLocation(siteLabel: unknown, explicitLocation: unknown): { site: string; location: string } {
+  const raw = String(siteLabel ?? '').trim();
+  const exp = String(explicitLocation ?? '').trim();
+  const m = raw.match(/^(.*?)(\s+[-\u2013\u2014]\s+)(.*)$/);
+  const siteOnly = m ? m[1].trim() : raw;
+  const fromLabel = m ? m[3].trim() : '';
+  if (exp) {
+    return { site: siteOnly || raw || '-', location: exp };
+  }
+  if (fromLabel) {
+    return { site: siteOnly || '-', location: fromLabel };
+  }
+  return { site: raw || '-', location: '-' };
+}
+
+/** MA CSV / รายละเอียด: Site/Location เครื่องเสียจาก GET /api/devices/:id (ข้อมูลจริงใน DB) */
+export type BrokenDeviceExportDetail = { site?: string; location?: string };
+
+/**
+ * MA export: Site = Sitename (merge DB ก่อน); Location = Location2 (merge DB ก่อน) ต่อแต่ละเครื่องเสียใน assets
+ */
+function exportBrokenSitesAndLocationsFromAssets(
+  assets: any[],
+  reportSiteName: unknown,
+  deviceDetailsById?: Record<string, BrokenDeviceExportDetail>
+): { site: string; location: string } {
+  const fb = String(reportSiteName ?? '').trim();
+  if (!Array.isArray(assets) || assets.length === 0) {
+    return exportSiteAndLocation(fb, '');
+  }
+  const siteParts: string[] = [];
+  const locParts: string[] = [];
+  for (const a of assets) {
+    const idKey = String(a?.id ?? a?.Did ?? a?.did ?? '').trim();
+    const det = idKey && deviceDetailsById ? deviceDetailsById[idKey] : undefined;
+    let rawA = String(a?.Sitename ?? a?.SiteName ?? a?.site ?? '').trim();
+    let expA = String(a?.Location2 ?? a?.location ?? a?.Location ?? '').trim();
+    if (det) {
+      if (det.site) rawA = String(det.site).trim();
+      if (det.location) expA = String(det.location).trim();
+    }
+    const baseSite = rawA || fb;
+    const { site, location } = exportSiteAndLocation(baseSite, expA);
+    siteParts.push(site);
+    locParts.push(location);
+  }
+  return { site: siteParts.join('; '), location: locParts.join('; ') };
+}
+
+/** Wraps every case-insensitive occurrence of `query` in `<mark>` while preserving original casing. */
+function highlightSearchInText(text: string, query: string): ReactNode {
+  const q = query.trim();
+  const s = String(text ?? '');
+  if (!q || !s) return s;
+  const lower = s.toLowerCase();
+  const qLower = q.toLowerCase();
+  const out: ReactNode[] = [];
+  let pos = 0;
+  let k = 0;
+  let found = lower.indexOf(qLower, pos);
+  while (found !== -1) {
+    if (found > pos) out.push(s.slice(pos, found));
+    out.push(
+      <mark key={`hl-${k++}`} className="bg-amber-200/95 text-inherit rounded px-0.5">
+        {s.slice(found, found + q.length)}
+      </mark>
+    );
+    pos = found + q.length;
+    found = lower.indexOf(qLower, pos);
+  }
+  if (pos < s.length) out.push(s.slice(pos));
+  return out.length === 0 ? s : <>{out}</>;
+}
 
 function ReportPageContent() {
   const router = useRouter();
@@ -152,8 +245,13 @@ function ReportPageContent() {
     type?: string;
     serialNumber?: string;
     site?: string;
+    location?: string;
     assetNumber?: string;
   }>>({});
+  /** MA รายละเอียดรายงาน: Site/Location เครื่องเสียจาก DB (Did ตาม task.assets) */
+  const [brokenDevicesDetailMap, setBrokenDevicesDetailMap] = useState<
+    Record<string, { site?: string; location?: string }>
+  >({});
 
   const getEngineerDisplay = (r: PMReport | MAReport): string => {
     const engineers = Array.isArray(r.engineers) ? r.engineers : [];
@@ -276,11 +374,27 @@ function ReportPageContent() {
       const technician = report.technicianName || '';
       const deviceId = report.deviceId || '';
       const dateVal = report[dateKey as keyof typeof report];
+      const dev = report.device as Record<string, unknown> | undefined;
+      const rSite = (report as PMReport).site_name ?? (report as MAReport).site_name;
+      const rawSite =
+        dev?.Sitename != null && String(dev.Sitename).trim() !== ''
+          ? String(dev.Sitename)
+          : rSite != null && String(rSite).trim() !== ''
+            ? String(rSite)
+            : '';
+      const explicitLoc = dev?.Location2 != null ? String(dev.Location2) : '';
+      const { site: siteDisp, location: locDisp } = exportSiteAndLocation(rawSite, explicitLoc);
+      const siteHay = [rawSite, rSite != null ? String(rSite) : '', siteDisp, dev?.Sitename]
+        .map((x) => String(x ?? '').toLowerCase())
+        .join('\n');
+      const locHay = [locDisp, explicitLoc].map((x) => String(x ?? '').toLowerCase()).join('\n');
       return (
         deviceName.toLowerCase().includes(q) ||
         technician.toLowerCase().includes(q) ||
         deviceId.toLowerCase().includes(q) ||
-        (typeof dateVal === 'string' && dateVal.toLowerCase().includes(q))
+        (typeof dateVal === 'string' && dateVal.toLowerCase().includes(q)) ||
+        siteHay.includes(q) ||
+        locHay.includes(q)
       );
     });
   }, [reports, searchTerm, dateKey]);
@@ -294,8 +408,27 @@ function ReportPageContent() {
     for (const a of assets) {
       const deviceName = String(a?.CI_Name ?? a?.name ?? a?.Asset_Number ?? a?.serial ?? '').toLowerCase();
       const deviceId = String(a?.Asset_Number ?? a?.assetNumber ?? a?.Did ?? '').toLowerCase();
-      if (deviceName.includes(q) || deviceId.includes(q)) return true;
+      const aSite = String(a?.Sitename ?? '').toLowerCase();
+      const aLoc = String(a?.Location2 ?? a?.location ?? '').toLowerCase();
+      if (deviceName.includes(q) || deviceId.includes(q) || aSite.includes(q) || aLoc.includes(q)) return true;
     }
+    const first = assets[0];
+    const rawSiteLabel =
+      task?.siteName != null && String(task.siteName).trim() !== ''
+        ? String(task.siteName)
+        : first?.Sitename != null
+          ? String(first.Sitename)
+          : '';
+    const explicitLocFromAsset =
+      first?.Location2 != null
+        ? String(first.Location2)
+        : first?.location != null
+          ? String(first.location)
+          : '';
+    const { site: taskSiteDisp, location: taskLocDisp } = exportSiteAndLocation(
+      rawSiteLabel,
+      explicitLocFromAsset
+    );
     const technician = getEngineerDisplay({
       engineers: task?.engineers,
       technicianName: task?.technicianName,
@@ -304,9 +437,16 @@ function ReportPageContent() {
     const dateStr = typeof dateVal === 'string' ? dateVal.toLowerCase() : '';
     const siteStr = String(task?.siteName ?? '').toLowerCase();
     const statusStr = String(task?.status ?? '').toLowerCase();
+    const siteLocHay = [
+      siteStr,
+      rawSiteLabel.toLowerCase(),
+      taskSiteDisp.toLowerCase(),
+      taskLocDisp.toLowerCase(),
+      explicitLocFromAsset.toLowerCase(),
+    ].join('\n');
     return (
       technician.includes(q) ||
-      siteStr.includes(q) ||
+      siteLocHay.includes(q) ||
       String(task?.id ?? '').includes(q) ||
       dateStr.includes(q) ||
       statusStr.includes(q)
@@ -354,6 +494,7 @@ function ReportPageContent() {
         type?: string;
         serialNumber?: string;
         site?: string;
+        location?: string;
         assetNumber?: string;
       }> = {};
       await Promise.all(
@@ -362,14 +503,17 @@ function ReportPageContent() {
             const res = await fetch(apiUrl(`/api/devices/${rid}`));
             const json = await res.json();
             if (!cancelled && res.ok && json.data) {
-              const d = json.data;
+              const d = json.data as Record<string, unknown>;
+              const siteDb = String(d.Sitename ?? d.SiteName ?? d.sitename ?? '').trim();
+              const locDb = String(d.Location2 ?? d.location2 ?? '').trim();
               map[String(rid)] = {
                 id: String(d.Did),
-                name: d.CI_Name || d.Asset_Number || '',
-                type: d.model || d.Manufacturername || d.manufacturername || undefined,
-                serialNumber: d.serial,
-                site: d.Sitename || d.Location2,
-                assetNumber: d.Asset_Number,
+                name: (d.CI_Name || d.Asset_Number || '') as string,
+                type: (d.model || d.Manufacturername || d.manufacturername) as string | undefined,
+                serialNumber: d.serial as string | undefined,
+                site: siteDb || undefined,
+                location: locDb || undefined,
+                assetNumber: d.Asset_Number as string | undefined,
               };
             }
           } catch {
@@ -385,6 +529,53 @@ function ReportPageContent() {
     };
   }, [selectedReport, tab]);
 
+  // MA: โหลด Site/Location เครื่องเสียจาก devices จริง (ไม่ใช้แค่ snapshot ใน assets)
+  useEffect(() => {
+    if (!selectedReport || tab !== 'ma') {
+      setBrokenDevicesDetailMap({});
+      return;
+    }
+    const rawAssets: any[] = Array.isArray((selectedReport as any).assets)
+      ? (selectedReport as any).assets
+      : [];
+    const ids = new Set<string>();
+    rawAssets.forEach((a: any) => {
+      if (!a) return;
+      const bid = a?.id ?? a?.Did ?? a?.did;
+      if (bid != null && String(bid).trim() !== '') ids.add(String(bid));
+    });
+    if (ids.size === 0) {
+      setBrokenDevicesDetailMap({});
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const map: Record<string, { site?: string; location?: string }> = {};
+      await Promise.all(
+        Array.from(ids).map(async (did) => {
+          try {
+            const res = await fetch(apiUrl(`/api/devices/${did}`));
+            const json = await res.json();
+            if (!cancelled && res.ok && json.data) {
+              const d = json.data as Record<string, unknown>;
+              map[did] = {
+                site: String(d.Sitename ?? d.SiteName ?? d.sitename ?? '').trim() || undefined,
+                location: String(d.Location2 ?? d.location2 ?? '').trim() || undefined,
+              };
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+      );
+      if (!cancelled) setBrokenDevicesDetailMap(map);
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedReport, tab]);
+
   // Pair original assets with replacement devices (for MA)
   const assetPairs = useMemo(() => {
     if (!selectedReport || tab !== 'ma') return [];
@@ -392,18 +583,21 @@ function ReportPageContent() {
       ? (selectedReport as any).assets
       : [];
     return rawAssets.map((a: any) => {
+      const idKey = String(a?.id ?? a?.Did ?? a?.did ?? '').trim();
+      const fromDb = idKey ? brokenDevicesDetailMap[idKey] : undefined;
       const original = {
         name: a?.name ?? a?.CI_Name ?? a?.Asset_Number ?? '',
         assetNumber: a?.assetNumber ?? a?.Asset_Number,
         serial: a?.serialNumber ?? a?.serial,
         model: a?.model,
-        site: a?.site ?? a?.Sitename,
+        site: fromDb?.site ?? a?.Sitename ?? a?.SiteName ?? a?.site,
+        location: fromDb?.location ?? a?.Location2 ?? a?.location,
       };
       const rid = a?.replacementDeviceId ?? a?.replacement_device_id;
       const replacement = rid != null ? replacementDevicesMap[String(rid)] : undefined;
       return { original, replacement };
     });
-  }, [selectedReport, tab, replacementDevicesMap]);
+  }, [selectedReport, tab, replacementDevicesMap, brokenDevicesDetailMap]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -445,8 +639,8 @@ function ReportPageContent() {
         name: a.name ?? a.CI_Name,
         Asset_Number: a.Asset_Number ?? a.assetNumber,
         serial: a.serial ?? a.serialNumber,
-        Sitename: a.Sitename ?? a.site,
-        Location2: a.Location2 ?? a.location,
+        Sitename: a.Sitename ?? a.SiteName ?? a.site,
+        Location2: a.Location2 ?? a.location ?? a.Location,
         Refer_SOF: a.Refer_SOF ?? a.refer_sof ?? (report.device as any)?.Refer_SOF,
         model: a.model ?? a.Model ?? a.Manufacturername ?? a.manufacturername ?? (report.device as any)?.model,
         Vendor: a.Vendor ?? a.vendor ?? (report.device as any)?.Vendor,
@@ -522,25 +716,6 @@ function ReportPageContent() {
     const s = String(v ?? '');
     if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
-  };
-
-  /**
-   * แยกคอลัมน์ Site / Location: ข้อความจาก DB/UI มักเป็น "ชื่อไซต์ - สถานที่" รวมในฟิลด์เดียว
-   * ถ้ามี Location จาก device/asset ให้ใช้เป็นคอลัมน์ Location ก่อน (ข้อมูลจากอุปกรณ์)
-   */
-  const exportSiteAndLocation = (siteLabel: unknown, explicitLocation: unknown): { site: string; location: string } => {
-    const raw = String(siteLabel ?? '').trim();
-    const exp = String(explicitLocation ?? '').trim();
-    const m = raw.match(/^(.*?)(\s+[-\u2013\u2014]\s+)(.*)$/);
-    const siteOnly = m ? m[1].trim() : raw;
-    const fromLabel = m ? m[3].trim() : '';
-    if (exp) {
-      return { site: siteOnly || raw || '-', location: exp };
-    }
-    if (fromLabel) {
-      return { site: siteOnly || '-', location: fromLabel };
-    }
-    return { site: raw || '-', location: '-' };
   };
 
   /** Excel/LibreOffice: HYPERLINK formula; multiple files joined with line breaks in one cell */
@@ -628,6 +803,7 @@ function ReportPageContent() {
       site: string;
     };
     let replacementPlaceMap: Record<string, ReplacementInfo> = {};
+    let brokenDeviceExportDetails: Record<string, BrokenDeviceExportDetail> = {};
     const addReplacementIdsFromRow = (row: any, repIds: Set<string>) => {
       const assets: any[] = Array.isArray(row?.assets) ? row.assets : [];
       assets.forEach((a: any) => {
@@ -651,14 +827,14 @@ function ReportPageContent() {
               const serial = (d.serial ?? (d as any).serialNumber ?? '') as string;
               const model = (d.model ?? (d as any).type ?? '') as string;
               const assetNum = (d.Asset_Number ?? (d as any).assetNumber ?? '') as string;
-              const location = (d.Location2 ?? d.location2 ?? '') as string;
-              const site = (d.Sitename ?? d.site ?? '') as string;
+              const siteDb = String(d.Sitename ?? (d as any).SiteName ?? (d as any).sitename ?? '').trim();
+              const locDb = String((d.Location2 ?? d.location2 ?? '') as string).trim();
               replacementPlaceMap[rid] = {
                 serial: String(serial || '').trim() || '-',
                 model: String(model || '').trim() || '-',
                 assetNumber: String(assetNum || '').trim() || '-',
-                location: String(location || '').trim() || '-',
-                site: String(site || '').trim() || '-',
+                location: locDb || '-',
+                site: siteDb || '-',
               };
             } else {
               replacementPlaceMap[rid] = {
@@ -680,11 +856,51 @@ function ReportPageContent() {
           }
         })
       );
+
+      const brokenIds = new Set<string>();
+      const addBrokenIdsFromRow = (row: any) => {
+        const ast: any[] = Array.isArray(row?.assets) ? row.assets : [];
+        for (const a of ast) {
+          const bid = a?.id ?? a?.Did ?? a?.did;
+          if (bid != null && String(bid).trim() !== '') brokenIds.add(String(bid));
+        }
+      };
+      sourceReports.forEach((r: PMReport | MAReport) => addBrokenIdsFromRow(r));
+      pendingExport.forEach((t) => addBrokenIdsFromRow(t));
+      await Promise.all(
+        Array.from(brokenIds).map(async (did) => {
+          try {
+            const res = await fetch(apiUrl(`/api/devices/${did}`));
+            const json = await res.json();
+            if (res.ok && json.data) {
+              const d = json.data as Record<string, unknown>;
+              const site = String(d.Sitename ?? (d as { SiteName?: string }).SiteName ?? '')
+                .trim();
+              const location = String(d.Location2 ?? d.location2 ?? '').trim();
+              brokenDeviceExportDetails[did] = {
+                ...(site ? { site } : {}),
+                ...(location ? { location } : {}),
+              };
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+      );
     }
 
-    const taskById = new Map<number, { startDate?: string; endDate?: string }>();
-    pmMaTasks.forEach((t: { id?: number; startDate?: string; endDate?: string }) => {
-      if (t?.id != null && !Number.isNaN(Number(t.id))) taskById.set(Number(t.id), { startDate: t.startDate, endDate: t.endDate });
+    const taskById = new Map<
+      number,
+      { startDate?: string; endDate?: string; assignedService?: string | null }
+    >();
+    pmMaTasks.forEach((t: { id?: number; startDate?: string; endDate?: string; assignedService?: string | null; assigned_service?: string | null }) => {
+      if (t?.id != null && !Number.isNaN(Number(t.id))) {
+        taskById.set(Number(t.id), {
+          startDate: t.startDate,
+          endDate: t.endDate,
+          assignedService: t.assignedService ?? t.assigned_service ?? null,
+        });
+      }
     });
     const taskWindowDates = (taskId: unknown) => {
       if (taskId == null || taskId === '') return { start: '', end: '' };
@@ -693,6 +909,13 @@ function ReportPageContent() {
         start: formatExportDate(t?.startDate),
         end: formatExportDate(t?.endDate),
       };
+    };
+    const assignedServiceForTaskExport = (taskId: unknown) => {
+      if (taskId == null || taskId === '') return '-';
+      const t = taskById.get(Number(taskId));
+      const v = t?.assignedService;
+      if (v == null || String(v).trim() === '') return '-';
+      return String(v).trim();
     };
 
     const lines: string[] = [];
@@ -710,35 +933,38 @@ function ReportPageContent() {
       'Comment',
     ];
     const maHeaders = [
-      'Serial',
+      'Replacement Model',
+      'Replacement Device',
+      'Asset number (replace)',
+      'Site (replace)',
+      'Location (replace)',
       'Model',
+      'Serial',
       'Asset number',
       'Site',
       'Location',
       'Technician',
       'start_date',
       'end_date',
-      'Replace Device (serial)',
-      'Model',
-      'Asset number',
-      'New Site',
-      'New Location',
       'Third Party Vendor name',
       'Third Party Vendor phone',
       'Reporter name',
       'Reporter phone',
       'Ticket',
+      'Assigned Service',
       'Status',
       'Report status',
-      'Remark',
-      'comment',
+      'Repair notice',
+      'Comment',
     ];
 
     const getMaExportRepairPaths = (ma: MAReport): string[] => {
-      const fromReport = Array.isArray(ma.repairNoticePaths)
+      const fromUploads = pathsFromMaReportUploadedFiles(ma);
+      if (fromUploads.length > 0) return fromUploads;
+      const fromLegacyPaths = Array.isArray(ma.repairNoticePaths)
         ? ma.repairNoticePaths.filter((p): p is string => typeof p === 'string' && p.trim() !== '')
         : [];
-      if (fromReport.length > 0) return fromReport;
+      if (fromLegacyPaths.length > 0) return fromLegacyPaths;
       const tid = ma.taskId;
       if (tid == null) return [];
       const linked = pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(tid));
@@ -752,17 +978,17 @@ function ReportPageContent() {
     sourceReports.forEach((r: PMReport | MAReport) => {
       const dev = r.device as Record<string, unknown> | undefined;
       const rSite = (r as PMReport).site_name ?? (r as MAReport).site_name;
-      const rawSite =
-        dev?.Sitename != null && String(dev.Sitename).trim() !== ''
-          ? String(dev.Sitename)
-          : rSite != null && String(rSite).trim() !== ''
-            ? String(rSite)
-            : '';
-      const explicitLoc = dev?.Location2 != null ? String(dev.Location2) : '';
-      const { site, location } = exportSiteAndLocation(rawSite, explicitLoc);
       const reportStatus = (r.uploadedFiles || []).length > 0 ? 'Reported' : 'Not yet';
       const { start: winStart, end: winEnd } = taskWindowDates(r.taskId);
       if (tab === 'pm') {
+        const rawSite =
+          dev?.Sitename != null && String(dev.Sitename).trim() !== ''
+            ? String(dev.Sitename)
+            : rSite != null && String(rSite).trim() !== ''
+              ? String(rSite)
+              : '';
+        const explicitLoc = dev?.Location2 != null ? String(dev.Location2) : '';
+        const { site, location } = exportSiteAndLocation(rawSite, explicitLoc);
         const assets = Array.isArray((r as any).assets) ? (r as any).assets : [];
         const totalDevicesThisReport = assets.length > 0 ? assets.length : 1;
         row([
@@ -779,6 +1005,14 @@ function ReportPageContent() {
         return;
       }
       const assets: any[] = Array.isArray((r as any).assets) ? (r as any).assets : [];
+      const brokenPlace = exportBrokenSitesAndLocationsFromAssets(
+        assets,
+        rSite,
+        brokenDeviceExportDetails
+      );
+      // Site = Sitename (หลัง merge DB); Location = Location2 (จาก asset หรือ DB ผ่าน exportBroken…)
+      const site = brokenPlace.site;
+      const location = brokenPlace.location;
       const taskRepId = (r as any).replacementDeviceId ?? (r as any).replacement_device_id;
       const origNames: string[] = [];
       const origAssets: string[] = [];
@@ -837,24 +1071,25 @@ function ReportPageContent() {
         repairNoticeExcelSeq
       );
       row([
-        serialStr,
+        replaceModelStr,
+        replaceDeviceStr,
+        replaceAssetStr,
+        newSiteStr,
+        newLocationStr,
         modelStr,
+        serialStr,
         assetStr,
         site,
         location,
         getEngineerDisplay(r),
         winStart,
         winEnd,
-        replaceDeviceStr,
-        replaceModelStr,
-        replaceAssetStr,
-        newSiteStr,
-        newLocationStr,
         maR.vendorName ?? '',
         maR.vendorTel ?? '',
         maR.reporterName ?? '',
         maR.reporterTel ?? '',
         maR.ticket ?? '',
+        assignedServiceForTaskExport(maR.taskId ?? (r as any).taskId),
         'Done',
         reportStatus,
         repairCell,
@@ -865,22 +1100,33 @@ function ReportPageContent() {
     pendingExport.forEach((task: any) => {
       const assets: any[] = Array.isArray(task?.assets) ? task.assets : [];
       const first = assets[0];
-      const rawSiteLabel =
-        task?.siteName != null && String(task.siteName).trim() !== ''
-          ? String(task.siteName)
-          : first?.Sitename != null
-            ? String(first.Sitename)
-            : '';
-      const explicitLocFromAsset =
-        first?.Location2 != null
-          ? String(first.Location2)
-          : first?.location != null
-            ? String(first.location)
-            : '';
-      const { site: siteFromTask, location: locationFromTask } = exportSiteAndLocation(
-        rawSiteLabel,
-        explicitLocFromAsset
-      );
+      let siteFromTask: string;
+      let locationFromTask: string;
+      if (tab === 'pm') {
+        const rawSiteLabel =
+          task?.siteName != null && String(task.siteName).trim() !== ''
+            ? String(task.siteName)
+            : first?.Sitename != null
+              ? String(first.Sitename)
+              : '';
+        const explicitLocFromAsset =
+          first?.Location2 != null
+            ? String(first.Location2)
+            : first?.location != null
+              ? String(first.location)
+              : '';
+        const pairPm = exportSiteAndLocation(rawSiteLabel, explicitLocFromAsset);
+        siteFromTask = pairPm.site;
+        locationFromTask = pairPm.location;
+      } else {
+        const pairMa = exportBrokenSitesAndLocationsFromAssets(
+          assets,
+          task?.siteName,
+          brokenDeviceExportDetails
+        );
+        siteFromTask = pairMa.site;
+        locationFromTask = pairMa.location;
+      }
       const engDisplay = getEngineerDisplay({
         engineers: task?.engineers,
         technicianName: task?.technicianName,
@@ -959,24 +1205,25 @@ function ReportPageContent() {
         repairNoticeExcelSeq
       );
       row([
-        serialStr,
+        replaceModelStr,
+        replaceDeviceStr,
+        replaceAssetStr,
+        newSiteStr,
+        newLocationStr,
         modelStr,
+        serialStr,
         assetNumStr,
         siteFromTask,
         locationFromTask,
         engDisplay,
         formatExportDate(task?.startDate),
         formatExportDate(task?.endDate),
-        replaceDeviceStr,
-        replaceModelStr,
-        replaceAssetStr,
-        newSiteStr,
-        newLocationStr,
         task?.vendorName ?? '',
         task?.vendorTel ?? '',
         task?.reporterName ?? '',
         task?.reporterTel ?? '',
         task?.ticket ?? '',
+        String(task?.assignedService ?? task?.assigned_service ?? '').trim() || '-',
         formatTaskStatusForCsv(task?.status),
         'Not yet',
         repairCell,
@@ -1002,20 +1249,34 @@ function ReportPageContent() {
     return d && typeof d === 'string' ? d.slice(0, 10) : '';
   };
 
+  const getReferSofFromReport = (r: PMReport | MAReport) =>
+    (r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF';
+
+  type DownloadFileEntry = {
+    path: string;
+    name: string;
+    siteLocation: string;
+    location: string;
+    visitRound: string;
+    type?: string;
+    referSof: string;
+  };
+
   const buildFilesBySiteMap = (sourceReports: (PMReport | MAReport)[]) => {
-    const bySite = new Map<string, Array<{ path: string; name: string; siteLocation: string; location: string; visitRound: string; type?: string }>>();
+    const bySite = new Map<string, DownloadFileEntry[]>();
     sourceReports.forEach((r: PMReport | MAReport) => {
       const siteLocation = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
       const d = r.device as { Location2?: string; location2?: string } | undefined;
       const location = (d?.Location2 ?? d?.location2 ?? '').toString().trim() || 'Unknown';
       const visitRound = getVisitDate(r) || 'Unknown';
+      const referSof = getReferSofFromReport(r);
       (r.uploadedFiles || []).forEach((f) => {
         const path = typeof f === 'string' ? f : f?.path;
         const name = typeof f === 'object' && f?.name ? f.name : path?.split('/').pop() || 'file';
         const fileType = typeof f === 'object' ? f?.type : undefined;
         if (path) {
           const list = bySite.get(siteLocation) ?? [];
-          list.push({ path, name, siteLocation, location, visitRound, type: fileType });
+          list.push({ path, name, siteLocation, location, visitRound, type: fileType, referSof });
           bySite.set(siteLocation, list);
         }
       });
@@ -1050,23 +1311,35 @@ function ReportPageContent() {
       ? visitRound
       : `${fallbackYear || String(new Date().getFullYear())}-01-01`;
 
-  const getRoundMapBySiteLocationDate = <T extends { siteLocation: string; location: string; visitRound: string; name?: string; path?: string }>(
+  /** ปีปฏิทินจากวันไปทำ — ใช้แบ่งกลุ่มนับรอบ (ปีใหม่ → รอบเริ่ม 1 ใหม่ต่อ Site+Location) */
+  const visitCalendarYear = (visitRound: string, fallbackYear?: string): string => {
+    if (visitRound && /^\d{4}-\d{2}-\d{2}$/.test(visitRound)) return visitRound.slice(0, 4);
+    if (visitRound && /^\d{4}/.test(visitRound)) return visitRound.slice(0, 4);
+    return fallbackYear || String(new Date().getFullYear());
+  };
+
+  /** รอบที่ n ต่อ Site + Location + ปีปฏิทิน (+ SOF ถ้ามี) — ปีใหม่เริ่มรอบ 1 ใหม่ */
+  const getRoundMapBySiteLocationDate = <T extends { siteLocation: string; location: string; visitRound: string; name?: string; path?: string; referSof?: string }>(
     files: T[],
     fallbackYear?: string
   ) => {
-    const filesByPair = new Map<string, T[]>();
+    const sofKey = (f: T) => ('referSof' in f && (f as { referSof?: string }).referSof != null ? String((f as { referSof?: string }).referSof) : '');
+    const filesByGroup = new Map<string, T[]>();
     files.forEach((file) => {
-      const pairKey = getDownloadLocationKey(file.siteLocation, file.location);
-      const existing = filesByPair.get(pairKey) ?? [];
+      const y = visitCalendarYear(file.visitRound, fallbackYear);
+      const groupKey = `${getDownloadLocationKey(file.siteLocation, file.location)}|||${y}|||${sofKey(file)}`;
+      const existing = filesByGroup.get(groupKey) ?? [];
       existing.push(file);
-      filesByPair.set(pairKey, existing);
+      filesByGroup.set(groupKey, existing);
     });
 
     const roundMap = new Map<T, number>();
-    filesByPair.forEach((pairFiles) => {
-      [...pairFiles]
+    filesByGroup.forEach((groupFiles) => {
+      [...groupFiles]
         .sort((a, b) =>
-          getNormalizedVisitDate(a.visitRound, fallbackYear).localeCompare(getNormalizedVisitDate(b.visitRound, fallbackYear))
+          getNormalizedVisitDate(a.visitRound, visitCalendarYear(a.visitRound, fallbackYear)).localeCompare(
+            getNormalizedVisitDate(b.visitRound, visitCalendarYear(b.visitRound, fallbackYear))
+          )
           || String(a.name || '').localeCompare(String(b.name || ''))
           || String(a.path || '').localeCompare(String(b.path || ''))
         )
@@ -1078,18 +1351,19 @@ function ReportPageContent() {
   };
 
   const getFilesFromReports = (sourceReports: (PMReport | MAReport)[]) => {
-    const files: Array<{ path: string; name: string; siteLocation: string; location: string; visitRound: string; type?: string }> = [];
+    const files: DownloadFileEntry[] = [];
     sourceReports.forEach((r: PMReport | MAReport) => {
       const siteLocation = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
       const d = r.device as { Location2?: string; location2?: string } | undefined;
       const location = (d?.Location2 ?? d?.location2 ?? '').toString().trim() || 'Unknown';
       const visitRound = getVisitDate(r) || 'Unknown';
+      const referSof = getReferSofFromReport(r);
       (r.uploadedFiles || []).forEach((f) => {
         const path = typeof f === 'string' ? f : f?.path;
         const name = typeof f === 'object' && f?.name ? f.name : path?.split('/').pop() || 'file';
         const fileType = typeof f === 'object' ? f?.type : undefined;
         if (path) {
-          files.push({ path, name, siteLocation, location, visitRound, type: fileType });
+          files.push({ path, name, siteLocation, location, visitRound, type: fileType, referSof });
         }
       });
     });
@@ -1110,53 +1384,42 @@ function ReportPageContent() {
     const taskLabel = tab === 'pm' ? 'PM' : 'MA';
     const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
     const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
-    const yearDefault = String(new Date().getFullYear());
+
+    const zip = new JSZip();
+    const sofFolderName = safe(sofName.replace(/[/\\?*|"<>]/g, '_') || 'Unknown_SOF');
+    const sofFolder = zip.folder(sofFolderName);
+    if (!sofFolder) {
+      toastWarning('Could not build zip folder');
+      return;
+    }
 
     for (const [siteName, allFiles] of bySite.entries()) {
-      const siteReports = sofReports.filter(
-        (r) => ((r.device?.Sitename ?? '').toString().trim() || 'Unknown') === siteName
-      );
-      const year = (() => {
-        const dates = siteReports.map((r) => getVisitDate(r)).filter(Boolean);
-        if (dates.length > 0) return dates[0].slice(0, 4);
-        return yearDefault;
-      })();
-      const roundCount = (() => {
-        const yearDates = new Set(
-          siteReports.map((r) => getVisitDate(r)).filter((d) => d && d.startsWith(year))
-        );
-        return yearDates.size || 1;
-      })();
-      const locationName = (() => {
-        const d = siteReports[0]?.device as { Location2?: string; location2?: string } | undefined;
-        const loc = d?.Location2 ?? d?.location2 ?? '';
-        return (loc && typeof loc === 'string' ? loc : String(loc || '')).trim() || 'Unknown';
-      })();
-
-      const roundMap = getRoundMapBySiteLocationDate(allFiles, year);
-      const zip = new JSZip();
-      const sofFolder = zip.folder(sofName.replace(/[/\\?*|"<>]/g, '_') || 'Unknown_SOF');
-      if (!sofFolder) continue;
-      for (let i = 0; i < allFiles.length; i++) {
-        const f = allFiles[i];
-        const visitDate = getNormalizedVisitDate(f.visitRound, year);
+      const roundMap = getRoundMapBySiteLocationDate(allFiles);
+      const siteFolder = sofFolder.folder(safe(siteName) || 'Unknown_Site');
+      if (!siteFolder) continue;
+      for (const f of allFiles) {
+        const y = visitCalendarYear(f.visitRound);
+        const visitDate = getNormalizedVisitDate(f.visitRound, y);
         const n = roundMap.get(f) ?? 1;
         try {
           const res = await fetch(apiUrl(f.path));
           if (res.ok) {
             const blob = await res.blob();
             const ext = getExt(f.name, f.type);
-            const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${safe(f.visitRound)}_รอบที่${n}${ext}`;
-            sofFolder.file(safeFileName, blob);
+            const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${visitDate}_รอบที่${n}${ext}`;
+            siteFolder.file(safeFileName, blob);
           }
         } catch {
           // skip failed fetch
         }
       }
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      triggerBlobDownload(zipBlob, `${taskLabel}_${year}_SOF_${safe(sofName)}_Site_${safe(siteName)}_Location_${safe(locationName)}_รอบที่${roundCount}.zip`);
-      await new Promise((r) => setTimeout(r, 300));
     }
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    triggerBlobDownload(
+      zipBlob,
+      `${taskLabel}_SOF_${sofFolderName}_sites_${bySite.size}_${new Date().toISOString().slice(0, 10)}.zip`
+    );
   };
 
   const downloadZipForSite = async (siteName: string, sourceReports: (PMReport | MAReport)[], locationFilter?: string) => {
@@ -1181,13 +1444,12 @@ function ReportPageContent() {
     const taskLabel = tab === 'pm' ? 'PM' : 'MA';
     const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
     const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
-    const year = (() => {
-      const dates = siteReports.map((r) => getVisitDate(r)).filter(Boolean);
-      return dates.length > 0 ? dates[0].slice(0, 4) : String(new Date().getFullYear());
-    })();
-    const roundCount = (() => {
-      const yearDates = new Set(siteReports.map((r) => getVisitDate(r)).filter((d) => d && d.startsWith(year)));
-      return yearDates.size || 1;
+    const yearLabel = (() => {
+      const dates = siteReports.map((r) => getVisitDate(r)).filter(Boolean).sort();
+      if (dates.length === 0) return String(new Date().getFullYear());
+      const y0 = dates[0].slice(0, 4);
+      const y1 = dates[dates.length - 1].slice(0, 4);
+      return y0 === y1 ? y0 : `${y0}-${y1}`;
     })();
     const locationName = locationFilter || (() => {
       const d = siteReports[0]?.device as { Location2?: string; location2?: string } | undefined;
@@ -1195,26 +1457,40 @@ function ReportPageContent() {
       return (loc && typeof loc === 'string' ? loc : String(loc || '')).trim() || 'Unknown';
     })();
 
-    const roundMap = getRoundMapBySiteLocationDate(allFiles, year);
+    const roundMap = getRoundMapBySiteLocationDate(allFiles);
     const zip = new JSZip();
-    for (let i = 0; i < allFiles.length; i++) {
-      const f = allFiles[i];
-      const visitDate = getNormalizedVisitDate(f.visitRound, year);
-      const n = roundMap.get(f) ?? 1;
-      try {
-        const res = await fetch(apiUrl(f.path));
-        if (res.ok) {
-          const blob = await res.blob();
-          const ext = getExt(f.name, f.type);
-          const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${safe(f.visitRound)}_รอบที่${n}${ext}`;
-          zip.file(safeFileName, blob);
+    const bySof = new Map<string, DownloadFileEntry[]>();
+    for (const f of allFiles) {
+      const k = safe(f.referSof) || 'Unknown_SOF';
+      const arr = bySof.get(k) ?? [];
+      arr.push(f);
+      bySof.set(k, arr);
+    }
+    for (const [sofKey, filesInSof] of bySof.entries()) {
+      const sofDir = zip.folder(sofKey);
+      if (!sofDir) continue;
+      for (const f of filesInSof) {
+        const y = visitCalendarYear(f.visitRound);
+        const visitDate = getNormalizedVisitDate(f.visitRound, y);
+        const n = roundMap.get(f) ?? 1;
+        try {
+          const res = await fetch(apiUrl(f.path));
+          if (res.ok) {
+            const blob = await res.blob();
+            const ext = getExt(f.name, f.type);
+            const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${visitDate}_รอบที่${n}${ext}`;
+            sofDir.file(safeFileName, blob);
+          }
+        } catch {
+          // skip failed fetch
         }
-      } catch {
-        // skip failed fetch
       }
     }
     const zipBlob = await zip.generateAsync({ type: 'blob' });
-    triggerBlobDownload(zipBlob, `${taskLabel}_${year}_Site_${safe(siteName)}_Location_${safe(locationName)}_รอบที่${roundCount}.zip`);
+    triggerBlobDownload(
+      zipBlob,
+      `${taskLabel}_${yearLabel}_Site_${safe(siteName)}_Location_${safe(locationName)}_by_SOF.zip`
+    );
   };
 
   const downloadZipForSelectedLocations = async (
@@ -1244,21 +1520,19 @@ function ReportPageContent() {
       const allFiles = getFilesFromReports(locationReports);
       if (allFiles.length === 0) continue;
 
-      const year = (() => {
-        const dates = locationReports.map((r) => getVisitDate(r)).filter(Boolean).sort((a, b) => a.localeCompare(b));
-        return dates.length > 0 ? dates[0].slice(0, 4) : String(new Date().getFullYear());
-      })();
-      const roundMap = getRoundMapBySiteLocationDate(allFiles, year);
+      const roundMap = getRoundMapBySiteLocationDate(allFiles);
 
       for (const f of allFiles) {
-        const visitDate = getNormalizedVisitDate(f.visitRound, year);
+        const y = visitCalendarYear(f.visitRound);
+        const visitDate = getNormalizedVisitDate(f.visitRound, y);
         const n = roundMap.get(f) ?? 1;
         try {
           const res = await fetch(apiUrl(f.path));
           if (res.ok) {
             const blob = await res.blob();
             const ext = getExt(f.name, f.type);
-            const baseEntryName = `${safeZipEntryPart(selection.siteName)}_${safeZipEntryPart(selection.location)}_${visitDate}_round${n}${ext}`;
+            const sofPart = safeZipEntryPart(f.referSof);
+            const baseEntryName = `${sofPart}/${safeZipEntryPart(selection.siteName)}_${safeZipEntryPart(selection.location)}_${visitDate}_round${n}${ext}`;
             zip.file(baseEntryName, blob, { binary: true });
             addedFiles += 1;
           }
@@ -1544,7 +1818,6 @@ function ReportPageContent() {
     setShowSiteImageMenu(false);
     try {
       const taskLabel = tab === 'pm' ? 'PM' : 'MA';
-      const year = String(new Date().getFullYear());
       const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
       const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
 
@@ -1560,17 +1833,14 @@ function ReportPageContent() {
         if (!sofFolder) continue;
 
         for (const [siteName, allFiles] of bySite.entries()) {
-          const siteReports = sofReports.filter(
-            (r) => ((r.device?.Sitename ?? '').toString().trim() || 'Unknown') === siteName
-          );
-          const roundMap = getRoundMapBySiteLocationDate(allFiles, year);
+          const roundMap = getRoundMapBySiteLocationDate(allFiles);
 
           const siteFolder = sofFolder.folder(safe(siteName) || 'Unknown_Site');
           if (!siteFolder) continue;
 
-          for (let i = 0; i < allFiles.length; i++) {
-            const f = allFiles[i];
-            const visitDate = getNormalizedVisitDate(f.visitRound, year);
+          for (const f of allFiles) {
+            const y = visitCalendarYear(f.visitRound);
+            const visitDate = getNormalizedVisitDate(f.visitRound, y);
             const n = roundMap.get(f) ?? 1;
             try {
               const res = await fetch(apiUrl(f.path));
@@ -1588,7 +1858,10 @@ function ReportPageContent() {
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' });
-      triggerBlobDownload(zipBlob, `${taskLabel}_${year}_SOF_All_Site_All_รายการทั้งหมด.zip`);
+      triggerBlobDownload(
+        zipBlob,
+        `${taskLabel}_SOF_All_Sites_${new Date().toISOString().slice(0, 10)}.zip`
+      );
     } catch (e) {
       console.error(e);
       toastError('Error downloading images');
@@ -1753,7 +2026,7 @@ function ReportPageContent() {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Search Device, Technician, or Date..."
+              placeholder="Search device, technician, date, site, or location..."
               className="w-full pl-11 pr-4 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400 outline-none text-sm transition-all"
             />
           </div>
@@ -1836,8 +2109,18 @@ function ReportPageContent() {
               {paginatedReports.map((report: PMReport | MAReport) => {
                 const result = report[resultKey as keyof typeof report] as string;
                 const dateVal = report[dateKey as keyof typeof report] as string | undefined;
-                const isPM = tab === 'pm';
                 const isSelected = selectedReportIds.has(String(report.id));
+                const cardTitle = (() => {
+                  if (tab === 'ma' && (report as MAReport).site_name?.trim()) return (report as MAReport).site_name!.trim();
+                  const site = report.device?.Sitename || getReportDevices(report)[0]?.Sitename;
+                  const loc = (report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2;
+                  const fallback = getReportDevices(report).map((d) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ') || '-';
+                  if (site) return loc ? `${site}, ${loc}` : site;
+                  return fallback;
+                })();
+                const engineerLine = getEngineerDisplay(report);
+                const dateShown = formatDate(dateVal);
+                const qTrim = searchTerm.trim();
                 return (
                   <div
                     key={report.id}
@@ -1875,14 +2158,7 @@ function ReportPageContent() {
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <div className="flex-1 min-w-0">
                             <h3 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                              {(() => {
-                                if (tab === 'ma' && (report as MAReport).site_name?.trim()) return (report as MAReport).site_name!.trim();
-                                const site = report.device?.Sitename || getReportDevices(report)[0]?.Sitename;
-                                const loc = (report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2;
-                                const fallback = getReportDevices(report).map((d) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ') || '-';
-                                if (site) return loc ? `${site}, ${loc}` : site;
-                                return fallback;
-                              })()}
+                              {qTrim ? highlightSearchInText(cardTitle, searchTerm) : cardTitle}
                             </h3>
                             {getReportDevices(report).length > 1 && !(report.device?.Sitename || getReportDevices(report)[0]?.Sitename) && (
                               <p className="text-[10px] text-slate-500 mt-0.5">{getReportDevices(report).length} devices</p>
@@ -1894,13 +2170,15 @@ function ReportPageContent() {
                             <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center shrink-0">
                               <User size={12} className="text-slate-500" />
                             </div>
-                            <span className="font-medium break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{getEngineerDisplay(report)}</span>
+                            <span className="font-medium break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                              {qTrim ? highlightSearchInText(engineerLine, searchTerm) : engineerLine}
+                            </span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center">
                               <Calendar size={12} className="text-slate-500" />
                             </div>
-                            <span className="font-medium">{formatDate(dateVal)}</span>
+                            <span className="font-medium">{qTrim ? highlightSearchInText(dateShown, searchTerm) : dateShown}</span>
                           </div>
                         {tab === 'ma' &&
                           (report as MAReport).downtimeTotalHours != null &&
@@ -1910,7 +2188,12 @@ function ReportPageContent() {
                                 <Clock size={12} className="text-emerald-600" />
                               </div>
                               <span className="font-medium text-emerald-800 tabular-nums">
-                                Total downtime {(report as MAReport).downtimeTotalHours} hours
+                                {qTrim
+                                  ? highlightSearchInText(
+                                      `Total downtime ${(report as MAReport).downtimeTotalHours} hours`,
+                                      searchTerm
+                                    )
+                                  : `Total downtime ${(report as MAReport).downtimeTotalHours} hours`}
                               </span>
                             </div>
                           )}
@@ -1986,7 +2269,11 @@ function ReportPageContent() {
                       </div>
                     </div>
                       <div className="text-right shrink-0">
-                        <p className="text-[10px] text-slate-400">Created: {formatDate(report.createdAt)}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {qTrim
+                            ? highlightSearchInText(`Created: ${formatDate(report.createdAt)}`, searchTerm)
+                            : `Created: ${formatDate(report.createdAt)}`}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -2276,7 +2563,9 @@ function ReportPageContent() {
                         className="text-sm text-slate-500 break-words"
                         style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
                       >
-                        {(selectedReport as MAReport).site_name!.trim()}
+                        {searchTerm.trim()
+                          ? highlightSearchInText((selectedReport as MAReport).site_name!.trim(), searchTerm)
+                          : (selectedReport as MAReport).site_name!.trim()}
                       </p>
                     )}
                   </div>
@@ -2302,12 +2591,21 @@ function ReportPageContent() {
                 >
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 min-w-0 text-center">
                     <p className="text-xs font-medium text-slate-500 mb-1">Technician</p>
-                    <p className="text-sm font-semibold text-slate-800 break-words leading-snug" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{getEngineerDisplay(selectedReport)}</p>
+                    <p className="text-sm font-semibold text-slate-800 break-words leading-snug" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                      {searchTerm.trim()
+                        ? highlightSearchInText(getEngineerDisplay(selectedReport), searchTerm)
+                        : getEngineerDisplay(selectedReport)}
+                    </p>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                     <p className="text-xs font-medium text-slate-500 mb-1">{tab === 'pm' ? 'PM Date' : 'MA Date'}</p>
                     <p className="font-semibold text-slate-800">
-                      {formatDate(tab === 'pm' ? (selectedReport as PMReport).pmDate : (selectedReport as MAReport).maDate)}
+                      {searchTerm.trim()
+                        ? highlightSearchInText(
+                            formatDate(tab === 'pm' ? (selectedReport as PMReport).pmDate : (selectedReport as MAReport).maDate),
+                            searchTerm
+                          )
+                        : formatDate(tab === 'pm' ? (selectedReport as PMReport).pmDate : (selectedReport as MAReport).maDate)}
                     </p>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
@@ -2323,7 +2621,12 @@ function ReportPageContent() {
                          Total Hours
                         </p>
                         <p className="font-semibold text-emerald-900 tabular-nums">
-                          {(selectedReport as MAReport).downtimeTotalHours} hours
+                          {searchTerm.trim()
+                            ? highlightSearchInText(
+                                `${(selectedReport as MAReport).downtimeTotalHours} hours`,
+                                searchTerm
+                              )
+                            : `${(selectedReport as MAReport).downtimeTotalHours} hours`}
                         </p>
                       </div>
                     )}
@@ -2399,7 +2702,8 @@ function ReportPageContent() {
                 {tab === 'ma' &&
                   (() => {
                     const ma = selectedReport as MAReport;
-                    const fromReport = Array.isArray(ma.repairNoticePaths)
+                    const fromUploads = pathsFromMaReportUploadedFiles(ma);
+                    const fromLegacyPaths = Array.isArray(ma.repairNoticePaths)
                       ? ma.repairNoticePaths.filter((p): p is string => typeof p === 'string' && !!p.trim())
                       : [];
                     const linkedTask =
@@ -2407,8 +2711,24 @@ function ReportPageContent() {
                         ? pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(ma.taskId))
                         : undefined;
                     const fromTask = normalizeRepairPathsFromPhotos(linkedTask?.photos);
-                    const repairPaths = fromReport.length > 0 ? fromReport : fromTask;
+                    const repairPaths =
+                      fromUploads.length > 0
+                        ? fromUploads
+                        : fromLegacyPaths.length > 0
+                          ? fromLegacyPaths
+                          : fromTask;
                     if (repairPaths.length === 0) return null;
+                    const dev = ma.device as Record<string, unknown> | undefined;
+                    const rSite = ma.site_name;
+                    const rawSite =
+                      dev?.Sitename != null && String(dev.Sitename).trim() !== ''
+                        ? String(dev.Sitename)
+                        : rSite != null && String(rSite).trim() !== ''
+                          ? String(rSite)
+                          : '';
+                    const explicitLoc = dev?.Location2 != null ? String(dev.Location2) : '';
+                    const { site: siteForRepairLabel } = exportSiteAndLocation(rawSite, explicitLoc);
+                    const ticketStr = ma.ticket != null ? String(ma.ticket) : '';
                     return (
                       <div className="bg-white rounded-2xl border border-slate-200 p-6">
                         <div className="flex items-center gap-2 mb-3">
@@ -2418,20 +2738,29 @@ function ReportPageContent() {
                           <h3 className="font-bold text-slate-800">Remark</h3>
                         </div>
                         <ul className="space-y-2">
-                          {repairPaths.map((path) => {
-                            const name = path.replace(/^.*[/\\]/, '') || path;
-                            const href = /^https?:\/\//i.test(path)
-                              ? path
-                              : apiUrl(path.startsWith('/') ? path : `/${path}`);
+                          {repairPaths.map((path, idx) => {
+                            const linkLabel = buildMaRepairNoticeExcelLinkLabel(
+                              idx + 1,
+                              ticketStr,
+                              siteForRepairLabel
+                            );
+                            const tid = ma.taskId;
+                            const basename = path.split('/').filter(Boolean).pop() || path;
+                            const href =
+                              /^https?:\/\//i.test(path)
+                                ? path
+                                : tid != null && String(tid).trim() !== '' && basename
+                                  ? taskMaNoticeUrl(tid, basename)
+                                  : apiUrl(path.startsWith('/') ? path : `/${path}`);
                             return (
-                              <li key={path}>
+                              <li key={`${path}-${idx}`}>
                                 <a
                                   href={href}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="text-sm font-medium text-sky-700 hover:underline break-all"
                                 >
-                                  {name}
+                                  {linkLabel}
                                 </a>
                               </li>
                             );
@@ -2507,6 +2836,12 @@ function ReportPageContent() {
                                 <span className="font-semibold">Site:</span> {pair.original.site}
                               </p>
                             )}
+                            {(pair.original as { location?: string }).location && (
+                              <p className="text-xs text-slate-600 mt-0.5">
+                                <span className="font-semibold">Location:</span>{' '}
+                                {(pair.original as { location?: string }).location}
+                              </p>
+                            )}
                           </div>
                           <div className="border border-emerald-200 rounded-xl p-4 bg-emerald-50/60">
                             <p className="text-xs font-semibold text-emerald-600 mb-1 flex items-center gap-1">
@@ -2533,11 +2868,16 @@ function ReportPageContent() {
                                     <span className="font-semibold">Model:</span> {pair.replacement.type}
                                   </p>
                                 )}
-                                {pair.replacement.site && (
-                                  <p className="text-xs text-slate-700">
-                                    <span className="font-semibold">Site:</span> {pair.replacement.site}
-                                  </p>
-                                )}
+                            {pair.replacement.site && (
+                              <p className="text-xs text-slate-700">
+                                <span className="font-semibold">Site:</span> {pair.replacement.site}
+                              </p>
+                            )}
+                            {pair.replacement.location && (
+                              <p className="text-xs text-slate-700 mt-0.5">
+                                <span className="font-semibold">Location:</span> {pair.replacement.location}
+                              </p>
+                            )}
                               </>
                             ) : (
                               <p className="text-xs text-slate-500">
