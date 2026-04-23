@@ -119,6 +119,7 @@ uploads/
 temp/
 
 Dockerfile
+dockerfile
 docker-compose.yml
 docker.yaml
 Client/Dockerfile
