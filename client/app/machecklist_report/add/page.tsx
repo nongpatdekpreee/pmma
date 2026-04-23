@@ -309,6 +309,61 @@ function AddMAReportPageContent() {
     fetchDevices();
   }, []);
 
+  /** เครื่องทดแทนอาจไม่อยู่ใน GET /api/devices?limit=1000 — ดึงรายละเอียดตาม Did แล้ว merge (เครื่องเสียมี snapshot ใน task.assets อยู่แล้ว) */
+  useEffect(() => {
+    if (selectedTaskId == null) return;
+    const task = availableMATasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    if (!task) return;
+
+    const need = new Set<number>();
+    const pushRep = (repId: unknown) => {
+      const n = typeof repId === 'number' ? repId : parseInt(String(repId), 10);
+      if (!Number.isNaN(n) && n > 0) need.add(n);
+    };
+    (task.assets || []).forEach((a: any, i: number) => {
+      pushRep(a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null));
+    });
+    if (task.replacementDeviceId != null) pushRep(task.replacementDeviceId);
+
+    const missing = [...need].filter((id) => !devices.some((d) => Number(d.Did) === id));
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      const rows = await Promise.all(
+        missing.map(async (id) => {
+          try {
+            const res = await fetch(apiUrl(`/api/devices/${id}`));
+            const data = await res.json();
+            if (data?.success && data.data) return data.data as Device;
+          } catch (e) {
+            console.error('[MA report add] fetch device by id', id, e);
+          }
+          return null;
+        })
+      );
+      if (cancelled) return;
+      const fetched = rows.filter((d): d is Device => d != null);
+      if (fetched.length === 0) return;
+      setDevices((prev) => {
+        const seen = new Set(prev.map((d) => String(d.Did)));
+        const next = [...prev];
+        for (const d of fetched) {
+          const k = String((d as any).Did);
+          if (!seen.has(k)) {
+            seen.add(k);
+            next.push(d);
+          }
+        }
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTaskId, availableMATasks, devices]);
+
   // Handle device selection change
   const handleDeviceChange = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
@@ -880,7 +935,13 @@ function AddMAReportPageContent() {
                   const brokenId = getDeviceIdFromAsset(a);
                   const repId = a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null);
                   if (String(selectedDeviceId) === String(brokenId)) {
-                    pairDevice = repId != null ? (allowedDevices.find(d => d.Did === Number(repId)) ?? devices.find(d => d.Did === Number(repId)) ?? null) : null;
+                    const repNum = repId != null ? Number(repId) : NaN;
+                    pairDevice =
+                      repId != null && !Number.isNaN(repNum)
+                        ? (allowedDevices.find((d) => Number(d.Did) === repNum) ??
+                            devices.find((d) => Number(d.Did) === repNum) ??
+                            null)
+                        : null;
                     pairLabel = 'Replacement device';
                     break;
                   }
