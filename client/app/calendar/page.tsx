@@ -15,6 +15,8 @@ import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
+import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
+import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 
 interface Device {
   id: string;
@@ -71,6 +73,11 @@ interface CalendarEvent {
   notes?: string;
   rescheduleNote?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
+  downtimeDate?: string;
+  downtimeTime?: string;
+  uptimeDate?: string;
+  uptimeTime?: string;
+  downtimeTotalHours?: number;
 }
 
 const IN_PROCESS_REASON_DISPLAY_MAX = 120;
@@ -122,6 +129,9 @@ function CalendarPageContent() {
     newDay: number;
     newStartDate: string;
     newEndDate: string;
+    /** วันที่ก่อนย้าย (คำนวณตอน drop — ชัดกว่า event.startDate) */
+    previousStartDate: string;
+    previousEndDate: string;
   } | null>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string[]>([]);
@@ -239,6 +249,20 @@ function CalendarPageContent() {
       photos: task.photos || [],
       notes: task.notes || '',
       rescheduleNote: task.rescheduleNote || task.reschedule_note || '',
+      downtimeDate:
+        task.downtimeDate ??
+        task.downTimeStartDate ??
+        task.down_time_start_date,
+      downtimeTime:
+        task.downtimeTime ??
+        task.downTimeStartTime ??
+        task.down_time_start_time,
+      uptimeDate:
+        task.uptimeDate ?? task.downTimeEndDate ?? task.down_time_end_date,
+      uptimeTime:
+        task.uptimeTime ?? task.downTimeEndTime ?? task.down_time_end_time,
+      downtimeTotalHours:
+        task.downtimeTotalHours ?? task.down_time_total_hours ?? undefined,
     };
   };
 
@@ -671,8 +695,11 @@ function CalendarPageContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'Update failed');
+      const json = (await res.json()) as { success?: boolean; message?: string; error?: string };
+      if (!json.success) {
+        const detail = [json.message, json.error].filter((x) => x && String(x).trim()).join(' — ');
+        throw new Error(detail || 'Update failed');
+      }
       // Reload tasks from API to ensure UI consistency
       await loadTasksFromApi();
       return json;
@@ -740,6 +767,7 @@ function CalendarPageContent() {
 
     // เช็คว่าย้ายวันจริงหรือไม่ ถ้าวันเดิมไม่ต้องขึ้น modal notes
     const originalStartStr = formatDateString(originalStart);
+    const originalEndStr = formatDateString(originalEnd);
     if (newStartDateStr === originalStartStr) {
       // วันเดิม ไม่ย้าย ไม่ต้องถามเหตุผล
       setDraggedEvent(null);
@@ -754,6 +782,8 @@ function CalendarPageContent() {
       newDay: day,
       newStartDate: newStartDateStr,
       newEndDate: newEndDateStr,
+      previousStartDate: originalStartStr,
+      previousEndDate: originalEndStr,
     });
     setIsMoveModalOpen(true);
     setMoveReason('');
@@ -770,7 +800,14 @@ function CalendarPageContent() {
       return;
     }
 
-    const { event, newStartDate, newEndDate } = pendingMove;
+    const { event, newStartDate, newEndDate, previousStartDate, previousEndDate } = pendingMove;
+
+    const rescheduleNoteFull = composeRescheduleNoteWithOrigin(
+      previousStartDate,
+      previousEndDate,
+      moveReason.trim(),
+      formatDateMonthDayYear
+    );
 
     // Optimistic update - update UI immediately
     const newStartDateObj = new Date(newStartDate);
@@ -787,7 +824,7 @@ function CalendarPageContent() {
             year: newStartDateObj.getFullYear(),
             startDate: newStartDate,
             endDate: newEndDate,
-            rescheduleNote: moveReason.trim(),
+            rescheduleNote: rescheduleNoteFull,
           };
           return updatedEvent;
         }
@@ -806,7 +843,7 @@ function CalendarPageContent() {
         String(event.id),
         newStartDate,
         newEndDate,
-        moveReason.trim()
+        rescheduleNoteFull
       );
       toastSuccess('Task moved successfully');
     } catch (error) {
@@ -1703,6 +1740,50 @@ function CalendarPageContent() {
               )}
             </div>
 
+            {hoveredEvent.taskType === 'MA' && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/90 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-900 mb-1.5">
+                  Downtime / Uptime
+                </p>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-2 text-[11px]">
+                  <div>
+                    <p className="text-slate-500 mb-0.5">Downtime date</p>
+                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
+                      {formatDateLocale(hoveredEvent.downtimeDate, 'en-US') || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 mb-0.5">Downtime time</p>
+                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
+                      {formatTime12h(hoveredEvent.downtimeTime, 'en-US') || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 mb-0.5">Uptime date</p>
+                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
+                      {formatDateLocale(hoveredEvent.uptimeDate, 'en-US') || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 mb-0.5">Uptime time</p>
+                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
+                      {formatTime12h(hoveredEvent.uptimeTime, 'en-US') || '—'}
+                    </p>
+                  </div>
+                  <div className="col-span-2 pt-0.5 border-t border-emerald-200/80 mt-0.5">
+                    <p className="text-slate-500 mb-0.5">Total downtime</p>
+                    <p className="font-semibold text-emerald-900 tabular-nums">
+                      {hoveredEvent.downtimeTotalHours != null &&
+                      String(hoveredEvent.downtimeTotalHours).trim() !== '' &&
+                      !Number.isNaN(Number(hoveredEvent.downtimeTotalHours))
+                        ? `${Number(hoveredEvent.downtimeTotalHours)} hrs`
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
@@ -1760,10 +1841,10 @@ function CalendarPageContent() {
               <p className="text-xs text-slate-600 mb-2 truncate">
                 <span className="font-medium">{pendingMove.event.title}</span>
               </p>
-              <div className="flex items-center gap-2 text-xs">
+              <div className="flex items-center gap-2 text-xs flex-wrap">
                 <span className="text-slate-500 font-medium">From:</span>
                 <span className="text-slate-800 font-semibold bg-white px-2 py-1 rounded border border-slate-200">
-                  {formatDateForDisplay(pendingMove.event.startDate)}
+                  {formatDateForDisplay(pendingMove.previousStartDate)}
                 </span>
                 <span className="text-slate-300">→</span>
                 <span className="text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-200">

@@ -35,6 +35,7 @@ import {
   PHONE_EXT_MAX_DIGITS,
   validateEmployeePhoneInline,
   validateEmployeePhoneSubmit,
+  validateOptionalEmployeePhoneInline,
   validateOptionalEmployeePhoneSubmit,
 } from '@/lib/phoneFormat';
 import {
@@ -42,6 +43,7 @@ import {
   ContractSimpleSearchListDropdown,
 } from '@/components/ui/ContractSearchListDropdown';
 import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
+import { toTimeHHmm } from '@/lib/downtimeHours';
 
 
 interface Props {
@@ -216,14 +218,20 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const vendorPhoneMainOverflowWarned = useRef(false);
   const [reporterPhoneError, setReporterPhoneError] = useState('');
   const [reporterName, setReporterName] = useState('');
+  /** ตั้งเมื่อกด Save แล้วชื่อ Reporter ว่าง — ไม่โชว์ error ตอนยังไม่เคยพยายามบันทึก */
+  const [reporterNameRequiredError, setReporterNameRequiredError] = useState('');
   const [reporterTel, setReporterTel] = useState('');
   const [reporterTelExt, setReporterTelExt] = useState('');
   const reporterPhoneMainOverflowWarned = useRef(false);
   const reporterPhoneExtOverflowWarned = useRef(false);
   const [ticket, setTicket] = useState('');
+  /** ตั้งเมื่อกด Save แล้ว Ticket ว่าง (MA Client บังคับ) */
+  const [ticketRequiredError, setTicketRequiredError] = useState('');
   const [rootCause, setRootCause] = useState('');
   const [resolution, setResolution] = useState('');
-  const [duration, setDuration] = useState('');
+  /** Downtime วัน/เวลาเริ่ม (MA) — Uptime กรอกตอนส่ง MA report; รวมชั่วโมงคำนวณตอน report */
+  const [downtimeDate, setDowntimeDate] = useState('');
+  const [downtimeTime, setDowntimeTime] = useState('');
   const [assetBinding, setAssetBinding] = useState('');
   const [replacementDevices, setReplacementDevices] = useState<Device[]>([]);
   const [selectedReplacementDevice, setSelectedReplacementDevice] = useState<Device | null>(null);
@@ -277,6 +285,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const devicesMappedRef = useRef<string>('');
   const startDatePickerRef = useRef<HTMLInputElement>(null);
   const endDatePickerRef = useRef<HTMLInputElement>(null);
+  const downtimeDatePickerRef = useRef<HTMLInputElement>(null);
   const replacementWarehouseCacheRef = useRef<Device[] | null>(null);
   const replacementWarehouseInflightRef = useRef<Promise<Device[]> | null>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
@@ -301,14 +310,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     vendorPhoneMainOverflowWarned.current = false;
     setReporterPhoneError('');
     setReporterName('');
+    setReporterNameRequiredError('');
     setReporterTel('');
     setReporterTelExt('');
     reporterPhoneMainOverflowWarned.current = false;
     reporterPhoneExtOverflowWarned.current = false;
     setTicket('');
+    setTicketRequiredError('');
     setRootCause('');
     setResolution('');
-    setDuration('');
+    setDowntimeDate('');
+    setDowntimeTime('');
     setAssetBinding('');
     setContractOptions([]);
     setSelectedContractIds([]);
@@ -675,6 +687,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }
       vendorPhoneMainOverflowWarned.current = false;
       setReporterName(editingEvent.reporterName || (editingEvent as any).reporter_name || '');
+      setReporterNameRequiredError('');
       {
         const reporterLine = String(
           editingEvent.reporterTel || (editingEvent as any).reporter_tel || ''
@@ -685,9 +698,31 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }
       setReporterPhoneError('');
       setTicket(editingEvent.ticket || '');
+      setTicketRequiredError('');
       setRootCause(editingEvent.rootCause || (editingEvent as any).root_cause || '');
       setResolution(editingEvent.resolution || '');
-      setDuration(editingEvent.duration ? String(editingEvent.duration) : '');
+      {
+        const ev = editingEvent as any;
+        if ((editingEvent.taskType || 'PM') === 'MA') {
+          setDowntimeDate(
+            String(
+              ev.downtimeDate ??
+                ev.downTimeStartDate ??
+                ev.down_time_start_date ??
+                start ??
+                ''
+            ).slice(0, 10)
+          );
+          setDowntimeTime(
+            toTimeHHmm(
+              ev.downtimeTime ?? ev.downTimeStartTime ?? ev.down_time_start_time
+            ) || ''
+          );
+        } else {
+          setDowntimeDate('');
+          setDowntimeTime('');
+        }
+      }
       setAssetBinding(editingEvent.assetBinding || '');
       const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
       setSelectedContractIds(contractId ? [contractId] : []);
@@ -1012,18 +1047,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
   }, [loadingDevices, devices, editingEvent, isOpen]);
 
-  // Auto-calculate end date from start date and duration (for MA)
-  useEffect(() => {
-    if (taskType === 'MA' && startDate && duration && !isNaN(parseInt(duration, 10))) {
-      const start = new Date(startDate);
-      const months = parseInt(duration, 10);
-      const end = new Date(start);
-      end.setMonth(end.getMonth() + months);
-      const endStr = end.toISOString().split('T')[0];
-      setEndDate(endStr);
-    }
-  }, [startDate, duration, taskType]);
-
   /** MA: สัญญาได้แค่หนึ่งฉบับ — ถ้าเปลี่ยนจาก PM มาแล้วเคยเลือกหลายฉบับ ให้เหลือฉบับแรก */
   useEffect(() => {
     if (taskType !== 'MA' || editingEvent) return;
@@ -1035,15 +1058,18 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     if (taskType === 'PM') {
       setVendorName('');
       setReporterName('');
+      setReporterNameRequiredError('');
       setReporterTel('');
       setReporterTelExt('');
       setReporterPhoneError('');
       reporterPhoneMainOverflowWarned.current = false;
       reporterPhoneExtOverflowWarned.current = false;
       setTicket('');
+      setTicketRequiredError('');
       setRootCause('');
       setResolution('');
-      setDuration('');
+      setDowntimeDate('');
+      setDowntimeTime('');
       setAssetBinding('');
       setReplacementDevices([]);
       setSelectedReplacementDevice(null);
@@ -1237,12 +1263,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     if (conflictCheck.hasConflict) {
       const engineerName = engineerDisplayName(normalized);
       const taskInfo = conflictCheck.conflictingTask?.siteName || conflictCheck.conflictingTask?.Sname || 'Unknown Task';
-      const taskDate = conflictCheck.conflictingTask?.startDate 
+      const taskDate = conflictCheck.conflictingTask?.startDate
         ? new Date(conflictCheck.conflictingTask.startDate).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          })
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        })
         : '';
       showWarning(`${engineerName} already has a task on ${taskDate} at ${taskInfo} (overlap)`, 5000);
       // ไม่ return - ให้เพิ่ม engineer ได้
@@ -1488,7 +1514,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       // ดึง tasks ที่มีอยู่ในช่วงวันที่เดียวกัน
       const startDateObj = new Date(startDate);
       const endDateObj = endDate ? new Date(endDate) : new Date(startDate); // ถ้าไม่มี endDate ให้ใช้ startDate
-      
+
       // ดึง tasks จากเดือนของ startDate และ endDate (ถ้ามี)
       const startMonth = startDateObj.getMonth() + 1;
       const startYear = startDateObj.getFullYear();
@@ -1501,7 +1527,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       if (startMonth !== endMonth || startYear !== endYear) {
         tasksPromises.push(getTasks({ month: endMonth, year: endYear }));
       }
-      
+
       const tasksResponses = await Promise.all(tasksPromises);
       const allTasks = tasksResponses
         .filter(res => res.success && res.data)
@@ -1525,8 +1551,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
         // หา tasks ที่ engineer คนนี้มีอยู่แล้ว
         const engineerTasks = existingTasks.filter((task: any) => {
-          const taskEngineerIds = task.Eng_ids?.map((e: any) => String(e.id)) || 
-                                   task.Eng_id?.map((id: any) => String(id)) || [];
+          const taskEngineerIds = task.Eng_ids?.map((e: any) => String(e.id)) ||
+            task.Eng_id?.map((id: any) => String(id)) || [];
           return taskEngineerIds.includes(engineerId);
         });
 
@@ -1591,20 +1617,29 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
 
     // MA-specific validation (เหมือน PM)
-  if (taskType === 'MA') {
+    if (taskType === 'MA') {
       if (!startDate) {
         showWarning('Please fill required MA fields: Start Date');
         return;
       }
+      setTicketRequiredError('');
       // Guard against bots: minimum 5 characters for key text fields
       if (vendorName && vendorName.trim().length < 5) {
         showWarning('Third Party Vendor name must be at least 5 characters');
         return;
       }
-      if (reporterName && reporterName.trim().length < 5) {
-        showWarning('Reporter name must be at least 5 characters');
+      const reporterTrim = reporterName.trim();
+      if (!reporterTrim) {
+        setReporterNameRequiredError('Please enter Reporter name (required)');
+        showWarning('Please enter Reporter name');
         return;
       }
+      if (reporterTrim.length < 5) {
+        setReporterNameRequiredError('');
+        showWarning('Reporter name must be at least 5 characters (avoid fake input)');
+        return;
+      }
+      setReporterNameRequiredError('');
       // Contract vendor phone (optional): หลัก 10 หลัก ไม่มีต่อ — เหมือน employee แต่ไม่บังคับ
       {
         const vendErr = validateOptionalEmployeePhoneSubmit(vendorTel, '');
@@ -1613,17 +1648,26 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           return;
         }
       }
-      // Client phone (optional): ถ้ามีตัวเลข ต้องตรงกฎเดียวกับ Employee (หลัก 10 + ต่อสูงสุด 6)
+      // Client: เบอร์หลัก 10 หลัก (บังคับ); ต่อ (EXT) ไม่บังคับ — ถ้ากรอกต้อง 1–6 หลัก
       {
-        const mainD = reporterTel.replace(/\D/g, '');
-        const extD = reporterTelExt.replace(/\D/g, '');
-        if (mainD || extD) {
-          const repErr = validateEmployeePhoneSubmit(reporterTel, reporterTelExt);
-          if (repErr) {
-            showWarning(`Client phone: ${repErr}`);
-            return;
-          }
+        const repErr = validateEmployeePhoneSubmit(reporterTel, reporterTelExt);
+        if (repErr) {
+          const th =
+            repErr === 'Phone is required.'
+              ? 'Please enter Client phone (10 digits)'
+              : repErr === 'Phone must be 10 digits.'
+                ? ' Client phone must be 10 digits'
+                : repErr.startsWith('Extension')
+                  ? 'If you enter extension (EXT), Client phone must be 1–6 digits'
+                  : `Client: ${repErr}`;
+          showWarning(th);
+          return;
         }
+      }
+      if (!String(ticket || '').trim()) {
+        setTicketRequiredError('Please enter Ticket (required)');
+        showWarning('Please enter Ticket');
+        return;
       }
       // Contract is required for MA because broken devices must come from contract
       if (selectedContractIds.length === 0) {
@@ -1693,7 +1737,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         siteName: Sname,
         Eng_id: selectedEngineers.map((e) => e.id),
         Eng_ids: selectedEngineers,
-        ...(editingEvent?.status !== 'done' && { startDate, endDate: endDate || startDate }),
+        ...(editingEvent?.status !== 'done' && {
+          startDate,
+          endDate: endDate || startDate,
+        }),
         coverageScope,
         assets,
         vendorName: taskType === 'MA' ? vendorName : null,
@@ -1704,6 +1751,21 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         ticket: taskType === 'MA' ? ticket : null,
         rootCause: taskType === 'MA' ? rootCause : null,
         resolution: taskType === 'MA' ? resolution : null,
+        ...(taskType === 'MA'
+          ? {
+              downtimeDate: downtimeDate || null,
+              downtimeTime: downtimeTime?.trim() ? downtimeTime.trim().slice(0, 5) : null,
+              ...(!isEditing
+                ? { duration: null, uptimeDate: null, uptimeTime: null }
+                : {}),
+            }
+          : {
+              duration: null,
+              downtimeDate: null,
+              downtimeTime: null,
+              uptimeDate: null,
+              uptimeTime: null,
+            }),
         assetBinding: taskType === 'MA' ? assetBinding : null,
         replacementDeviceId: replacementDeviceId,
         status: editingEvent?.status || 'not-started',
@@ -1893,7 +1955,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
 
 
-            {/* Site & Contract (select site first, then contract) */}
+          {/* Site & Contract (select site first, then contract) */}
           <div className={sectionCard}>
             <h3 className="text-xs font-bold text-slate-700">Site & Contract Information</h3>
 
@@ -2062,7 +2124,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
-                        placeholder="Find device..."
+                      placeholder="Find device..."
                       value={deviceSearchPm}
                       onChange={(e) => setDeviceSearchPm(e.target.value)}
                       className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
@@ -2080,8 +2142,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           value={deviceRoleFilter}
                           onChange={(e) => setDeviceRoleFilter(e.target.value)}
                           className={`w-full pl-9 ${deviceRoleFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${deviceRoleFilter
-                              ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
-                              : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                            ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                            : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
                             }`}
                         >
                           <option value="">All Role</option>
@@ -2117,8 +2179,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           value={deviceModelFilter}
                           onChange={(e) => setDeviceModelFilter(e.target.value)}
                           className={`w-full pl-9 ${deviceModelFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${deviceModelFilter
-                              ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
-                              : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                            ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                            : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
                             }`}
                         >
                           <option value="">All Model</option>
@@ -2154,8 +2216,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           onChange={(e) => setDeviceManufacturerFilter(e.target.value)}
                           disabled={loadingManufacturers}
                           className={`w-full pl-9 ${deviceManufacturerFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${deviceManufacturerFilter
-                              ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
-                              : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                            ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
+                            : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
                             }`}
                         >
                           <option value="">All Manufacturer</option>
@@ -2200,8 +2262,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                               type="button"
                               onClick={handleSelectAllFiltered}
                               className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${allFilteredSelected
-                                  ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm'
-                                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200 shadow-sm'
+                                ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 shadow-sm'
                                 }`}
                             >
 
@@ -2415,13 +2477,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       </label>
                       {devicesToShow.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                            {!Sid
-                              ? 'Select Site'
-                              : selectedContractIds.length === 0
-                                ? 'Select contract(s) to load devices'
-                                : Sid
-                                  ? 'No devices for the selected site in these contracts'
-                                  : 'No devices in these contracts'}
+                          {!Sid
+                            ? 'Select Site'
+                            : selectedContractIds.length === 0
+                              ? 'Select contract(s) to load devices'
+                              : Sid
+                                ? 'No devices for the selected site in these contracts'
+                                : 'No devices in these contracts'}
                         </p>
                       ) : (
                         <SearchableDeviceSelect
@@ -2460,7 +2522,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
                     <div>
                       <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Replacement Device 
+                        Replacement Device
                       </label>
                       {pair.loading ? (
                         <p className="text-xs text-slate-400">Loading...</p>
@@ -2523,9 +2585,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     placeholder="Enter third party vendor"
                     className={`${inputBase} ${vendorName && vendorName.trim().length < 5 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
                   />
-                  {vendorName && vendorName.trim().length < 5 && (
-                    <p className="text-[10px] text-red-500 mt-1">Third Party Vendor name must be at least 5 characters</p>
-                  )}
+                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                    {vendorName && vendorName.trim().length < 5 ? (
+                      <p className="text-[10px] text-red-500">
+                        Third Party Vendor name must be at least 5 characters
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
                 <div>
                   <label className={fieldLabel}>Phone number</label>
@@ -2574,9 +2640,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       </button>
                     ) : null}
                   </div>
-                  {vendorTelError ? (
-                    <p className="text-[10px] text-red-500 mt-1">{vendorTelError}</p>
-                  ) : null}
+                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                    {vendorTelError ? (
+                      <p className="text-[10px] text-red-500">{vendorTelError}</p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>
@@ -2586,26 +2654,49 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           {taskType === 'MA' && (
             <div className={sectionCard}>
               <h3 className="text-xs font-bold text-slate-700">Client</h3>
-              <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:gap-5">
+                
+              <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
                 <div className="flex min-w-0 flex-1 basis-0 flex-col">
-                  <label className={fieldLabel}>Reporter name</label>
+                  <label className={fieldLabel}>
+                    Reporter name <span className="text-red-500 text-[10px]">*</span>
+                  </label>
                   <input
                     type="text"
                     value={reporterName}
                     maxLength={MA_MAX_REPORTER}
-                    onChange={(e) => setReporterName(e.target.value.slice(0, MA_MAX_REPORTER))}
+                    onChange={(e) => {
+                      setReporterNameRequiredError('');
+                      setReporterName(e.target.value.slice(0, MA_MAX_REPORTER));
+                    }}
                     placeholder="Reporter name"
-                    className={`${inputBase} ${reporterName && reporterName.trim().length < 5 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
+                    aria-invalid={
+                      reporterNameRequiredError ||
+                      (reporterName.trim().length > 0 && reporterName.trim().length < 5)
+                        ? true
+                        : undefined
+                    }
+                    className={`${inputBase} ${
+                      reporterNameRequiredError ||
+                      (reporterName.trim().length > 0 && reporterName.trim().length < 5)
+                        ? 'border-red-300 focus:border-red-400 focus:ring-red-200'
+                        : ''
+                    }`}
                   />
-                  {reporterName && reporterName.trim().length < 5 && (
-                    <p className="text-[10px] text-red-500 mt-1">Reporter name must be at least 5 characters</p>
-                  )}
+                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                    {reporterNameRequiredError ? (
+                      <p className="text-[10px] text-red-500">{reporterNameRequiredError}</p>
+                    ) : reporterName.trim().length > 0 && reporterName.trim().length < 5 ? (
+                      <p className="text-[10px] text-red-500">
+                        Reporter name must be at least 5 characters (now {reporterName.trim().length} characters)
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="flex min-w-0 w-full flex-1 basis-0 flex-col">
                   {/* แถวป้ายใช้คอลัมน์เดียวกับแถวช่องกรอก (หลัก | - | ต่อ) */}
                   <div className="mb-1 grid w-full min-w-0 grid-cols-[minmax(0,1fr)_1.25rem_5.5rem] items-end gap-x-0 sm:grid-cols-[minmax(0,1fr)_1.5rem_6rem]">
                     <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                      Phone number
+                      Phone number <span className="text-red-500">*</span>
                     </label>
                     <span
                       className="invisible w-full shrink-0 select-none text-center text-base font-medium leading-none"
@@ -2639,11 +2730,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           }
                           const v = formatTenDigitUsDisplay(raw);
                           setReporterTel(v);
-                          setReporterPhoneError(validateEmployeePhoneInline(v, reporterTelExt));
+                          setReporterPhoneError(validateOptionalEmployeePhoneInline(v, reporterTelExt));
                         }}
                         onBlur={() =>
                           setReporterPhoneError(
-                            validateEmployeePhoneInline(reporterTel, reporterTelExt)
+                            validateOptionalEmployeePhoneInline(reporterTel, reporterTelExt)
                           )
                         }
                         placeholder="0xx-xxx-xxxx"
@@ -2685,7 +2776,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             if (!reporterPhoneExtOverflowWarned.current) {
                               reporterPhoneExtOverflowWarned.current = true;
                               showWarning(
-                                `เลขต่อ Client ใส่ได้สูงสุด ${PHONE_EXT_MAX_DIGITS} หลัก (ครบแล้ว)`,
+                                `Number extension Client must be at most ${PHONE_EXT_MAX_DIGITS} digits (already full)`,
                                 2600
                               );
                             }
@@ -2694,11 +2785,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           }
                           const v = raw.replace(/\D/g, '').slice(0, PHONE_EXT_MAX_DIGITS);
                           setReporterTelExt(v);
-                          setReporterPhoneError(validateEmployeePhoneInline(reporterTel, v));
+                          setReporterPhoneError(validateOptionalEmployeePhoneInline(reporterTel, v));
                         }}
                         onBlur={() =>
                           setReporterPhoneError(
-                            validateEmployeePhoneInline(reporterTel, reporterTelExt)
+                            validateOptionalEmployeePhoneInline(reporterTel, reporterTelExt)
                           )
                         }
                         placeholder="xxxx"
@@ -2713,7 +2804,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           onClick={() => {
                             setReporterTelExt('');
                             setReporterPhoneError(
-                              validateEmployeePhoneInline(reporterTel, '')
+                              validateOptionalEmployeePhoneInline(reporterTel, '')
                             );
                             reporterPhoneExtOverflowWarned.current = false;
                           }}
@@ -2725,22 +2816,37 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       ) : null}
                     </div>
                   </div>
-                  {reporterPhoneError ? (
-                    <p className="text-[10px] text-red-500 mt-1">{reporterPhoneError}</p>
-                  ) : null}
+                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                    {reporterPhoneError ? (
+                      <p className="text-[10px] text-red-500">{reporterPhoneError}</p>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="flex w-full min-w-0 flex-col sm:w-[10.5rem] sm:max-w-[10.5rem] sm:shrink-0">
-                  <label className={fieldLabel}>Ticket</label>
+                  <label className={fieldLabel}>
+                    Ticket <span className="text-red-500 text-[10px]">*</span>
+                  </label>
                   <input
                     type="text"
                     inputMode="numeric"
                     autoComplete="off"
                     value={ticket}
                     maxLength={MA_MAX_TICKET_DIGITS}
-                    onChange={(e) => setTicket(e.target.value.replace(/\D/g, '').slice(0, MA_MAX_TICKET_DIGITS))}
+                    onChange={(e) => {
+                      setTicketRequiredError('');
+                      setTicket(e.target.value.replace(/\D/g, '').slice(0, MA_MAX_TICKET_DIGITS));
+                    }}
                     placeholder="Digits only"
-                    className={`${inputBase} w-full min-w-0`}
+                    aria-invalid={ticketRequiredError ? true : undefined}
+                    className={`${inputBase} w-full min-w-0 ${
+                      ticketRequiredError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''
+                    }`}
                   />
+                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                    {ticketRequiredError ? (
+                      <p className="text-[10px] text-red-500">{ticketRequiredError}</p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
@@ -2772,9 +2878,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 />
                 <label
                   htmlFor={repairNoticeInputId}
-                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-3.5 text-sm font-medium text-slate-600 transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${
-                    editingEvent?.status === 'done' ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
-                  }`}
+                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-3.5 text-sm font-medium text-slate-600 transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${editingEvent?.status === 'done' ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
+                    }`}
                 >
                   <Paperclip size={16} className="text-slate-400 transition-colors group-hover:text-sky-600" aria-hidden />
                   Add files
@@ -2836,7 +2941,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 )}
               </div>
             </div>
+
+
           )}
+
 
           {taskType === 'MA' && (
             <div className={sectionCard}>
@@ -2867,13 +2975,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               </div>
             </div>
           )}
-        
+
           <div className={sectionCard}>
             <h3 className="text-sm font-bold text-slate-700">Schedule</h3>
             {editingEvent?.status === 'done' && (
               <p className="text-xs text-amber-600 mb-2">Task that is already done cannot be edited</p>
             )}
-            <div className={taskType === 'MA' ? 'grid grid-cols-2 gap-4' : 'grid grid-cols-2 gap-4'}>
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={fieldLabel}>Start Date</label>
                 <input
@@ -2884,7 +2992,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   onChange={(e) => {
                     const v = e.target.value;
                     setStartDate(v);
-                    // ถ้าเลือก startDate ที่หลัง endDate ให้ปรับ endDate ให้เท่ากับ startDate
                     if (v && endDate && new Date(v) > new Date(endDate)) {
                       setEndDate(v);
                     }
@@ -2930,8 +3037,55 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 />
               </div>
             </div>
+
+
+            {taskType === 'MA' && (
+              <>
+                <h3 className="text-sm font-bold text-slate-700">Downtime (start)</h3>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  When the outage begins — uptime date and time are entered on the MA report when you submit it.
+                </p>
+                {editingEvent?.status === 'done' && (
+                  <p className="text-xs text-amber-600 mb-2">Task that is already done cannot be edited</p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className={fieldLabel}>Downtime date <span >(mm/dd/yyyy)</span></label>
+                    <input
+                      ref={downtimeDatePickerRef}
+                      type="date"
+                      lang="en-US"
+                      value={downtimeDate}
+                      onChange={(e) => setDowntimeDate(e.target.value)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (editingEvent?.status !== 'done' && e.target instanceof HTMLInputElement) {
+                          e.target.showPicker?.();
+                        }
+                      }}
+                      disabled={editingEvent?.status === 'done'}
+                      className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                    />
+                  </div>
+                  <div>
+                    <label className={fieldLabel}>Downtime time</label>
+                    <input
+                      type="time"
+                      lang="en-US"
+                      value={downtimeTime}
+                      onChange={(e) => setDowntimeTime(e.target.value)}
+                      disabled={editingEvent?.status === 'done'}
+                      className={`${inputBase} w-full tabular-nums ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : ''}`}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+
+
             {/* Assignment Section */}
-      
+
             <h3 className="text-xs font-bold text-slate-700">Assignment</h3>
 
             <div className="relative">
@@ -2973,7 +3127,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     </button>
                   </span>
                 ))}
- 
+
                 {/* Input field */}
                 <input
                   id="engineer-input"
@@ -2997,7 +3151,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5 placeholder:text-slate-400"
                 />
               </div>
- 
+
               {/* Dropdown */}
               {showEngineerDropdown && filteredEngineers.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto">
@@ -3019,7 +3173,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   ))}
                 </div>
               )}
- 
+
               {/* Empty state */}
               {showEngineerDropdown && filteredEngineers.length === 0 && engineerInput && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3">
@@ -3027,8 +3181,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 </div>
               )}
             </div>
-     
- 
+
+
             <div>
               <label className={fieldLabel}>Coverage Scope</label>
               <textarea
@@ -3044,7 +3198,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
         {/* ===== footer ===== */}
         <div className="flex justify-end px-6 py-4 border-t">
-         
+
           <button
             onClick={handleSave}
             disabled={isSubmitting}
@@ -3403,25 +3557,25 @@ function AssetSelectModal({
         {taskType === 'PM' && (() => {
           const allFilteredSelected = filteredDevices.length > 0 && filteredDevices.every((d) => localSelected.some((x) => x.id === d.id));
           return (
-          <div className="flex justify-between px-6 py-3 border-b">
-            <div className="flex gap-2">
-              <button
-                onClick={selectAll}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${allFilteredSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-              >
-                Select all
-              </button>
-              <button
-                onClick={clearAll}
-                className="px-3 py-1.5 text-xs font-semibold bg-slate-100 rounded-lg"
-              >
-                Clear
-              </button>
+            <div className="flex justify-between px-6 py-3 border-b">
+              <div className="flex gap-2">
+                <button
+                  onClick={selectAll}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${allFilteredSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+                >
+                  Select all
+                </button>
+                <button
+                  onClick={clearAll}
+                  className="px-3 py-1.5 text-xs font-semibold bg-slate-100 rounded-lg"
+                >
+                  Clear
+                </button>
+              </div>
+              <span className="text-xs text-slate-400">
+                {localSelected.length} selected
+              </span>
             </div>
-            <span className="text-xs text-slate-400">
-              {localSelected.length} selected
-            </span>
-          </div>
           );
         })()}
 
@@ -3482,8 +3636,8 @@ function AssetSelectModal({
             }}
             disabled={taskType === 'MA' && !singleSelected}
             className={`px-5 py-2 text-sm rounded-xl font-bold ${taskType === 'MA' && !singleSelected
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-500 text-white hover:bg-blue-600'
+              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              : 'bg-blue-500 text-white hover:bg-blue-600'
               }`}
           >
             Confirm
