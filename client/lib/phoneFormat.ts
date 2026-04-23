@@ -53,6 +53,19 @@ export function validateEmployeePhoneInline(tel: string, telExt: string): string
   return '';
 }
 
+/** เบอร์ไม่บังคับ — ระหว่างพิมพ์ไม่เตือนเรื่อง “อย่างน้อย 4 หลัก”; ตรวจเฉพาะเกิน 10 / ต่อไม่ถูก / มีต่อแต่ไม่มีเบอร์หลัก */
+export function validateOptionalEmployeePhoneInline(tel: string, telExt: string): string {
+  const mainD = tel.replace(/\D/g, '');
+  const extD = telExt.replace(/\D/g, '');
+  if (!mainD && !extD) return '';
+  if (mainD.length > MAIN_LEN) return 'Phone must be at most 10 digits.';
+  if (extD && !mainD) return 'Enter the main number before extension.';
+  if (extD && (extD.length < 1 || extD.length > EXT_MAX)) {
+    return 'Extension must be 1–6 digits when provided.';
+  }
+  return '';
+}
+
 /** ตอนส่งฟอร์ม / import — เบอร์หลักต้องครบ 10 หลัก */
 export function validateEmployeePhoneSubmit(tel: string, telExt: string): string {
   const mainD = tel.replace(/\D/g, '');

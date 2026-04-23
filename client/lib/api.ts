@@ -652,6 +652,8 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
     technicianName?: string;
     maDate?: string;
     createdAt?: string;
+    /** ชั่วโมงรวม — จาก tasks.downtime_total_hours */
+    downtimeTotalHours?: number;
   }>;
   count?: number;
   total?: number;
@@ -684,6 +686,12 @@ export async function postMaReport(body: {
   technicianName?: string;
   maDate?: string;
   createdAt?: string;
+  /** บันทึกลง tasks.uptime_date / uptime_time */
+  uptimeDate?: string;
+  uptimeTime?: string;
+  /** ชื่อฟิลด์เก่า — backend ยังรับได้ */
+  downTimeEndDate?: string;
+  downTimeEndTime?: string;
 }): Promise<{
   success: boolean;
   message?: string;

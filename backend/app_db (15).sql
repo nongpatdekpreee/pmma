@@ -42,7 +42,8 @@ CREATE TABLE `contract` (
   `coverage_scope` text DEFAULT NULL,
   `file_paths` text DEFAULT NULL COMMENT 'JSON array of file paths',
   `image_paths` text DEFAULT NULL COMMENT 'JSON array of image paths',
-  `status` enum('draft','official','not_renewing') NOT NULL DEFAULT 'draft'
+  `status` enum('draft','official','not_renewing') NOT NULL DEFAULT 'draft',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --

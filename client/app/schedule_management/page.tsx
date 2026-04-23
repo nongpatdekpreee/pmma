@@ -26,6 +26,7 @@ import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
+import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import * as XLSX from 'xlsx';
 
 
@@ -76,6 +77,11 @@ interface CalendarEvent {
   resolution?: string;
   slaTerm?: string;
   duration?: string;
+  downtimeDate?: string;
+  downtimeTime?: string;
+  uptimeDate?: string;
+  uptimeTime?: string;
+  downtimeTotalHours?: number;
   assetBinding?: string;
   travelMethod?: string;
   travelCost?: string;
@@ -265,6 +271,8 @@ function ScheduleManagementContent() {
     newDay: number;
     newStartDate: string;
     newEndDate: string;
+    previousStartDate: string;
+    previousEndDate: string;
   } | null>(null);
   const [hoveredEvent, setHoveredEvent] = useState<CalendarEvent | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
@@ -426,6 +434,20 @@ function ScheduleManagementContent() {
       resolution: task.resolution,
       ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
+      downtimeDate:
+        task.downtimeDate ??
+        task.downTimeStartDate ??
+        task.down_time_start_date,
+      downtimeTime:
+        task.downtimeTime ??
+        task.downTimeStartTime ??
+        task.down_time_start_time,
+      uptimeDate:
+        task.uptimeDate ?? task.downTimeEndDate ?? task.down_time_end_date,
+      uptimeTime:
+        task.uptimeTime ?? task.downTimeEndTime ?? task.down_time_end_time,
+      downtimeTotalHours:
+        task.downtimeTotalHours ?? task.down_time_total_hours ?? undefined,
       assetBinding: task.assetBinding || task.asset_binding,
       travelMethod: task.travelMethod || task.travel_method,
       travelCost: task.travelCost,
@@ -992,6 +1014,7 @@ function ScheduleManagementContent() {
 
     // เช็คว่าย้ายวันจริงหรือไม่ ถ้าวันเดิมไม่ต้องขึ้น modal notes
     const originalStartStr = formatDateString(originalStart);
+    const originalEndStr = formatDateString(originalEnd);
     if (newStartDateStr === originalStartStr) {
       // วันเดิม ไม่ย้าย ไม่ต้องถามเหตุผล
       setDraggedEvent(null);
@@ -1006,6 +1029,8 @@ function ScheduleManagementContent() {
       newDay: day,
       newStartDate: newStartDateStr,
       newEndDate: newEndDateStr,
+      previousStartDate: originalStartStr,
+      previousEndDate: originalEndStr,
     });
     setIsMoveModalOpen(true);
     setMoveReason('');
@@ -1022,7 +1047,29 @@ function ScheduleManagementContent() {
       return;
     }
 
-    const { event, newStartDate, newEndDate } = pendingMove;
+    const { event, newStartDate, newEndDate, previousStartDate, previousEndDate } = pendingMove;
+
+    const toMonthDayYear = (s: string | undefined) => {
+      if (!s) return '—';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, m, d] = s.split('-');
+        return `${m}/${d}/${y}`;
+      }
+      const d0 = new Date(s);
+      if (!Number.isNaN(d0.getTime())) {
+        const y = d0.getFullYear();
+        const m = String(d0.getMonth() + 1).padStart(2, '0');
+        const day = String(d0.getDate()).padStart(2, '0');
+        return `${m}/${day}/${y}`;
+      }
+      return s;
+    };
+    const rescheduleNoteFull = composeRescheduleNoteWithOrigin(
+      previousStartDate,
+      previousEndDate,
+      moveReason.trim(),
+      toMonthDayYear
+    );
 
     // Optimistic update - update UI immediately
     const newStartDateObj = new Date(newStartDate);
@@ -1039,7 +1086,7 @@ function ScheduleManagementContent() {
             year: newStartDateObj.getFullYear(),
             startDate: newStartDate,
             endDate: newEndDate,
-            rescheduleNote: moveReason.trim(),
+            rescheduleNote: rescheduleNoteFull,
           };
           return updatedEvent;
         }
@@ -1058,7 +1105,7 @@ function ScheduleManagementContent() {
         String(event.id),
         newStartDate,
         newEndDate,
-        moveReason.trim()
+        rescheduleNoteFull
       );
         toastSuccess('Move task successfully');
     } catch (error) {
@@ -1120,6 +1167,11 @@ function ScheduleManagementContent() {
           ticket: item.ticket,
           rootCause: item.rootCause,
           resolution: item.resolution,
+          duration: item.duration,
+          downtimeDate: item.downtimeDate,
+          downtimeTime: item.downtimeTime,
+          uptimeDate: item.uptimeDate,
+          uptimeTime: item.uptimeTime,
           assetBinding: item.assetBinding,
           ...(item.slaTerm ? { slaTerm: item.slaTerm } : {}),
           coverageScope: item.coverageScope,
@@ -1148,7 +1200,11 @@ function ScheduleManagementContent() {
           res,
           'Save task failed: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
         );
-        if (!json.success) throw new Error(json.message || 'Save task failed');
+        if (!json.success) {
+          const j = json as { message?: string; error?: string };
+          const detail = [j.message, j.error].filter((x) => x && String(x).trim()).join(' — ');
+          throw new Error(detail || 'Save task failed');
+        }
 
         const mapped = mapTaskToEvent(json.data);
         setCalendarEvents((events) =>
@@ -3123,10 +3179,10 @@ function ScheduleManagementContent() {
               <p className="text-xs text-slate-600 mb-2 truncate">
                 <span className="font-medium">{pendingMove.event.title}</span>
               </p>
-              <div className="flex items-center gap-2 text-xs">
+              <div className="flex items-center gap-2 text-xs flex-wrap">
                 <span className="text-slate-500 font-medium">From:</span>
                 <span className="text-slate-800 font-semibold bg-white px-2 py-1 rounded border border-slate-200">
-                  {formatDateForDisplay(pendingMove.event.startDate)}
+                  {formatDateForDisplay(pendingMove.previousStartDate)}
                 </span>
                 <span className="text-slate-300">→</span>
                 <span className="text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-200">

@@ -57,7 +57,7 @@ router.post('/upload', (req, res) => {
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({
           success: false,
-          message: 'Image must be 500 KB or smaller.',
+          message: 'Image must be 1 MB or smaller.',
         });
       }
       return res.status(400).json({
