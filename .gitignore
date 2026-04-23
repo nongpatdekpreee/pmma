@@ -123,4 +123,14 @@ temp/
 # yarn.lock
 # pnpm-lock.yaml
 Dockerfile
-Dockerfile
+dockerfile
+docker-compose.yml
+client/Dockerfile
+backend/Dockerfile
+backend/dockerfile
+backend/docker-compose.yml
+client/docker-compose.yml
+client/Dockerfile
+client/dockerfile
+client/docker-compose.yml
+

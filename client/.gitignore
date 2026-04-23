@@ -64,3 +64,17 @@ temp/
 # package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
+
+# Docker
+Dockerfile
+dockerfile
+docker-compose.yml
+Dockerfile
+dockerfile
+docker-compose.yml
+Dockerfile
+dockerfile
+docker-compose.yml
+Dockerfile
+dockerfile
+docker-compose.yml
