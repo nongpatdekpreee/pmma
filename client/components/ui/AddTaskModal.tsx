@@ -23,6 +23,7 @@ import {
   getTasks,
   checkEngineerConflict,
   uploadMaReportFile,
+  getAssignedServices,
 } from '@/lib/api';
 import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
@@ -61,6 +62,11 @@ interface Device {
   model?: string; // Model name from deviceTypes
   serialNumber?: string;
   site?: string;
+  /** ตำแหน่งจาก DB (sites_location) — เก็บใน tasks.assets เพื่อ export / รายงาน */
+  location?: string;
+  Location2?: string;
+  Sitename?: string;
+  SiteName?: string;
   assetState?: string;
   assetNumber?: string;
   source?: 'site' | 'available';
@@ -233,6 +239,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [downtimeDate, setDowntimeDate] = useState('');
   const [downtimeTime, setDowntimeTime] = useState('');
   const [assetBinding, setAssetBinding] = useState('');
+  /** MA — ตรงกับ devices.Assigned_Service (dropdown) */
+  const [maAssignedService, setMaAssignedService] = useState('');
+  const [assignedServiceOptions, setAssignedServiceOptions] = useState<string[]>([]);
   const [replacementDevices, setReplacementDevices] = useState<Device[]>([]);
   const [selectedReplacementDevice, setSelectedReplacementDevice] = useState<Device | null>(null);
   const [loadingReplacementDevices, setLoadingReplacementDevices] = useState(false);
@@ -322,6 +331,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setDowntimeDate('');
     setDowntimeTime('');
     setAssetBinding('');
+    setMaAssignedService('');
+    setAssignedServiceOptions([]);
     setContractOptions([]);
     setSelectedContractIds([]);
     setDevices([]);
@@ -345,22 +356,29 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     replacementWarehouseInflightRef.current = null;
   };
 
-  const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => ({
-    id: item.Did ?? item.id ?? item.Asset_Number ?? item.serial ?? randomUUID(),
-    name: item.CI_Name || item.name || item.Asset_Number || 'Device',
-    Dtypeid: item.Dtypeid,
-    DeRoleid: item.DeRoleid,
-    type: item.model || item.type || item.type_name || '',
-    serialNumber: item.serial || item.serialNumber || '',
-    site: item.SiteName || item.site || (item.SLid ? `SL-${item.SLid}` : undefined),
-    assetState: item.Asset_State || item.assetState,
-    assetNumber: item.Asset_Number || item.assetNumber,
-    source,
-    SLid: item.SLid != null ? Number(item.SLid) : undefined,
-    role: item.roleName || '', // Will be set by useEffect
-    manufacturer: item.manufacturername || '', // Will be set by useEffect
-    contract_id: item.contract_id != null ? Number(item.contract_id) : undefined,
-  });
+  const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => {
+    const sitename = item.Sitename || item.SiteName || item.site;
+    const loc = item.Location2 || item.Location || item.location || '';
+    const locStr = loc != null && String(loc).trim() !== '' ? String(loc).trim() : '';
+    return {
+      id: item.Did ?? item.id ?? item.Asset_Number ?? item.serial ?? randomUUID(),
+      name: item.CI_Name || item.name || item.Asset_Number || 'Device',
+      Dtypeid: item.Dtypeid,
+      DeRoleid: item.DeRoleid,
+      type: item.model || item.type || item.type_name || '',
+      serialNumber: item.serial || item.serialNumber || '',
+      site: sitename || (item.SLid ? `SL-${item.SLid}` : undefined),
+      ...(locStr ? { location: locStr, Location2: locStr } : {}),
+      ...(sitename ? { Sitename: String(sitename), SiteName: String(sitename) } : {}),
+      assetState: item.Asset_State || item.assetState,
+      assetNumber: item.Asset_Number || item.assetNumber,
+      source,
+      SLid: item.SLid != null ? Number(item.SLid) : undefined,
+      role: item.roleName || '', // Will be set by useEffect
+      manufacturer: item.manufacturername || '', // Will be set by useEffect
+      contract_id: item.contract_id != null ? Number(item.contract_id) : undefined,
+    };
+  };
 
   /** In Store ในคลังตาม backend — cache / in-flight เดียวกัน (หลาย MA pair ไม่ยิง API ซ้ำ) */
   const fetchReplacementWarehousePool = async (): Promise<Device[]> => {
@@ -666,6 +684,16 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       // Store editing assets in ref for later restoration
       editingAssetsRef.current = editingAssets;
       setTaskType(editingEvent.taskType || 'PM');
+      const editTaskType = editingEvent.taskType || 'PM';
+      setMaAssignedService(
+        editTaskType === 'MA'
+          ? String(
+              (editingEvent as any).assignedService ??
+                (editingEvent as any).assigned_service ??
+                ''
+            ).trim()
+          : ''
+      );
       setSid(editingEvent.Sid ? String(editingEvent.Sid) : editingEvent.siteId ? String(editingEvent.siteId) : '');
       setSname(editingEvent.Sname || editingEvent.siteName || '');
       setSelectedEngineers(
@@ -1074,9 +1102,30 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setReplacementDevices([]);
       setSelectedReplacementDevice(null);
       setBrokenDevicePairs([]);
+      setMaAssignedService('');
       // ไม่ reset travel fields เพราะใช้ร่วมกันทั้ง PM และ MA
     }
   }, [taskType]);
+
+  useEffect(() => {
+    if (!isOpen || taskType !== 'MA') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await getAssignedServices();
+        if (!cancelled && res.success && Array.isArray(res.data)) {
+          setAssignedServiceOptions(
+            res.data.map((s) => String(s ?? '').trim()).filter(Boolean)
+          );
+        }
+      } catch {
+        if (!cancelled) setAssignedServiceOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, taskType]);
 
   // Load replacement devices for broken device pairs (for MA only)
   useEffect(() => {
@@ -1349,6 +1398,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       })
       .join(', ');
   }, [selectedContractIds, contractOptions]);
+
+  const maAssignedServiceSelectOptions = useMemo(() => {
+    const base = assignedServiceOptions.map((s) => String(s ?? '').trim()).filter(Boolean);
+    const cur = maAssignedService.trim();
+    if (cur && !base.includes(cur)) return [cur, ...base];
+    return base;
+  }, [assignedServiceOptions, maAssignedService]);
 
   const getPmContractSofLabel = useCallback((contractIdStr: string) => {
     const c = contractOptions.find((x) => String(x.contract_id) === contractIdStr);
@@ -1767,6 +1823,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               uptimeTime: null,
             }),
         assetBinding: taskType === 'MA' ? assetBinding : null,
+        assignedService: taskType === 'MA' ? (maAssignedService.trim() || null) : null,
         replacementDeviceId: replacementDeviceId,
         status: editingEvent?.status || 'not-started',
         photos: photosPayloadForSave,
@@ -2574,7 +2631,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             <div className={sectionCard}>
               <h3 className="text-xs font-bold text-slate-700">Contract Information</h3>
 
-              <div className="grid grid-cols-2 gap-4 items-start">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 items-start">
                 <div>
                   <label className={fieldLabel}>Third Party Vendor name </label>
                   <input
@@ -2585,9 +2642,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     placeholder="Enter third party vendor"
                     className={`${inputBase} ${vendorName && vendorName.trim().length < 5 ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''}`}
                   />
-                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                  <div className="mt-0.5 min-h-[1.125rem]" aria-live="polite">
                     {vendorName && vendorName.trim().length < 5 ? (
-                      <p className="text-[10px] text-red-500">
+                      <p className="text-[10px] text-red-500 leading-snug">
                         Third Party Vendor name must be at least 5 characters
                       </p>
                     ) : null}
@@ -2640,11 +2697,26 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       </button>
                     ) : null}
                   </div>
-                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                  <div className="mt-0.5 min-h-[1.125rem]" aria-live="polite">
                     {vendorTelError ? (
-                      <p className="text-[10px] text-red-500">{vendorTelError}</p>
+                      <p className="text-[10px] text-red-500 leading-snug">{vendorTelError}</p>
                     ) : null}
                   </div>
+                </div>
+                <div className="col-span-2">
+                  <label className={fieldLabel}>Assigned Service</label>
+                  <select
+                    value={maAssignedService}
+                    onChange={(e) => setMaAssignedService(e.target.value)}
+                    className={`${inputBase} w-full max-w-xl`}
+                  >
+                    <option value="">— Select —</option>
+                    {maAssignedServiceSelectOptions.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
@@ -2655,7 +2727,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             <div className={sectionCard}>
               <h3 className="text-xs font-bold text-slate-700">Client</h3>
                 
-              <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                 <div className="flex min-w-0 flex-1 basis-0 flex-col">
                   <label className={fieldLabel}>
                     Reporter name <span className="text-red-500 text-[10px]">*</span>
@@ -2682,11 +2754,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         : ''
                     }`}
                   />
-                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                  <div className="mt-0.5 min-h-[1.125rem]" aria-live="polite">
                     {reporterNameRequiredError ? (
-                      <p className="text-[10px] text-red-500">{reporterNameRequiredError}</p>
+                      <p className="text-[10px] text-red-500 leading-snug">{reporterNameRequiredError}</p>
                     ) : reporterName.trim().length > 0 && reporterName.trim().length < 5 ? (
-                      <p className="text-[10px] text-red-500">
+                      <p className="text-[10px] text-red-500 leading-snug">
                         Reporter name must be at least 5 characters (now {reporterName.trim().length} characters)
                       </p>
                     ) : null}
@@ -2816,9 +2888,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       ) : null}
                     </div>
                   </div>
-                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                  <div className="mt-0.5 min-h-[1.125rem]" aria-live="polite">
                     {reporterPhoneError ? (
-                      <p className="text-[10px] text-red-500">{reporterPhoneError}</p>
+                      <p className="text-[10px] text-red-500 leading-snug">{reporterPhoneError}</p>
                     ) : null}
                   </div>
                 </div>
@@ -2842,22 +2914,22 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       ticketRequiredError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''
                     }`}
                   />
-                  <div className="mt-1 min-h-[2.5rem]" aria-live="polite">
+                  <div className="mt-0.5 min-h-[1.125rem]" aria-live="polite">
                     {ticketRequiredError ? (
-                      <p className="text-[10px] text-red-500">{ticketRequiredError}</p>
+                      <p className="text-[10px] text-red-500 leading-snug">{ticketRequiredError}</p>
                     ) : null}
                   </div>
                 </div>
               </div>
 
-              <div className="mt-5 pt-5 border-t border-slate-100">
-                <div className="mb-3 flex items-start gap-3">
-                  <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 text-slate-500 ring-1 ring-slate-200/80 shadow-sm">
-                    <Paperclip size={18} strokeWidth={2} aria-hidden />
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="mb-1.5 flex items-start gap-2">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 text-slate-500 ring-1 ring-slate-200/80 shadow-sm">
+                    <Paperclip size={16} strokeWidth={2} aria-hidden />
                   </span>
-                  <div className="min-w-0 flex-1 pt-0.5">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Remark</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-slate-500">
+                    <p className="mt-0.5 text-xs leading-snug text-slate-500">
                       PDF or images. Files are sent to the server when you save the task.
                     </p>
                   </div>
@@ -2878,7 +2950,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 />
                 <label
                   htmlFor={repairNoticeInputId}
-                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-3.5 text-sm font-medium text-slate-600 transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${editingEvent?.status === 'done' ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
+                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${editingEvent?.status === 'done' ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
                     }`}
                 >
                   <Paperclip size={16} className="text-slate-400 transition-colors group-hover:text-sky-600" aria-hidden />

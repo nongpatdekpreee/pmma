@@ -1,11 +1,12 @@
 'use client';
 
 import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip, Clock3, Calendar } from 'lucide-react';
-import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
+import { DEFAULT_IN_STORE_SITE_NAME } from '@/lib/inStoreSite';
 import { parseRescheduleNoteOrigin } from '@/lib/rescheduleNote';
+import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
 import { useAlertModal } from '@/components/ui/useAlertModal';
 import ExcelJS from 'exceljs';
 
@@ -34,7 +35,6 @@ function parseRepairNoticePaths(photos?: string[] | null): string[] {
 interface Device {
   id: string;
   name: string;
-  
   type: string;
   role?: string;
   serialNumber?: string;
@@ -76,21 +76,23 @@ interface TaskDetail {
   reporterName?: string;
   reporterTel?: string;
   ticket?: string;
+  /** MA — tasks.assigned_service */
+  assignedService?: string | null;
   rootCause?: string;
   resolution?: string;
   slaTerm?: string;
   duration?: string;
   /** MA — จากงาน / หลังส่ง report */
-  downtimeDate?: string;
-  downtimeTime?: string;
-  uptimeDate?: string;
-  uptimeTime?: string;
-  downtimeTotalHours?: number;
   assetBinding?: string;
   travelMethod?: string;
   travelCost?: string;
   contractId?: string | number;
   replacementDeviceId?: string | number;
+  downtimeDate?: string | null;
+  downtimeTime?: string | null;
+  uptimeDate?: string | null;
+  uptimeTime?: string | null;
+  downtimeTotalHours?: string | number | null;
   // Status fields
   actuallyWent?: boolean;
   photos?: string[]; // Array of base64 or URLs
@@ -212,7 +214,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 type: d.model || d.manufacturername || '—',
                 role: d.roleName || d.role || undefined,
                 serialNumber: d.serial,
-                site: d.Sitename || d.Location2,
+                site: DEFAULT_IN_STORE_SITE_NAME,
                 assetNumber: d.Asset_Number,
               };
             }
@@ -231,11 +233,18 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
     return <>{alertModal}</>;
   }
   const hasReport = !!reportLink;
+  /** Done + มี report แล้ว — ห้ามเปลี่ยนสถานะ (และไม่ต้องบันทึกซ้ำ) */
+  const isStatusLockedDoneReported =
+    String(task.status || '').toLowerCase() === 'done' && hasReport;
   const totalAssets = task.assets?.length || 0;
   const totalAssetPages = Math.max(1, Math.ceil(totalAssets / assetsPerPage));
   const paginatedAssets = task.assets?.slice((assetPage - 1) * assetsPerPage, assetPage * assetsPerPage) || [];
 
   const handleSave = () => {
+    if (isStatusLockedDoneReported) {
+      onClose();
+      return;
+    }
     if (status === 'working') {
       const reason = inProcessReasonDraft.trim().slice(0, IN_PROCESS_REASON_MAX_CHARS);
       if (!reason) {
@@ -441,6 +450,18 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   <p className="text-sm font-medium text-slate-800 mt-1">{task.coverageScope}</p>
                 </div>
               )}
+              {task.taskType === 'MA' && (
+                <div className="col-span-2">
+                  <label className="text-[10px] font-semibold uppercase text-slate-500">Assigned Service</label>
+                  <p className="text-sm font-medium text-slate-800 mt-1">
+                    {String(
+                      task.assignedService ??
+                        (task as { assigned_service?: string | null }).assigned_service ??
+                        ''
+                    ).trim() || '—'}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -628,69 +649,53 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             </div>
           )}
 
-          {task.taskType === 'MA' &&
-            (() => {
-              const t = task as TaskDetail & Record<string, unknown>;
-              const dd =
-                t.downtimeDate ??
-                (t as any).downTimeStartDate ??
-                (t as any).down_time_start_date;
-              const dt =
-                t.downtimeTime ??
-                (t as any).downTimeStartTime ??
-                (t as any).down_time_start_time;
-              const ud =
-                t.uptimeDate ?? (t as any).downTimeEndDate ?? (t as any).down_time_end_date;
-              const ut =
-                t.uptimeTime ?? (t as any).downTimeEndTime ?? (t as any).down_time_end_time;
-              const totRaw = t.downtimeTotalHours ?? (t as any).downTimeTotalHours ?? (t as any).down_time_total_hours;
-              const tot =
-                totRaw != null && String(totRaw).trim() !== '' && !Number.isNaN(Number(totRaw))
-                  ? Number(totRaw)
-                  : null;
-
-              return (
-                <div className="bg-emerald-50/60 rounded-xl p-4 border border-emerald-200/80">
-                  <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                    <Calendar size={16} className="text-emerald-600 shrink-0" aria-hidden />
-                    Downtime &amp; Uptime
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Downtime date</p>
-                      <p className="text-sm font-semibold text-slate-800 tabular-nums">
-                        {formatDateLocale(dd, 'en-US') || '—'}
-                      </p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Downtime time</p>
-                      <p className="text-sm font-semibold text-slate-800 tabular-nums">
-                        {formatTime12h(dt, 'en-US') || '—'}
-                      </p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Uptime date</p>
-                      <p className="text-sm font-semibold text-slate-800 tabular-nums">
-                        {formatDateLocale(ud, 'en-US') || '—'}
-                      </p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Uptime time</p>
-                      <p className="text-sm font-semibold text-slate-800 tabular-nums">
-                        {formatTime12h(ut, 'en-US') || '—'}
-                      </p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Total downtime</p>
-                      <p className="text-sm font-semibold text-emerald-900 tabular-nums flex items-center gap-1">
-                        <Clock3 size={14} className="text-emerald-600 shrink-0" aria-hidden />
-                        {tot != null ? `${tot} hrs` : '—'}
-                      </p>
-                    </div>
-                  </div>
+          {task.taskType === 'MA' && (
+            <div className="bg-emerald-50/90 rounded-xl p-4 border border-emerald-200">
+              <h3 className="text-sm font-bold text-emerald-900 mb-1 flex items-center gap-2">
+                <Calendar size={16} className="shrink-0" aria-hidden />
+                Downtime & Uptime
+              </h3>
+              <p className="text-xs text-emerald-800/90 mb-3">
+               Uptime must be set automatically when the task is marked as done in Calendar/Schedule.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Downtime date</label>
+                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
+                    {formatDateLocale(task.downtimeDate, 'en-US') || '—'}
+                  </p>
                 </div>
-              );
-            })()}
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Downtime time</label>
+                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
+                    {formatTime12h(task.downtimeTime, 'en-US') || '—'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Uptime date</label>
+                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
+                    {formatDateLocale(task.uptimeDate, 'en-US') || '—'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Uptime time</label>
+                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
+                    {formatTime12h(task.uptimeTime, 'en-US') || '—'}
+                  </p>
+                </div>
+                <div className="md:col-span-2 pt-2 border-t border-emerald-200">
+                  <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Total downtime</label>
+                  <p className="text-sm font-semibold text-emerald-900 mt-1 tabular-nums">
+                    {task.downtimeTotalHours != null &&
+                    String(task.downtimeTotalHours).trim() !== '' &&
+                    !Number.isNaN(Number(task.downtimeTotalHours))
+                      ? `${Number(task.downtimeTotalHours)} hrs`
+                      : '—'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {task.taskType === 'MA' &&
             (() => {
@@ -786,45 +791,59 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
           )}
 
           {/* Task Status Section */}
-          <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200">
-            <h3 className="text-sm font-bold text-slate-700 mb-4">Task Status</h3>
+          <div
+            className={`bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border-2 border-purple-200 ${
+              isStatusLockedDoneReported ? 'opacity-95' : ''
+            }`}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
+              <h3 className="text-sm font-bold text-slate-700">Task Status</h3>
+              {isStatusLockedDoneReported && (
+                <p className="text-xs font-medium text-emerald-800 bg-emerald-100/90 border border-emerald-200 rounded-lg px-2.5 py-1 max-w-[min(100%,20rem)]">
+                  Status is locked because the task is already done and has a report.
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setStatus('done')}
+                disabled={isStatusLockedDoneReported}
+                onClick={() => !isStatusLockedDoneReported && setStatus('done')}
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
                   status === 'done'
                     ? 'bg-green-500 text-white shadow-md'
                     : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-green-300'
-                }`}
+                } ${isStatusLockedDoneReported ? 'cursor-not-allowed opacity-90' : ''}`}
               >
                 Done
               </button>
               <button
                 type="button"
-                onClick={() => setStatus('working')}
+                disabled={isStatusLockedDoneReported}
+                onClick={() => !isStatusLockedDoneReported && setStatus('working')}
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
                   status === 'working'
                     ? 'bg-amber-500 text-white shadow-md'
                     : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-amber-300'
-                }`}
+                } ${isStatusLockedDoneReported ? 'cursor-not-allowed opacity-75' : ''}`}
               >
                 <Clock3 size={18} className="shrink-0" strokeWidth={2.25} />
                 In Process
               </button>
               <button
                 type="button"
-                onClick={() => setStatus('not-started')}
+                disabled={isStatusLockedDoneReported}
+                onClick={() => !isStatusLockedDoneReported && setStatus('not-started')}
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
                   status === 'not-started' || status === 'stuck'
                     ? 'bg-gray-400 text-white shadow-md'
                     : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-gray-300'
-                }`}
+                } ${isStatusLockedDoneReported ? 'cursor-not-allowed opacity-75' : ''}`}
               >
                 Pending
               </button>
             </div>
-            {status === 'working' && (
+            {status === 'working' && !isStatusLockedDoneReported && (
               <div className="mt-4 rounded-xl border-2 border-amber-200 bg-amber-50/90 p-3">
                 <label htmlFor="in-process-reason" className="mb-2 flex flex-wrap items-center gap-2 text-xs font-bold text-amber-900">
                   <Clock3 size={16} className="shrink-0" />
@@ -890,6 +909,8 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                       assets: task.assets || [],
                       // Ensure SLA term is included for MA tasks
                       vendorName: task.vendorName || (task as any).vendor_name || undefined,
+                      assignedService:
+                        task.assignedService ?? (task as any).assigned_service ?? undefined,
                       // MA ใช้แค่ down_time_* — ไม่ส่ง duration เพื่อไม่ให้เป็นช่องเวลาที่สองในฐานข้อมูล
                       ...(String(task.taskType || (task as any).task_type || '')
                         .toUpperCase() !== 'MA'
@@ -955,8 +976,15 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               Cancel
             </button>
             <button
+              type="button"
               onClick={handleSave}
-              className="px-6 py-2.5 bg-blue-500 text-white rounded-xl font-semibold text-sm hover:bg-blue-600 transition-colors shadow-md"
+              disabled={isStatusLockedDoneReported}
+              title={isStatusLockedDoneReported ? 'สถานะล็อกแล้ว (Done + มีรายงาน)' : undefined}
+              className={`px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors shadow-md ${
+                isStatusLockedDoneReported
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  : 'bg-blue-500 text-white hover:bg-blue-600'
+              }`}
             >
               Save Changes
             </button>

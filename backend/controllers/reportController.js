@@ -132,14 +132,28 @@ const submitReport = async (req, res) => {
       maDate,
     } = body;
 
-    const uptimeDateIn = body.uptimeDate ?? body.downTimeEndDate;
-    const uptimeTimeIn = body.uptimeTime ?? body.downTimeEndTime;
+    let uptimeDateIn = body.uptimeDate ?? body.downTimeEndDate;
+    let uptimeTimeIn = body.uptimeTime ?? body.downTimeEndTime;
 
     if (!taskId) {
       return res.status(400).json({
         success: false,
         message: 'Please select Task (taskId) before submitting Report',
       });
+    }
+
+    /** MA: uptime ตั้งตอนกด Done บน task — ถ้า body ไม่ส่งให้ดึงจาก tasks */
+    if (reportType === 'MA' && (!uptimeDateIn || !uptimeTimeIn)) {
+      try {
+        const [trRows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
+        const tr = trRows[0];
+        if (tr) {
+          if (!uptimeDateIn) uptimeDateIn = tr.uptime_date ?? tr.down_time_end_date;
+          if (!uptimeTimeIn) uptimeTimeIn = tr.uptime_time ?? tr.down_time_end_time;
+        }
+      } catch (_) {
+        /* ignore */
+      }
     }
 
     // PM/MA: ดึง sla_term จาก table contract (ผ่าน task.contract_id) เพื่อใช้เป็นเกณฑ์ Pass/Fail

@@ -46,7 +46,7 @@ const employeePhotoFilter = (req, file, cb) => {
 
 const upload = multer({
   storage,
-  limits: { fileSize: 500 * 1024 }, // 500KB
+  limits: { fileSize: 1000 * 1024 }, // 1000 KB
   fileFilter: employeePhotoFilter,
 });
 

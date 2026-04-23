@@ -1306,6 +1306,48 @@ const getDevicesBySOFAndSite = async (req, res) => {
 
 // GET - ดึง Devices จาก contract_device ตาม contract_id และ SLid (Site+Location)
 // เช็คจาก Site+Location → SLid แล้วดึง devices ใน contract_device ที่ SLid ตรงกัน
+/**
+ * GET ?contract_id=&refer_sof=
+ * Distinct SLid + Location2 for devices on this contract whose Refer_SOF matches (same rules as by-sof-and-site).
+ * Used by schedule import hints: only locations that actually exist for this SOF on the contract.
+ */
+const getImportLocation2HintsByContractAndSof = async (req, res) => {
+  try {
+    const contractId = req.query.contract_id;
+    const referSOF = req.query.refer_sof;
+    if (!contractId || referSOF == null || String(referSOF).trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide contract_id and refer_sof',
+      });
+    }
+    const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
+    const sofMatch = `(d.Refer_SOF = ? OR TRIM(LEADING '0' FROM COALESCE(d.Refer_SOF, '')) = ?)`;
+    const [rows] = await db.execute(
+      `SELECT DISTINCT cd.SLid AS SLid,
+              TRIM(L.Location2) AS Location2
+       FROM contract_device cd
+       INNER JOIN devices d ON cd.device_id = d.Did
+       LEFT JOIN sites_location sl ON sl.SLid = cd.SLid
+       LEFT JOIN location L ON sl.lid = L.lid
+       WHERE cd.contract_id = ?
+         AND cd.SLid IS NOT NULL
+         AND ${sofMatch}
+         AND TRIM(COALESCE(L.Location2, '')) != ''
+       ORDER BY Location2 ASC, cd.SLid ASC`,
+      [parseInt(contractId, 10), referSOF, referSOFTrim]
+    );
+    res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting import Location2 hints:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting import Location2 hints',
+      error: error.message,
+    });
+  }
+};
+
 const getDevicesByContractAndSite = async (req, res) => {
   try {
     const contractId = req.query.contract_id;
@@ -2159,6 +2201,7 @@ module.exports = {
   getReferSOFList,           // GET (unique Refer_SOF values)
   getAssignedServicesList,   // GET (unique Assigned_Service สำหรับ dropdown Service)
   getDevicesBySOFAndSite,    // GET (devices ตาม Refer_SOF และ site_id)
+  getImportLocation2HintsByContractAndSof, // GET (distinct SLid+Location2 on contract for Refer_SOF — import hints)
   getDevicesByContractAndSite, // GET (devices จาก contract_device ตาม contract_id + slid)
   getDevicesBySerials,       // GET (devices ตาม serial หลายตัว ?serials=A,B,C)
   getDevicesBySiteNoSOF,     // GET (devices ตาม site_id ที่ยังไม่มี SOF)

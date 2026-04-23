@@ -15,7 +15,6 @@ import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
-import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 
 interface Device {
@@ -78,6 +77,7 @@ interface CalendarEvent {
   uptimeDate?: string;
   uptimeTime?: string;
   downtimeTotalHours?: number;
+  assignedService?: string | null;
 }
 
 const IN_PROCESS_REASON_DISPLAY_MAX = 120;
@@ -263,6 +263,8 @@ function CalendarPageContent() {
         task.uptimeTime ?? task.downTimeEndTime ?? task.down_time_end_time,
       downtimeTotalHours:
         task.downtimeTotalHours ?? task.down_time_total_hours ?? undefined,
+      assignedService:
+        task.assignedService ?? task.assigned_service ?? null,
     };
   };
 
@@ -879,33 +881,8 @@ function CalendarPageContent() {
     const originalStartDate = originalEvent?.startDate;
     const originalEndDate = originalEvent?.endDate;
 
-    // Update local state immediately
-    setCalendarEvents((prevEvents) => {
-      const updatedEvents = prevEvents.map((event) =>
-        event.id === updatedTask.id 
-          ? { 
-              ...event, 
-              status: updatedTask.status,
-              ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
-              // Preserve original dates
-              startDate: originalStartDate || event.startDate,
-              endDate: originalEndDate || event.endDate,
-            } 
-          : event
-      );
-
-      // Update selectedTask if it's the same event
-      if (selectedTask && selectedTask.id === updatedTask.id) {
-        const updated = updatedEvents.find(e => e.id === updatedTask.id);
-        if (updated) {
-          setSelectedTask(updated);
-        }
-      }
-
-      return updatedEvents;
-    });
-
-    // Update backend - only send status
+    // Update backend - only send status (server may set MA uptime when status → done)
+    let serverTask: Record<string, unknown> | null = null;
     try {
       const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
         method: 'PUT',
@@ -916,14 +893,46 @@ function CalendarPageContent() {
       if (!json.success) {
         throw new Error(json.message || 'Update failed');
       }
+      serverTask = json.data && typeof json.data === 'object' ? json.data : null;
       toastSuccess('Status updated successfully');
-      // Don't reload from API to avoid date changes - local state is already updated
     } catch (error) {
       console.error('handleTaskUpdate error', error);
       toastError('Failed to update status');
       // Only reload on error to get correct state
       await loadTasksFromApi();
+      return;
     }
+
+    const mergeFromServer = (ev: (typeof calendarEvents)[number]) => {
+      const base = {
+        ...ev,
+        status: updatedTask.status,
+        ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
+        startDate: originalStartDate || ev.startDate,
+        endDate: originalEndDate || ev.endDate,
+      };
+      if (!serverTask) return base;
+      const d = serverTask;
+      return {
+        ...base,
+        ...(typeof d.uptimeDate === 'string' && d.uptimeDate ? { uptimeDate: d.uptimeDate } : {}),
+        ...(typeof d.uptimeTime === 'string' && d.uptimeTime ? { uptimeTime: d.uptimeTime } : {}),
+        ...(d.downtimeTotalHours != null && d.downtimeTotalHours !== ''
+          ? { downtimeTotalHours: Number(d.downtimeTotalHours) }
+          : {}),
+      };
+    };
+
+    setCalendarEvents((prevEvents) => {
+      const updatedEvents = prevEvents.map((event) =>
+        event.id === updatedTask.id ? mergeFromServer(event) : event
+      );
+      if (selectedTask && selectedTask.id === updatedTask.id) {
+        const updated = updatedEvents.find(e => e.id === updatedTask.id);
+        if (updated) setSelectedTask(updated);
+      }
+      return updatedEvents;
+    });
   };
 
   // Handle delete task from detail modal
@@ -1716,7 +1725,7 @@ function CalendarPageContent() {
             <div className="grid grid-cols-2 gap-2">
               {hoveredEvent.startDate && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date</p>
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date (mm/dd/yyyy)</p>
                   <p className="text-sm text-slate-700">
                     {new Date(hoveredEvent.startDate).toLocaleDateString('en-US', {
                       year: 'numeric',
@@ -1739,50 +1748,6 @@ function CalendarPageContent() {
                 </div>
               )}
             </div>
-
-            {hoveredEvent.taskType === 'MA' && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50/90 px-3 py-2">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-900 mb-1.5">
-                  Downtime / Uptime
-                </p>
-                <div className="grid grid-cols-2 gap-x-2 gap-y-2 text-[11px]">
-                  <div>
-                    <p className="text-slate-500 mb-0.5">Downtime date</p>
-                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
-                      {formatDateLocale(hoveredEvent.downtimeDate, 'en-US') || '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500 mb-0.5">Downtime time</p>
-                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
-                      {formatTime12h(hoveredEvent.downtimeTime, 'en-US') || '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500 mb-0.5">Uptime date</p>
-                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
-                      {formatDateLocale(hoveredEvent.uptimeDate, 'en-US') || '—'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500 mb-0.5">Uptime time</p>
-                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
-                      {formatTime12h(hoveredEvent.uptimeTime, 'en-US') || '—'}
-                    </p>
-                  </div>
-                  <div className="col-span-2 pt-0.5 border-t border-emerald-200/80 mt-0.5">
-                    <p className="text-slate-500 mb-0.5">Total downtime</p>
-                    <p className="font-semibold text-emerald-900 tabular-nums">
-                      {hoveredEvent.downtimeTotalHours != null &&
-                      String(hoveredEvent.downtimeTotalHours).trim() !== '' &&
-                      !Number.isNaN(Number(hoveredEvent.downtimeTotalHours))
-                        ? `${Number(hoveredEvent.downtimeTotalHours)} hrs`
-                        : '—'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>

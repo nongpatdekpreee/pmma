@@ -6,6 +6,7 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, postPmReport, getTasks, getPmReportedTaskIds, getContractById, uploadReportFile } from '@/lib/api';
+import { formatTaskEngineersLine } from '@/lib/taskEngineers';
 import { 
   Upload, 
   X, 
@@ -154,7 +155,7 @@ function AddPMReportPageContent() {
         const site = (t.siteName || t.site_name || '').toLowerCase();
         const start = t.startDate ? new Date(t.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
         const end = t.endDate ? new Date(t.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
-        const engineers = (t.engineers || []).map((e: any) => (e.name || e.id || '').toString().toLowerCase()).join(' ');
+        const engineers = formatTaskEngineersLine(t.engineers ?? t.Eng_ids).toLowerCase();
         const devices = (t.assets || []).map((a: any) => (a.name || a.CI_Name || a.id || '').toString().toLowerCase()).join(' ');
         const sof = taskSofLabel(t).toLowerCase();
         return [site, start, end, engineers, devices, sof].some(s => s.includes(taskSearchLower));
@@ -165,8 +166,8 @@ function AddPMReportPageContent() {
       if (sortTaskBy === 'date-asc') return (new Date(a.startDate || 0).getTime()) - (new Date(b.startDate || 0).getTime());
       if (sortTaskBy === 'site') return (a.siteName || a.site_name || '').localeCompare(b.siteName || b.site_name || '');
       if (sortTaskBy === 'engineer') {
-        const aStr = (a.engineers || []).map((e: any) => e.name || e.id).join(', ');
-        const bStr = (b.engineers || []).map((e: any) => e.name || e.id).join(', ');
+        const aStr = formatTaskEngineersLine(a.engineers ?? a.Eng_ids);
+        const bStr = formatTaskEngineersLine(b.engineers ?? b.Eng_ids);
         return aStr.localeCompare(bStr);
       }
       return 0;
@@ -443,9 +444,17 @@ function AddPMReportPageContent() {
       const start = toYmd(task.startDate ?? task.start_date);
       if (start) setPmDate(start);
     }
-    const eng = task.engineers && task.engineers[0];
-    if (eng) setTechnicianName(`${eng.name || eng.id || ''} ${eng.lastName || ''}`.trim());
+    setTechnicianName(formatTaskEngineersLine(task.engineers ?? task.Eng_ids));
   };
+
+  /** จาก Calendar/Schedule (?taskId=) — pre-fill ช่าง/วันที่/อุปกรณ์เมื่อเลือก task หรือโหลดรายการ task เสร็จ */
+  useEffect(() => {
+    if (selectedTaskId == null) return;
+    const task = donePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    if (!task) return;
+    applyTaskToForm(task);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync เมื่อ selection / snapshot รายการเปลี่ยน
+  }, [selectedTaskId, donePMTasks]);
 
   // Handle file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -698,9 +707,7 @@ function AddPMReportPageContent() {
                       </span>
                       <span className="flex items-center gap-1.5 text-slate-600">
                         <User size={16} className="text-slate-400" />
-                        {task.engineers?.length
-                          ? task.engineers.map((e: any) => e.name || e.id).join(', ')
-                          : '-'}
+                        {formatTaskEngineersLine(task.engineers ?? task.Eng_ids) || '—'}
                       </span>
                       {task.assets?.length > 0 && (
                         <span className="text-slate-600">

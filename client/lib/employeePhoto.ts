@@ -1,5 +1,5 @@
-export const EMPLOYEE_PHOTO_MAX_BYTES = 500 * 1024;
-export const EMPLOYEE_PHOTO_MAX_SIZE_LABEL = "500 KB";
+export const EMPLOYEE_PHOTO_MAX_BYTES = 1000 * 1024;
+export const EMPLOYEE_PHOTO_MAX_SIZE_LABEL = "1000 KB";
 export const EMPLOYEE_PHOTO_EXTENSIONS_LABEL = "JPG, PNG";
 export const EMPLOYEE_PHOTO_ACCEPT = ".jpg,.jpeg,.png,image/jpeg,image/png";
 

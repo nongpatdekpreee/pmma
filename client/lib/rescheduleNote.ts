@@ -13,16 +13,16 @@ export function composeRescheduleNoteWithOrigin(
     previousEndYmd &&
     previousStartYmd === previousEndYmd;
   const originLine = same
-    ? `จากวันที่เดิม ${formatMonthDayYear(previousStartYmd)}`
-    : `จากช่วงเดิม ${formatMonthDayYear(previousStartYmd)} – ${formatMonthDayYear(previousEndYmd)}`;
+    ? `Moved from ${formatMonthDayYear(previousStartYmd)}`
+    : `Moved from ${formatMonthDayYear(previousStartYmd)} – ${formatMonthDayYear(previousEndYmd)}`;
   if (!reason) return originLine;
   return `${originLine}\n${reason}`;
 }
 
 function isOriginFirstLine(line: string): boolean {
   return (
-    line.startsWith('จากวันที่เดิม ') ||
-    line.startsWith('จากช่วงเดิม ')
+    line.startsWith('Moved from ') ||
+    line.startsWith('Moved from ')
   );
 }
 
