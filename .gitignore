@@ -118,6 +118,15 @@ next-env.d.ts
 uploads/
 temp/
 
+Dockerfile
+docker-compose.yml
+docker.yaml
+Client/Dockerfile
+Backend/Dockerfile
+Backend/docker.yaml
+Backend/docker-compose.yml
+Backend/docker.yaml
+
 # Package manager locks (optional - uncomment if you don't want to commit them)
 # package-lock.json
 # yarn.lock
