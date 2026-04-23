@@ -122,7 +122,10 @@ temp/
 Dockerfile
 dockerfile
 client/Dockerfile
+<<<<<<< HEAD
 
+=======
+>>>>>>> ecfd7b03c2204a9a34003402ab6335024b5d5851
 # Package manager locks (optional - uncomment if you don't want to commit them)
 # package-lock.json
 # yarn.lock
