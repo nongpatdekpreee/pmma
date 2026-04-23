@@ -1,5 +1,13 @@
 const db = require('../config/database');
 
+const normalizePositionType = (rawType) => {
+  const type = String(rawType || '').trim().toLowerCase();
+  if (type === 'management') return 'Management';
+  if (type === 'engineer') return 'Engineer';
+  if (type === 'technical') return 'Technical';
+  return 'Technical';
+};
+
 // Helper - ให้ไอดีล่าสุดที่ว่าง (เช่น คนที่ 1 ลาออก ไอดีสูงสุด 3 → คนใหม่ได้ 1)
 const generateNextUserId = async () => {
   try {
@@ -189,7 +197,7 @@ const createEmployee = async (req, res) => {
     if (!name || !gmail || !tel) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide complete data (name, gmail, tel)',
+        message: 'Please provide complete data (name, Gmail or email, phone)',
       });
     }
 
@@ -220,10 +228,7 @@ const createEmployee = async (req, res) => {
     }
 
     // แปลง positionType
-    let type = positionType || 'Technical';
-    if (type !== 'Technical' && type !== 'Management') {
-      type = 'Technical';
-    }
+    const type = normalizePositionType(positionType);
 
     // สร้าง employee ใหม่ (รวม em_picture ถ้ามี column ใน DB)
     const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/png?seed=${newUserId}`;
@@ -281,7 +286,7 @@ const createEmployee = async (req, res) => {
   }
 };
 
-// POST - Import หลายคน (body: { employees: [{ name, gmail, tel, positionType?, employmentType? }] })
+// POST - Import หลายคน — แต่ละแถวรับ name, gmail หรือ email, tel (ดู row.gmail ?? row.email)
 const importEmployees = async (req, res) => {
   try {
     const list = req.body?.employees;
@@ -297,12 +302,15 @@ const importEmployees = async (req, res) => {
     for (let i = 0; i < list.length; i++) {
       const row = list[i] || {};
       const name = (row.name ?? row.Name ?? '').toString().trim();
-      const gmail = (row.gmail ?? row.Gmail ?? '').toString().trim();
+      const gmail = (row.gmail ?? row.email ?? '').toString().trim();
       const tel = (row.tel ?? row.phone ?? row.Phone ?? '').toString().trim();
 
       if (!name || !gmail || !tel) {
         results.failed++;
-        results.errors.push({ row: i + 1, message: 'name, gmail, tel must not be empty' });
+        results.errors.push({
+          row: i + 1,
+          message: 'Name,Email, and phone must not be empty',
+        });
         continue;
       }
 
@@ -311,8 +319,7 @@ const importEmployees = async (req, res) => {
       else if (employment.toLowerCase().includes('contract')) employment = 'Contract';
       else if (employment.toLowerCase().includes('part')) employment = 'Part-Time';
 
-      let type = (row.positionType ?? row.type ?? 'Technical') || 'Technical';
-      if (type !== 'Technical' && type !== 'Management') type = 'Technical';
+      const type = normalizePositionType((row.positionType ?? row.type ?? 'Technical') || 'Technical');
 
       try {
         const newUserId = await generateNextUserId();
@@ -324,7 +331,7 @@ const importEmployees = async (req, res) => {
         results.failed++;
         let msg = err.message || 'Insert failed';
         if (err.code === 'ER_DUP_ENTRY' || (err.message && err.message.includes('Duplicate'))) {
-          msg = `Gmail "${gmail}" already exists in the system`;
+          msg = `Email "${gmail}" already exists in the system`;
         }
         results.errors.push({ row: i + 1, message: msg });
       }
@@ -354,7 +361,7 @@ const updateEmployee = async (req, res) => {
     if (!name || !gmail || !tel) {
       return res.status(400).json({
         success: false,
-        message: 'Please provide complete data (name, gmail, tel)',
+        message: 'Please provide complete data (name, Gmail or email, phone)',
       });
     }
 
@@ -363,8 +370,7 @@ const updateEmployee = async (req, res) => {
     else if (employment.toLowerCase && employment.toLowerCase().includes('contract')) employment = 'Contract';
     else if (employment.toLowerCase && employment.toLowerCase().includes('part')) employment = 'Part-Time';
 
-    let type = positionType || 'Technical';
-    if (type !== 'Technical' && type !== 'Management') type = 'Technical';
+    const type = normalizePositionType(positionType);
 
     // em_picture บาง DB ถูกตั้ง NOT NULL → เวลา "ลบรูป" ให้ fallback เป็น default avatar แทน NULL
     const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/png?seed=${id}`;

@@ -113,6 +113,8 @@ interface MAReport {
   reporterTel?: string;
   ticket?: string;
   site_name?: string;
+  /** ชั่วโมงรวม — จาก tasks.downtime_total_hours */
+  downtimeTotalHours?: number;
   /** paths สำหรับ Repair notice (export CSV / ZIP) */
   repairNoticePaths?: string[];
 }
@@ -728,7 +730,7 @@ function ReportPageContent() {
       'Ticket',
       'Status',
       'Report status',
-      'Repair notice',
+      'Remark',
       'comment',
     ];
 
@@ -1900,6 +1902,18 @@ function ReportPageContent() {
                             </div>
                             <span className="font-medium">{formatDate(dateVal)}</span>
                           </div>
+                        {tab === 'ma' &&
+                          (report as MAReport).downtimeTotalHours != null &&
+                          !Number.isNaN(Number((report as MAReport).downtimeTotalHours)) && (
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="w-6 h-6 rounded-md bg-emerald-100 flex items-center justify-center shrink-0">
+                                <Clock size={12} className="text-emerald-600" />
+                              </div>
+                              <span className="font-medium text-emerald-800 tabular-nums">
+                                Total downtime {(report as MAReport).downtimeTotalHours} hours
+                              </span>
+                            </div>
+                          )}
                         {tab === 'ma' && (
                           <div className="flex items-center gap-1.5">
                             <div className="w-6 h-6 rounded-md bg-indigo-100 flex items-center justify-center">
@@ -2277,7 +2291,15 @@ function ReportPageContent() {
 
               <div className="flex-1 overflow-y-auto p-8 space-y-8">
                 {/* Main info */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div
+                  className={`grid gap-4 ${
+                    tab === 'ma' &&
+                    (selectedReport as MAReport).downtimeTotalHours != null &&
+                    !Number.isNaN(Number((selectedReport as MAReport).downtimeTotalHours))
+                      ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'
+                      : 'grid-cols-2 sm:grid-cols-4'
+                  }`}
+                >
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 min-w-0 text-center">
                     <p className="text-xs font-medium text-slate-500 mb-1">Technician</p>
                     <p className="text-sm font-semibold text-slate-800 break-words leading-snug" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{getEngineerDisplay(selectedReport)}</p>
@@ -2292,6 +2314,19 @@ function ReportPageContent() {
                     <p className="text-xs font-medium text-slate-500 mb-1">Number of Devices</p>
                     <p className="font-semibold text-slate-800">{getReportDevices(selectedReport).length}</p>
                   </div>
+                  {tab === 'ma' &&
+                    (selectedReport as MAReport).downtimeTotalHours != null &&
+                    !Number.isNaN(Number((selectedReport as MAReport).downtimeTotalHours)) && (
+                      <div className="p-4 bg-emerald-50/80 rounded-2xl border border-emerald-100 text-center">
+                        <p className="text-xs font-medium text-emerald-700 mb-1 flex items-center justify-center gap-1">
+                          <Clock size={14} className="shrink-0" aria-hidden />
+                         Total Hours
+                        </p>
+                        <p className="font-semibold text-emerald-900 tabular-nums">
+                          {(selectedReport as MAReport).downtimeTotalHours} hours
+                        </p>
+                      </div>
+                    )}
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
                     <p className="text-xs font-medium text-slate-500 mb-1">{tab === 'pm' ? 'Status' : 'Result'}</p>
                     <div className="flex items-center justify-center gap-2">
@@ -2380,7 +2415,7 @@ function ReportPageContent() {
                           <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center">
                             <Paperclip size={20} className="text-sky-700" />
                           </div>
-                          <h3 className="font-bold text-slate-800">Repair notice</h3>
+                          <h3 className="font-bold text-slate-800">Remark</h3>
                         </div>
                         <ul className="space-y-2">
                           {repairPaths.map((path) => {

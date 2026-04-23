@@ -48,6 +48,11 @@ import {
   getSitesLocation,
   getSiteRegistryCounts,
 } from '@/lib/api';
+import {
+  formatDashboardRangeLabel,
+  formatDateISO,
+  getDashboardPeriodBounds,
+} from '@/lib/dashboardPeriod';
 import { OverdueTasksModal,CompletedTasksModal,InprocessTasksModal,PendingTasksModal  } from '@/components/ui/OverdueTasksModal';
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['data']>;
@@ -338,6 +343,7 @@ export default function ReportPage() {
   const [timeFilter, setTimeFilter] = useState('6 Months');
   const [selectedYear, setSelectedYear] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedEndMonth, setSelectedEndMonth] = useState<string>('all');
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const periodDropdownRef = useRef<HTMLDivElement>(null);
   const periodMenuRef = useRef<HTMLDivElement>(null);
@@ -540,11 +546,16 @@ export default function ReportPage() {
     };
     updatePos();
     window.addEventListener('resize', updatePos);
-    window.addEventListener('scroll', updatePos, true);
     return () => {
       window.removeEventListener('resize', updatePos);
-      window.removeEventListener('scroll', updatePos, true);
     };
+  }, [periodDropdownOpen]);
+
+  useEffect(() => {
+    if (!periodDropdownOpen) return;
+    const onScroll = () => setPeriodDropdownOpen(false);
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
   }, [periodDropdownOpen]);
 
   const months = useMemo(() => {
@@ -573,10 +584,16 @@ export default function ReportPage() {
     if (selectedYear && selectedYear !== '') {
       const year = parseInt(selectedYear, 10);
       const month = selectedMonth && selectedMonth !== 'all' ? parseInt(selectedMonth, 10) : undefined;
-      return { year, month };
+      if (month == null) return { year };
+      const endRaw =
+        selectedEndMonth && selectedEndMonth !== 'all' ? parseInt(selectedEndMonth, 10) : month;
+      const endMonth =
+        !Number.isNaN(endRaw) && endRaw >= 1 && endRaw <= 12 ? Math.max(month, endRaw) : month;
+      if (endMonth === month) return { year, month };
+      return { year, month, endMonth };
     }
     return null;
-  }, [selectedYear, selectedMonth]);
+  }, [selectedYear, selectedMonth, selectedEndMonth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -628,7 +645,7 @@ export default function ReportPage() {
     return () => { cancelled = true; };
   }, [months, reportType, maTrendRoleFilterId, maTrendSiteFilterId, dashboardParams]);
 
-  const { summary, monthlyMA, vendorRanking, siteRanking, equipmentRanking, range, months: dataMonths } = data;
+  const { summary, monthlyMA, vendorRanking, siteRanking, equipmentRanking, range } = data;
   const isMa = reportType === 'ma';
   const taskLabel = reportType === 'ma' ? 'MA' : 'PM';
   /** Equipment tab / export / Top 15 section — MA uses product wording; PM keeps “Model”. */
@@ -706,6 +723,10 @@ export default function ReportPage() {
   }, [data?.topModelTrend?.model, data?.topModelTrendByRole]);
 
   const rangeLabel = useMemo(() => {
+    if (dashboardParams != null) {
+      const b = getDashboardPeriodBounds(months, dashboardParams);
+      return formatDashboardRangeLabel(b, MONTH_LABELS);
+    }
     if (!range?.start || !range?.endExclusive) return null;
     const startStr = range.start.split('T')[0];
     const endStr = range.endExclusive.split('T')[0];
@@ -713,37 +734,53 @@ export default function ReportPage() {
     const [ey, em] = endStr.split('-').map(Number);
     const startDate = new Date(sy, sm - 1, 1);
     const endDate = new Date(ey, em, 0);
-    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const fmt = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
-    const n = dataMonths ?? 0;
-    const monthText = n === 1 ? '1 month' : `${n} months`;
-    return `${fmt(startDate)} - ${fmt(endDate)} `;
-  }, [range?.start, range?.endExclusive, dataMonths]);
+    const fmt = (d: Date) => `${d.getDate()} ${MONTH_LABELS[d.getMonth()]} ${d.getFullYear()}`;
+    return `${fmt(startDate)} - ${fmt(endDate)}`;
+  }, [dashboardParams, months, range?.start, range?.endExclusive]);
 
   const periodLabel = useMemo(() => {
     if (selectedYear) {
       const y = selectedYear;
       if (selectedMonth && selectedMonth !== 'all') {
-        const m = parseInt(selectedMonth, 10);
-        const label = m >= 1 && m <= 12 ? MONTH_LABELS[m - 1] : 'All';
-        return `Custom: ${label} ${y}`;
+        const sm = parseInt(selectedMonth, 10);
+        const em =
+          selectedEndMonth && selectedEndMonth !== 'all' ? parseInt(selectedEndMonth, 10) : sm;
+        const startLabel = sm >= 1 && sm <= 12 ? MONTH_LABELS[sm - 1] : 'All';
+        const endLabel = em >= 1 && em <= 12 ? MONTH_LABELS[em - 1] : startLabel;
+        if (em !== sm && !Number.isNaN(em) && em >= sm) {
+          return `Custom: ${startLabel} – ${endLabel} ${y}`;
+        }
+        return `Custom: ${startLabel} ${y}`;
       }
       return `Custom: ${y}`;
     }
     return timeFilter;
-  }, [selectedYear, selectedMonth, timeFilter, MONTH_LABELS]);
+  }, [selectedYear, selectedMonth, selectedEndMonth, timeFilter, MONTH_LABELS]);
+
+  /** ช่วงสำหรับกราฟรายเดือน — custom ใช้คำนวณจาก UI (range จาก API อาจไม่ใส่ end_month ครบ) */
+  const trendRangeForCharts = useMemo(() => {
+    if (dashboardParams != null) {
+      const b = getDashboardPeriodBounds(months, dashboardParams);
+      return {
+        start: formatDateISO(b.start),
+        endExclusive: formatDateISO(b.endExclusive),
+      };
+    }
+    if (range?.start && range?.endExclusive) return range;
+    return null;
+  }, [dashboardParams, months, range]);
 
   const monthlyTrendData = useMemo(() => {
     // Backend may omit months with 0 data; fill missing months in the selected range with zeros.
-    if (!range?.start || !range?.endExclusive) {
+    if (!trendRangeForCharts?.start || !trendRangeForCharts?.endExclusive) {
       return monthlyMA.map((item) => ({
         ...item,
         complete: Number(item.reportPass || 0) + Number(item.reportFail || 0),
       }));
     }
 
-    const startStr = range.start.split('T')[0];
-    const endStr = range.endExclusive.split('T')[0];
+    const startStr = trendRangeForCharts.start.split('T')[0];
+    const endStr = trendRangeForCharts.endExclusive.split('T')[0];
     const [sy, sm] = startStr.split('-').map(Number);
     const [ey, em] = endStr.split('-').map(Number);
     if (!sy || !sm || !ey || !em) {
@@ -795,7 +832,7 @@ export default function ReportPage() {
       cur.setMonth(cur.getMonth() + 1);
     }
     return result;
-  }, [monthlyMA, range?.start, range?.endExclusive, MONTH_LABELS]);
+  }, [monthlyMA, trendRangeForCharts?.start, trendRangeForCharts?.endExclusive, MONTH_LABELS]);
 
   // Top-model trend line (MA only) – single series when a role is selected
   const topModelTrendData = useMemo(() => {
@@ -1266,110 +1303,178 @@ export default function ReportPage() {
                 {periodDropdownOpen && periodMenuPos && createPortal(
                   <div
                     ref={periodMenuRef}
-                    className="fixed w-[320px] rounded-2xl bg-white shadow-xl border border-slate-100 p-2 z-[9999]"
+                    className="fixed w-max max-w-[calc(100vw-24px)] rounded-xl bg-white shadow-lg border border-slate-100 p-1.5 z-[9999]"
                     style={{ top: periodMenuPos.top, right: periodMenuPos.right }}
                   >
-                    <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Period</div>
-                    <div className="space-y-1">
-                      {['3 Months', '6 Months'].map((label) => (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => {
-                            setTimeFilter(label);
-                            setSelectedYear('');
-                            setSelectedMonth('all');
-                            setPeriodDropdownOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
-                            !selectedYear && timeFilter === label ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                    <div className="px-2 py-0.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                      Period
+                    </div>
+                    <div className="grid grid-cols-2 items-start gap-x-2 px-1">
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        {['3 Months', '6 Months'].map((label) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setTimeFilter(label);
+                              setSelectedYear('');
+                              setSelectedMonth('all');
+                              setSelectedEndMonth('all');
+                              setPeriodDropdownOpen(false);
+                            }}
+                            className={`text-left px-2 py-1 rounded-md text-xs hover:bg-slate-50 ${
+                              !selectedYear && timeFilter === label ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex min-w-0 flex-col gap-0.5 border-l border-slate-100 pl-2">
+                        {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => {
+                              setTimeFilter(label);
+                              setSelectedYear('');
+                              setSelectedMonth('all');
+                              setSelectedEndMonth('all');
+                              setPeriodDropdownOpen(false);
+                            }}
+                            className={`text-left px-2 py-1 rounded-md text-xs hover:bg-slate-50 ${
+                              !selectedYear && timeFilter === label ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="my-2 h-px bg-slate-100" />
-                    <div className="space-y-1">
-                      {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => {
-                            setTimeFilter(label);
-                            setSelectedYear('');
-                            setSelectedMonth('all');
-                            setPeriodDropdownOpen(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
-                            !selectedYear && timeFilter === label ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                    <div className="my-0.5 h-px bg-slate-100" />
+                    <div className="px-2 pb-1.5 pt-0">
+                    <div className="pb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                      Custom
                     </div>
-
-                    <div className="my-2 h-px bg-slate-100" />
-                    <div className="px-3 py-2 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Custom</div>
-                    <div className="px-3 pb-3">
-                      <div className="flex items-start gap-3">
-                        <div className="flex-1">
-                          <label className="mb-1 block text-[11px] font-semibold text-slate-500">Year</label>
+                    <div className="space-y-1">
+                      <div className="flex flex-nowrap items-end gap-1.5">
+                        <div className="shrink-0">
+                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                            Year
+                          </label>
                           <select
                             aria-label="Year"
                             value={selectedYear}
                             onChange={(e) => {
-                              setSelectedYear(e.target.value);
-                              if (!e.target.value) setSelectedMonth('all');
+                              const v = e.target.value;
+                              setSelectedYear(v);
+                              if (!v) {
+                                setSelectedMonth('all');
+                                setSelectedEndMonth('all');
+                              }
                             }}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
+                            className="w-[5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] tabular-nums leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
                           >
                             {yearOptions.map((o) => (
                               <option key={o.value || 'x'} value={o.value}>
-                                {o.value ? o.label : 'Select year'}
+                                {o.value ? o.label : '—'}
                               </option>
                             ))}
                           </select>
                         </div>
-                        <div className="flex-1">
-                          <label className="mb-1 block text-[11px] font-semibold text-slate-500">Month</label>
+                        <div className="shrink-0">
+                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                            Start Month
+                          </label>
                           <select
-                            aria-label="Month"
+                            aria-label="Start month"
                             value={selectedMonth}
-                            onChange={(e) => setSelectedMonth(e.target.value)}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setSelectedMonth(v);
+                              if (v === 'all') setSelectedEndMonth('all');
+                              else {
+                                const sm = parseInt(v, 10);
+                                const em =
+                                  selectedEndMonth !== 'all'
+                                    ? parseInt(selectedEndMonth, 10)
+                                    : sm;
+                                if (
+                                  Number.isNaN(em) ||
+                                  selectedEndMonth === 'all' ||
+                                  em < sm
+                                ) {
+                                  setSelectedEndMonth(v);
+                                }
+                              }
+                            }}
                             disabled={!selectedYear}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                            className="w-[4.5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
                           >
-                            <option value="all">All months</option>
+                            <option value="all">All</option>
                             {MONTH_LABELS.map((label, i) => (
-                              <option key={i} value={String(i + 1)}>
+                              <option key={label} value={String(i + 1)}>
                                 {label}
                               </option>
                             ))}
                           </select>
                         </div>
+                        <div className="shrink-0">
+                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                            End Month
+                          </label>
+                          <select
+                            aria-label="End month"
+                            value={
+                              selectedMonth === 'all'
+                                ? 'all'
+                                : selectedEndMonth !== 'all'
+                                  ? selectedEndMonth
+                                  : selectedMonth
+                            }
+                            onChange={(e) => setSelectedEndMonth(e.target.value)}
+                            disabled={!selectedYear || selectedMonth === 'all'}
+                            className="w-[4.5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                          >
+                            {selectedMonth === 'all' && (
+                              <option value="all">—</option>
+                            )}
+                            {MONTH_LABELS.map((label, i) => {
+                              const m = i + 1;
+                              const sm =
+                                selectedMonth !== 'all' ? parseInt(selectedMonth, 10) : 1;
+                              if (selectedMonth !== 'all' && m < sm) return null;
+                              return (
+                                <option key={label} value={String(m)}>
+                                  {label}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
                       </div>
-                      <div className="mt-2 flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => {
                             setSelectedYear('');
                             setSelectedMonth('all');
+                            setSelectedEndMonth('all');
                           }}
-                          className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                          className="px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
                         >
                           Clear
                         </button>
                         <button
                           type="button"
                           onClick={() => setPeriodDropdownOpen(false)}
-                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-white hover:bg-slate-700"
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 text-white hover:bg-slate-700"
                         >
                           Done
                         </button>
                       </div>
+                    </div>
                     </div>
                   </div>,
                   document.body
@@ -2420,7 +2525,8 @@ export default function ReportPage() {
 
         {reportType === 'pm' && (
           <section
-            className="w-full rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+            id="pm-sites-registry"
+            className="w-full scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
             aria-labelledby="pm-sites-registry-heading"
           >
             <h2

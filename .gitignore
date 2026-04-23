@@ -118,6 +118,11 @@ next-env.d.ts
 uploads/
 temp/
 
+# Docker
+Dockerfile
+dockerfile
+client/Dockerfile
+
 # Package manager locks (optional - uncomment if you don't want to commit them)
 # package-lock.json
 # yarn.lock

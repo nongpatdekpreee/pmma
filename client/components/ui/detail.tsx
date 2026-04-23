@@ -1,9 +1,11 @@
 'use client';
 
-import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip, Clock3 } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip, Clock3, Calendar } from 'lucide-react';
+import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
+import { parseRescheduleNoteOrigin } from '@/lib/rescheduleNote';
 import { useAlertModal } from '@/components/ui/useAlertModal';
 import ExcelJS from 'exceljs';
 
@@ -78,6 +80,12 @@ interface TaskDetail {
   resolution?: string;
   slaTerm?: string;
   duration?: string;
+  /** MA — จากงาน / หลังส่ง report */
+  downtimeDate?: string;
+  downtimeTime?: string;
+  uptimeDate?: string;
+  uptimeTime?: string;
+  downtimeTotalHours?: number;
   assetBinding?: string;
   travelMethod?: string;
   travelCost?: string;
@@ -622,13 +630,77 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
 
           {task.taskType === 'MA' &&
             (() => {
+              const t = task as TaskDetail & Record<string, unknown>;
+              const dd =
+                t.downtimeDate ??
+                (t as any).downTimeStartDate ??
+                (t as any).down_time_start_date;
+              const dt =
+                t.downtimeTime ??
+                (t as any).downTimeStartTime ??
+                (t as any).down_time_start_time;
+              const ud =
+                t.uptimeDate ?? (t as any).downTimeEndDate ?? (t as any).down_time_end_date;
+              const ut =
+                t.uptimeTime ?? (t as any).downTimeEndTime ?? (t as any).down_time_end_time;
+              const totRaw = t.downtimeTotalHours ?? (t as any).downTimeTotalHours ?? (t as any).down_time_total_hours;
+              const tot =
+                totRaw != null && String(totRaw).trim() !== '' && !Number.isNaN(Number(totRaw))
+                  ? Number(totRaw)
+                  : null;
+
+              return (
+                <div className="bg-emerald-50/60 rounded-xl p-4 border border-emerald-200/80">
+                  <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <Calendar size={16} className="text-emerald-600 shrink-0" aria-hidden />
+                    Downtime &amp; Uptime
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Downtime date</p>
+                      <p className="text-sm font-semibold text-slate-800 tabular-nums">
+                        {formatDateLocale(dd, 'en-US') || '—'}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Downtime time</p>
+                      <p className="text-sm font-semibold text-slate-800 tabular-nums">
+                        {formatTime12h(dt, 'en-US') || '—'}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Uptime date</p>
+                      <p className="text-sm font-semibold text-slate-800 tabular-nums">
+                        {formatDateLocale(ud, 'en-US') || '—'}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Uptime time</p>
+                      <p className="text-sm font-semibold text-slate-800 tabular-nums">
+                        {formatTime12h(ut, 'en-US') || '—'}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500 mb-1">Total downtime</p>
+                      <p className="text-sm font-semibold text-emerald-900 tabular-nums flex items-center gap-1">
+                        <Clock3 size={14} className="text-emerald-600 shrink-0" aria-hidden />
+                        {tot != null ? `${tot} hrs` : '—'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+          {task.taskType === 'MA' &&
+            (() => {
               const repairPaths = parseRepairNoticePaths(task.photos);
               if (repairPaths.length === 0) return null;
               return (
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
                   <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
                     <Paperclip size={16} className="text-slate-500 shrink-0" aria-hidden />
-                    Repair notice
+                    Remark
                   </h3>
                   <ul className="space-y-2">
                     {repairPaths.map((path) => {
@@ -653,17 +725,42 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             })()}
           
           {/* เหตุผลย้ายวัน — เก็บคนละช่องกับ notes (in process) */}
-          {task.rescheduleNote && String(task.rescheduleNote).trim() && (
-            <div className="bg-blue-50 rounded-xl p-4 border-2 border-blue-200">
-              <div className="flex items-center gap-2 mb-1.5">
-                <FileText size={14} className="text-blue-600" />
-                <label className="text-[10px] font-bold uppercase text-blue-700">Reschedule Note</label>
+          {task.rescheduleNote && String(task.rescheduleNote).trim() && (() => {
+            const raw = String(task.rescheduleNote).trim();
+            const parsed = parseRescheduleNoteOrigin(raw);
+            return (
+              <div className="bg-blue-50 rounded-xl p-4 border-2 border-blue-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText size={14} className="text-blue-600" />
+                  <label className="text-[10px] font-bold uppercase text-blue-700">Reschedule Note</label>
+                </div>
+                {parsed ? (
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase text-blue-600/90 mb-0.5">
+                        Moved from
+                      </p>
+                      <p className="text-sm font-semibold text-blue-950">{parsed.originLine}</p>
+                    </div>
+                    {parsed.reasonBody ? (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase text-blue-600/90 mb-0.5">
+                          Reason
+                        </p>
+                        <p className="text-sm font-medium text-blue-900 leading-relaxed whitespace-pre-wrap">
+                          {parsed.reasonBody}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="text-sm font-medium text-blue-900 leading-relaxed whitespace-pre-wrap">
+                    {raw}
+                  </p>
+                )}
               </div>
-              <p className="text-sm font-medium text-blue-900 leading-relaxed whitespace-pre-wrap">
-                {String(task.rescheduleNote).trim()}
-              </p>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Travel Information */}
           {(task.travelMethod || task.travelCost) && (
@@ -793,8 +890,11 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                       assets: task.assets || [],
                       // Ensure SLA term is included for MA tasks
                       vendorName: task.vendorName || (task as any).vendor_name || undefined,
-                      // Ensure duration is included for MA tasks
-                      duration: task.duration || undefined,
+                      // MA ใช้แค่ down_time_* — ไม่ส่ง duration เพื่อไม่ให้เป็นช่องเวลาที่สองในฐานข้อมูล
+                      ...(String(task.taskType || (task as any).task_type || '')
+                        .toUpperCase() !== 'MA'
+                        ? { duration: task.duration || undefined }
+                        : {}),
                     };
                     onEdit(taskToEdit);
                   }

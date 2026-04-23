@@ -4,6 +4,53 @@
  */
 
 const db = require('../config/database');
+const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
+
+async function updateTaskUptimeColumns(taskId, endD, timeSql) {
+  try {
+    await db.execute('UPDATE tasks SET uptime_date = ?, uptime_time = ? WHERE id = ?', [endD, timeSql, taskId]);
+  } catch (e) {
+    if (e.code === 'ER_BAD_FIELD_ERROR' || (e.message && e.message.includes('Unknown column'))) {
+      await db.execute(
+        'UPDATE tasks SET down_time_end_date = ?, down_time_end_time = ? WHERE id = ?',
+        [endD, timeSql, taskId]
+      );
+    } else {
+      throw e;
+    }
+  }
+}
+
+async function updateTaskDowntimeTotalHours(taskId, hours) {
+  const setNull = async () => {
+    try {
+      await db.execute('UPDATE tasks SET downtime_total_hours = NULL WHERE id = ?', [taskId]);
+    } catch (e) {
+      if (e.code === 'ER_BAD_FIELD_ERROR' || (e.message && e.message.includes('Unknown column'))) {
+        await db.execute('UPDATE tasks SET down_time_total_hours = NULL WHERE id = ?', [taskId]);
+      } else {
+        console.warn('[updateTaskDowntimeTotalHours] NULL:', e.message);
+      }
+    }
+  };
+  if (hours == null) {
+    await setNull();
+    return;
+  }
+  try {
+    await db.execute('UPDATE tasks SET downtime_total_hours = ? WHERE id = ?', [hours, taskId]);
+  } catch (e) {
+    if (e.code === 'ER_BAD_FIELD_ERROR' || (e.message && e.message.includes('Unknown column'))) {
+      try {
+        await db.execute('UPDATE tasks SET down_time_total_hours = ? WHERE id = ?', [hours, taskId]);
+      } catch (e2) {
+        console.warn('[updateTaskDowntimeTotalHours] save:', e2.message);
+      }
+    } else {
+      console.warn('[updateTaskDowntimeTotalHours]:', e.message);
+    }
+  }
+}
 
 async function generateNextReportId() {
   const [rows] = await db.execute(
@@ -84,6 +131,9 @@ const submitReport = async (req, res) => {
       pmDate,
       maDate,
     } = body;
+
+    const uptimeDateIn = body.uptimeDate ?? body.downTimeEndDate;
+    const uptimeTimeIn = body.uptimeTime ?? body.downTimeEndTime;
 
     if (!taskId) {
       return res.status(400).json({
@@ -172,6 +222,40 @@ const submitReport = async (req, res) => {
       createdAt: new Date().toISOString(),
     };
 
+    /** MA: บันทึก uptime บน task + คำนวณ downtime_total_hours */
+    let maDowntimeTotalHours = null;
+    if (reportType === 'MA' && taskId && uptimeDateIn && uptimeTimeIn) {
+      const endD = String(uptimeDateIn).trim().slice(0, 10);
+      const endTRaw = String(uptimeTimeIn).trim();
+      const tm = endTRaw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(endD) && tm) {
+        const hh = String(Math.min(23, Math.max(0, parseInt(tm[1], 10)))).padStart(2, '0');
+        const mi = String(Math.min(59, Math.max(0, parseInt(tm[2], 10)))).padStart(2, '0');
+        const ss = tm[3] != null ? String(Math.min(59, Math.max(0, parseInt(tm[3], 10)))).padStart(2, '0') : '00';
+        const timeSql = `${hh}:${mi}:${ss}`;
+        try {
+          await updateTaskUptimeColumns(taskId, endD, timeSql);
+          const [taskRows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
+          const tr = taskRows[0];
+          if (tr) {
+            maDowntimeTotalHours = computeDownTimeTotalHours(
+              tr.downtime_date ?? tr.down_time_start_date,
+              tr.uptime_date ?? tr.down_time_end_date,
+              tr.uptime_time ?? tr.down_time_end_time,
+              tr.downtime_time ?? tr.down_time_start_time
+            );
+            await updateTaskDowntimeTotalHours(taskId, maDowntimeTotalHours);
+          }
+        } catch (updErr) {
+          console.warn('[submitReport] MA task downtime fields not updated:', updErr.message);
+        }
+      }
+    }
+
+    if (reportType === 'MA' && maDowntimeTotalHours != null) {
+      reportData.downtimeTotalHours = maDowntimeTotalHours;
+    }
+
     res.status(200).json({
       success: true,
       message: reportType === 'PM' ? 'PM Checklist Report saved successfully' : 'MA Checklist Report saved successfully',
@@ -198,37 +282,40 @@ const getReports = async (req, res) => {
     const limitNum = Math.min(parseInt(limit) || 1000, 1000);
     const offsetNum = Math.max(parseInt(offset) || 0, 0);
 
-    let rows;
-    try {
-      [rows] = await db.execute(
-        `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
+    const reportsJoinSelect = `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
                 r.sla_result, r.status,
                 r.checklist_items, r.comment, r.technician_name, r.pm_date, r.device_id, r.device_json,
                 r.created_at,
                 t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
-                t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket
+                t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket`;
+    const taskHoursSuffixes = [
+      ', t.downtime_total_hours, t.down_time_total_hours',
+      ', t.downtime_total_hours',
+      ', t.down_time_total_hours',
+      '',
+    ];
+    let rows;
+    let lastJoinErr = null;
+    for (const suf of taskHoursSuffixes) {
+      try {
+        const [r] = await db.execute(
+          `${reportsJoinSelect}${suf}
          FROM report r
          INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
          ORDER BY r.report_id DESC
          LIMIT ? OFFSET ?`,
-        [taskType, limitNum, offsetNum]
-      );
-    } catch (colErr) {
-      if (colErr.code === 'ER_BAD_FIELD_ERROR' || colErr.message?.includes('Unknown column')) {
-        [rows] = await db.execute(
-          `SELECT r.report_id, r.id AS taskId, r.file_path, r.image_path,
-                  r.sla_result, r.status,
-                  t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
-                  t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket
-           FROM report r
-           INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
-           ORDER BY r.report_id DESC
-           LIMIT ? OFFSET ?`,
           [taskType, limitNum, offsetNum]
         );
-      } else {
-        throw colErr;
+        rows = r;
+        break;
+      } catch (e) {
+        lastJoinErr = e;
+        if (e.code === 'ER_BAD_FIELD_ERROR' || e.message?.includes('Unknown column')) continue;
+        throw e;
       }
+    }
+    if (rows === undefined || rows === null) {
+      throw lastJoinErr || new Error('getReports: SELECT failed');
     }
 
     const [countRows] = await db.execute(
@@ -298,6 +385,16 @@ const getReports = async (req, res) => {
           reporterTel: r.reporter_tel,
           ticket: r.ticket,
         } : {}),
+        ...(taskType === 'MA'
+          ? (() => {
+              const tot = r.downtime_total_hours ?? r.down_time_total_hours;
+              return tot != null &&
+                String(tot).trim() !== '' &&
+                !Number.isNaN(Number(tot))
+                ? { downtimeTotalHours: Number(tot) }
+                : {};
+            })()
+          : {}),
       };
       return item;
     });

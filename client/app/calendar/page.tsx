@@ -14,7 +14,9 @@ import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
-import { mapEmployeesToEngineerRoster, engineerRosterLabel } from '@/lib/engineerRoster';
+import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
+import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
+import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 
 interface Device {
   id: string;
@@ -71,6 +73,11 @@ interface CalendarEvent {
   notes?: string;
   rescheduleNote?: string;
   status?: 'done' | 'working' | 'stuck' | 'not-started';
+  downtimeDate?: string;
+  downtimeTime?: string;
+  uptimeDate?: string;
+  uptimeTime?: string;
+  downtimeTotalHours?: number;
 }
 
 const IN_PROCESS_REASON_DISPLAY_MAX = 120;
@@ -122,6 +129,9 @@ function CalendarPageContent() {
     newDay: number;
     newStartDate: string;
     newEndDate: string;
+    /** วันที่ก่อนย้าย (คำนวณตอน drop — ชัดกว่า event.startDate) */
+    previousStartDate: string;
+    previousEndDate: string;
   } | null>(null);
   const [availableEngineers, setAvailableEngineers] = useState<Engineer[]>([]);
   const [selectedEngineerFilter, setSelectedEngineerFilter] = useState<string[]>([]);
@@ -239,6 +249,20 @@ function CalendarPageContent() {
       photos: task.photos || [],
       notes: task.notes || '',
       rescheduleNote: task.rescheduleNote || task.reschedule_note || '',
+      downtimeDate:
+        task.downtimeDate ??
+        task.downTimeStartDate ??
+        task.down_time_start_date,
+      downtimeTime:
+        task.downtimeTime ??
+        task.downTimeStartTime ??
+        task.down_time_start_time,
+      uptimeDate:
+        task.uptimeDate ?? task.downTimeEndDate ?? task.down_time_end_date,
+      uptimeTime:
+        task.uptimeTime ?? task.downTimeEndTime ?? task.down_time_end_time,
+      downtimeTotalHours:
+        task.downtimeTotalHours ?? task.down_time_total_hours ?? undefined,
     };
   };
 
@@ -293,43 +317,13 @@ function CalendarPageContent() {
     };
   }, []);
 
-  // Deep link: /calendar?taskId=123 -> jump to month & open TaskDetailModal
-  useEffect(() => {
-    if (!deepLinkTaskId) {
-      deepLinkOpenedForRef.current = null;
-      return;
-    }
-    if (deepLinkOpenedForRef.current === deepLinkTaskId) return;
-    if (isLoading) return;
-
-    const ev = calendarEvents.find((e) => String(e.id) === String(deepLinkTaskId));
-    if (!ev) {
-      // Only treat as "not found" after we've loaded (avoid race with initial load)
-      if (calendarEvents.length > 0 || loadError) {
-        deepLinkOpenedForRef.current = deepLinkTaskId;
-        if (!loadError) toastError(`Task ${deepLinkTaskId} not found in calendar`);
-      }
-      return;
-    }
-
-    deepLinkOpenedForRef.current = deepLinkTaskId;
-    const dateStr = ev.startDate || ev.endDate || '';
-    const d = dateStr ? new Date(dateStr) : new Date(ev.year, ev.month, ev.startDay);
-    if (!Number.isNaN(d.getTime())) {
-      setCurrentDate(d);
-    }
-    setSelectedTask(ev);
-    setIsDetailModalOpen(true);
-  }, [deepLinkTaskId, calendarEvents, isLoading, loadError, toastError]);
-
-  // Load engineers for filter
+  // Load engineers for filter — รูปในงานใช้ roster Technical เดียวกับหน้า schedule_management
   useEffect(() => {
     const loadEngineers = async () => {
       try {
         const employeesResult = await getEmployees({ limit: 2000 });
-        if (employeesResult.success && employeesResult.data) {
-          setAvailableEngineers(mapEmployeesToEngineerRoster(employeesResult.data) as Engineer[]);
-        }
+        if (!employeesResult.success || !employeesResult.data) return;
+        setAvailableEngineers(mapEmployeesToEngineerRoster(employeesResult.data) as Engineer[]);
       } catch (error) {
         console.error('Error loading engineers:', error);
       }
@@ -372,16 +366,54 @@ function CalendarPageContent() {
     );
   };
   
-  // Enrich events with engineer profile photos from availableEngineers
+  // Enrich events — เดียวกับ schedule: รูปจาก roster Technical × id engineer ในงาน (rawEngineerIdFromTaskJson)
   const enrichedCalendarEvents = useMemo(() => {
     return calendarEvents.map((event) => ({
       ...event,
-      Eng_ids: event.Eng_ids?.map((eng) => ({
-        ...eng,
-        photo: availableEngineers.find((a) => a.id === String(eng.id))?.photo ?? null,
-      })) ?? [],
+      Eng_ids:
+        event.Eng_ids?.map((eng) => {
+          const id = rawEngineerIdFromTaskJson(eng);
+          const photo =
+            id ? availableEngineers.find((a) => String(a.id) === id)?.photo ?? null : null;
+          return { ...eng, ...(id ? { id } : {}), photo };
+        }) ?? [],
     }));
   }, [calendarEvents, availableEngineers]);
+
+  // Deep link: /calendar?taskId=123 -> open modal with enriched task (same data as clicking an event)
+  useEffect(() => {
+    if (!deepLinkTaskId) {
+      deepLinkOpenedForRef.current = null;
+      return;
+    }
+    if (deepLinkOpenedForRef.current === deepLinkTaskId) return;
+    if (isLoading) return;
+
+    const ev = enrichedCalendarEvents.find((e) => String(e.id) === String(deepLinkTaskId));
+    if (!ev) {
+      if (calendarEvents.length > 0 || loadError) {
+        deepLinkOpenedForRef.current = deepLinkTaskId;
+        if (!loadError) toastError(`Task ${deepLinkTaskId} not found in calendar`);
+      }
+      return;
+    }
+
+    deepLinkOpenedForRef.current = deepLinkTaskId;
+    const dateStr = ev.startDate || ev.endDate || '';
+    const d = dateStr ? new Date(dateStr) : new Date(ev.year, ev.month, ev.startDay);
+    if (!Number.isNaN(d.getTime())) {
+      setCurrentDate(d);
+    }
+    setSelectedTask(ev);
+    setIsDetailModalOpen(true);
+  }, [deepLinkTaskId, enrichedCalendarEvents, calendarEvents.length, isLoading, loadError, toastError]);
+
+  // After employees load, refresh open detail so Assigned Engineers shows photos like a normal open
+  useEffect(() => {
+    if (!isDetailModalOpen || !selectedTask?.id) return;
+    const fresh = enrichedCalendarEvents.find((e) => String(e.id) === String(selectedTask.id));
+    if (fresh) setSelectedTask(fresh);
+  }, [enrichedCalendarEvents, isDetailModalOpen, selectedTask?.id]);
 
   // แสดงทุก task เหมือนเดิม (รวม task ที่ done และทำ report แล้ว) — เหมือน schedule
   const calendarEventsWithoutDoneReported = useMemo(() => {
@@ -663,8 +695,11 @@ function CalendarPageContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = await res.json();
-      if (!json.success) throw new Error(json.message || 'Update failed');
+      const json = (await res.json()) as { success?: boolean; message?: string; error?: string };
+      if (!json.success) {
+        const detail = [json.message, json.error].filter((x) => x && String(x).trim()).join(' — ');
+        throw new Error(detail || 'Update failed');
+      }
       // Reload tasks from API to ensure UI consistency
       await loadTasksFromApi();
       return json;
@@ -732,6 +767,7 @@ function CalendarPageContent() {
 
     // เช็คว่าย้ายวันจริงหรือไม่ ถ้าวันเดิมไม่ต้องขึ้น modal notes
     const originalStartStr = formatDateString(originalStart);
+    const originalEndStr = formatDateString(originalEnd);
     if (newStartDateStr === originalStartStr) {
       // วันเดิม ไม่ย้าย ไม่ต้องถามเหตุผล
       setDraggedEvent(null);
@@ -746,6 +782,8 @@ function CalendarPageContent() {
       newDay: day,
       newStartDate: newStartDateStr,
       newEndDate: newEndDateStr,
+      previousStartDate: originalStartStr,
+      previousEndDate: originalEndStr,
     });
     setIsMoveModalOpen(true);
     setMoveReason('');
@@ -762,7 +800,14 @@ function CalendarPageContent() {
       return;
     }
 
-    const { event, newStartDate, newEndDate } = pendingMove;
+    const { event, newStartDate, newEndDate, previousStartDate, previousEndDate } = pendingMove;
+
+    const rescheduleNoteFull = composeRescheduleNoteWithOrigin(
+      previousStartDate,
+      previousEndDate,
+      moveReason.trim(),
+      formatDateMonthDayYear
+    );
 
     // Optimistic update - update UI immediately
     const newStartDateObj = new Date(newStartDate);
@@ -779,7 +824,7 @@ function CalendarPageContent() {
             year: newStartDateObj.getFullYear(),
             startDate: newStartDate,
             endDate: newEndDate,
-            rescheduleNote: moveReason.trim(),
+            rescheduleNote: rescheduleNoteFull,
           };
           return updatedEvent;
         }
@@ -798,7 +843,7 @@ function CalendarPageContent() {
         String(event.id),
         newStartDate,
         newEndDate,
-        moveReason.trim()
+        rescheduleNoteFull
       );
       toastSuccess('Task moved successfully');
     } catch (error) {
@@ -1078,7 +1123,7 @@ function CalendarPageContent() {
                         <span className="block">Date</span>
                         <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
                       </th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Incoming</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Status Date</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Engineer</th>
@@ -1270,6 +1315,8 @@ function CalendarPageContent() {
               const BAR_HEIGHT = 28;
               const TASK_GAP = 4; // ระยะห่างเท่ากันทุกที่: ระหว่างแถบ-แถบ, แถบ-pill, pill-pill
               const MULTI_DAY_TOP_OFFSET = 32;
+              /** เผื่อหัวเลขวันจริงต่ำกว่า DAY_HEADER_PX — ไม่ให้ pill ถูกแถบหลายวัน (z-20) ทับ */
+              const PILL_BELOW_MULTI_DAY_EXTRA_PX = 8;
               const multiDayAreaHeight = (rows: number) =>
                 MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
               const PILL_ROW_PX = 36;
@@ -1291,7 +1338,12 @@ function CalendarPageContent() {
                 const pillsStackPx = nPillsForHeight * PILL_ROW_PX;
                 const headerPx = DAY_HEADER_PX + (holidayForDay ? HOLIDAY_EXTRA_PX : 0);
                 const pillsMtPx = hasMultiDayBarAbove
-                  ? Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)
+                  ? Math.max(
+                      0,
+                      multiDayAreaHeight(multiDayRowsThisDay) -
+                        MULTI_DAY_TOP_OFFSET +
+                        PILL_BELOW_MULTI_DAY_EXTRA_PX
+                    )
                   : nPillsForHeight > 0
                     ? 6
                     : 0;
@@ -1375,7 +1427,12 @@ function CalendarPageContent() {
                               style={{
                                 ...(hasMultiDayBarAbove
                                   ? {
-                                      marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px`,
+                                      marginTop: `${Math.max(
+                                        0,
+                                        multiDayAreaHeight(multiDayRowsThisDay) -
+                                          MULTI_DAY_TOP_OFFSET +
+                                          PILL_BELOW_MULTI_DAY_EXTRA_PX
+                                      )}px`,
                                     }
                                   : {}),
                                 ...(pillsStackPx > 0 ? { minHeight: pillsStackPx } : {}),
@@ -1427,12 +1484,12 @@ function CalendarPageContent() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
+                                    className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
                                   >
-                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
-                                    <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                                    <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                                       {calendarInProcessTitleText(ev)}
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
@@ -1509,7 +1566,6 @@ function CalendarPageContent() {
                           top: `${topPx}px`,
                           left: '8px',
                           right: '8px',
-                          height: `${BAR_HEIGHT}px`,
                         }}
                         draggable={!isDone}
                         onDragStart={(e) => !isDone && handleDragStart(e, event)}
@@ -1533,15 +1589,12 @@ function CalendarPageContent() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
+                        className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
-                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
-                        {isInProcess && (
-                          <Clock3 size={12} className="mr-1 shrink-0 opacity-90" strokeWidth={2.5} aria-hidden />
-                        )}
-                        <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                        <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                           {calendarInProcessTitleText(event)}
                         </span>
                         {event.Eng_ids && event.Eng_ids.length > 0 && (
@@ -1687,6 +1740,50 @@ function CalendarPageContent() {
               )}
             </div>
 
+            {hoveredEvent.taskType === 'MA' && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/90 px-3 py-2">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-900 mb-1.5">
+                  Downtime / Uptime
+                </p>
+                <div className="grid grid-cols-2 gap-x-2 gap-y-2 text-[11px]">
+                  <div>
+                    <p className="text-slate-500 mb-0.5">Downtime date</p>
+                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
+                      {formatDateLocale(hoveredEvent.downtimeDate, 'en-US') || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 mb-0.5">Downtime time</p>
+                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
+                      {formatTime12h(hoveredEvent.downtimeTime, 'en-US') || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 mb-0.5">Uptime date</p>
+                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
+                      {formatDateLocale(hoveredEvent.uptimeDate, 'en-US') || '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 mb-0.5">Uptime time</p>
+                    <p className="font-semibold text-slate-800 tabular-nums leading-snug">
+                      {formatTime12h(hoveredEvent.uptimeTime, 'en-US') || '—'}
+                    </p>
+                  </div>
+                  <div className="col-span-2 pt-0.5 border-t border-emerald-200/80 mt-0.5">
+                    <p className="text-slate-500 mb-0.5">Total downtime</p>
+                    <p className="font-semibold text-emerald-900 tabular-nums">
+                      {hoveredEvent.downtimeTotalHours != null &&
+                      String(hoveredEvent.downtimeTotalHours).trim() !== '' &&
+                      !Number.isNaN(Number(hoveredEvent.downtimeTotalHours))
+                        ? `${Number(hoveredEvent.downtimeTotalHours)} hrs`
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
@@ -1744,10 +1841,10 @@ function CalendarPageContent() {
               <p className="text-xs text-slate-600 mb-2 truncate">
                 <span className="font-medium">{pendingMove.event.title}</span>
               </p>
-              <div className="flex items-center gap-2 text-xs">
+              <div className="flex items-center gap-2 text-xs flex-wrap">
                 <span className="text-slate-500 font-medium">From:</span>
                 <span className="text-slate-800 font-semibold bg-white px-2 py-1 rounded border border-slate-200">
-                  {formatDateForDisplay(pendingMove.event.startDate)}
+                  {formatDateForDisplay(pendingMove.previousStartDate)}
                 </span>
                 <span className="text-slate-300">→</span>
                 <span className="text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-200">

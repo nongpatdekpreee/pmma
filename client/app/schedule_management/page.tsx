@@ -25,7 +25,8 @@ import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
-import { mapEmployeesToEngineerRoster, engineerRosterLabel } from '@/lib/engineerRoster';
+import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
+import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import * as XLSX from 'xlsx';
 
 
@@ -76,6 +77,11 @@ interface CalendarEvent {
   resolution?: string;
   slaTerm?: string;
   duration?: string;
+  downtimeDate?: string;
+  downtimeTime?: string;
+  uptimeDate?: string;
+  uptimeTime?: string;
+  downtimeTotalHours?: number;
   assetBinding?: string;
   travelMethod?: string;
   travelCost?: string;
@@ -265,6 +271,8 @@ function ScheduleManagementContent() {
     newDay: number;
     newStartDate: string;
     newEndDate: string;
+    previousStartDate: string;
+    previousEndDate: string;
   } | null>(null);
   const [hoveredEvent, setHoveredEvent] = useState<CalendarEvent | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
@@ -426,6 +434,20 @@ function ScheduleManagementContent() {
       resolution: task.resolution,
       ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
       duration: task.duration,
+      downtimeDate:
+        task.downtimeDate ??
+        task.downTimeStartDate ??
+        task.down_time_start_date,
+      downtimeTime:
+        task.downtimeTime ??
+        task.downTimeStartTime ??
+        task.down_time_start_time,
+      uptimeDate:
+        task.uptimeDate ?? task.downTimeEndDate ?? task.down_time_end_date,
+      uptimeTime:
+        task.uptimeTime ?? task.downTimeEndTime ?? task.down_time_end_time,
+      downtimeTotalHours:
+        task.downtimeTotalHours ?? task.down_time_total_hours ?? undefined,
       assetBinding: task.assetBinding || task.asset_binding,
       travelMethod: task.travelMethod || task.travel_method,
       travelCost: task.travelCost,
@@ -715,10 +737,13 @@ function ScheduleManagementContent() {
   const enrichedCalendarEvents = useMemo(() => {
     return calendarEvents.map((event) => ({
       ...event,
-      Eng_ids: event.Eng_ids?.map((eng) => ({
-        ...eng,
-        photo: availableEngineers.find((a) => a.id === String(eng.id))?.photo ?? null,
-      })) ?? [],
+      Eng_ids:
+        event.Eng_ids?.map((eng) => {
+          const id = rawEngineerIdFromTaskJson(eng);
+          const photo =
+            id ? availableEngineers.find((a) => String(a.id) === id)?.photo ?? null : null;
+          return { ...eng, ...(id ? { id } : {}), photo };
+        }) ?? [],
     }));
   }, [calendarEvents, availableEngineers]);
 
@@ -989,6 +1014,7 @@ function ScheduleManagementContent() {
 
     // เช็คว่าย้ายวันจริงหรือไม่ ถ้าวันเดิมไม่ต้องขึ้น modal notes
     const originalStartStr = formatDateString(originalStart);
+    const originalEndStr = formatDateString(originalEnd);
     if (newStartDateStr === originalStartStr) {
       // วันเดิม ไม่ย้าย ไม่ต้องถามเหตุผล
       setDraggedEvent(null);
@@ -1003,6 +1029,8 @@ function ScheduleManagementContent() {
       newDay: day,
       newStartDate: newStartDateStr,
       newEndDate: newEndDateStr,
+      previousStartDate: originalStartStr,
+      previousEndDate: originalEndStr,
     });
     setIsMoveModalOpen(true);
     setMoveReason('');
@@ -1019,7 +1047,29 @@ function ScheduleManagementContent() {
       return;
     }
 
-    const { event, newStartDate, newEndDate } = pendingMove;
+    const { event, newStartDate, newEndDate, previousStartDate, previousEndDate } = pendingMove;
+
+    const toMonthDayYear = (s: string | undefined) => {
+      if (!s) return '—';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, m, d] = s.split('-');
+        return `${m}/${d}/${y}`;
+      }
+      const d0 = new Date(s);
+      if (!Number.isNaN(d0.getTime())) {
+        const y = d0.getFullYear();
+        const m = String(d0.getMonth() + 1).padStart(2, '0');
+        const day = String(d0.getDate()).padStart(2, '0');
+        return `${m}/${day}/${y}`;
+      }
+      return s;
+    };
+    const rescheduleNoteFull = composeRescheduleNoteWithOrigin(
+      previousStartDate,
+      previousEndDate,
+      moveReason.trim(),
+      toMonthDayYear
+    );
 
     // Optimistic update - update UI immediately
     const newStartDateObj = new Date(newStartDate);
@@ -1036,7 +1086,7 @@ function ScheduleManagementContent() {
             year: newStartDateObj.getFullYear(),
             startDate: newStartDate,
             endDate: newEndDate,
-            rescheduleNote: moveReason.trim(),
+            rescheduleNote: rescheduleNoteFull,
           };
           return updatedEvent;
         }
@@ -1055,7 +1105,7 @@ function ScheduleManagementContent() {
         String(event.id),
         newStartDate,
         newEndDate,
-        moveReason.trim()
+        rescheduleNoteFull
       );
         toastSuccess('Move task successfully');
     } catch (error) {
@@ -1117,6 +1167,11 @@ function ScheduleManagementContent() {
           ticket: item.ticket,
           rootCause: item.rootCause,
           resolution: item.resolution,
+          duration: item.duration,
+          downtimeDate: item.downtimeDate,
+          downtimeTime: item.downtimeTime,
+          uptimeDate: item.uptimeDate,
+          uptimeTime: item.uptimeTime,
           assetBinding: item.assetBinding,
           ...(item.slaTerm ? { slaTerm: item.slaTerm } : {}),
           coverageScope: item.coverageScope,
@@ -1145,7 +1200,11 @@ function ScheduleManagementContent() {
           res,
           'Save task failed: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
         );
-        if (!json.success) throw new Error(json.message || 'Save task failed');
+        if (!json.success) {
+          const j = json as { message?: string; error?: string };
+          const detail = [j.message, j.error].filter((x) => x && String(x).trim()).join(' — ');
+          throw new Error(detail || 'Save task failed');
+        }
 
         const mapped = mapTaskToEvent(json.data);
         setCalendarEvents((events) =>
@@ -2443,7 +2502,7 @@ function ScheduleManagementContent() {
                         <span className="block">Date</span>
                         <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
                       </th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Incoming</th>
+                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Status Date</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
                       <th className="text-left py-3 px-4 font-semibold text-slate-600">Responsible</th>
@@ -2632,6 +2691,8 @@ function ScheduleManagementContent() {
               const BAR_HEIGHT = 28;
               const TASK_GAP = 4; // ระยะห่างเท่ากันทุกที่: ระหว่างแถบ-แถบ, แถบ-pill, pill-pill
               const MULTI_DAY_TOP_OFFSET = 32;
+              /** เผื่อหัวเลขวันจริงต่ำกว่า DAY_HEADER_PX — ไม่ให้ pill ถูกแถบหลายวันทับ */
+              const PILL_BELOW_MULTI_DAY_EXTRA_PX = 8;
               /** ความสูงพื้นที่แถบงานหลายวัน + ระยะห่างก่อน pills ให้เท่ากับ TASK_GAP */
               const multiDayAreaHeight = (rows: number) =>
                 MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
@@ -2655,7 +2716,12 @@ function ScheduleManagementContent() {
                 const pillsStackPx = nPillsForHeight * PILL_ROW_PX;
                 const headerPx = DAY_HEADER_PX + (holidayForDay ? HOLIDAY_EXTRA_PX : 0);
                 const pillsMtPx = hasMultiDayBarAbove
-                  ? Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)
+                  ? Math.max(
+                      0,
+                      multiDayAreaHeight(multiDayRowsThisDay) -
+                        MULTI_DAY_TOP_OFFSET +
+                        PILL_BELOW_MULTI_DAY_EXTRA_PX
+                    )
                   : nPillsForHeight > 0
                     ? 6
                     : 0;
@@ -2739,7 +2805,12 @@ function ScheduleManagementContent() {
                               style={{
                                 ...(hasMultiDayBarAbove
                                   ? {
-                                      marginTop: `${Math.max(0, multiDayAreaHeight(multiDayRowsThisDay) - MULTI_DAY_TOP_OFFSET)}px`,
+                                      marginTop: `${Math.max(
+                                        0,
+                                        multiDayAreaHeight(multiDayRowsThisDay) -
+                                          MULTI_DAY_TOP_OFFSET +
+                                          PILL_BELOW_MULTI_DAY_EXTRA_PX
+                                      )}px`,
                                     }
                                   : {}),
                                 ...(pillsStackPx > 0 ? { minHeight: pillsStackPx } : {}),
@@ -2792,12 +2863,12 @@ function ScheduleManagementContent() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`min-w-0 h-7 flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'} ${highlightTaskId === String(ev.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
+                                    className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'} ${highlightTaskId === String(ev.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                                   >
-                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
-                                    <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                                    <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                                       {scheduleInProcessTitleText(ev)}
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
@@ -2875,7 +2946,6 @@ function ScheduleManagementContent() {
                           top: `${topPx}px`,
                           left: '8px',
                           right: '8px',
-                          height: `${BAR_HEIGHT}px`,
                         }}
                         draggable={!isDone}
                         onDragStart={() => !isDone && setDraggedEvent(event)}
@@ -2899,12 +2969,12 @@ function ScheduleManagementContent() {
                           setTooltipPosition({ x, y });
                         }}
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`flex items-center rounded-none pl-2.5 pr-3 py-1.5 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20 ${highlightTaskId === String(event.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
+                        className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20 ${highlightTaskId === String(event.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                       >
-                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 rounded-none text-[9px] font-bold bg-white/60">
+                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
-                        <span className={`flex-1 min-w-0 truncate ${isDone ? 'line-through' : ''}`}>
+                        <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                           {scheduleInProcessTitleText(event)}
                         </span>
                         {event.Eng_ids && event.Eng_ids.length > 0 && (
@@ -3109,10 +3179,10 @@ function ScheduleManagementContent() {
               <p className="text-xs text-slate-600 mb-2 truncate">
                 <span className="font-medium">{pendingMove.event.title}</span>
               </p>
-              <div className="flex items-center gap-2 text-xs">
+              <div className="flex items-center gap-2 text-xs flex-wrap">
                 <span className="text-slate-500 font-medium">From:</span>
                 <span className="text-slate-800 font-semibold bg-white px-2 py-1 rounded border border-slate-200">
-                  {formatDateForDisplay(pendingMove.event.startDate)}
+                  {formatDateForDisplay(pendingMove.previousStartDate)}
                 </span>
                 <span className="text-slate-300">→</span>
                 <span className="text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-200">

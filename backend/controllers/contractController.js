@@ -451,6 +451,14 @@ const createContract = async (req, res) => {
       }
     }
 
+    const [createdAtCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'created_at'");
+    const hasCreatedAt = Array.isArray(createdAtCols) && createdAtCols.length > 0;
+    if (!hasCreatedAt) {
+      await db.execute(
+        "ALTER TABLE contract ADD COLUMN created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER status"
+      );
+    }
+
     const insertCols =
       'contract_id, contract_name, start_date, end_date, sof_name, sla_term, Assigned_Service, sale_account, tel_acc, email_acc, coverage_scope, file_paths, image_paths';
     const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
@@ -487,6 +495,7 @@ const createContract = async (req, res) => {
         insertParams.push(contractStatus);
       }
     } catch (_) { /* column ไม่มี ข้าม */ }
+    insertContractSql = insertContractSql.replace(/\)\s*VALUES\s*\(/, ', created_at) VALUES (').replace(/\)\s*$/, ', NOW())');
 
 
     // app_db: contract_device มีแค่ (contract_id, device_id) ไม่มี SLid
@@ -793,12 +802,19 @@ const getContractsBySite = async (req, res) => {
   try {
     const siteId = req.query.site_id;
     const expandSites = req.query.expand === 'sites';
+    const [createdAtCols] = await db.execute("SHOW COLUMNS FROM contract LIKE 'created_at'");
+    const hasCreatedAt = Array.isArray(createdAtCols) && createdAtCols.length > 0;
+    const latestOrder = hasCreatedAt
+      ? 'ORDER BY c.created_at DESC, c.contract_id DESC'
+      : 'ORDER BY c.contract_id DESC';
+    const createdAtSelect = hasCreatedAt ? 'c.created_at' : 'NULL AS created_at';
 
     if (expandSites) {
       // หนึ่งแถวต่อ contract-site: contract_id, contract_name, start_date, end_date, status, site_name, site_location, device_count
       // รวมสัญญาที่เลยวันสิ้นสุดแล้ว — หน้า contract ใช้กรอง/แสดงสถานะฝั่ง client
       let sql = `
         SELECT c.contract_id, c.contract_name, c.start_date, c.end_date, c.status,
+          ${createdAtSelect},
           s.Name AS site_name, l.Location2 AS site_location,
           COUNT(cd.device_id) AS device_count,
           (SELECT ch.status_history FROM contract_history ch WHERE ch.contract_id = c.contract_id ORDER BY ch.history_id DESC LIMIT 1) AS history_status,
@@ -821,6 +837,7 @@ const getContractsBySite = async (req, res) => {
       sql += ` GROUP BY c.contract_id, c.contract_name, c.start_date, c.end_date, c.status, sl.SLid, s.Name, l.Location2
         UNION ALL
         SELECT c.contract_id, c.contract_name, c.start_date, c.end_date, c.status,
+          ${createdAtSelect},
           NULL AS site_name, NULL AS site_location, 0 AS device_count,
           (SELECT ch.status_history FROM contract_history ch WHERE ch.contract_id = c.contract_id ORDER BY ch.history_id DESC LIMIT 1) AS history_status,
           ${RENEW_HIST_SUBQUERIES}
@@ -836,7 +853,9 @@ const getContractsBySite = async (req, res) => {
           params.push(siteIdNum);
         }
       }
-      sql += ' ORDER BY contract_id DESC, site_name IS NULL, site_name ASC';
+      sql += hasCreatedAt
+        ? ' ORDER BY created_at DESC, contract_id DESC, site_name IS NULL, site_name ASC'
+        : ' ORDER BY contract_id DESC, site_name IS NULL, site_name ASC';
       const [rows] = await db.execute(sql, params);
       return res.status(200).json({ success: true, data: rows });
     }
@@ -848,6 +867,7 @@ const getContractsBySite = async (req, res) => {
         c.contract_name,
         c.start_date,
         c.end_date,
+        ${createdAtSelect},
         prim.primary_slid AS site_id,
         c.sla_term,
         c.sale_account,
@@ -927,14 +947,14 @@ const getContractsBySite = async (req, res) => {
             (SELECT sl0.Sid FROM sites_location sl0 WHERE sl0.SLid = ? LIMIT 1) IS NULL
             AND (prim.primary_slid = ? OR d.SLid = ? OR cd.SLid = ?)
           )
-        ) AND c.status <> 'not_renewing' ORDER BY c.contract_id DESC`;
+        ) AND c.status <> 'not_renewing' ${latestOrder}`;
         params = [siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum, siteIdNum];
       } else {
-        sql = `${baseSelect} WHERE c.status <> 'not_renewing' ORDER BY c.contract_id DESC`;
+        sql = `${baseSelect} WHERE c.status <> 'not_renewing' ${latestOrder}`;
         params = [];
       }
     } else {
-      sql = `${baseSelect} WHERE c.status <> 'not_renewing' ORDER BY c.contract_id DESC`;
+      sql = `${baseSelect} WHERE c.status <> 'not_renewing' ${latestOrder}`;
     }
 
     const [rows] = await db.execute(sql, params);
@@ -1159,6 +1179,9 @@ const postContractHistoryDisplayRows = async (req, res) => {
       ),
     ];
 
+    const [histReasonCols] = await db.execute("SHOW COLUMNS FROM contract_history LIKE 'terminated_reason'");
+    const hasTerminatedReason = Array.isArray(histReasonCols) && histReasonCols.length > 0;
+
     const historySelectCols = `
         history_id,
         contract_id,
@@ -1168,7 +1191,7 @@ const postContractHistoryDisplayRows = async (req, res) => {
         renewed_at,
         created_at,
         contract_snapshot,
-        status_history`;
+        status_history${hasTerminatedReason ? ',\n        terminated_reason' : ''}`;
     /** เหมือน historySelectCols แต่มี alias ch. — ใช้เมื่อ JOIN กับ contract (กัน contract_id ซ้ำซ้อน) */
     const historySelectColsJoined = `
         ch.history_id,
@@ -1179,7 +1202,7 @@ const postContractHistoryDisplayRows = async (req, res) => {
         ch.renewed_at,
         ch.created_at,
         ch.contract_snapshot,
-        ch.status_history`;
+        ch.status_history${hasTerminatedReason ? ',\n        ch.terminated_reason' : ''}`;
 
     let histRows = [];
     if (contractIds.length > 0) {
@@ -1348,8 +1371,13 @@ const getContractHistoryDetailByHistoryId = async (req, res) => {
       return res.status(400).json({ success: false, message: 'history_id is not valid' });
     }
 
+    const [histReasonCols] = await db.execute("SHOW COLUMNS FROM contract_history LIKE 'terminated_reason'");
+    const hasTerminatedReason = Array.isArray(histReasonCols) && histReasonCols.length > 0;
+
     const [rows] = await db.execute(
-      `SELECT history_id, contract_id, old_contract_id, old_sof, new_sof, renewed_at, created_at, contract_snapshot, status_history
+      `SELECT history_id, contract_id, old_contract_id, old_sof, new_sof, renewed_at, created_at, contract_snapshot, status_history${
+        hasTerminatedReason ? ', terminated_reason' : ''
+      }
        FROM contract_history WHERE history_id = ?`,
       [hid]
     );
@@ -1487,6 +1515,7 @@ const getContractHistoryDetailByHistoryId = async (req, res) => {
         created_at: histRow.created_at,
         contract_snapshot: histRow.contract_snapshot,
         status_history: histRow.status_history,
+        terminated_reason: hasTerminatedReason ? histRow.terminated_reason : null,
       },
     ];
 
@@ -1519,6 +1548,9 @@ const getContractHistory = async (req, res) => {
       });
     }
 
+    const [histReasonCols] = await db.execute("SHOW COLUMNS FROM contract_history LIKE 'terminated_reason'");
+    const hasTerminatedReason = Array.isArray(histReasonCols) && histReasonCols.length > 0;
+
     const sql = `
       SELECT 
         history_id,
@@ -1529,7 +1561,7 @@ const getContractHistory = async (req, res) => {
         renewed_at,
         created_at,
         contract_snapshot,
-        status_history
+        status_history${hasTerminatedReason ? ',\n        terminated_reason' : ''}
       FROM contract_history
       WHERE contract_id = ? OR old_contract_id = ?
       ORDER BY renewed_at DESC, created_at DESC
@@ -1593,7 +1625,7 @@ const getVendorStatistics = async (req, res) => {
 };
 
 // GET /api/contracts/statistics/top-sites — Top sites จาก contract_device (devices + contracts ต่อ SLid)
-// Optional query: period_start, period_end_exclusive (YYYY-MM-DD) — กรองสัญญาตามช่วงทับซ้อน (เดียวกับ heatmap)
+// Optional query: period_start, period_end_exclusive (YYYY-MM-DD) — กรองสัญญาที่วันเริ่มสัญญา start_date ∈ [start, endExclusive)
 const getTopSitesByContractDevice = async (req, res) => {
   try {
     const lim = parseInt(String(req.query.limit ?? '8'), 10);
@@ -1609,13 +1641,14 @@ const getTopSitesByContractDevice = async (req, res) => {
     const contractJoin = usePeriod
       ? `
       INNER JOIN contract c ON c.contract_id = cd.contract_id
-        AND (c.start_date IS NULL OR DATE(c.start_date) < ?)
-        AND (c.end_date IS NULL OR DATE(c.end_date) >= ?)
+        AND c.start_date IS NOT NULL
+        AND DATE(c.start_date) >= ?
+        AND DATE(c.start_date) < ?
     `
       : `
       LEFT JOIN contract c ON c.contract_id = cd.contract_id
     `;
-    const periodBindFirst = usePeriod ? [periodEndEx, periodStart] : [];
+    const periodBindFirst = usePeriod ? [periodStart, periodEndEx] : [];
 
     const [rows] = await db.execute(
       `
@@ -1693,8 +1726,7 @@ const getTopSitesByContractDevice = async (req, res) => {
 };
 
 // GET /api/contracts/statistics/top-sites-heatmap — เมทริกซ์ site × contract (จำนวน device ต่อเซลล์)
-// Optional: period_start & period_end_exclusive (YYYY-MM-DD) — นับเฉพาะสัญญาที่ทับซ้อนช่วง [start, endExclusive)
-// ทับซ้อน: start_date < endExclusive AND (end_date IS NULL OR end_date >= period_start)
+// Optional: period_start & period_end_exclusive (YYYY-MM-DD) — นับเฉพาะสัญญาที่วันเริ่มสัญญา start_date ∈ [start, endExclusive)
 const getTopSitesHeatmap = async (req, res) => {
   try {
     const parseLim = (v, fb, min, max) => {
@@ -1713,16 +1745,17 @@ const getTopSitesHeatmap = async (req, res) => {
     const periodStart = usePeriod ? String(ps).trim() : null;
     const periodEndEx = usePeriod ? String(pe).trim() : null;
 
-    /** JOIN กรองสัญญาตามช่วงวันที่ (ทับซ้อนกับ [period_start, period_end_exclusive)) */
+    /** JOIN กรองสัญญาที่วันเริ่มสัญญาอยู่ในช่วง [period_start, period_end_exclusive) — ตรงกับ dashboard / PM period */
     const contractPeriodJoin = usePeriod
       ? `
       INNER JOIN contract c ON c.contract_id = cd.contract_id
-        AND (c.start_date IS NULL OR DATE(c.start_date) < ?)
-        AND (c.end_date IS NULL OR DATE(c.end_date) >= ?)
+        AND c.start_date IS NOT NULL
+        AND DATE(c.start_date) >= ?
+        AND DATE(c.start_date) < ?
     `
       : '';
 
-    const periodBindFirst = usePeriod ? [periodEndEx, periodStart] : [];
+    const periodBindFirst = usePeriod ? [periodStart, periodEndEx] : [];
 
     const [siteRows] = await db.execute(
       `
@@ -2012,6 +2045,8 @@ const getContractById = async (req, res) => {
     const [sitesRows] = await db.execute(sitesSql, [cid]);
 
     // ดึงประวัติการต่อสัญญา
+    const [histReasonCols] = await db.execute("SHOW COLUMNS FROM contract_history LIKE 'terminated_reason'");
+    const hasTerminatedReason = Array.isArray(histReasonCols) && histReasonCols.length > 0;
     const historySql = `
       SELECT 
         history_id,
@@ -2022,7 +2057,7 @@ const getContractById = async (req, res) => {
         renewed_at,
         created_at,
         contract_snapshot,
-        status_history
+        status_history${hasTerminatedReason ? ',\n        terminated_reason' : ''}
       FROM contract_history
       WHERE contract_id = ? OR old_contract_id = ?
       ORDER BY renewed_at DESC, created_at DESC
@@ -2106,6 +2141,19 @@ const updateContract = async (req, res) => {
     }
 
     const prevDbStatus = existingContract[0].status;
+    const isTransitionToNotRenewing =
+      status === 'not_renewing' &&
+      prevDbStatus != null &&
+      String(prevDbStatus).toLowerCase() !== 'not_renewing';
+    const terminationReason =
+      req.body.termination_reason != null ? String(req.body.termination_reason).trim() : '';
+    if (isTransitionToNotRenewing && !terminationReason) {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide termination reason',
+      });
+    }
 
     // Validate SLA Term
     const contractStatus =
@@ -2306,22 +2354,34 @@ const updateContract = async (req, res) => {
     }
 
     // บันทึกประวัติ Terminated เมื่อกด "Do not renew" (เปลี่ยนเป็น not_renewing ครั้งแรก)
+    if (status !== undefined && isTransitionToNotRenewing) {
+      const [reasonCols] = await conn.execute("SHOW COLUMNS FROM contract_history LIKE 'terminated_reason'");
+      const hasTerminatedReason = Array.isArray(reasonCols) && reasonCols.length > 0;
+      if (!hasTerminatedReason) {
+        await conn.execute(
+          "ALTER TABLE contract_history ADD COLUMN terminated_reason TEXT NULL COMMENT 'Reason for termination/not renewing' AFTER status_history"
+        );
+      }
+      const contractSnapshot = await buildContractHistorySnapshot(conn, cid);
+      await conn.execute(
+        `INSERT INTO contract_history (contract_id, old_contract_id, old_sof, new_sof, renewed_at, contract_snapshot, status_history, terminated_reason)
+         VALUES (?, NULL, NULL, NULL, NOW(), ?, ?, ?)`,
+        [cid, contractSnapshot, 'Terminated', terminationReason]
+      );
+    }
+
+    // Undo Terminated: เมื่อเปลี่ยนกลับเป็น official ให้ลบ history Terminated ทั้งหมดของสัญญานี้
     if (
       status !== undefined &&
-      status === 'not_renewing' &&
+      status === 'official' &&
       prevDbStatus != null &&
-      String(prevDbStatus).toLowerCase() !== 'not_renewing'
+      String(prevDbStatus).toLowerCase() === 'not_renewing'
     ) {
-      try {
-        const contractSnapshot = await buildContractHistorySnapshot(conn, cid);
-        await conn.execute(
-          `INSERT INTO contract_history (contract_id, old_contract_id, old_sof, new_sof, renewed_at, contract_snapshot, status_history)
-           VALUES (?, NULL, NULL, NULL, NOW(), ?, ?)`,
-          [cid, contractSnapshot, 'Terminated']
-        );
-      } catch (histErr) {
-        console.error('Error saving contract history (terminated):', histErr);
-      }
+      await conn.execute(
+        `DELETE FROM contract_history
+         WHERE contract_id = ? AND status_history = 'Terminated'`,
+        [cid]
+      );
     }
 
     await conn.commit();

@@ -13,7 +13,7 @@ import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearch
 import { 
   FileText, Calendar, Building2, MapPin, Hash,
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
-  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban
+  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban, Undo2
 } from 'lucide-react';
 
 const EQUIPMENT_PAGE_SIZE = 5;
@@ -68,6 +68,8 @@ interface Contract {
   /** contract_id จริงสำหรับเรียก API รายละเอียด/แก้ไข */
   linkedContractId?: string;
   historyId?: number;
+  terminatedReason?: string | null;
+  createdAt?: string | null;
 }
 
 interface FullContractDetails {
@@ -126,6 +128,7 @@ interface FullContractDetails {
     /** legacy: รูปแบบเก่า [{ Did, CI_Name }] */
     device_json?: string | null;
     status_history?: string | null;
+    terminated_reason?: string | null;
   }>;
 }
 
@@ -233,6 +236,7 @@ function mapApiRowToContract(c: {
   renew_hist_old_sof?: string | null;
   renew_hist_new_sof?: string | null;
   renew_hist_at?: string | Date | null;
+  created_at?: string | Date | null;
 }): Contract {
   const endDate = c.end_date || '';
   const rawStatus = String(c.status || '').toLowerCase();
@@ -241,8 +245,9 @@ function mapApiRowToContract(c: {
     rawStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
   const status = resolveContractListStatus(endDate, markedNotRenewing);
   const hs = c.history_status != null ? String(c.history_status).trim() : '';
+  const hsLower = hs.toLowerCase();
   const historyStatus: Contract['historyStatus'] =
-    hs === 'Renew' || hs === 'Terminated' ? hs : null;
+    hsLower === 'renew' ? 'Renew' : hsLower === 'terminated' ? 'Terminated' : null;
   const alignedRaw = c.devices_slid_aligned;
   const devicesSlidAligned =
     alignedRaw === 1 ||
@@ -286,17 +291,24 @@ function mapApiRowToContract(c: {
       c.renew_hist_at != null && String(c.renew_hist_at).trim() !== ''
         ? String(c.renew_hist_at)
         : null,
+    createdAt:
+      c.created_at != null && String(c.created_at).trim() !== ''
+        ? String(c.created_at)
+        : null,
   };
 }
 
+/** แถวจาก POST /api/contracts/history-display-rows — ใช้ merge เฉพาะ Terminated */
 type HistoryDisplayApiRow = Parameters<typeof mapApiRowToContract>[0] & {
   row_type: 'history';
   history_id: number;
+  history_status?: string | null;
+  terminated_reason?: string | null;
 };
 
 function mapHistoryDisplayRowToContract(h: HistoryDisplayApiRow): Contract {
   const base = mapApiRowToContract(h);
-  const terminated = String(h.history_status ?? '').trim() === 'Terminated';
+  const terminated = String(h.history_status ?? '').trim().toLowerCase() === 'terminated';
   return {
     ...base,
     id: `h-${h.history_id}`,
@@ -304,6 +316,10 @@ function mapHistoryDisplayRowToContract(h: HistoryDisplayApiRow): Contract {
     historyId: h.history_id,
     isHistorySnapshotRow: true,
     status: terminated ? 'closed' : base.status,
+    terminatedReason:
+      h.terminated_reason != null && String(h.terminated_reason).trim() !== ''
+        ? String(h.terminated_reason).trim()
+        : null,
   };
 }
 
@@ -333,11 +349,27 @@ function buildContractForHistorySnapshot(base: Contract, row: ContractHistoryRow
         : row.created_at != null && String(row.created_at).trim() !== ''
           ? String(row.created_at)
           : null,
+    terminatedReason:
+      row.terminated_reason != null && String(row.terminated_reason).trim() !== ''
+        ? String(row.terminated_reason).trim()
+        : null,
   };
 }
 
 /** ช่วงก่อนวันสิ้นสุดที่ถือว่า "ใกล้หมดอายุ" / เปิด Renew ได้ (เดือนปฏิทิน — สอดคล้องกับคอลัมน์ Incoming) */
 const CONTRACT_EXPIRING_BEFORE_END_MONTHS = 3;
+
+/** แปลง YYYY-MM-DD เป็นวัน local เที่ยงคืน — ใช้กรองรายการสัญญา (ไม่ใช้ UTC ของ new Date('YYYY-MM-DD')) */
+function parseListFilterYmdToLocalStartOfDay(ymdRaw: string | null | undefined): Date | null {
+  if (!ymdRaw || !String(ymdRaw).trim()) return null;
+  const datePart = String(ymdRaw).split('T')[0];
+  const parts = datePart.split('-').map((x) => parseInt(x, 10));
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [y, m, d] = parts;
+  const dt = new Date(y, m - 1, d);
+  dt.setHours(0, 0, 0, 0);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
 
 function deriveStatus(endDate: string | null | undefined): 'active' | 'expiring' | 'expired' {
   if (!endDate) return 'active';
@@ -373,6 +405,12 @@ function contractListBadgeKey(c: Contract): string {
   return c.status;
 }
 
+/** ป้ายในคอลัมน์ Status (ตาราง/การ์ด): สถานะตามวันที่/DB เท่านั้น — ไม่ใช้คำว่า Renew (ข้อมูลต่อสัญญาไปคอลัมน์ Renew) */
+function contractListTableStatusBadgeKey(c: Contract): string {
+  if (c.contractStatus === 'draft') return 'draft';
+  return c.status;
+}
+
 /**
  * ไม่แสดงการนับวันใน Expiry Status เมื่อเป็นแถว snapshot ประวัติ (Renew/Terminated)
  * หรือ badge Renew (หมดอายุแล้วแต่ประวัติล่าสุดเป็น Renew) / สถานะปิด
@@ -394,19 +432,17 @@ function contractListDisablesEdit(c: Contract): boolean {
   return Boolean(c.isHistorySnapshotRow);
 }
 
-/** ข้อความจาก contract_history ใต้ badge ในคอลัมน์ Status — แสดงเฉพาะ Renew / Terminated (ไม่แสดงเมื่อเป็น Active ฯลฯ) */
-function renewHistoryTableSubtitle(
+/** คอลัมน์ Renew: ข้อมูลต่อสัญญาจาก contract_history (อิง contract_id / แถว snapshot) ถ้ามี old→new SOF หรือวันที่ */
+function renewHistoryColumnContent(
   c: Contract,
 ): { sof: string | null; dateLine: string | null } | null {
-  const badge = contractListBadgeKey(c);
-  if (badge !== 'renew' && badge !== 'closed') return null;
   const oldS = c.renewHistOldSof?.trim();
   const newS = c.renewHistNewSof?.trim();
   const hasSof = (oldS && oldS.length > 0) || (newS && newS.length > 0);
   const rawAt = c.renewHistAt?.trim();
   if (!hasSof && !rawAt) return null;
   const sof = hasSof ? `SOF: ${oldS || '—'} → ${newS || '—'}` : null;
-  const dateLine = rawAt ? formatDateThai(rawAt) : null;
+  const dateLine = rawAt ? `Since: ${formatDateThai(rawAt)}` : null;
   if (!sof && !dateLine) return null;
   return { sof, dateLine };
 }
@@ -420,6 +456,12 @@ function contractListShowsRenewAction(contract: Contract): boolean {
       contract.status === 'expired' ||
       contract.contractStatus === 'not_renewing')
   );
+}
+
+function contractListShowsUndoTerminated(contract: Contract): boolean {
+  if (contract.contractStatus === 'not_renewing') return true;
+  if (contract.isHistorySnapshotRow && contract.historyStatus === 'Terminated') return true;
+  return false;
 }
 
 /** Days until end date if end is within the next 3 calendar months; days since expiry if end is past; otherwise "—". */
@@ -466,7 +508,7 @@ function getContractExpiryIncomingLabel(
   return { text: diffDays === 1 ? 'In 1 day' : `In ${diffDays} days`, tone: 'future' };
 }
 
-/** เรียงแถวสัญญา + ประวัติในตารางหลักตามเวลา (ให้แถวประวัติไม่ไปกองท้ายสุดเสมอ) */
+/** เรียงแถวสัญญา + แถวประวัติ Terminated ในตารางหลัก */
 function contractRowSortTimestamp(c: Contract): number {
   if (c.isHistorySnapshotRow) {
     const ra = c.renewHistAt ? new Date(c.renewHistAt).getTime() : NaN;
@@ -474,6 +516,8 @@ function contractRowSortTimestamp(c: Contract): number {
     const e = c.endDate ? new Date(c.endDate).getTime() : NaN;
     return Number.isNaN(e) ? 0 : e;
   }
+  const createdAtTs = c.createdAt ? new Date(c.createdAt).getTime() : NaN;
+  if (!Number.isNaN(createdAtTs)) return createdAtTs;
   const e = c.endDate ? new Date(c.endDate).getTime() : NaN;
   const base = Number.isNaN(e) ? 0 : e;
   const id = parseInt(c.id, 10);
@@ -554,7 +598,9 @@ function ContractEditorPageContent() {
   const [contractsError, setContractsError] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
+  /** วันเริ่มสัญญา ≥ ค่านี้ (อิง contract.start_date) */
   const [startDateFilter, setStartDateFilter] = useState('');
+  /** วันเริ่มสัญญา ≤ ค่านี้ — ชื่อ state เดิม endDateFilter; ไม่ใช่วันสิ้นสัญญา */
   const [endDateFilter, setEndDateFilter] = useState('');
   const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
   const [contractPage, setContractPage] = useState(1);
@@ -581,6 +627,10 @@ function ContractEditorPageContent() {
   // Renew Contract modal
   const [showRenewModal, setShowRenewModal] = useState(false);
   const [renewContractTarget, setRenewContractTarget] = useState<Contract | null>(null);
+  const [showTerminateModal, setShowTerminateModal] = useState(false);
+  const [terminateContractTarget, setTerminateContractTarget] = useState<Contract | null>(null);
+  const [terminationReasonInput, setTerminationReasonInput] = useState('');
+  const [isSubmittingTerminate, setIsSubmittingTerminate] = useState(false);
 
   // Assign to Site modal
   const [showAssignSiteModal, setShowAssignSiteModal] = useState(false);
@@ -659,7 +709,8 @@ function ContractEditorPageContent() {
 
   const siteIdFilter = searchParams.get('site_id');
 
-  const mergeContractHistoryRows = async (list: Contract[]): Promise<Contract[]> => {
+  /** แถวจาก contract_history ในรายการ: เฉพาะ Terminated (ไม่ merge Renew) */
+  const mergeTerminatedHistoryRows = async (list: Contract[]): Promise<Contract[]> => {
     const ids = list.map((c) => parseInt(c.id, 10)).filter((n) => !Number.isNaN(n));
     try {
       const hres = await fetch(apiUrl('/api/contracts/history-display-rows'), {
@@ -672,9 +723,10 @@ function ContractEditorPageContent() {
       });
       const hjson = await hres.json();
       if (!hjson.success || !Array.isArray(hjson.data)) return list;
-      const extra: Contract[] = (hjson.data as HistoryDisplayApiRow[]).map((h) =>
-        mapHistoryDisplayRowToContract(h),
+      const terminatedOnly = (hjson.data as HistoryDisplayApiRow[]).filter(
+        (h) => String(h.history_status ?? '').trim().toLowerCase() === 'terminated',
       );
+      const extra: Contract[] = terminatedOnly.map((h) => mapHistoryDisplayRowToContract(h));
       if (extra.length === 0) return list;
       return sortMergedContractList([...list, ...extra]);
     } catch {
@@ -703,7 +755,7 @@ function ContractEditorPageContent() {
         const list: Contract[] = json.data.map((c: Parameters<typeof mapApiRowToContract>[0]) =>
           mapApiRowToContract(c),
         );
-        const merged = await mergeContractHistoryRows(list);
+        const merged = await mergeTerminatedHistoryRows(list);
         if (!cancelled) setContracts(merged);
       } catch (err) {
         if (!cancelled) {
@@ -757,29 +809,20 @@ function ContractEditorPageContent() {
       if (!matchText) return false;
     }
 
-    // Filter ตามช่วงวันที่ (Start / End)
+    // กรองตามวันเริ่มสัญญา (contract.startDate): จาก = เริ่มสัญญา ≥ วันที่เลือก, ถึง = เริ่มสัญญา ≤ วันที่เลือก
     if (startDateFilter || endDateFilter) {
-      const start = contract.startDate ? new Date(contract.startDate) : null;
-      const end = contract.endDate ? new Date(contract.endDate) : null;
-
-      if (Number.isNaN(start?.getTime() ?? NaN)) {
-        // ถ้า startDate ใช้ไม่ได้ และมีการกรอง startDateFilter ให้ตัดทิ้ง
-        if (startDateFilter) return false;
-      }
-      if (Number.isNaN(end?.getTime() ?? NaN)) {
-        // ถ้า endDate ใช้ไม่ได้ และมีการกรอง endDateFilter ให้ตัดทิ้ง
-        if (endDateFilter) return false;
-      }
+      const contractStart = parseListFilterYmdToLocalStartOfDay(contract.startDate);
+      if (!contractStart) return false;
 
       if (startDateFilter) {
-        const filterStart = new Date(startDateFilter);
-        filterStart.setHours(0, 0, 0, 0);
-        if (!start || start < filterStart) return false;
+        const filterFrom = parseListFilterYmdToLocalStartOfDay(startDateFilter);
+        if (!filterFrom) return false;
+        if (contractStart < filterFrom) return false;
       }
       if (endDateFilter) {
-        const filterEnd = new Date(endDateFilter);
-        filterEnd.setHours(23, 59, 59, 999);
-        if (!end || end > filterEnd) return false;
+        const filterTo = parseListFilterYmdToLocalStartOfDay(endDateFilter);
+        if (!filterTo) return false;
+        if (contractStart > filterTo) return false;
       }
     }
 
@@ -1309,13 +1352,28 @@ function ContractEditorPageContent() {
     setShowRenewModal(true);
   };
 
+  const openTerminateContractModal = (contract: Contract) => {
+    setTerminateContractTarget(contract);
+    setTerminationReasonInput('');
+    setShowTerminateModal(true);
+  };
+
+  const closeTerminateContractModal = () => {
+    if (isSubmittingTerminate) return;
+    setShowTerminateModal(false);
+    setTerminateContractTarget(null);
+    setTerminationReasonInput('');
+  };
+
   const applyContractNoRenew = async (contract: Contract) => {
+    const reason = terminationReasonInput.trim();
+    setIsSubmittingTerminate(true);
     try {
       const nextDbStatus: Contract['contractStatus'] = 'not_renewing';
       const res = await fetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: nextDbStatus }),
+        body: JSON.stringify({ status: nextDbStatus, termination_reason: reason }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -1331,24 +1389,56 @@ function ContractEditorPageContent() {
       );
       setCurrentContract((cur) =>
         cur && contractRowApiId(cur) === targetApi
-          ? { ...cur, contractStatus: nextDbStatus, status: nextStatus }
+          ? { ...cur, contractStatus: nextDbStatus, status: nextStatus, terminatedReason: reason }
           : cur,
       );
+      setShowTerminateModal(false);
+      setTerminateContractTarget(null);
+      setTerminationReasonInput('');
       toastSuccess(
-        'Marked as not renewing — Incoming will no longer show days past expiry',
+        'Contract terminated successfully',
       );
+      router.refresh();
+      await loadContracts();
+    } catch (e) {
+      toastError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setIsSubmittingTerminate(false);
+    }
+  };
+
+  const handleContractTerminate = () => {
+    if (!terminateContractTarget) return;
+    void applyContractNoRenew(terminateContractTarget);
+  };
+
+  const applyUndoTerminated = async (contract: Contract) => {
+    try {
+      const res = await fetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'official' }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toastError(json.message || 'Failed to undo terminated contract');
+        return;
+      }
+      toastSuccess('Undo terminated successfully');
+      router.refresh();
+      await loadContracts();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Network error');
     }
   };
 
-  const handleContractDoNotRenew = (contract: Contract) => {
+  const handleUndoTerminated = (contract: Contract) => {
     showConfirm(
-      'This contract will be marked as not renewing. Incoming will no longer show days past the end date. You can use Renew later if you change your mind.',
+      'This contract will be restored to official status.',
       () => {
-        void applyContractNoRenew(contract);
+        void applyUndoTerminated(contract);
       },
-      { title: 'Are you sure you don’t want to renew the contract?', confirmText: 'Do not renew', cancelText: 'Cancel', dangerConfirm: true },
+      { title: 'Undo terminated contract?', confirmText: 'Undo', cancelText: 'Cancel' },
     );
   };
 
@@ -1539,6 +1629,8 @@ function ContractEditorPageContent() {
         setDevicesAssignedStatus(prev => ({ ...prev, [currentContract.id]: true }));
       }
       setShowAssignSiteModal(false);
+      router.refresh();
+      await loadContracts();
     } catch (e) {
       toastError(e instanceof Error ? e.message : 'Update failed');
     } finally {
@@ -1900,7 +1992,8 @@ function ContractEditorPageContent() {
       setImportContractErrors([]);
       router.refresh();
     }
-    loadContracts();
+    router.refresh();
+    await loadContracts();
   };
 
   const loadContracts = async () => {
@@ -1913,7 +2006,7 @@ function ContractEditorPageContent() {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         const list = (json.data as any[]).map((c: any) => mapApiRowToContract(c));
-        const merged = await mergeContractHistoryRows(list);
+        const merged = await mergeTerminatedHistoryRows(list);
         setContracts(merged);
       }
     } catch (e) {
@@ -1946,25 +2039,34 @@ function ContractEditorPageContent() {
         {/* Stats Bar - กดแล้ว filter รายการสัญญาตามสถานะ */}
         {(() => {
           const onlyContracts = contracts.filter((c) => !c.isHistorySnapshotRow);
-          const total = onlyContracts.length;
           const draft = onlyContracts.filter((c) => c.contractStatus === 'draft').length;
-          const notRenewing = onlyContracts.filter((c) => c.contractStatus === 'not_renewing').length;
-          const active = onlyContracts.filter((c) => c.status === 'active' && c.contractStatus !== 'draft').length;
-          const expiring = onlyContracts.filter((c) => c.status === 'expiring' && c.contractStatus !== 'draft').length;
-          const expired = onlyContracts.filter((c) => c.status === 'expired' && c.contractStatus !== 'draft').length;
-          const renewCount = contracts.filter((c) => contractListBadgeKey(c) === 'renew').length;
+          const active = onlyContracts.filter(
+            (c) => c.status === 'active' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
+          ).length;
+          const expiring = onlyContracts.filter(
+            (c) => c.status === 'expiring' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
+          ).length;
+          const expired = onlyContracts.filter(
+            (c) => c.status === 'expired' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
+          ).length;
+          const terminatedSnapshots = contracts.filter(
+            (c) => c.isHistorySnapshotRow && c.historyStatus === 'Terminated'
+          ).length;
+          const terminatedMain = onlyContracts.filter((c) => c.contractStatus === 'not_renewing').length;
+          const terminated = terminatedSnapshots + terminatedMain;
+          // ให้ All เป็นผลรวมหมวดที่แสดงจริง เพื่อให้ตัวเลขตรงกับการ์ดย่อย
+          const total = active + expiring + expired + draft + terminated;
           const stats = [
             { filter: 'All' as const, number: String(total), label: 'All Contracts' },
             { filter: 'Active' as const, number: String(active), label: 'Active Contracts' },
             { filter: 'Expiring' as const, number: String(expiring), label: 'Expiring Contracts' },
             { filter: 'Expired' as const, number: String(expired), label: 'Expired Contracts' },
             { filter: 'Draft' as const, number: String(draft), label: 'Draft Contracts' },
-            { filter: 'Renew' as const, number: String(renewCount), label: 'Renew Contracts' },
-            { filter: 'Terminated' as const, number: String(notRenewing), label: 'Terminated Contracts' },
+            { filter: 'Terminated' as const, number: String(terminated), label: 'Terminated Contracts' },
           ];
           return (
         <div className="@container min-w-0 w-full max-w-full">
-        <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-white p-4 shadow-sm rounded-2xl border border-slate-200 @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-4 @[72rem]:grid-cols-7 @[56rem]:gap-8 @[56rem]:p-10">
+       <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-white p-4 shadow-sm rounded-2xl border border-slate-200 @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-6 @[56rem]:gap-8 @[56rem]:p-10">
           {stats.map((stat, idx) => {
             const isSelected = activeFilter === stat.filter;
             return (
@@ -2014,7 +2116,7 @@ function ContractEditorPageContent() {
         {/* Filters */}
         <div className="flex gap-4 flex-nowrap items-center overflow-x-auto pb-1">
           <div className="flex gap-2 shrink-0">
-            {['All', 'Active', 'Expiring', 'Expired', 'Draft', 'Renew', 'Terminated'].map((filter) => (
+            {['All', 'Active', 'Expiring', 'Expired', 'Draft', 'Terminated'].map((filter) => (
               <button
                 key={filter}
                 onClick={() => setActiveFilter(filter)}
@@ -2038,10 +2140,12 @@ function ContractEditorPageContent() {
               className="w-full py-2.5 pl-12 pr-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             />
           </div>
-          {/* Date range filter */}
+          {/* ช่วงวันเริ่มสัญญา (ทั้งสองช่องอิง contract start date) */}
           <div className="flex items-center gap-2 text-xs text-slate-600 shrink-0">
             <div className="flex flex-col">
-              <span className="mb-1">Start date from</span>
+              <span className="mb-1" title="แสดงสัญญาที่วันเริ่มสัญญา ≥ วันที่เลือก">
+                Start from
+              </span>
               <input
                 type="date"
                 value={startDateFilter}
@@ -2053,7 +2157,9 @@ function ContractEditorPageContent() {
               />
             </div>
             <div className="flex flex-col">
-              <span className="mb-1">End date to</span>
+              <span className="mb-1" title="แสดงสัญญาที่วันเริ่มสัญญา ≤ วันที่เลือก (ใช้คู่กับ Start from เป็นช่วงวันเริ่มสัญญา)">
+                Start to
+              </span>
               <input
                 type="date"
                 value={endDateFilter}
@@ -2106,7 +2212,10 @@ function ContractEditorPageContent() {
         <div className="grid grid-cols-[repeat(auto-fill,minmax(350px,1fr))] items-stretch gap-6">
           {paginatedContracts.map((contract, idx) => {
             const showRenewBtn = contractListShowsRenewAction(contract);
+            const showUndoBtn = contractListShowsUndoTerminated(contract);
             const editDisabled = contractListDisablesEdit(contract);
+            const statusBadgeKey = contractListTableStatusBadgeKey(contract);
+            const renewCol = renewHistoryColumnContent(contract);
             return (
             <div
               key={contract.id}
@@ -2132,8 +2241,8 @@ function ContractEditorPageContent() {
                   ) : null}
                   {contract.contractSiteName ?? contract.partner ?? '—'}
                 </div>
-                <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(contractListBadgeKey(contract))}`}>
-                  {getStatusText(contractListBadgeKey(contract))}
+                <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(statusBadgeKey)}`}>
+                  {getStatusText(statusBadgeKey)}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
@@ -2167,6 +2276,18 @@ function ContractEditorPageContent() {
                 <span className="text-slate-500 min-w-[100px] flex-shrink-0">End Date:</span>
                 <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedEndDate}</span>
               </div>
+              {renewCol ? (
+                <div className="mb-3 flex items-start gap-3 text-sm">
+                  <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center">
+                    <RefreshCw size={18} />
+                  </span>
+                  <span className="text-slate-500 min-w-[100px] flex-shrink-0">Renew:</span>
+                  <div className="min-w-0 flex-1 text-xs leading-snug text-slate-600">
+                    {renewCol.sof ? <div className="font-medium text-slate-700">{renewCol.sof}</div> : null}
+                    {renewCol.dateLine ? <div>{renewCol.dateLine}</div> : null}
+                  </div>
+                </div>
+              ) : null}
               <div className="mt-auto min-w-0 overflow-hidden border-t border-slate-200 pt-6">
                 <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
                   <div className="flex items-center gap-2">
@@ -2203,23 +2324,11 @@ function ContractEditorPageContent() {
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    {contract.status === 'expired' &&
-                      contract.contractStatus !== 'draft' &&
-                      !contract.isHistorySnapshotRow && (
-                      <button
-                        type="button"
-                        onClick={() => handleContractDoNotRenew(contract)}
-                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-red-500 text-xs font-medium text-white transition-all duration-300 hover:bg-red-600"
-                        title="Do not renew"
-                      >
-                        <Ban size={18} className="shrink-0 text-white" strokeWidth={2.25} />
-                      </button>
-                    )}
                     <button
                       type="button"
-                      disabled={!showRenewBtn && editDisabled}
+                      disabled={!showRenewBtn && !showUndoBtn && editDisabled}
                       onClick={() => {
-                        if (!showRenewBtn && editDisabled) return;
+                        if (!showRenewBtn && !showUndoBtn && editDisabled) return;
                         showRenewBtn ? renewContract(contract) : editContract(contract);
                       }}
                       className={`flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 ${
@@ -2245,6 +2354,27 @@ function ContractEditorPageContent() {
                         <Edit size={18} className="shrink-0" />
                       )}
                     </button>
+                    {showUndoBtn && (
+                      <button
+                        type="button"
+                        onClick={() => handleUndoTerminated(contract)}
+                        className="flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-emerald-500 px-2 text-[11px] font-semibold text-white transition-all duration-300 hover:bg-emerald-600"
+                        title="Undo terminated"
+                      >
+                        <Undo2 size={14} className="text-white" strokeWidth={2.5} />
+                      </button>
+                    )}
+                    {contract.contractStatus === 'official' &&
+                      !contract.isHistorySnapshotRow && (
+                      <button
+                        type="button"
+                        onClick={() => openTerminateContractModal(contract)}
+                        className="flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-red-500 px-2 text-[11px] font-semibold text-white transition-all duration-300 hover:bg-red-600"
+                        title="Terminated"
+                      >
+                        <X size={14} className="text-white" strokeWidth={2.5} />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2292,15 +2422,27 @@ function ContractEditorPageContent() {
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Site</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Location</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">SOF</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Start Date</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">End Date</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">
+  Start Date
+  <div className="text-xs text-gray-400 mt-1">mm/dd/yyyy</div>
+</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">
+  End Date
+  <div className="text-xs text-gray-400 mt-1">mm/dd/yyyy</div>
+</th>
                   <th
                     className="text-left py-4 px-4 text-sm font-semibold text-slate-700 whitespace-nowrap"
-                    title="Countdown if the contract ends within 3 months; days since expiry if the end date has passed"
+
                   >
                     Expiry Status
                   </th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Status</th>
+                  <th
+                    className="text-left py-4 px-4 text-sm font-semibold text-slate-700 min-w-[10rem]"
+                    title=""
+                  >
+                    
+                  </th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Actions</th>
                 </tr>
               </thead>
@@ -2311,9 +2453,11 @@ function ContractEditorPageContent() {
                     contract.contractStatus === 'not_renewing',
                     contract,
                   );
-                  const renewHistSub = renewHistoryTableSubtitle(contract);
+                  const renewCol = renewHistoryColumnContent(contract);
                   const showRenewBtn = contractListShowsRenewAction(contract);
+                  const showUndoBtn = contractListShowsUndoTerminated(contract);
                   const editDisabled = contractListDisablesEdit(contract);
+                  const statusBadgeKey = contractListTableStatusBadgeKey(contract);
                   return (
                   <tr
                     key={contract.id}
@@ -2346,29 +2490,27 @@ function ContractEditorPageContent() {
                       </span>
                     </td>
                     <td className="py-4 px-4 align-top">
-                      <div className="flex min-w-0 max-w-[14rem] flex-col gap-1">
-                        <span
-                          className={`inline-block w-fit px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(contractListBadgeKey(contract))}`}
+                      <span
+                        className={`inline-block w-fit px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(statusBadgeKey)}`}
+                      >
+                        {getStatusText(statusBadgeKey)}
+                      </span>
+                    </td>
+                    <td className="py-4 px-4 align-top min-w-[10rem] max-w-[18rem]">
+                      {renewCol ? (
+                        <div
+                          className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-snug text-slate-600"
+                          title={[renewCol.sof, renewCol.dateLine].filter(Boolean).join('\n')}
                         >
-                          {getStatusText(contractListBadgeKey(contract))}
-                        </span>
-                        {renewHistSub ? (
-                          <div
-                            className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-snug text-slate-500"
-                            title={[renewHistSub.sof, renewHistSub.dateLine].filter(Boolean).join('\n')}
-                          >
-                            {renewHistSub.sof ? (
-                              <span className="break-words">{renewHistSub.sof}</span>
-                            ) : null}
-                            {renewHistSub.dateLine ? (
-                              <span className="break-words">{renewHistSub.dateLine}</span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
+                          {renewCol.sof ? <span className="break-words">{renewCol.sof}</span> : null}
+                          {renewCol.dateLine ? <span className="break-words">{renewCol.dateLine}</span> : null}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="min-w-[11rem] py-4 px-4">
-                      <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                      <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
                         <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => viewContractDetails(contract)}
@@ -2403,23 +2545,11 @@ function ContractEditorPageContent() {
                           </button>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          {contract.status === 'expired' &&
-                            contract.contractStatus !== 'draft' &&
-                            !contract.isHistorySnapshotRow && (
-                            <button
-                              type="button"
-                              onClick={() => handleContractDoNotRenew(contract)}
-                              className="flex size-8 shrink-0 items-center justify-center rounded-md bg-red-500 text-white transition-all duration-200 hover:bg-red-600"
-                              title="Do not renew"
-                            >
-                              <Ban size={14} className="shrink-0 text-white" strokeWidth={2.25} />
-                            </button>
-                          )}
                           <button
                             type="button"
-                            disabled={!showRenewBtn && editDisabled}
+                            disabled={!showRenewBtn && !showUndoBtn && editDisabled}
                             onClick={() => {
-                              if (!showRenewBtn && editDisabled) return;
+                              if (!showRenewBtn && !showUndoBtn && editDisabled) return;
                               showRenewBtn ? renewContract(contract) : editContract(contract);
                             }}
                             className={`flex size-8 shrink-0 items-center justify-center rounded-md font-medium transition-all duration-200 ${
@@ -2445,6 +2575,27 @@ function ContractEditorPageContent() {
                               <Edit size={14} className="shrink-0" />
                             )}
                           </button>
+                          {showUndoBtn && (
+                            <button
+                              type="button"
+                              onClick={() => handleUndoTerminated(contract)}
+                              className="flex h-8 shrink-0 items-center justify-center rounded-md bg-emerald-500 px-2 text-[10px] font-semibold text-white transition-all duration-200 hover:bg-emerald-600"
+                              title="Undo terminated"
+                            >
+                              <Undo2 size={12} className="text-white" strokeWidth={2.5} />
+                            </button>
+                          )}
+                          {contract.contractStatus === 'official' &&
+                            !contract.isHistorySnapshotRow && (
+                            <button
+                              type="button"
+                              onClick={() => openTerminateContractModal(contract)}
+                              className="flex h-8 shrink-0 items-center justify-center rounded-md bg-red-500 px-2 text-[10px] font-semibold text-white transition-all duration-200 hover:bg-red-600"
+                              title="Terminated"
+                            >
+                              <X size={12} className="text-white" strokeWidth={2.5} />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -3022,6 +3173,7 @@ function ContractEditorPageContent() {
                               const oldS = row.old_sof?.trim() || '—';
                               const newS = row.new_sof?.trim() || '—';
                               const st = row.status_history?.trim();
+                              const terminateReason = row.terminated_reason?.trim();
                               return (
                                 <li key={row.history_id}>
                                   <button
@@ -3053,6 +3205,11 @@ function ContractEditorPageContent() {
                                       </div>
                                       {st ? (
                                         <div className="mt-1 text-xs text-slate-600">Status: {st}</div>
+                                      ) : null}
+                                      {terminateReason ? (
+                                        <div className="mt-1 text-xs text-slate-600">
+                                          Reason: {terminateReason}
+                                        </div>
                                       ) : null}
                                     </div>
                                     {!activeSnap ? (
@@ -4468,6 +4625,59 @@ function ContractEditorPageContent() {
                 >
                   <RefreshCw className="h-4 w-4" />
                   Continue to Renew
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Terminate Contract Modal */}
+      {showTerminateModal && terminateContractTarget && (
+        <Modal onClose={closeTerminateContractModal}>
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
+                  <Ban className="h-6 w-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">Terminate Contract</h3>
+                  <p className="text-sm text-slate-500">Status will change from official to terminated</p>
+                </div>
+              </div>
+              <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                <p className="text-xs font-medium text-slate-500 mb-1">Contract</p>
+                <p className="font-semibold text-slate-800 truncate">{terminateContractTarget.name}</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  ID: {contractRowApiId(terminateContractTarget)} · {terminateContractTarget.partner}
+                </p>
+              </div>
+              <label className="block text-sm font-medium text-slate-700 mb-2" htmlFor="terminate-reason">
+                Reason for termination 
+              </label>
+              <textarea
+                id="terminate-reason"
+                value={terminationReasonInput}
+                onChange={(e) => setTerminationReasonInput(e.target.value)}
+                placeholder="Please provide the reason..."
+                className="w-full min-h-[120px] rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-400"
+              />
+              <div className="flex gap-3 justify-end mt-6">
+                <button
+                  onClick={closeTerminateContractModal}
+                  disabled={isSubmittingTerminate}
+                  className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleContractTerminate}
+                  disabled={isSubmittingTerminate}
+                  className="px-4 py-2.5 text-sm font-semibold text-white bg-red-500 rounded-xl hover:bg-red-600 transition-colors flex items-center gap-2 disabled:opacity-60"
+                >
+                  {isSubmittingTerminate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                  Confirm Terminated
                 </button>
               </div>
             </div>

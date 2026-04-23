@@ -25,7 +25,7 @@ type MenuItem =
   | { type?: never; icon: LucideIcon; label: string; href: string };
 
 const menuItems: MenuItem[] = [
-  { icon: LayoutDashboard, label: 'Dashboard', href: '/' },
+  { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
   { icon: BarChart3, label: 'Report & Analytics', href: '/report' },
   { icon: FileText, label: 'Contract', href: '/contract_editer' },
   { icon: Users, label: 'Employee', href: '/employee' },
@@ -192,7 +192,7 @@ export function Sidebar() {
           {/* Header - กระชับตอนย่อ */}
           <div className={`flex items-center border-b border-slate-200/80 shrink-0 ${isExpanded ? 'p-4' : 'px-3 py-3'}`}>
             <Link 
-              href="/" 
+              href="/dashboard" 
               className={`flex items-center gap-2 text-blue-600 cursor-pointer group ${!isExpanded ? 'justify-center w-full' : ''}`}
               onClick={closeMobile}
             >

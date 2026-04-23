@@ -6,6 +6,96 @@ const db = require('../config/database');
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
 // status, actually_went, notes, reschedule_note, photos, created_at, updated_at
 
+const taskColumnExistsCache = new Map();
+const taskColumnExists = async (columnName) => {
+  if (taskColumnExistsCache.has(columnName)) {
+    return taskColumnExistsCache.get(columnName);
+  }
+  try {
+    const [rows] = await db.execute('SHOW COLUMNS FROM tasks LIKE ?', [columnName]);
+    const exists = Array.isArray(rows) && rows.length > 0;
+    taskColumnExistsCache.set(columnName, exists);
+    return exists;
+  } catch (error) {
+    console.warn(`[taskColumnExists] cannot inspect column "${columnName}":`, error.message);
+    taskColumnExistsCache.set(columnName, false);
+    return false;
+  }
+};
+
+/**
+ * MA ไม่ใช้ duration; บางฐานข้อมูลกำหนด `duration` เป็น NOT NULL
+ * ใช้ 0 — รองรับทั้ง INT NOT NULL และ VARCHAR (เก็บเป็น '0')
+ */
+const durationValueForTask = (taskType, duration) => {
+  if (String(taskType || '').toUpperCase() === 'MA') return 0;
+  if (duration == null || duration === '') return null;
+  return duration;
+};
+
+/** แปลง HH:mm หรือ HH:mm:ss ให้เป็นรูปแบบ TIME ของ MySQL */
+function normalizeMysqlTime(value) {
+  if (value == null || value === '') return null;
+  const s = String(value).trim();
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const hh = String(Math.min(23, Math.max(0, parseInt(m[1], 10)))).padStart(2, '0');
+  const mi = String(Math.min(59, Math.max(0, parseInt(m[2], 10)))).padStart(2, '0');
+  const ss = m[3] != null ? String(Math.min(59, Math.max(0, parseInt(m[3], 10)))).padStart(2, '0') : '00';
+  return `${hh}:${mi}:${ss}`;
+}
+
+/** ชื่อคอลัมน์จริงใน DB — ใหม่ก่อน (downtime_* / uptime_*) แล้ว fallback legacy down_time_* (เว้นวรรคก่อน / ไม่ให้ลำดับ * กับ / ติดกันในคอมเมนต์) */
+async function resolveDowntimeDateCol() {
+  if (await taskColumnExists('downtime_date')) return 'downtime_date';
+  if (await taskColumnExists('down_time_start_date')) return 'down_time_start_date';
+  return null;
+}
+async function resolveDowntimeTimeCol() {
+  if (await taskColumnExists('downtime_time')) return 'downtime_time';
+  if (await taskColumnExists('down_time_start_time')) return 'down_time_start_time';
+  return null;
+}
+async function resolveUptimeDateCol() {
+  if (await taskColumnExists('uptime_date')) return 'uptime_date';
+  if (await taskColumnExists('down_time_end_date')) return 'down_time_end_date';
+  return null;
+}
+async function resolveUptimeTimeCol() {
+  if (await taskColumnExists('uptime_time')) return 'uptime_time';
+  if (await taskColumnExists('down_time_end_time')) return 'down_time_end_time';
+  return null;
+}
+
+function parseDowntimeFieldsFromBody(body) {
+  const b = body || {};
+  return {
+    downtimeDate: b.downtimeDate ?? b.downTimeStartDate,
+    downtimeTime: b.downtimeTime ?? b.downTimeStartTime,
+    uptimeDate: b.uptimeDate ?? b.downTimeEndDate,
+    uptimeTime: b.uptimeTime ?? b.downTimeEndTime,
+  };
+}
+
+/** PATCH: อัปเดตเฉพาะฟิลด์ที่ส่งมา (รองรับทั้งชื่อใหม่และ legacy) */
+function parseDowntimePatch(body) {
+  const b = body || {};
+  const o = {};
+  if ('downtimeDate' in b || 'downTimeStartDate' in b) {
+    o.downtimeDate = b.downtimeDate ?? b.downTimeStartDate ?? null;
+  }
+  if ('downtimeTime' in b || 'downTimeStartTime' in b) {
+    o.downtimeTime = b.downtimeTime ?? b.downTimeStartTime ?? null;
+  }
+  if ('uptimeDate' in b || 'downTimeEndDate' in b) {
+    o.uptimeDate = b.uptimeDate ?? b.downTimeEndDate ?? null;
+  }
+  if ('uptimeTime' in b || 'downTimeEndTime' in b) {
+    o.uptimeTime = b.uptimeTime ?? b.downTimeEndTime ?? null;
+  }
+  return o;
+}
+
 /** Reason for in process เก็บใน notes เมื่อ status = working — จำกัดความยาว */
 const WORKING_NOTES_MAX_LEN = 120;
 function clampNotesForWorkingStatus(notes, status) {
@@ -86,6 +176,28 @@ const toDateOnlyString = (val) => {
   }
   return null;
 };
+
+/** แปลงแถว DB → API fields เดียวกันไม่ว่าจะเก็บในคอลัมน์ใหม่หรือเก่า */
+function downtimeApiFieldsFromRow(row) {
+  const rawDd = row.downtime_date ?? row.down_time_start_date;
+  const rawDt = row.downtime_time ?? row.down_time_start_time;
+  const rawUd = row.uptime_date ?? row.down_time_end_date;
+  const rawUt = row.uptime_time ?? row.down_time_end_time;
+  const rawTot = row.downtime_total_hours ?? row.down_time_total_hours;
+  const out = {};
+  if (rawDd != null && rawDd !== '') out.downtimeDate = toDateOnlyString(rawDd);
+  if (rawDt != null && rawDt !== '') out.downtimeTime = rawDt;
+  if (rawUd != null && rawUd !== '') out.uptimeDate = toDateOnlyString(rawUd);
+  if (rawUt != null && rawUt !== '') out.uptimeTime = rawUt;
+  if (
+    rawTot != null &&
+    String(rawTot).trim() !== '' &&
+    !Number.isNaN(Number(rawTot))
+  ) {
+    out.downtimeTotalHours = Number(rawTot);
+  }
+  return out;
+}
 
 /** รวบรวม path string จาก tasks.photos / report file_path (array ของ string หรือ { path }) */
 function collectPathStringsFromPhotos(photos) {
@@ -214,6 +326,11 @@ const mapTaskRow = (row) => {
   coverageScope: row.coverage_scope,
   startDate: toDateOnlyString(row.start_date),
   endDate: toDateOnlyString(row.end_date),
+  // MA: ไม่ส่ง duration — downtime/uptime เก็บแยกจาก duration
+  ...(String(row.task_type || '').toUpperCase() !== 'MA' && row.duration !== undefined
+    ? { duration: row.duration }
+    : {}),
+  ...downtimeApiFieldsFromRow(row),
   engineers: row.engineers ? (typeof row.engineers === 'string' ? JSON.parse(row.engineers) : row.engineers) : [],
   assets: row.assets ? (typeof row.assets === 'string' ? JSON.parse(row.assets) : row.assets) : [],
   assetBinding: row.asset_binding,
@@ -298,6 +415,7 @@ const createTask = async (req, res) => {
       ticket,
       rootCause,
       resolution,
+      duration,
       coverageScope,
       startDate,
       endDate,
@@ -310,6 +428,8 @@ const createTask = async (req, res) => {
       rescheduleNote = null,
       photos = [],
     } = req.body;
+
+    const { downtimeDate, downtimeTime, uptimeDate, uptimeTime } = parseDowntimeFieldsFromBody(req.body);
 
     if (!taskType || !startDate || !endDate) {
       return res.status(400).json({
@@ -335,21 +455,18 @@ const createTask = async (req, res) => {
       }
     }
 
-    const insertSql = `
-      INSERT INTO tasks (
-        id, task_type, contract_id, replacement_device_id, site_id, site_name, vendor_name, vendor_tel
-        , reporter_name, reporter_tel, ticket
-        , root_cause, resolution
-        , coverage_scope, start_date, end_date, engineers, assets, asset_binding, status, actually_went, notes, reschedule_note, photos
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
     const safeParseInt = (value) => {
       if (value === null || value === undefined || value === '') return null;
       const parsed = typeof value === 'number' ? value : parseInt(String(value), 10);
       return isNaN(parsed) ? null : parsed;
     };
 
+    const insertColumns = [
+      'id', 'task_type', 'contract_id', 'replacement_device_id', 'site_id', 'site_name', 'vendor_name', 'vendor_tel',
+      'reporter_name', 'reporter_tel', 'ticket', 'root_cause', 'resolution', 'coverage_scope',
+      'start_date', 'end_date', 'engineers', 'assets', 'asset_binding', 'status', 'actually_went',
+      'notes', 'reschedule_note', 'photos',
+    ];
     const insertValues = [
       finalTaskId,
       taskType,
@@ -376,6 +493,37 @@ const createTask = async (req, res) => {
       rescheduleNote || null,
       photos && Array.isArray(photos) && photos.length > 0 ? JSON.stringify(photos) : null,
     ];
+    if (await taskColumnExists('duration')) {
+      insertColumns.push('duration');
+      insertValues.push(durationValueForTask(taskType, duration));
+    }
+    const ddCol = await resolveDowntimeDateCol();
+    if (ddCol) {
+      insertColumns.push(ddCol);
+      insertValues.push(downtimeDate || null);
+    }
+    const dtCol = await resolveDowntimeTimeCol();
+    if (dtCol) {
+      insertColumns.push(dtCol);
+      insertValues.push(normalizeMysqlTime(downtimeTime));
+    }
+    /** uptime — ใส่ตอนส่ง MA report; ตอนสร้างงานไม่ใส่คอลัมน์ถ้ายังไม่มีค่า */
+    const endDateStr =
+      uptimeDate != null && String(uptimeDate).trim()
+        ? String(uptimeDate).trim().slice(0, 10)
+        : null;
+    const endTimeNorm = normalizeMysqlTime(uptimeTime);
+    const udCol = await resolveUptimeDateCol();
+    if (udCol && endDateStr) {
+      insertColumns.push(udCol);
+      insertValues.push(endDateStr);
+    }
+    const utCol = await resolveUptimeTimeCol();
+    if (utCol && endTimeNorm) {
+      insertColumns.push(utCol);
+      insertValues.push(endTimeNorm);
+    }
+    const insertSql = `INSERT INTO tasks (${insertColumns.join(', ')}) VALUES (${insertColumns.map(() => '?').join(', ')})`;
 
     await db.execute(insertSql, insertValues);
 
@@ -400,7 +548,7 @@ const createTask = async (req, res) => {
     console.error('Request body:', JSON.stringify(req.body, null, 2));
     res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการสร้าง Task',
+      message: 'Error creating task',
       error: error.message,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined,
     });
@@ -473,6 +621,7 @@ const updateTask = async (req, res) => {
       ticket,
       rootCause,
       resolution,
+      duration,
       coverageScope,
       startDate,
       endDate,
@@ -485,6 +634,8 @@ const updateTask = async (req, res) => {
       rescheduleNote,
       photos,
     } = req.body;
+
+    const dtPatch = parseDowntimePatch(req.body);
 
     const [existing] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     if (!existing[0]) {
@@ -524,6 +675,32 @@ const updateTask = async (req, res) => {
     if (rootCause !== undefined) addUpdate('root_cause', rootCause || null);
     if (resolution !== undefined) addUpdate('resolution', resolution || null);
     if (coverageScope !== undefined) addUpdate('coverage_scope', coverageScope || null);
+    if (await taskColumnExists('duration')) {
+      const effTaskType = String(
+        taskType !== undefined ? taskType : existing[0].task_type || ''
+      ).toUpperCase();
+      if (effTaskType === 'MA') {
+        addUpdate('duration', 0);
+      } else if (duration !== undefined) {
+        addUpdate('duration', duration || null);
+      }
+    }
+    const ddColU = await resolveDowntimeDateCol();
+    if (dtPatch.downtimeDate !== undefined && ddColU) {
+      addUpdate(ddColU, dtPatch.downtimeDate || null);
+    }
+    const dtColU = await resolveDowntimeTimeCol();
+    if (dtPatch.downtimeTime !== undefined && dtColU) {
+      addUpdate(dtColU, normalizeMysqlTime(dtPatch.downtimeTime));
+    }
+    const udColU = await resolveUptimeDateCol();
+    if (dtPatch.uptimeDate !== undefined && udColU) {
+      addUpdate(udColU, dtPatch.uptimeDate || null);
+    }
+    const utColU = await resolveUptimeTimeCol();
+    if (dtPatch.uptimeTime !== undefined && utColU) {
+      addUpdate(utColU, normalizeMysqlTime(dtPatch.uptimeTime));
+    }
     // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
     if (existing[0].status !== 'done') {
       if (startDate !== undefined) addUpdate('start_date', startDate);

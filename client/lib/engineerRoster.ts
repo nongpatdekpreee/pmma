@@ -1,5 +1,26 @@
 import { apiUrl } from '@/lib/api';
 
+/** คีย์ที่อาจอยู่บน engineer object ใน tasks.engineers JSON */
+const TASK_ENGINEER_ID_KEYS = [
+  'id',
+  'Eng_Eid',
+  'eng_id',
+  'employee_id',
+  'Eid',
+  'user_id',
+] as const;
+
+/** ดึง id พนักงานจากแถว engineer ที่แนบกับงาน — ให้เหมือนกันทุกหน้าที่โหลดจาก API */
+export function rawEngineerIdFromTaskJson(raw: unknown): string {
+  if (raw == null || typeof raw !== 'object') return '';
+  const o = raw as Record<string, unknown>;
+  for (const key of TASK_ENGINEER_ID_KEYS) {
+    const x = o[key];
+    if (x != null && String(x).trim() !== '') return String(x).trim();
+  }
+  return '';
+}
+
 /** ใช้กับตัวกรอง / dropdown engineer บนปฏิทินและ schedule */
 export type EngineerRosterItem = {
   id: string;
