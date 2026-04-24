@@ -71,10 +71,12 @@ async function resolveUptimeTimeCol() {
 function parseDowntimeFieldsFromBody(body) {
   const b = body || {};
   return {
-    downtimeDate: b.downtimeDate ?? b.downTimeStartDate,
-    downtimeTime: b.downtimeTime ?? b.downTimeStartTime,
-    uptimeDate: b.uptimeDate ?? b.downTimeEndDate,
-    uptimeTime: b.uptimeTime ?? b.downTimeEndTime,
+    downtimeDate:
+      b.downtimeDate ?? b.downTimeStartDate ?? b.downtime_date ?? b.down_time_start_date,
+    downtimeTime:
+      b.downtimeTime ?? b.downTimeStartTime ?? b.downtime_time ?? b.down_time_start_time,
+    uptimeDate: b.uptimeDate ?? b.downTimeEndDate ?? b.uptime_date ?? b.down_time_end_date,
+    uptimeTime: b.uptimeTime ?? b.downTimeEndTime ?? b.uptime_time ?? b.down_time_end_time,
   };
 }
 
@@ -82,17 +84,29 @@ function parseDowntimeFieldsFromBody(body) {
 function parseDowntimePatch(body) {
   const b = body || {};
   const o = {};
-  if ('downtimeDate' in b || 'downTimeStartDate' in b) {
-    o.downtimeDate = b.downtimeDate ?? b.downTimeStartDate ?? null;
+  if (
+    'downtimeDate' in b ||
+    'downTimeStartDate' in b ||
+    'downtime_date' in b ||
+    'down_time_start_date' in b
+  ) {
+    o.downtimeDate =
+      b.downtimeDate ?? b.downTimeStartDate ?? b.downtime_date ?? b.down_time_start_date ?? null;
   }
-  if ('downtimeTime' in b || 'downTimeStartTime' in b) {
-    o.downtimeTime = b.downtimeTime ?? b.downTimeStartTime ?? null;
+  if (
+    'downtimeTime' in b ||
+    'downTimeStartTime' in b ||
+    'downtime_time' in b ||
+    'down_time_start_time' in b
+  ) {
+    o.downtimeTime =
+      b.downtimeTime ?? b.downTimeStartTime ?? b.downtime_time ?? b.down_time_start_time ?? null;
   }
-  if ('uptimeDate' in b || 'downTimeEndDate' in b) {
-    o.uptimeDate = b.uptimeDate ?? b.downTimeEndDate ?? null;
+  if ('uptimeDate' in b || 'downTimeEndDate' in b || 'uptime_date' in b || 'down_time_end_date' in b) {
+    o.uptimeDate = b.uptimeDate ?? b.downTimeEndDate ?? b.uptime_date ?? b.down_time_end_date ?? null;
   }
-  if ('uptimeTime' in b || 'downTimeEndTime' in b) {
-    o.uptimeTime = b.uptimeTime ?? b.downTimeEndTime ?? null;
+  if ('uptimeTime' in b || 'downTimeEndTime' in b || 'uptime_time' in b || 'down_time_end_time' in b) {
+    o.uptimeTime = b.uptimeTime ?? b.downTimeEndTime ?? b.uptime_time ?? b.down_time_end_time ?? null;
   }
   return o;
 }
@@ -178,6 +192,20 @@ const toDateOnlyString = (val) => {
   return null;
 };
 
+/** แปลง time จาก DB (string / Date) → string HH:mm:ss สำหรับ API */
+function downtimeTimeToApiString(raw) {
+  if (raw == null || raw === '') return null;
+  if (raw instanceof Date) {
+    const hh = String(raw.getUTCHours()).padStart(2, '0');
+    const mi = String(raw.getUTCMinutes()).padStart(2, '0');
+    const ss = String(raw.getUTCSeconds()).padStart(2, '0');
+    return `${hh}:${mi}:${ss}`;
+  }
+  const s = String(raw).trim();
+  if (!s) return null;
+  return normalizeMysqlTime(s) || s.slice(0, 8);
+}
+
 /** แปลงแถว DB → API fields เดียวกันไม่ว่าจะเก็บในคอลัมน์ใหม่หรือเก่า */
 function downtimeApiFieldsFromRow(row) {
   const rawDd = row.downtime_date ?? row.down_time_start_date;
@@ -185,18 +213,39 @@ function downtimeApiFieldsFromRow(row) {
   const rawUd = row.uptime_date ?? row.down_time_end_date;
   const rawUt = row.uptime_time ?? row.down_time_end_time;
   const rawTot = row.downtime_total_hours ?? row.down_time_total_hours;
-  const out = {};
-  if (rawDd != null && rawDd !== '') out.downtimeDate = toDateOnlyString(rawDd);
-  if (rawDt != null && rawDt !== '') out.downtimeTime = rawDt;
-  if (rawUd != null && rawUd !== '') out.uptimeDate = toDateOnlyString(rawUd);
-  if (rawUt != null && rawUt !== '') out.uptimeTime = rawUt;
+
+  const downtimeDate =
+    rawDd != null && String(rawDd).trim() !== '' ? toDateOnlyString(rawDd) : null;
+  const downtimeTime = downtimeTimeToApiString(rawDt);
+  const uptimeDate =
+    rawUd != null && String(rawUd).trim() !== '' ? toDateOnlyString(rawUd) : null;
+  const uptimeTime = downtimeTimeToApiString(rawUt);
+  let downtimeTotalHours = null;
   if (
     rawTot != null &&
     String(rawTot).trim() !== '' &&
     !Number.isNaN(Number(rawTot))
   ) {
-    out.downtimeTotalHours = Number(rawTot);
+    downtimeTotalHours = Number(rawTot);
   }
+
+  /** MA: ส่ง key ชุดนี้เสมอ (null เมื่อยังไม่กรอก/ยังไม่ migrate) — ให้ client ไม่ต้องเดาว่ามีฟิลด์หรือไม่ */
+  if (String(row.task_type || '').toUpperCase() === 'MA') {
+    return {
+      downtimeDate,
+      downtimeTime,
+      uptimeDate,
+      uptimeTime,
+      downtimeTotalHours,
+    };
+  }
+
+  const out = {};
+  if (downtimeDate != null) out.downtimeDate = downtimeDate;
+  if (downtimeTime != null) out.downtimeTime = downtimeTime;
+  if (uptimeDate != null) out.uptimeDate = uptimeDate;
+  if (uptimeTime != null) out.uptimeTime = uptimeTime;
+  if (downtimeTotalHours != null) out.downtimeTotalHours = downtimeTotalHours;
   return out;
 }
 
@@ -597,6 +646,16 @@ const createTask = async (req, res) => {
       insertColumns.push(dtCol);
       insertValues.push(normalizeMysqlTime(downtimeTime));
     }
+    const isMaCreate = String(taskType || '').toUpperCase() === 'MA';
+    const hasDowntimeInPayload =
+      (downtimeDate != null && String(downtimeDate).trim() !== '') ||
+      (downtimeTime != null && String(downtimeTime).trim() !== '');
+    if (isMaCreate && hasDowntimeInPayload && (!ddCol || !dtCol)) {
+      console.warn(
+        '[createTask] MA downtime ไม่ถูกบันทึก: ตาราง tasks ยังไม่มีคอลัมน์ downtime — รัน migrations/add_tasks_ma_downtime.sql แล้ว restart server',
+        { taskId: finalTaskId, ddCol, dtCol }
+      );
+    }
     /** uptime — ใส่ตอนส่ง MA report; ตอนสร้างงานไม่ใส่คอลัมน์ถ้ายังไม่มีค่า */
     const endDateStr =
       uptimeDate != null && String(uptimeDate).trim()
@@ -819,6 +878,20 @@ const updateTask = async (req, res) => {
     if (dtPatch.downtimeTime !== undefined && dtColU) {
       addUpdate(dtColU, normalizeMysqlTime(dtPatch.downtimeTime));
     }
+    if (String(effTaskTypeEarly || '').toUpperCase() === 'MA') {
+      if (dtPatch.downtimeDate !== undefined && !ddColU) {
+        console.warn(
+          '[updateTask] downtimeDate ไม่ถูกบันทึก (ไม่พบคอลัมน์ใน tasks) — รัน migrations/add_tasks_ma_downtime.sql',
+          { id }
+        );
+      }
+      if (dtPatch.downtimeTime !== undefined && !dtColU) {
+        console.warn(
+          '[updateTask] downtimeTime ไม่ถูกบันทึก (ไม่พบคอลัมน์ใน tasks) — รัน migrations/add_tasks_ma_downtime.sql',
+          { id }
+        );
+      }
+    }
     const udColU = await resolveUptimeDateCol();
     if (dtPatch.uptimeDate !== undefined && udColU && !maAutoUptimeOnDone) {
       addUpdate(udColU, dtPatch.uptimeDate || null);
@@ -850,6 +923,11 @@ const updateTask = async (req, res) => {
         addUpdate(udColU, endD);
         addUpdate(utColU, timeSql);
       }
+    } else if (maAutoUptimeOnDone && (!udColU || !utColU)) {
+      console.warn(
+        '[updateTask] MA → Done แต่ uptime ไม่ถูกบันทึก: ไม่พบคอลัมน์ uptime ใน tasks — รัน migration downtime/uptime แล้ว restart server',
+        { id, udColU, utColU }
+      );
     }
     if (actuallyWent !== undefined) addUpdate('actually_went', actuallyWent ? 1 : 0);
     if (notes !== undefined) {
