@@ -16,6 +16,7 @@ import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
+import { getMaUptimeLocalForDoneCapture } from '@/lib/maUptimeCapture';
 
 interface Device {
   id: string;
@@ -869,19 +870,26 @@ function CalendarPageContent() {
 
   // Handle task update from detail modal (for status updates only)
   const handleTaskUpdate = async (updatedTask: any) => {
+    const originalEvent = calendarEvents.find((e) => e.id === updatedTask.id);
+    const originalStartDate = originalEvent?.startDate;
+    const originalEndDate = originalEvent?.endDate;
+
     const payload: any = {
       status: updatedTask.status,
     };
     if (updatedTask.notes !== undefined) {
       payload.notes = updatedTask.notes ?? null;
     }
+    /** MA → Done: ส่งเวลาท้องถิ่นจากเบราว์เซอร์ (server UTC/ TZ ต่างจากผู้ใช้จะทำให้ uptime เพี้ยน) */
+    const wasDone = String(originalEvent?.status || '').toLowerCase() === 'done';
+    const isNowDone = String(updatedTask.status || '').toLowerCase() === 'done';
+    const isMa =
+      String(updatedTask.taskType || originalEvent?.taskType || '').toUpperCase() === 'MA';
+    if (isMa && isNowDone && !wasDone) {
+      Object.assign(payload, getMaUptimeLocalForDoneCapture());
+    }
 
-    // Store original dates to preserve them
-    const originalEvent = calendarEvents.find(e => e.id === updatedTask.id);
-    const originalStartDate = originalEvent?.startDate;
-    const originalEndDate = originalEvent?.endDate;
-
-    // Update backend - only send status (server may set MA uptime when status → done)
+    // Update backend — server ตั้ง MA uptime จาก payload ด้านบนเมื่อ status → done
     let serverTask: Record<string, unknown> | null = null;
     try {
       const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
