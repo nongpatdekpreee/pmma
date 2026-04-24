@@ -24,7 +24,7 @@ import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import * as XLSX from 'xlsx';
@@ -489,11 +489,7 @@ function ScheduleManagementContent() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(apiUrl('/api/tasks'));
-      const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown[] }>(
-        res,
-        'Cannot load tasks: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
-      );
+      const json = await getTasks();
       if (!json.success) throw new Error(json.message || 'Cannot load tasks');
       setCalendarEvents((json.data || []).map(mapTaskToEvent));
     } catch (error: any) {

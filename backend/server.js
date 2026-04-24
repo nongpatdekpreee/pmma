@@ -59,6 +59,18 @@ app.get('/', (req, res) => {
   });
 });
 
+// 404 ใต้ /api ที่ไม่มี route — ตอบ JSON แทนข้อความ plain/HTML ของ Express
+app.use((req, res) => {
+  if (String(req.originalUrl || '').startsWith('/api')) {
+    return res.status(404).json({
+      success: false,
+      message: 'API route not found',
+      path: req.originalUrl,
+    });
+  }
+  res.status(404).type('txt').send('Not found');
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);

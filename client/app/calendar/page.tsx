@@ -13,7 +13,7 @@ import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react'
 import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
+import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, getTasks, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 
@@ -272,8 +272,7 @@ function CalendarPageContent() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(apiUrl('/api/tasks'));
-      const json = await res.json();
+      const json = await getTasks();
       if (!json.success) throw new Error(json.message || 'Failed to load data');
       setCalendarEvents((json.data || []).map(mapTaskToEvent));
     } catch (error: any) {
