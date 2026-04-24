@@ -1735,7 +1735,7 @@ function ScheduleManagementContent() {
               if (!siteByPair) {
                 const sofL = String(task.sofName || '').trim() || '(no SOF)';
                 errors.push(
-                  `Row ${i + 1}: Sid ${sidN} + Lid ${lidN} ไม่มีคู่ Site+Location ในแถวสัญญา (SOF "${sofL}")\nFrom your file: Sid ${sidN}, Lid ${lidN}, SOF "${sofL}".`
+                  `Row ${i + 1}: Sid ${sidN} + Lid ${lidN} does not have matching Site+Location in contract rows (SOF "${sofL}")\nFrom your file: Sid ${sidN}, Lid ${lidN}, SOF "${sofL}".`
                 );
                 continue;
               }
@@ -1818,7 +1818,7 @@ function ScheduleManagementContent() {
                       .map((x) => `DB SiteName "${x.name}" (~${Math.round(Math.min(1, Math.max(0, x.sim)) * 100)}% vs your Site)`)
                       .join('; ');
                     errors.push(
-                      `Row ${i + 1}: Site และ Location ในไฟล์ต้องตรงกับ SiteName และ Location2 ในระบบทุกตัว (ตัวพิมพ์เล็ก/ใหญ่ไม่สน) — ไม่พบแถวที่ Site ตรงกันเลย (SOF "${sofForMsg}"). ${closestStr ? `ใกล้เคียงใน DB: ${closestStr}.` : ''}\nFrom your file: Site "${task.siteName}", Location "${task.location || '—'}", SOF "${sofForMsg}".`
+                      `Row ${i + 1}: Site and Location in file must match system SiteName and Location2 exactly (case-insensitive) — no matching Site row (SOF "${sofForMsg}"). ${closestStr ? `Closest in DB: ${closestStr}.` : ''}\nFrom your file: Site "${task.siteName}", Location "${task.location || '—'}", SOF "${sofForMsg}".`
                     );
                   } else {
                     const dbSiteNamesFromHits: string[] = [];
@@ -1834,15 +1834,15 @@ function ScheduleManagementContent() {
                     const quotedDbSites = dbSiteNamesFromHits.slice(0, 3).map((n) => `"${n}"`);
                     let dbSiteThaiList = '';
                     if (quotedDbSites.length === 0) {
-                      dbSiteThaiList = '(ไม่มีชื่อ Site บนแถวที่ชื่อ Site ตรงกับไฟล์)';
+                      dbSiteThaiList = '(no SiteName text on rows that match file Site)';
                     } else if (quotedDbSites.length === 1) {
                       dbSiteThaiList = quotedDbSites[0];
                     } else if (quotedDbSites.length === 2) {
-                      dbSiteThaiList = `${quotedDbSites[0]} และ ${quotedDbSites[1]}`;
+                        dbSiteThaiList = `${quotedDbSites[0]} and ${quotedDbSites[1]}`;
                     } else {
-                      dbSiteThaiList = `${quotedDbSites[0]} ${quotedDbSites[1]} และ ${quotedDbSites[2]}${
+                      dbSiteThaiList = `${quotedDbSites[0]} ${quotedDbSites[1]} and ${quotedDbSites[2]}${
                         dbSiteNamesFromHits.length > 3
-                          ? ` (และอีก ${dbSiteNamesFromHits.length - 3} ชื่อในระบบ)`
+                          ? ` (and ${dbSiteNamesFromHits.length - 3} more names in DB)`
                           : ''
                       }`;
                     }
@@ -1882,7 +1882,7 @@ function ScheduleManagementContent() {
                     }
 
                     errors.push(
-                      `Row ${i + 1}: Site ในไฟล์ "${task.siteName}" ตรงชื่อ Site ในระบบ ${dbSiteThaiList} (มี ${siteOnlyHits.length} แถว) แต่ Location ในไฟล์ "${task.location || '—'}" ไม่ตรง Location2 ใดแบบตัวต่อตัว (ไม่สนตัวพิมพ์) สำหรับแถวเหล่านั้น — SOF "${sofForMsg}"\n` +
+                      `Row ${i + 1}: Site in file "${task.siteName}" matches system SiteName ${dbSiteThaiList} (has ${siteOnlyHits.length} rows) but Location in file "${task.location || '—'}" does not match any Location2 exactly (case-insensitive) for those rows — SOF "${sofForMsg}"\n` +
                         `From your file: Site "${task.siteName}", Location "${task.location || '—'}", SOF "${sofForMsg}". Hints: ${locHints}${siteOnlyHits.length > 5 && !task.contractId ? ' …' : ''}`
                     );
                   }
@@ -1903,7 +1903,7 @@ function ScheduleManagementContent() {
                     .map((x) => `DB SiteName "${x.name}" (~${Math.round(Math.min(1, Math.max(0, x.sim)) * 100)}%)`)
                     .join('; ');
                   errors.push(
-                    `Row ${i + 1}: Site ในไฟล์ต้องตรง SiteName ในระบบทุกตัว (ไม่สนตัวพิมพ์) — ไม่มี Location ในไฟล์ และไม่พบ Site ตรงกัน (SOF "${sofForMsg}"). ${closestNoLocStr ? `ใกล้เคียงใน DB: ${closestNoLocStr}.` : ''}\nFrom your file: Site "${task.siteName}", SOF "${sofForMsg}".`
+                    `Row ${i + 1}: Site in file must match system SiteName exactly (case-insensitive) — no Location in file and no matching Site (SOF "${sofForMsg}"). ${closestNoLocStr ? `Closest in DB: ${closestNoLocStr}.` : ''}\nFrom your file: Site "${task.siteName}", SOF "${sofForMsg}".`
                   );
                   console.warn(`Available sites:`, siteOptions.map((s) => `${s.name} - ${s.location} (SLid: ${s.id})`));
                   continue;
@@ -1923,7 +1923,7 @@ function ScheduleManagementContent() {
               const site = siteOptions.find((s) => s.id === String(task.siteId));
               if (!site) {
                 errors.push(
-                  `Row ${i + 1}: SLid "${task.siteId}" ไม่มีในรายการแถวสัญญา (SOF "${sofCsv}")\nFrom your file: SLid "${task.siteId}", SOF "${sofCsv}".`
+                  `Row ${i + 1}: SLid "${task.siteId}" does not exist in contract rows (SOF "${sofCsv}")\nFrom your file: SLid "${task.siteId}", SOF "${sofCsv}".`
                 );
                 continue;
               }
@@ -1945,19 +1945,19 @@ function ScheduleManagementContent() {
 
             if (!task.Sid && !task.siteId) {
               errors.push(
-                `Row ${i + 1}: หา Site/SLid ไม่ได้ — ในไฟล์ Site "${task.siteName || '—'}", Location "${task.location || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}"\nFrom your file: Site "${task.siteName || '—'}", Location "${task.location || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
+                `Row ${i + 1}: Cannot find Site/SLid — in file Site "${task.siteName || '—'}", Location "${task.location || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}"\nFrom your file: Site "${task.siteName || '—'}", Location "${task.location || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
               );
               continue;
             }
             if (!task.startDate) {
               errors.push(
-                `Row ${i + 1}: วันเริ่มในไฟล์ "${String(task.startDate ?? '').trim() || '—'}" ว่างหรือรูปแบบผิด (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}")\nFrom your file: Plan start "${String(task.startDate ?? '').trim() || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
+                `Row ${i + 1}: Plan start in file "${String(task.startDate ?? '').trim() || '—'}" is empty or invalid (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}")\nFrom your file: Plan start "${String(task.startDate ?? '').trim() || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
               );
               continue;
             }
             if (!task.Eng_ids || task.Eng_ids.length === 0) {
               errors.push(
-                `Row ${i + 1}: ชื่อวิศวกรในไฟล์ "${String(task._importEngineerRaw || '').trim() || '—'}" ไม่ตรงรายชื่อในระบบ (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}")\nFrom your file: Engineer "${String(task._importEngineerRaw || '').trim() || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
+                `Row ${i + 1}: Engineer in file "${String(task._importEngineerRaw || '').trim() || '—'}" does not match system name (SOF "${String(task.sofName || '').trim() || '(ว่าง)'}")\nFrom your file: Engineer "${String(task._importEngineerRaw || '').trim() || '—'}", SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
               );
               continue;
             }
@@ -2013,7 +2013,7 @@ function ScheduleManagementContent() {
             }
             if (!task.contractId) {
               errors.push(
-                `Row ${i + 1}: SOF ในไฟล์ "${sofTrim}" ไม่ตรงค่า sof_name ของสัญญาในระบบ (Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${sofTrim}", Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}.`
+                `Row ${i + 1}: SOF in file "${sofTrim}" does not match the contract's sof_name (Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${sofTrim}", Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}.`
               );
               continue;
             }
@@ -2027,7 +2027,7 @@ function ScheduleManagementContent() {
               today.setHours(0, 0, 0, 0);
               if (endDate < today) {
                 errors.push(
-                  `Row ${i + 1}: สัญญาของ SOF "${sofTrim}" หมดอายุแล้ว (Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${sofTrim}", Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}.`
+                  `Row ${i + 1}: Contract of SOF "${sofTrim}" has expired (Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'})\nFrom your file: SOF "${sofTrim}", Site "${task.Sname || task.siteName || '—'}", SLid ${task.Sid || task.siteId || '—'}.`
                 );
                 continue;
               }
