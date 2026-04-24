@@ -1,7 +1,7 @@
 'use client';
 
 import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip, Clock3, Calendar } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
 import { DEFAULT_IN_STORE_SITE_NAME } from '@/lib/inStoreSite';
@@ -103,6 +103,31 @@ interface TaskDetail {
   status?: 'done' | 'working' | 'stuck' | 'not-started';
 }
 
+/** แสดง MA downtime/uptime — camelCase จาก API + snake_case ถ้า payload ไม่ผ่าน mapTaskRow */
+function getMaDowntimeDisplay(task: TaskDetail | null | undefined) {
+  if (!task) {
+    return {
+      downtimeDate: undefined as string | null | undefined,
+      downtimeTime: undefined as string | null | undefined,
+      uptimeDate: undefined as string | null | undefined,
+      uptimeTime: undefined as string | null | undefined,
+      downtimeTotalHours: undefined as string | number | null | undefined,
+    };
+  }
+  const r = task as unknown as Record<string, unknown>;
+  return {
+    downtimeDate: (task.downtimeDate ?? r.downtime_date ?? r.down_time_start_date) as string | null | undefined,
+    downtimeTime: (task.downtimeTime ?? r.downtime_time ?? r.down_time_start_time) as string | null | undefined,
+    uptimeDate: (task.uptimeDate ?? r.uptime_date ?? r.down_time_end_date) as string | null | undefined,
+    uptimeTime: (task.uptimeTime ?? r.uptime_time ?? r.down_time_end_time) as string | null | undefined,
+    downtimeTotalHours: (task.downtimeTotalHours ?? r.downtime_total_hours ?? r.down_time_total_hours) as
+      | string
+      | number
+      | null
+      | undefined,
+  };
+}
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -125,6 +150,8 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, Device>>({});
   const [assetPage, setAssetPage] = useState(1);
   const assetsPerPage = 5;
+
+  const maDowntimeDisplay = useMemo(() => getMaDowntimeDisplay(task), [task]);
 
   // Update local state when task changes
   useEffect(() => {
@@ -662,34 +689,34 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Downtime date</label>
                   <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
-                    {formatDateLocale(task.downtimeDate, 'en-US') || '—'}
+                    {formatDateLocale(maDowntimeDisplay.downtimeDate, 'en-US') || '—'}
                   </p>
                 </div>
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Downtime time</label>
                   <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
-                    {formatTime12h(task.downtimeTime, 'en-US') || '—'}
+                    {formatTime12h(maDowntimeDisplay.downtimeTime, 'en-US') || '—'}
                   </p>
                 </div>
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Uptime date</label>
                   <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
-                    {formatDateLocale(task.uptimeDate, 'en-US') || '—'}
+                    {formatDateLocale(maDowntimeDisplay.uptimeDate, 'en-US') || '—'}
                   </p>
                 </div>
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Uptime time</label>
                   <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
-                    {formatTime12h(task.uptimeTime, 'en-US') || '—'}
+                    {formatTime12h(maDowntimeDisplay.uptimeTime, 'en-US') || '—'}
                   </p>
                 </div>
                 <div className="md:col-span-2 pt-2 border-t border-emerald-200">
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Total downtime</label>
                   <p className="text-sm font-semibold text-emerald-900 mt-1 tabular-nums">
-                    {task.downtimeTotalHours != null &&
-                    String(task.downtimeTotalHours).trim() !== '' &&
-                    !Number.isNaN(Number(task.downtimeTotalHours))
-                      ? `${Number(task.downtimeTotalHours)} hrs`
+                    {maDowntimeDisplay.downtimeTotalHours != null &&
+                    String(maDowntimeDisplay.downtimeTotalHours).trim() !== '' &&
+                    !Number.isNaN(Number(maDowntimeDisplay.downtimeTotalHours))
+                      ? `${Number(maDowntimeDisplay.downtimeTotalHours)} hrs`
                       : '—'}
                   </p>
                 </div>
