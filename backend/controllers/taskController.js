@@ -111,6 +111,23 @@ function parseDowntimePatch(body) {
   return o;
 }
 
+/**
+ * MA → Done: client ส่งวัน/เวลาท้องถิ่นจากเบราว์เซอร์ (ไม่ให้ uptime ผูกกับ timezone ของ server)
+ */
+function parseOptionalMaUptimeLocalFromBody(body) {
+  const b = body || {};
+  const date = b.maUptimeLocalDate ?? b.ma_uptime_local_date;
+  const time = b.maUptimeLocalTime ?? b.ma_uptime_local_time;
+  if (typeof date !== 'string' || typeof time !== 'string') return null;
+  const dTrim = date.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dTrim)) return null;
+  const y = parseInt(dTrim.slice(0, 4), 10);
+  if (!Number.isFinite(y) || y < 2000 || y > 2100) return null;
+  const timeNorm = normalizeMysqlTime(time.trim());
+  if (!timeNorm) return null;
+  return { date: dTrim, time: timeNorm };
+}
+
 /** Reason for in process เก็บใน notes เมื่อ status = working — จำกัดความยาว */
 const WORKING_NOTES_MAX_LEN = 120;
 function clampNotesForWorkingStatus(notes, status) {
@@ -910,12 +927,20 @@ const updateTask = async (req, res) => {
     if (assetBinding !== undefined) addUpdate('asset_binding', assetBinding || null);
     if (status !== undefined) addUpdate('status', status || 'not-started');
     if (maAutoUptimeOnDone && udColU && utColU) {
-      const now = new Date();
-      let endD = toDateOnlyString(now);
-      const hh = String(now.getHours()).padStart(2, '0');
-      const mi = String(now.getMinutes()).padStart(2, '0');
-      const ss = String(now.getSeconds()).padStart(2, '0');
-      let timeSql = normalizeMysqlTime(`${hh}:${mi}:${ss}`);
+      const fromClient = parseOptionalMaUptimeLocalFromBody(req.body);
+      let endD;
+      let timeSql;
+      if (fromClient) {
+        endD = fromClient.date;
+        timeSql = fromClient.time;
+      } else {
+        const now = new Date();
+        endD = toDateOnlyString(now);
+        const hh = String(now.getHours()).padStart(2, '0');
+        const mi = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        timeSql = normalizeMysqlTime(`${hh}:${mi}:${ss}`);
+      }
       if (endD && timeSql) {
         const clamped = clampMaUptimeAfterDowntimeStart(existing[0], endD, timeSql);
         endD = clamped.date;
