@@ -2085,7 +2085,7 @@ function ScheduleManagementContent() {
                     ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
                     : `Preview row ${previewN}`;
                 errors.push(
-                  `${rowRef}: ไม่พบอุปกรณ์ที่ SLid ${task.Sid} + Location "${task.location || '—'}" + SOF "${task.sofName}" ในสัญญานี้\nFrom your file: SOF "${task.sofName}", SLid ${task.Sid}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
+                  `${rowRef}: No devices found for SLid ${task.Sid} + Location "${task.location || '—'}" + SOF "${task.sofName}" in this contract\nFrom your file: SOF "${task.sofName}", SLid ${task.Sid}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
                 );
               }
             } else {
@@ -2102,7 +2102,7 @@ function ScheduleManagementContent() {
                   ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
                   : `Preview row ${previewN}`;
               errors.push(
-                `${rowRef}: ไม่มี SLid — SOF "${String(task.sofName || '').trim() || '(ว่าง)'}", Site "${task.Sname || task.siteName || '—'}"\nFrom your file: SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
+                `${rowRef}: No SLid — SOF "${String(task.sofName || '').trim() || '(ว่าง)'}", Site "${task.Sname || task.siteName || '—'}"\nFrom your file: SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
               );
               // Set default values
               task.deviceIds = [];
@@ -2245,7 +2245,7 @@ function ScheduleManagementContent() {
           (task.devices && task.devices.length > 0);
         if (!hasDevices) {
           errors.push(
-            `${bulkRowHead} ไม่พบอุปกรณ์ที่ SLid ${task.Sid || task.siteId || '—'} + Location "${task.location || '—'}" + SOF "${sofTrimBulk}"\nFrom your file: SOF "${sofTrimBulk}", SLid ${task.Sid || task.siteId || '—'}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
+            `${bulkRowHead} No devices found for SLid ${task.Sid || task.siteId || '—'} + Location "${task.location || '—'}" + SOF "${sofTrimBulk}"\nFrom your file: SOF "${sofTrimBulk}", SLid ${task.Sid || task.siteId || '—'}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
           );
           continue;
         }
