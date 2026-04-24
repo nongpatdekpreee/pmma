@@ -24,10 +24,9 @@ import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
-import { getMaUptimeLocalForDoneCapture } from '@/lib/maUptimeCapture';
 import * as XLSX from 'xlsx';
 
 
@@ -490,11 +489,7 @@ function ScheduleManagementContent() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(apiUrl('/api/tasks'));
-      const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown[] }>(
-        res,
-        'Cannot load tasks: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
-      );
+      const json = await getTasks();
       if (!json.success) throw new Error(json.message || 'Cannot load tasks');
       setCalendarEvents((json.data || []).map(mapTaskToEvent));
     } catch (error: any) {
@@ -2085,7 +2080,7 @@ function ScheduleManagementContent() {
                     ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
                     : `Preview row ${previewN}`;
                 errors.push(
-                  `${rowRef}: ไม่พบอุปกรณ์ที่ SLid ${task.Sid} + Location "${task.location || '—'}" + SOF "${task.sofName}" ในสัญญานี้\nFrom your file: SOF "${task.sofName}", SLid ${task.Sid}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
+                  `${rowRef}: No devices found for SLid ${task.Sid} + Location "${task.location || '—'}" + SOF "${task.sofName}" in this contract\nFrom your file: SOF "${task.sofName}", SLid ${task.Sid}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
                 );
               }
             } else {
@@ -2102,7 +2097,7 @@ function ScheduleManagementContent() {
                   ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
                   : `Preview row ${previewN}`;
               errors.push(
-                `${rowRef}: ไม่มี SLid — SOF "${String(task.sofName || '').trim() || '(ว่าง)'}", Site "${task.Sname || task.siteName || '—'}"\nFrom your file: SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
+                `${rowRef}: No SLid — SOF "${String(task.sofName || '').trim() || '(ว่าง)'}", Site "${task.Sname || task.siteName || '—'}"\nFrom your file: SOF "${String(task.sofName || '').trim() || '(ว่าง)'}".`
               );
               // Set default values
               task.deviceIds = [];
@@ -2245,7 +2240,7 @@ function ScheduleManagementContent() {
           (task.devices && task.devices.length > 0);
         if (!hasDevices) {
           errors.push(
-            `${bulkRowHead} ไม่พบอุปกรณ์ที่ SLid ${task.Sid || task.siteId || '—'} + Location "${task.location || '—'}" + SOF "${sofTrimBulk}"\nFrom your file: SOF "${sofTrimBulk}", SLid ${task.Sid || task.siteId || '—'}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
+            `${bulkRowHead} No devices found for SLid ${task.Sid || task.siteId || '—'} + Location "${task.location || '—'}" + SOF "${sofTrimBulk}"\nFrom your file: SOF "${sofTrimBulk}", SLid ${task.Sid || task.siteId || '—'}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
           );
           continue;
         }
@@ -2425,14 +2420,6 @@ function ScheduleManagementContent() {
     if (updatedTask.notes !== undefined) {
       payload.notes = updatedTask.notes ?? null;
     }
-    const wasDone = String(originalEvent?.status || '').toLowerCase() === 'done';
-    const isNowDone = String(updatedTask.status || '').toLowerCase() === 'done';
-    const isMa =
-      String(updatedTask.taskType || originalEvent?.taskType || '').toUpperCase() === 'MA';
-    if (isMa && isNowDone && !wasDone) {
-      Object.assign(payload, getMaUptimeLocalForDoneCapture());
-    }
-
     let serverTask: Record<string, unknown> | null = null;
     try {
       const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {

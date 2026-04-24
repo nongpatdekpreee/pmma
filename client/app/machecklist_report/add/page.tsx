@@ -123,33 +123,36 @@ function AddMAReportPageContent() {
     [doneMATasks, selectedTaskId]
   );
 
-  /** Uptime มาจาก tasks เมื่อกด Done ใน Calendar / Schedule (ไม่กรอกใน report) */
-  const taskUptimeDateStr = useMemo(() => {
-    if (!selectedMaTask) return '';
+  /** Uptime กรอกเองตอนส่ง report — pre-fill จากงานถ้ามีค่าใน DB แล้ว */
+  const [reportUptimeDate, setReportUptimeDate] = useState('');
+  const [reportUptimeTime, setReportUptimeTime] = useState('');
+
+  useEffect(() => {
+    if (!selectedMaTask) {
+      setReportUptimeDate('');
+      setReportUptimeTime('');
+      return;
+    }
     const endD =
       selectedMaTask.uptimeDate ??
       selectedMaTask.downTimeEndDate ??
       selectedMaTask.down_time_end_date ??
       selectedMaTask.uptime_date;
-    return endD ? toDateOnly(endD) : '';
-  }, [selectedMaTask]);
-
-  const taskUptimeTimeStr = useMemo(() => {
-    if (!selectedMaTask) return '';
     const ut =
       selectedMaTask.uptimeTime ??
       selectedMaTask.downTimeEndTime ??
       selectedMaTask.down_time_end_time ??
       selectedMaTask.uptime_time;
-    return ut ? toTimeHHmm(ut) : '';
+    setReportUptimeDate(endD ? toDateOnly(endD) : '');
+    setReportUptimeTime(ut ? toTimeHHmm(ut) : '');
   }, [selectedMaTask]);
 
   /** ชั่วโมงรวม + ข้อความช่วยเมื่อคำนวณไม่ได้ (เช่น Uptime ก่อน Downtime) */
   const downtimeTotalPreview = useMemo(() => {
-    if (!selectedMaTask || !taskUptimeDateStr?.trim() || !taskUptimeTimeStr?.trim()) {
+    if (!selectedMaTask || !reportUptimeDate?.trim() || !reportUptimeTime?.trim()) {
       return {
         hours: null as number | null,
-        emptyHint: '— Mark the MA task as Done in Calendar or Schedule — uptime is saved at that moment —' as string | null,
+        emptyHint: '— Enter Uptime date and Uptime time below —' as string | null,
       };
     }
     const startDate = toDateOnly(
@@ -169,15 +172,15 @@ function AddMAReportPageContent() {
     const startTH = startTRaw ? toTimeHHmm(startTRaw) : undefined;
     const hours = computeDownTimeTotalHours(
       startDate,
-      taskUptimeDateStr,
-      taskUptimeTimeStr,
+      reportUptimeDate,
+      reportUptimeTime,
       startTH
     );
     if (hours != null) return { hours, emptyHint: null };
 
     const stPart = startTH || '00:00';
-    const ed = toDateOnly(taskUptimeDateStr);
-    const tt = toTimeHHmm(taskUptimeTimeStr);
+    const ed = toDateOnly(reportUptimeDate);
+    const tt = toTimeHHmm(reportUptimeTime);
     if (ed && tt) {
       const t0 = new Date(`${startDate}T${stPart}:00`).getTime();
       const t1 = new Date(`${ed}T${tt}:00`).getTime();
@@ -190,7 +193,7 @@ function AddMAReportPageContent() {
       }
     }
     return { hours: null, emptyHint: '— Cannot compute — check date/time values —' };
-  }, [selectedMaTask, taskUptimeDateStr, taskUptimeTimeStr]);
+  }, [selectedMaTask, reportUptimeDate, reportUptimeTime]);
 
   // แสดงเฉพาะ Task ที่ยังไม่มี report_id (task_id ไม่อยู่ใน table report)
   const availableMATasks = useMemo(
@@ -541,10 +544,8 @@ function AddMAReportPageContent() {
       toastWarning('Please select a device.');
       return;
     }
-    if (!taskUptimeDateStr?.trim() || !taskUptimeTimeStr?.trim()) {
-      toastWarning(
-        'กรุณากด Done สำหรับงาน MA ใน Calendar หรือ Schedule ก่อน — ระบบจะบันทึกวันเวลา Uptime ตอนนั้น'
-      );
+    if (!reportUptimeDate?.trim() || !reportUptimeTime?.trim()) {
+      toastWarning('Please enter Uptime date and Uptime time (service back online time)');
       return;
     }
     const downStart = selectedMaTask
@@ -567,12 +568,12 @@ function AddMAReportPageContent() {
       downStart &&
       computeDownTimeTotalHours(
         downStart,
-        taskUptimeDateStr,
-        taskUptimeTimeStr,
+        reportUptimeDate,
+        reportUptimeTime,
         startTimeHH || undefined
       ) === null
     ) {
-        toastWarning('ช่วงเวลาไม่ถูกต้อง — Uptime ต้องไม่ก่อนช่วง Downtime ของงาน');
+        toastWarning('Time range is incorrect — Uptime must not be before the task downtime');
         return;
     }
     const selectedDevice =
@@ -614,6 +615,8 @@ function AddMAReportPageContent() {
         technicianName,
         maDate,
         createdAt: new Date().toISOString(),
+        uptimeDate: reportUptimeDate.trim().slice(0, 10),
+        uptimeTime: reportUptimeTime.trim(),
       };
 
       const res = await postMaReport(reportData);
@@ -1010,7 +1013,7 @@ function AddMAReportPageContent() {
             })()}
           </div>
 
-          {/* Downtime จากงาน / Uptime จากเวลากด Done บน Calendar หรือ Schedule */}
+          {/* Downtime จากงาน / Uptime กรอกตอนส่ง report */}
           {selectedTaskId != null && selectedMaTask && (
             <div className="mb-6 p-4 bg-emerald-50/60 rounded-xl border border-emerald-200/80">
               <h3 className="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
@@ -1018,7 +1021,7 @@ function AddMAReportPageContent() {
                 Uptime & total downtime
               </h3>
               <p className="text-xs text-slate-600 mb-3">
-                Uptime ถูกบันทึกอัตโนมัติเมื่อเปลี่ยนสถานะงานเป็น Done จาก Calendar หรือ Schedule Management
+                Enter the date and time the system came back online (Uptime) — will be saved to the task when submitting the report
               </p>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 items-start">
@@ -1047,20 +1050,23 @@ function AddMAReportPageContent() {
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Uptime date (จาก Done)</p>
-                  <p className="text-sm font-semibold text-slate-800 tabular-nums p-2.5 bg-white border border-slate-200 rounded-xl min-h-[42px] flex items-center">
-                    {taskUptimeDateStr
-                      ? formatDateLocale(taskUptimeDateStr, 'en-US')
-                      : '— ยังไม่มี — กด Done ใน Calendar/Schedule ก่อน —'}
-                  </p>
+                  <p className="text-xs font-medium text-slate-500 mb-1">Uptime date</p>
+                  <input
+                    type="date"
+                    value={reportUptimeDate}
+                    onChange={(e) => setReportUptimeDate(e.target.value)}
+                    className="w-full text-sm font-semibold text-slate-800 tabular-nums p-2.5 bg-white border border-slate-200 rounded-xl min-h-[42px] focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Uptime time (จาก Done)</p>
-                  <p className="text-sm font-semibold text-slate-800 tabular-nums p-2.5 bg-white border border-slate-200 rounded-xl min-h-[42px] flex items-center">
-                    {taskUptimeTimeStr
-                      ? formatTime12h(taskUptimeTimeStr, 'en-US')
-                      : '—'}
-                  </p>
+                  <p className="text-xs font-medium text-slate-500 mb-1">Uptime time</p>
+                  <input
+                    type="time"
+                    step={60}
+                    value={reportUptimeTime}
+                    onChange={(e) => setReportUptimeTime(e.target.value)}
+                    className="w-full text-sm font-semibold text-slate-800 tabular-nums p-2.5 bg-white border border-slate-200 rounded-xl min-h-[42px] focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-slate-500 mb-1">Total downtime (ชม.)</p>

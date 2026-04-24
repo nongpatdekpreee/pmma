@@ -13,10 +13,9 @@ import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react'
 import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, type HolidayItem } from '@/lib/api';
+import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, getTasks, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
-import { getMaUptimeLocalForDoneCapture } from '@/lib/maUptimeCapture';
 
 interface Device {
   id: string;
@@ -273,8 +272,7 @@ function CalendarPageContent() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(apiUrl('/api/tasks'));
-      const json = await res.json();
+      const json = await getTasks();
       if (!json.success) throw new Error(json.message || 'Failed to load data');
       setCalendarEvents((json.data || []).map(mapTaskToEvent));
     } catch (error: any) {
@@ -880,16 +878,7 @@ function CalendarPageContent() {
     if (updatedTask.notes !== undefined) {
       payload.notes = updatedTask.notes ?? null;
     }
-    /** MA → Done: ส่งเวลาท้องถิ่นจากเบราว์เซอร์ (server UTC/ TZ ต่างจากผู้ใช้จะทำให้ uptime เพี้ยน) */
-    const wasDone = String(originalEvent?.status || '').toLowerCase() === 'done';
-    const isNowDone = String(updatedTask.status || '').toLowerCase() === 'done';
-    const isMa =
-      String(updatedTask.taskType || originalEvent?.taskType || '').toUpperCase() === 'MA';
-    if (isMa && isNowDone && !wasDone) {
-      Object.assign(payload, getMaUptimeLocalForDoneCapture());
-    }
-
-    // Update backend — server ตั้ง MA uptime จาก payload ด้านบนเมื่อ status → done
+    // Update backend — MA uptime กรอกตอนส่ง MA checklist report (ไม่ตั้งอัตโนมัติตอน Done)
     let serverTask: Record<string, unknown> | null = null;
     try {
       const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {

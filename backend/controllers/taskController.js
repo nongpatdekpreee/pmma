@@ -111,23 +111,6 @@ function parseDowntimePatch(body) {
   return o;
 }
 
-/**
- * MA → Done: client ส่งวัน/เวลาท้องถิ่นจากเบราว์เซอร์ (ไม่ให้ uptime ผูกกับ timezone ของ server)
- */
-function parseOptionalMaUptimeLocalFromBody(body) {
-  const b = body || {};
-  const date = b.maUptimeLocalDate ?? b.ma_uptime_local_date;
-  const time = b.maUptimeLocalTime ?? b.ma_uptime_local_time;
-  if (typeof date !== 'string' || typeof time !== 'string') return null;
-  const dTrim = date.trim().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dTrim)) return null;
-  const y = parseInt(dTrim.slice(0, 4), 10);
-  if (!Number.isFinite(y) || y < 2000 || y > 2100) return null;
-  const timeNorm = normalizeMysqlTime(time.trim());
-  if (!timeNorm) return null;
-  return { date: dTrim, time: timeNorm };
-}
-
 /** Reason for in process เก็บใน notes เมื่อ status = working — จำกัดความยาว */
 const WORKING_NOTES_MAX_LEN = 120;
 function clampNotesForWorkingStatus(notes, status) {
@@ -836,14 +819,6 @@ const updateTask = async (req, res) => {
       }
     }
 
-    const newStatusEarly = status !== undefined ? (status || 'not-started') : existing[0].status;
-    const effTaskTypeEarly = taskType !== undefined ? taskType : existing[0].task_type;
-    /** MA: เมื่อเปลี่ยนเป็น Done จาก Calendar/Schedule — ตั้ง uptime = เวลาปัจจุบัน (ไม่ต้องกรอกใน report) */
-    const maAutoUptimeOnDone =
-      String(effTaskTypeEarly || '').toUpperCase() === 'MA' &&
-      String(existing[0].status || '').toLowerCase() !== 'done' &&
-      String(newStatusEarly || '').toLowerCase() === 'done';
-
     // Helper function to safely parse integer
     const safeParseInt = (value) => {
       if (value === null || value === undefined || value === '') return null;
@@ -895,6 +870,7 @@ const updateTask = async (req, res) => {
     if (dtPatch.downtimeTime !== undefined && dtColU) {
       addUpdate(dtColU, normalizeMysqlTime(dtPatch.downtimeTime));
     }
+    const effTaskTypeEarly = taskType !== undefined ? taskType : existing[0].task_type;
     if (String(effTaskTypeEarly || '').toUpperCase() === 'MA') {
       if (dtPatch.downtimeDate !== undefined && !ddColU) {
         console.warn(
@@ -910,11 +886,11 @@ const updateTask = async (req, res) => {
       }
     }
     const udColU = await resolveUptimeDateCol();
-    if (dtPatch.uptimeDate !== undefined && udColU && !maAutoUptimeOnDone) {
+    if (dtPatch.uptimeDate !== undefined && udColU) {
       addUpdate(udColU, dtPatch.uptimeDate || null);
     }
     const utColU = await resolveUptimeTimeCol();
-    if (dtPatch.uptimeTime !== undefined && utColU && !maAutoUptimeOnDone) {
+    if (dtPatch.uptimeTime !== undefined && utColU) {
       addUpdate(utColU, normalizeMysqlTime(dtPatch.uptimeTime));
     }
     // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
@@ -926,34 +902,6 @@ const updateTask = async (req, res) => {
     if (assets !== undefined) addUpdate('assets', assets && assets.length > 0 ? JSON.stringify(assets) : null);
     if (assetBinding !== undefined) addUpdate('asset_binding', assetBinding || null);
     if (status !== undefined) addUpdate('status', status || 'not-started');
-    if (maAutoUptimeOnDone && udColU && utColU) {
-      const fromClient = parseOptionalMaUptimeLocalFromBody(req.body);
-      let endD;
-      let timeSql;
-      if (fromClient) {
-        endD = fromClient.date;
-        timeSql = fromClient.time;
-      } else {
-        const now = new Date();
-        endD = toDateOnlyString(now);
-        const hh = String(now.getHours()).padStart(2, '0');
-        const mi = String(now.getMinutes()).padStart(2, '0');
-        const ss = String(now.getSeconds()).padStart(2, '0');
-        timeSql = normalizeMysqlTime(`${hh}:${mi}:${ss}`);
-      }
-      if (endD && timeSql) {
-        const clamped = clampMaUptimeAfterDowntimeStart(existing[0], endD, timeSql);
-        endD = clamped.date;
-        timeSql = clamped.time;
-        addUpdate(udColU, endD);
-        addUpdate(utColU, timeSql);
-      }
-    } else if (maAutoUptimeOnDone && (!udColU || !utColU)) {
-      console.warn(
-        '[updateTask] MA → Done แต่ uptime ไม่ถูกบันทึก: ไม่พบคอลัมน์ uptime ใน tasks — รัน migration downtime/uptime แล้ว restart server',
-        { id, udColU, utColU }
-      );
-    }
     if (actuallyWent !== undefined) addUpdate('actually_went', actuallyWent ? 1 : 0);
     if (notes !== undefined) {
       const nextStatus = status !== undefined ? status : existing[0].status;
@@ -985,8 +933,16 @@ const updateTask = async (req, res) => {
     const updateSql = `UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`;
     await db.execute(updateSql, values);
 
-    if (maAutoUptimeOnDone) {
-      await persistMaDowntimeTotalHoursForTask(id);
+    const effTypeAfterUpdate = taskType !== undefined ? taskType : existing[0].task_type;
+    if (String(effTypeAfterUpdate || '').toUpperCase() === 'MA') {
+      if (
+        dtPatch.uptimeDate !== undefined ||
+        dtPatch.uptimeTime !== undefined ||
+        dtPatch.downtimeDate !== undefined ||
+        dtPatch.downtimeTime !== undefined
+      ) {
+        await persistMaDowntimeTotalHoursForTask(id);
+      }
     }
 
     // Handle replacement device asset state changes and contract_device update

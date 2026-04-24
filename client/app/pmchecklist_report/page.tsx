@@ -6,7 +6,17 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { getPmReports, getMaReports, getTasks, apiUrl, taskMaNoticeUrl, absoluteUrlForHyperlink } from '@/lib/api';
+import { useAlertModal } from '@/components/ui/useAlertModal';
+import {
+  getPmReports,
+  getMaReports,
+  getTasks,
+  apiUrl,
+  taskMaNoticeUrl,
+  absoluteUrlForHyperlink,
+  deletePmReport,
+  deleteMaReport,
+} from '@/lib/api';
 import JSZip from 'jszip';
 import {
   Plus,
@@ -34,6 +44,7 @@ import {
   Image,
   Loader2,
   Paperclip,
+  Trash2,
 } from 'lucide-react';
 
 /** Paths จาก task.photos / report.repairNoticePaths (fallback) สำหรับลิงก์ Repair notice */
@@ -218,7 +229,8 @@ function highlightSearchInText(text: string, query: string): ReactNode {
 function ReportPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { toasts, removeToast, error: toastError, warning: toastWarning } = useToast();
+  const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
+  const { showConfirm, alertModal } = useAlertModal();
   const tabFromUrl = searchParams.get('tab') as ReportTab | null;
   const [tab, setTab] = useState<ReportTab>(tabFromUrl === 'ma' ? 'ma' : 'pm');
 
@@ -230,6 +242,7 @@ function ReportPageContent() {
   const [currentPage, setCurrentPage] = useState(1);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [selectedReportIds, setSelectedReportIds] = useState<Set<string>>(new Set());
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
   const [isDownloadFilesModalOpen, setIsDownloadFilesModalOpen] = useState(false);
   const [downloadSiteSelected, setDownloadSiteSelected] = useState<Set<string>>(new Set());
   const [downloadSiteSearch, setDownloadSiteSearch] = useState('');
@@ -360,6 +373,64 @@ function ReportPageContent() {
     };
     fetchPmMaTasks();
   }, []);
+
+  const runDeleteReport = async (report: PMReport | MAReport) => {
+    if (deletingReportId) return;
+    const rid = String(report.id);
+    setDeletingReportId(rid);
+    try {
+      const res = tab === 'ma' ? await deleteMaReport(rid) : await deletePmReport(rid);
+      if (!res.success) {
+        toastError(res.message || 'ลบรายงานไม่สำเร็จ');
+        return;
+      }
+      toastSuccess(res.message || 'ลบรายงานแล้ว');
+      setSelectedReport((prev) => (prev && String((prev as PMReport | MAReport).id) === rid ? null : prev));
+      setSelectedReportIds((prev) => {
+        const next = new Set(prev);
+        next.delete(rid);
+        return next;
+      });
+      if (tab === 'ma') {
+        setLoadingMa(true);
+        try {
+          const r = await getMaReports({ limit: 1000 });
+          if (r.success && r.data) setMaReports(r.data);
+        } finally {
+          setLoadingMa(false);
+        }
+      } else {
+        setLoadingPm(true);
+        try {
+          const r = await getPmReports({ limit: 1000 });
+          if (r.success && r.data) setPmReports(r.data);
+        } finally {
+          setLoadingPm(false);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+      toastError('ลบรายงานไม่สำเร็จ');
+    } finally {
+      setDeletingReportId(null);
+    }
+  };
+
+  const requestDeleteReport = (report: PMReport | MAReport) => {
+    if (deletingReportId) return;
+    const label = tab === 'ma' ? 'MA' : 'PM';
+    showConfirm(
+      `Delete ${label} report? Deleting cannot be undone`,
+      () => runDeleteReport(report),
+      {
+        title: 'Delete report',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        dangerConfirm: true,
+        type: 'warning',
+      }
+    );
+  };
 
   const reports = tab === 'pm' ? pmReports : maReports;
   const loading = tab === 'pm' ? loadingPm : loadingMa;
@@ -2268,7 +2339,24 @@ function ReportPageContent() {
                         )}
                       </div>
                     </div>
-                      <div className="text-right shrink-0">
+                      <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                        <button
+                          type="button"
+                          title=" Delete report"
+                          aria-label=" Delete report"
+                          disabled={deletingReportId === String(report.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            requestDeleteReport(report);
+                          }}
+                          className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {deletingReportId === String(report.id) ? (
+                            <Loader2 size={18} className="animate-spin" aria-hidden />
+                          ) : (
+                            <Trash2 size={18} aria-hidden />
+                          )}
+                        </button>
                         <p className="text-[10px] text-slate-400">
                           {qTrim
                             ? highlightSearchInText(`Created: ${formatDate(report.createdAt)}`, searchTerm)
@@ -3049,6 +3137,7 @@ function ReportPageContent() {
         )}
       </div>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+      {alertModal}
     </SidebarLayout>
   );
 }

@@ -1,9 +1,20 @@
-/** Same-origin /api when NEXT_PUBLIC_API_URL is "" (e.g. combined nginx image). */
+/**
+ * Base URL สำหรับ `apiUrl()` — ต้องชี้ไปที่ Express ที่มี `/api/...`
+ * - ค่าว่าง: ใช้ same-origin `/api` (เช่น nginx รวมใน Docker) — ใน dev ต้องมี rewrite หรือตั้ง URL เต็ม
+ * - ไม่ตั้ง env: dev → http://127.0.0.1:5000, production build → "" (same-origin)
+ */
 function getApiBase(): string {
-  if (typeof process === 'undefined') return 'http://10.4.102.212:5000';
-  const v = process.env.NEXT_PUBLIC_API_URL;
-  if (v !== undefined && v !== null) return v;
-  return 'http://10.4.102.212:5000';
+  if (typeof process === 'undefined') return '';
+  const raw = process.env.NEXT_PUBLIC_API_URL;
+  const isDev = process.env.NODE_ENV === 'development';
+  if (raw === undefined || raw === null) {
+    return isDev ? 'http://127.0.0.1:5000' : '';
+  }
+  const s = String(raw).trim();
+  if (s === '') {
+    return isDev ? 'http://127.0.0.1:5000' : '';
+  }
+  return s.replace(/\/$/, '');
 }
 const API_BASE = getApiBase();
 
@@ -11,6 +22,27 @@ const API_BASE = getApiBase();
 export function apiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`;
   return `${API_BASE}${p}`;
+}
+
+/**
+ * Fetch ไปยัง API — ใส่ Accept: application/json เพื่อลดโอกาสที่ proxy ส่งหน้า HTML
+ * และให้สอดคล้องกับ Content-Type JSON เมื่อส่ง body (ยกเว้น FormData)
+ */
+export function apiFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+  const next = init ?? {};
+  const headers = new Headers(next.headers);
+  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+  const method = String(next.method || 'GET').toUpperCase();
+  if (
+    method !== 'GET' &&
+    method !== 'HEAD' &&
+    next.body != null &&
+    !(next.body instanceof FormData) &&
+    !headers.has('Content-Type')
+  ) {
+    headers.set('Content-Type', 'application/json');
+  }
+  return fetch(input, { ...next, headers });
 }
 
 /** URL เปิดไฟล์ MA repair notice ตาม task + ชื่อไฟล์ (basename) — ต้องสอดคล้อง route backend */
@@ -70,22 +102,51 @@ export async function responseJsonSafe<T = unknown>(res: Response): Promise<T | 
   }
 }
 
+/** ข้อความสำหรับสถานะจาก reverse proxy (nginx ฯลฯ) — body มักเป็น HTML ไม่ใช่ JSON จาก Express */
+function upstreamHttpMessage(status: number): string | null {
+  if (status === 502) {
+    return (
+      'Bad Gateway (502): gateway could not reach the API (Node/Express). ' +
+      'Check that the backend container/process is running, DB is reachable, and nginx/upstream target host:port is correct.'
+    );
+  }
+  if (status === 503) return 'Service Unavailable (503): API is temporarily unavailable.';
+  if (status === 504) return 'Gateway Timeout (504): API did not respond in time.';
+  return null;
+}
+
 /**
- * Like res.json() but throws a clear Error if the server returned HTML instead of JSON.
+ * Parse JSON from fetch; throws with a clear message for HTML/502 proxy pages.
+ * Non-OK responses: if body is JSON (`{` / `[`), returns parsed object so callers can read `success` / `message`.
  */
 export async function responseJsonOrThrow<T = unknown>(res: Response, hint?: string): Promise<T> {
   const text = await res.text();
   const trimmed = text.trim();
-  if (!trimmed || trimmed.startsWith('<')) {
+
+  // Gateway / proxy errors first — body อาจเป็น HTML, plain text, หรือ JSON จากตัว gateway เอง
+  const upFirst = upstreamHttpMessage(res.status);
+  if (upFirst) {
+    throw new Error(upFirst);
+  }
+
+  if (!trimmed) {
+    if (!res.ok) {
+      throw new Error(hint || `Empty response (HTTP ${res.status}).`);
+    }
+    throw new Error(hint || 'Empty response from server');
+  }
+
+  if (trimmed.startsWith('<')) {
     throw new Error(
       hint ||
         `Invalid response (${res.status}): server returned HTML instead of JSON. Set NEXT_PUBLIC_API_URL to your API base (e.g. http://10.4.102.212:9000).`
     );
   }
+
   try {
     return JSON.parse(trimmed) as T;
   } catch {
-    throw new Error(hint || 'Invalid JSON from server');
+    throw new Error(hint || `Invalid JSON from server (HTTP ${res.status})`);
   }
 }
 
@@ -495,21 +556,29 @@ export async function postTask(body: {
   travel_cost?: string | number;
   status?: string;
 }): Promise<{ success: boolean; message?: string; data?: { id: string; pm_id?: number; ma_id?: number; taskType: string } }> {
-  const res = await fetch(apiUrl('/api/tasks'), {
+  const res = await apiFetch(apiUrl('/api/tasks'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   return res.json();
 }
 
 /** GET /api/tasks?month=&year= - ดึง Tasks สำหรับปฏิทิน */
-export async function getTasks(params?: { month?: number; year?: number }): Promise<{ success: boolean; data?: any[]; count?: number }> {
+export async function getTasks(params?: { month?: number; year?: number }): Promise<{
+  success: boolean;
+  data?: any[];
+  count?: number;
+  message?: string;
+}> {
   const q = new URLSearchParams();
   if (params?.month != null) q.set('month', String(params.month));
   if (params?.year != null) q.set('year', String(params.year));
-  const res = await fetch(apiUrl(`/api/tasks?${q.toString()}`));
-  return jsonWithFallback(res, { success: false, data: [], count: 0 });
+  const qs = q.toString();
+  const res = await apiFetch(apiUrl(qs ? `/api/tasks?${qs}` : '/api/tasks'));
+  return responseJsonOrThrow(
+    res,
+    'Cannot load tasks: invalid JSON or wrong API URL (check NEXT_PUBLIC_API_URL and that nginx upstream can reach Node on port 5000).'
+  );
 }
 
 /** GET /api/tasks/overdue?task_type=MA|PM&sid=&lid= - ดึงงานเกินกำหนด (รองรับ filter Sid/lid) */
@@ -619,6 +688,14 @@ export async function getPmReports(params?: { limit?: number; offset?: number })
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
+/** DELETE /api/pm-reports/:id — id = report_id */
+export async function deletePmReport(reportId: string | number): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(apiUrl(`/api/pm-reports/${encodeURIComponent(String(reportId))}`), {
+    method: 'DELETE',
+  });
+  return parseJsonResponse(res, { success: false });
+}
+
 /** POST /api/pm-reports/upload - อัปโหลดไฟล์ Report */
 export async function uploadReportFile(file: File): Promise<{ success: boolean; path?: string; name?: string }> {
   const fd = new FormData();
@@ -681,6 +758,14 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
   if (params?.offset) q.set('offset', String(params.offset));
   const res = await fetch(apiUrl(`/api/ma-reports?${q.toString()}`));
   return parseJsonResponse(res, { success: false, data: [] });
+}
+
+/** DELETE /api/ma-reports/:id — id = report_id */
+export async function deleteMaReport(reportId: string | number): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(apiUrl(`/api/ma-reports/${encodeURIComponent(String(reportId))}`), {
+    method: 'DELETE',
+  });
+  return parseJsonResponse(res, { success: false });
 }
 
 /** POST /api/ma-reports/upload - อัปโหลดไฟล์ Report */
