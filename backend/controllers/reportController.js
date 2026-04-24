@@ -3,6 +3,8 @@
  * ใช้ไฟล์เดียวสำหรับทั้ง PM และ MA แยกด้วย reportType / type
  */
 
+const fs = require('fs');
+const path = require('path');
 const db = require('../config/database');
 const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
 
@@ -142,17 +144,15 @@ const submitReport = async (req, res) => {
       });
     }
 
-    /** MA: uptime ตั้งตอนกด Done บน task — ถ้า body ไม่ส่งให้ดึงจาก tasks */
-    if (reportType === 'MA' && (!uptimeDateIn || !uptimeTimeIn)) {
-      try {
-        const [trRows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
-        const tr = trRows[0];
-        if (tr) {
-          if (!uptimeDateIn) uptimeDateIn = tr.uptime_date ?? tr.down_time_end_date;
-          if (!uptimeTimeIn) uptimeTimeIn = tr.uptime_time ?? tr.down_time_end_time;
-        }
-      } catch (_) {
-        /* ignore */
+    /** MA: uptime กรอกที่หน้า report — บังคับส่งใน body */
+    if (reportType === 'MA') {
+      const uD = uptimeDateIn != null && String(uptimeDateIn).trim() !== '';
+      const uT = uptimeTimeIn != null && String(uptimeTimeIn).trim() !== '';
+      if (!uD || !uT) {
+        return res.status(400).json({
+          success: false,
+          message: 'MA report requires uptimeDate and uptimeTime (กรอกวันและเวลาที่ service กลับมาใช้งาน).',
+        });
       }
     }
 
@@ -433,6 +433,72 @@ const getReports = async (req, res) => {
  * GET /api/ma-reports/reported-task-ids - ดึง task_id ที่มี report_id ใน table report แล้ว
  * Frontend จะใช้กรองออก แสดงเฉพาะ Task ที่ยังไม่มี report_id
  */
+/** ลบไฟล์ใต้ backend/uploads ถ้า path อยู่ใต้โฟลเดอร์นั้น (กันหลุดนอก uploads) */
+function tryUnlinkReportUploadPath(rel) {
+  const s = String(rel || '').trim();
+  if (!s) return;
+  const uploadsRoot = path.resolve(path.join(__dirname, '..', 'uploads'));
+  const normalized = s.startsWith('/') ? s.slice(1) : s;
+  const abs = path.resolve(path.join(__dirname, '..', normalized));
+  if (!abs.startsWith(uploadsRoot)) return;
+  try {
+    if (fs.existsSync(abs) && fs.statSync(abs).isFile()) fs.unlinkSync(abs);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function collectPathsFromReportFileFields(fp, ip) {
+  const out = [];
+  for (const arr of [parseJsonField(fp), parseJsonField(ip)]) {
+    for (const item of arr) {
+      if (typeof item === 'string' && item.trim()) out.push(item.trim());
+      else if (item && typeof item === 'object' && typeof item.path === 'string' && item.path.trim()) {
+        out.push(item.path.trim());
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * DELETE /api/pm-reports/:id หรือ /api/ma-reports/:id — id = report_id
+ */
+const deleteReport = async (req, res) => {
+  try {
+    const reportId = parseInt(String(req.params.id || '').trim(), 10);
+    if (Number.isNaN(reportId) || reportId < 1) {
+      return res.status(400).json({ success: false, message: 'Invalid report id' });
+    }
+    const base = (req.baseUrl || '').toLowerCase();
+    const taskType = base.includes('ma-reports') ? 'MA' : 'PM';
+
+    const [rows] = await db.execute(
+      `SELECT r.report_id, r.file_path, r.image_path
+       FROM report r
+       INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
+       WHERE r.report_id = ?`,
+      [taskType, reportId]
+    );
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Report not found' });
+    }
+    const row = rows[0];
+    for (const p of collectPathsFromReportFileFields(row.file_path, row.image_path)) {
+      tryUnlinkReportUploadPath(p);
+    }
+    await db.execute('DELETE FROM report WHERE report_id = ?', [reportId]);
+    res.status(200).json({ success: true, message: 'Report deleted' });
+  } catch (error) {
+    console.error('[deleteReport] Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error deleting report',
+      error: error.message,
+    });
+  }
+};
+
 const getReportedTaskIds = async (req, res) => {
   try {
     const base = (req.baseUrl || '').toLowerCase();
@@ -468,4 +534,5 @@ module.exports = {
   getReports,
   getReportedTaskIds,
   uploadReportFile,
+  deleteReport,
 };

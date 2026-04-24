@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { submitReport, getReports, getReportedTaskIds, uploadReportFile } = require('../controllers/reportController');
+const { submitReport, getReports, getReportedTaskIds, uploadReportFile, deleteReport } = require('../controllers/reportController');
 
 // โฟลเดอร์เก็บไฟล์ Report (PM/MA)
 const reportsUploadDir = path.join(__dirname, '..', 'uploads', 'reports');
@@ -36,6 +36,7 @@ const inferType = (req, res, next) => {
 };
 
 router.get('/reported-task-ids', getReportedTaskIds);
+router.delete('/:id', inferType, deleteReport);
 router.get('/', inferType, getReports);
 router.post('/', inferType, submitReport);
 

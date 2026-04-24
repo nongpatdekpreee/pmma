@@ -619,6 +619,14 @@ export async function getPmReports(params?: { limit?: number; offset?: number })
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
+/** DELETE /api/pm-reports/:id — id = report_id */
+export async function deletePmReport(reportId: string | number): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(apiUrl(`/api/pm-reports/${encodeURIComponent(String(reportId))}`), {
+    method: 'DELETE',
+  });
+  return parseJsonResponse(res, { success: false });
+}
+
 /** POST /api/pm-reports/upload - อัปโหลดไฟล์ Report */
 export async function uploadReportFile(file: File): Promise<{ success: boolean; path?: string; name?: string }> {
   const fd = new FormData();
@@ -681,6 +689,14 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
   if (params?.offset) q.set('offset', String(params.offset));
   const res = await fetch(apiUrl(`/api/ma-reports?${q.toString()}`));
   return parseJsonResponse(res, { success: false, data: [] });
+}
+
+/** DELETE /api/ma-reports/:id — id = report_id */
+export async function deleteMaReport(reportId: string | number): Promise<{ success: boolean; message?: string }> {
+  const res = await fetch(apiUrl(`/api/ma-reports/${encodeURIComponent(String(reportId))}`), {
+    method: 'DELETE',
+  });
+  return parseJsonResponse(res, { success: false });
 }
 
 /** POST /api/ma-reports/upload - อัปโหลดไฟล์ Report */

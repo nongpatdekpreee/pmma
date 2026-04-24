@@ -683,7 +683,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 Downtime & Uptime
               </h3>
               <p className="text-xs text-emerald-800/90 mb-3">
-               Uptime must be set automatically when the task is marked as done in Calendar/Schedule.
+               Enter uptime date and time on the MA checklist report when you submit it (not set when marking Done).
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>

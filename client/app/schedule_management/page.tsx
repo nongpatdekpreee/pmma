@@ -27,7 +27,6 @@ import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
-import { getMaUptimeLocalForDoneCapture } from '@/lib/maUptimeCapture';
 import * as XLSX from 'xlsx';
 
 
@@ -2425,14 +2424,6 @@ function ScheduleManagementContent() {
     if (updatedTask.notes !== undefined) {
       payload.notes = updatedTask.notes ?? null;
     }
-    const wasDone = String(originalEvent?.status || '').toLowerCase() === 'done';
-    const isNowDone = String(updatedTask.status || '').toLowerCase() === 'done';
-    const isMa =
-      String(updatedTask.taskType || originalEvent?.taskType || '').toUpperCase() === 'MA';
-    if (isMa && isNowDone && !wasDone) {
-      Object.assign(payload, getMaUptimeLocalForDoneCapture());
-    }
-
     let serverTask: Record<string, unknown> | null = null;
     try {
       const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
