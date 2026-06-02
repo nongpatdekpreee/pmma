@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 // Serve uploaded files (employee photos, reports, contracts)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/public', express.static(path.join(__dirname, 'public')));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -70,6 +71,10 @@ app.use((req, res) => {
   }
   res.status(404).type('txt').send('Not found');
 });
+
+// Cron jobs (SNS upcoming plans reminder @ 15:40 daily)
+const { startCronJobs } = require('./cron/scheduler');
+startCronJobs();
 
 // Start server
 app.listen(PORT, () => {

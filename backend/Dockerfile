@@ -1,17 +1,23 @@
-# build stage
-FROM node:20-slim AS builder
+# Backend - Node.js Express API
+FROM node:20-slim
 
 WORKDIR /app
-COPY client/package*.json ./
-RUN npm install
 
-COPY client/ .
-RUN npm run build
+# Copy package files
+COPY backend/package*.json ./
 
-# serve stage
-FROM nginx:alpine
+# Install dependencies
+RUN npm ci --only=production
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+# Copy application code
+COPY backend/ .
 
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+# Expose port
+EXPOSE 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:5000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Start application
+CMD ["npm", "start"]

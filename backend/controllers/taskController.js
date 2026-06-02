@@ -2,6 +2,8 @@ const path = require('path');
 const fs = require('fs');
 const db = require('../config/database');
 const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
+const { isProjectOwenSnsPlan } = require('../utils/projectOwenSns');
+const { notifyTeamsPlanCreated } = require('../services/teamsPlanNotification');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
@@ -694,10 +696,28 @@ const createTask = async (req, res) => {
        FROM tasks t LEFT JOIN contract c ON t.contract_id = c.contract_id WHERE t.id = ?`,
       [finalTaskId]
     );
+    const createdTask = mapTaskRow(rows[0]);
+
+    try {
+      const snsPlan = await isProjectOwenSnsPlan({
+        assets,
+        replacementDeviceId: safeParseInt(replacementDeviceId),
+        contractId: safeParseInt(contractId),
+        siteId: safeParseInt(siteId),
+      });
+      if (snsPlan) {
+        notifyTeamsPlanCreated(createdTask).catch((err) => {
+          console.error('[createTask] Teams notification failed:', err?.message || err);
+        });
+      }
+    } catch (notifyErr) {
+      console.error('[createTask] SNS plan check/notify error:', notifyErr?.message || notifyErr);
+    }
+
     return res.status(201).json({
       success: true,
       message: 'สร้าง Task สำเร็จ',
-      data: mapTaskRow(rows[0]),
+      data: createdTask,
     });
   } catch (error) {
     console.error('Error creating task:', error);

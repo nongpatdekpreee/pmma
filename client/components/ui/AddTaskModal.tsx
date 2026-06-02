@@ -44,6 +44,7 @@ import {
   ContractSimpleSearchListDropdown,
 } from '@/components/ui/ContractSearchListDropdown';
 import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
+import { mapEmployeesToEngineerRoster } from '@/lib/engineerRoster';
 import { toTimeHHmm } from '@/lib/downtimeHours';
 
 
@@ -860,19 +861,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setLoadingEngineers(true);
       try {
         const employees = await getEmployees();
-        // Filter only Technical employees and map to Engineer format
-        const engineers: Engineer[] = employees
-          .filter((emp: any) => emp.positionType === 'Technical')
-          .map((emp: any) => {
-            const nameParts = (emp.name || '').split(' ');
-            return {
-              id: String(emp.id ?? emp.user_id ?? ''),
-              name: nameParts[0] || emp.name || '',
-              lastName: nameParts.slice(1).join(' ') || '',
-              photo: emp.photo ?? null,
-            };
-          });
-        setAvailableEngineers(engineers);
+        // Same roster rules as Schedule Management (Technical, Engineer, etc.)
+        setAvailableEngineers(mapEmployeesToEngineerRoster(employees) as Engineer[]);
       } catch (error) {
         console.error('Error loading engineers:', error);
         setAvailableEngineers([]);
@@ -3247,9 +3237,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
               )}
 
               {/* Empty state */}
-              {showEngineerDropdown && filteredEngineers.length === 0 && engineerInput && (
+              {showEngineerDropdown && filteredEngineers.length === 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3">
-                  <p className="text-sm text-slate-400">No engineers found</p>
+                  <p className="text-sm text-slate-400">
+                    {loadingEngineers
+                      ? 'Loading engineers…'
+                      : availableEngineers.length === 0
+                        ? 'No engineers in roster (check Employee page: Technical or Engineer role)'
+                        : engineerInput
+                          ? 'No engineers found'
+                          : 'Type a name to search engineers'}
+                  </p>
                 </div>
               )}
             </div>

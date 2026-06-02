@@ -1,0 +1,135 @@
+# Docker Setup for PMMA Application
+
+This setup allows you to build and run both Backend (Node.js/Express) and Frontend (Next.js) services in Docker.
+
+## Structure
+
+- **backend/Dockerfile** - Backend API service (Express on port 5000)
+- **client/Dockerfile** - Frontend service (Next.js on port 3000)
+- **docker-compose.yml** - Orchestrates all services (backend, frontend, nginx, MySQL)
+- **nginx.conf** - Reverse proxy configuration
+
+## Services Included
+
+1. **Backend** - Express API on port 5000
+2. **Frontend** - Next.js on port 3000
+3. **Nginx** - Reverse proxy on port 80
+4. **MySQL** - Database on port 3306
+
+## Quick Start
+
+### Build and Run All Services
+
+```bash
+# Build images and start all containers
+docker-compose up --build
+
+# Or run in detached mode (background)
+docker-compose up -d --build
+```
+
+### Individual Commands
+
+```bash
+# Build only
+docker-compose build
+
+# Start services
+docker-compose up
+
+# Stop services
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# View specific service logs
+docker-compose logs -f backend
+docker-compose logs -f frontend
+docker-compose logs -f nginx
+```
+
+## Access Points
+
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:5000
+- **Nginx (All traffic)**: http://localhost
+- **MySQL**: localhost:3306
+
+## Environment Variables
+
+Update environment variables in `docker-compose.yml`:
+
+```yaml
+environment:
+  DB_HOST: mysql
+  DB_PORT: 3306
+  DB_USER: app_user
+  DB_PASSWORD: app_password
+  DB_NAME: app_db
+  NEXT_PUBLIC_API_URL: http://backend:5000
+```
+
+## Database Initialization
+
+The MySQL service will automatically initialize with `database.sql` if it exists.
+
+## Troubleshooting
+
+### 502 Bad Gateway
+- Check if backend is running: `docker-compose logs backend`
+- Ensure backend port 5000 is accessible
+
+### Frontend not loading
+- Check frontend logs: `docker-compose logs frontend`
+- Verify `NEXT_PUBLIC_API_URL` is set correctly
+
+### Database connection issues
+- Wait for MySQL to fully start: `docker-compose logs mysql`
+- Check database credentials in `.env` or `docker-compose.yml`
+
+## Rebuild Services
+
+```bash
+# Rebuild backend
+docker-compose build backend
+
+# Rebuild frontend
+docker-compose build frontend
+
+# Rebuild specific service and restart
+docker-compose up -d --build backend
+```
+
+## Health Checks
+
+All services have health checks configured:
+
+```bash
+# Check service status
+docker-compose ps
+
+# View health status
+docker ps --format "table {{.Names}}\t{{.Status}}"
+```
+
+## Production Deployment
+
+For production, update:
+
+1. Database credentials in `docker-compose.yml`
+2. Frontend environment variables for correct API URL
+3. Add `.env` file or use environment-specific compose files
+4. Consider using Docker registries for image storage
+
+## Multiple Environment Configs
+
+Create environment-specific compose files:
+
+```bash
+# Development
+docker-compose -f docker-compose.yml up
+
+# Production
+docker-compose -f docker-compose.prod.yml up
+```
