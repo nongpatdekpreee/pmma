@@ -252,6 +252,7 @@ function ReportPageContent() {
   const [pmMaTasks, setPmMaTasks] = useState<any[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [selectedReport, setSelectedReport] = useState<PMReport | MAReport | null>(null);
+  const [viewingUploadedFileKey, setViewingUploadedFileKey] = useState<string | null>(null);
   const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, {
     id: string;
     name: string;
@@ -1375,6 +1376,60 @@ function ReportPageContent() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const getUploadFileExt = (name: string, type?: string) =>
+    name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : type === 'image' ? '.jpg' : '');
+
+  const mimeForUploadedFile = (name: string, type?: string, blobType?: string) => {
+    const ext = getUploadFileExt(name, type).toLowerCase();
+    if (type === 'pdf' || ext === '.pdf') return 'application/pdf';
+    if (type === 'image' || /\.(jpe?g|png|gif|webp|bmp)$/i.test(ext)) {
+      if (blobType?.startsWith('image/')) return blobType;
+      if (ext === '.png') return 'image/png';
+      if (ext === '.gif') return 'image/gif';
+      if (ext === '.webp') return 'image/webp';
+      return 'image/jpeg';
+    }
+    if (blobType && blobType !== 'application/octet-stream') return blobType;
+    return 'application/octet-stream';
+  };
+
+  /** เปิดไฟล์ในแท็บใหม่ — fetch แล้วตั้ง MIME จาก f.name/type (เดียวกับ Download) */
+  const openUploadedFileView = async (
+    path: string,
+    displayName: string,
+    fileType: string | undefined,
+    itemKey: string
+  ) => {
+    setViewingUploadedFileKey(itemKey);
+    try {
+      const res = await fetch(apiUrl(path));
+      if (!res.ok) {
+        toastWarning(
+          displayName
+            ? `File not found on server: ${displayName}`
+            : 'File not found on server'
+        );
+        return;
+      }
+      const blob = await res.blob();
+      const mime = mimeForUploadedFile(displayName, fileType, blob.type);
+      const typedBlob = blob.type === mime ? blob : new Blob([blob], { type: mime });
+      const url = URL.createObjectURL(typedBlob);
+      const opened = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!opened) {
+        URL.revokeObjectURL(url);
+        toastWarning('Please allow pop-ups to view the file');
+        return;
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    } catch (e) {
+      console.error(e);
+      toastError('Could not open file');
+    } finally {
+      setViewingUploadedFileKey(null);
+    }
   };
 
   const getNormalizedVisitDate = (visitRound: string, fallbackYear?: string) =>
@@ -3107,17 +3162,21 @@ function ReportPageContent() {
                     <div className="flex flex-wrap gap-3">
                       {selectedReport.uploadedFiles.map((f, i) => (
                         f.path ? (
-                          <a
+                          <button
                             key={i}
-                            href={apiUrl(f.path)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium hover:bg-blue-100 border border-blue-200/50 transition-all hover:shadow-md"
+                            type="button"
+                            disabled={viewingUploadedFileKey === `${f.path}-${i}`}
+                            onClick={() => openUploadedFileView(f.path!, f.name, f.type, `${f.path}-${i}`)}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium hover:bg-blue-100 border border-blue-200/50 transition-all hover:shadow-md disabled:opacity-60 disabled:cursor-wait"
                           >
-                            <FileText size={18} />
+                            {viewingUploadedFileKey === `${f.path}-${i}` ? (
+                              <Loader2 size={18} className="animate-spin shrink-0" />
+                            ) : (
+                              <FileText size={18} className="shrink-0" />
+                            )}
                             {f.name}
                             <span className="text-blue-500 text-xs">View</span>
-                          </a>
+                          </button>
                         ) : (
                           <span
                             key={i}

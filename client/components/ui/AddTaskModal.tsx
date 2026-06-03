@@ -861,7 +861,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setLoadingEngineers(true);
       try {
         const employees = await getEmployees();
-        // Same roster rules as Schedule Management (Technical, Engineer, etc.)
+        // All employees from roster (any position type)
         setAvailableEngineers(mapEmployeesToEngineerRoster(employees) as Engineer[]);
       } catch (error) {
         console.error('Error loading engineers:', error);
@@ -3243,7 +3243,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     {loadingEngineers
                       ? 'Loading engineers…'
                       : availableEngineers.length === 0
-                        ? 'No engineers in roster (check Employee page: Technical or Engineer role)'
+                        ? 'No employees in roster (add staff on the Employee page)'
                         : engineerInput
                           ? 'No engineers found'
                           : 'Type a name to search engineers'}

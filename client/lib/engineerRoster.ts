@@ -29,14 +29,6 @@ export type EngineerRosterItem = {
   photo: string | null;
 };
 
-function isTechnicalRole(emp: Record<string, unknown>): boolean {
-  const raw = emp.positionType ?? emp.type;
-  const t = String(raw ?? 'Technical').trim().toLowerCase();
-  if (t === 'technical' || t === 'tech' || t === 'engineer' || t === 'technician') return true;
-  if (t === 'วิศวกร' || t === 'engineer / technical') return true;
-  return false;
-}
-
 function resolvePhoto(raw: unknown): string | null {
   if (raw == null || raw === '') return null;
   const s = String(raw);
@@ -45,7 +37,7 @@ function resolvePhoto(raw: unknown): string | null {
 
 /**
  * แปลงรายการจาก GET /api/employees ให้เป็นรายการ engineer สำหรับ UI
- * - กรอง role แบบยืดหยุ่น (ไม่จำกัดแค่สตริง 'Technical' ตัวพิมพ์ใหญ่พอดี)
+ * - รวมพนักงานทุก position type (Technical, Management, Engineer ฯลฯ)
  * - รองรับชื่อเต็มในฟิลด์เดียว / lastName แยก
  */
 export function mapEmployeesToEngineerRoster(employees: unknown): EngineerRosterItem[] {
@@ -54,7 +46,6 @@ export function mapEmployeesToEngineerRoster(employees: unknown): EngineerRoster
   for (const emp of employees) {
     if (!emp || typeof emp !== 'object') continue;
     const o = emp as Record<string, unknown>;
-    if (!isTechnicalRole(o)) continue;
     const id = String(o.id ?? o.user_id ?? o.userId ?? o.employee_id ?? '').trim();
     if (!id) continue;
     const raw = String(o.name ?? o.displayName ?? o.fullName ?? '').trim();
