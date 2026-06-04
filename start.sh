@@ -19,6 +19,15 @@ NEXT_PID=$!
 # Allow Node to bind before nginx starts proxying
 sleep 5
 
+if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+  echo "[start.sh] ERROR: Backend (Express) exited — check logs above (missing modules, DB, etc.)"
+  exit 1
+fi
+if ! kill -0 "$NEXT_PID" 2>/dev/null; then
+  echo "[start.sh] ERROR: Next.js exited — check logs above"
+  exit 1
+fi
+
 shutdown() {
   kill "$NEXT_PID" 2>/dev/null || true
   kill "$BACKEND_PID" 2>/dev/null || true

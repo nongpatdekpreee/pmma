@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { runSnsUpcomingPlansReminder } = require('../jobs/snsUpcomingPlansReminder');
 
-const CRON_EXPR = '00 9 * * *'; // 09:00 ทุกวัน
+const CRON_EXPR = '0 9 * * 1'; // 09:00 ทุกวันจันทร์ (1 = Monday)
 const TZ = process.env.CRON_TIMEZONE || 'Asia/Bangkok';
 
 function startCronJobs() {
@@ -31,7 +31,7 @@ function startCronJobs() {
     { timezone: TZ }
   );
 
-  console.log(`[cron] SNS upcoming plans reminder scheduled daily at 15:40 (${TZ})`);
+  console.log(`[cron] SNS upcoming plans reminder scheduled every Monday at 09:00 (${TZ})`);
 }
 
 module.exports = { startCronJobs, CRON_EXPR, TZ };
