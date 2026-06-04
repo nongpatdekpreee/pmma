@@ -2145,14 +2145,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   <h3 className="text-sm font-bold text-slate-700">Asset Binding</h3>
                   {selectedContractIds.length === 1 && selectedContractIds[0] ? (
                     <p className="text-xs text-slate-500 mt-0.5">
-                      เครื่องของ SOF{' '}
+                      From SOF{' '}
                       <span className="font-semibold text-slate-700">
                         {getPmContractSofLabel(selectedContractIds[0])}
                       </span>
                     </p>
                   ) : selectedContractIds.length > 1 ? (
                     <p className="text-xs text-slate-500 mt-0.5">
-                      แยกตาม SOF — เลือกเครื่องในแต่ละกล่องด้านล่าง
+                      Separate by SOF — Select devices in each box below
                     </p>
                   ) : null}
                 </div>
