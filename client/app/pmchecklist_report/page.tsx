@@ -835,7 +835,13 @@ function ReportPageContent() {
       : undefined;
 
   /** Site + Location สำหรับ card / search — merge DB + device_json + assets + task */
-  const getReportSiteAndLocation = (r: PMReport | MAReport): { site: string; location: string } => {
+  const getReportSiteAndLocation = (
+    r: PMReport | MAReport,
+    deviceDetailMap: Record<
+      string,
+      { Sitename?: string; Location2?: string; Refer_SOF?: string; Vendor?: string }
+    > = pmDeviceDetailMap
+  ): { site: string; location: string } => {
     const base = r.device as Record<string, unknown> | undefined;
     const devices = getReportDevices(r);
     const firstDev = devices[0];
@@ -843,7 +849,7 @@ function ReportPageContent() {
       | { siteName?: string; site_name?: string; location?: string }
       | undefined;
     const did = String(r.deviceId || base?.Did || '').trim();
-    const fromApi = did ? pmDeviceDetailMap[did] : undefined;
+    const fromApi = did ? deviceDetailMap[did] : undefined;
     const rSiteName = pickFirstNonEmpty(
       (r as PMReport).site_name,
       (r as MAReport).site_name,
@@ -879,7 +885,7 @@ function ReportPageContent() {
             ?? (a as { did?: unknown })?.did
             ?? ''
         ).trim();
-        const fromAssetDb = aid ? pmDeviceDetailMap[aid]?.Location2 : undefined;
+        const fromAssetDb = aid ? deviceDetailMap[aid]?.Location2 : undefined;
         if (fromAssetDb) {
           location = fromAssetDb;
           break;
@@ -901,6 +907,56 @@ function ReportPageContent() {
 
     return { site, location };
   };
+
+  const collectDeviceIdsFromExportRow = (row: PMReport | MAReport | Record<string, unknown>) => {
+    const ids = new Set<string>();
+    const base = row?.device as { Did?: number } | undefined;
+    const did = String(row?.deviceId ?? base?.Did ?? '').trim();
+    if (did) ids.add(did);
+    const assets = Array.isArray(row?.assets) ? row.assets : [];
+    for (const a of assets) {
+      const aid = String(
+        (a as { id?: unknown; Did?: unknown; did?: unknown })?.id
+          ?? (a as { Did?: unknown })?.Did
+          ?? (a as { did?: unknown })?.did
+          ?? ''
+      ).trim();
+      if (aid) ids.add(aid);
+    }
+    return ids;
+  };
+
+  const fetchDeviceDetailMapForExport = async (
+    ids: Set<string>,
+    base: Record<string, { Sitename?: string; Location2?: string; Refer_SOF?: string; Vendor?: string }>
+  ) => {
+    const map = { ...base };
+    await Promise.all(
+      Array.from(ids).map(async (id) => {
+        try {
+          const res = await fetch(apiUrl(`/api/devices/${id}`));
+          const json = await res.json();
+          if (res.ok && json.data) {
+            const d = json.data as Record<string, unknown>;
+            map[id] = {
+              Sitename: String(d.Sitename ?? d.SiteName ?? d.sitename ?? '').trim() || undefined,
+              Location2: String(d.Location2 ?? d.location2 ?? '').trim() || undefined,
+              Refer_SOF: String(d.Refer_SOF ?? d.refer_sof ?? '').trim() || undefined,
+              Vendor: String(d.Vendor ?? d.vendor ?? '').trim() || undefined,
+            };
+          }
+        } catch {
+          /* ignore */
+        }
+      })
+    );
+    return map;
+  };
+
+  const csvSiteLocation = (site: string, location: string) => ({
+    site: site.trim() || '-',
+    location: location.trim() || '-',
+  });
 
   const getReportCardTitle = (r: PMReport | MAReport): string => {
     const { site, location } = getReportSiteAndLocation(r);
@@ -1071,6 +1127,14 @@ function ReportPageContent() {
       ? pendingPool.filter((t) => pmMaTaskWithoutReportMatchesSearch(t, searchTerm))
       : [];
     if (sourceReports.length === 0 && pendingExport.length === 0) return;
+
+    const exportDeviceIds = new Set<string>();
+    sourceReports.forEach((r) => collectDeviceIdsFromExportRow(r).forEach((id) => exportDeviceIds.add(id)));
+    pendingExport.forEach((t) => collectDeviceIdsFromExportRow(t).forEach((id) => exportDeviceIds.add(id)));
+    const exportDeviceDetailMap =
+      exportDeviceIds.size > 0
+        ? await fetchDeviceDetailMapForExport(exportDeviceIds, pmDeviceDetailMap)
+        : pmDeviceDetailMap;
 
     // สำหรับ MA: ดึง replacement device (serial, model, asset #, location, site)
     type ReplacementInfo = {
@@ -1259,14 +1323,8 @@ function ReportPageContent() {
       const reportStatus = (r.uploadedFiles || []).length > 0 ? 'Reported' : 'Not yet';
       const { start: winStart, end: winEnd } = taskWindowDates(r.taskId);
       if (tab === 'pm') {
-        const rawSite =
-          dev?.Sitename != null && String(dev.Sitename).trim() !== ''
-            ? String(dev.Sitename)
-            : rSite != null && String(rSite).trim() !== ''
-              ? String(rSite)
-              : '';
-        const explicitLoc = dev?.Location2 != null ? String(dev.Location2) : '';
-        const { site, location } = exportSiteAndLocation(rawSite, explicitLoc);
+        const resolved = getReportSiteAndLocation(r, exportDeviceDetailMap);
+        const { site, location } = csvSiteLocation(resolved.site, resolved.location);
         const assets = Array.isArray((r as any).assets) ? (r as any).assets : [];
         const totalDevicesThisReport = assets.length > 0 ? assets.length : 1;
         row([
@@ -1381,21 +1439,18 @@ function ReportPageContent() {
       let siteFromTask: string;
       let locationFromTask: string;
       if (tab === 'pm') {
-        const rawSiteLabel =
-          task?.siteName != null && String(task.siteName).trim() !== ''
-            ? String(task.siteName)
-            : first?.Sitename != null
-              ? String(first.Sitename)
-              : '';
-        const explicitLocFromAsset =
-          first?.Location2 != null
-            ? String(first.Location2)
-            : first?.location != null
-              ? String(first.location)
-              : '';
-        const pairPm = exportSiteAndLocation(rawSiteLabel, explicitLocFromAsset);
-        siteFromTask = pairPm.site;
-        locationFromTask = pairPm.location;
+        const pseudoReport = {
+          taskId: task?.id,
+          site_name: task?.siteName ?? task?.site_name,
+          deviceId: String(first?.id ?? first?.Did ?? first?.did ?? ''),
+          device: first,
+          assets: task?.assets,
+        } as PMReport;
+        const resolved = getReportSiteAndLocation(pseudoReport, exportDeviceDetailMap);
+        ({ site: siteFromTask, location: locationFromTask } = csvSiteLocation(
+          resolved.site,
+          resolved.location
+        ));
       } else {
         const pairMa = exportBrokenSitesAndLocationsFromAssets(
           assets,
