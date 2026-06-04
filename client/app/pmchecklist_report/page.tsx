@@ -82,6 +82,7 @@ interface PMReport {
     Sitename?: string;
     Location2?: string;
     Refer_SOF?: string;
+    Vendor?: string;
   };
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   pmResult: 'pass' | 'warning' | 'fail';
@@ -94,6 +95,13 @@ interface PMReport {
   createdAt?: string;
   site_name?: string;
 }
+
+type ReportInformationFields = {
+  Sitename?: string;
+  Location2?: string;
+  Refer_SOF?: string;
+  Vendor?: string;
+};
 
 interface MAReport {
   id: string;
@@ -108,6 +116,7 @@ interface MAReport {
     Sitename?: string;
     Location2?: string;
     Refer_SOF?: string;
+    Vendor?: string;
   };
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   maResult: 'pass' | 'warning' | 'fail';
@@ -3203,10 +3212,15 @@ function ReportPageContent() {
                   </div>
                 ) : (
                   (selectedReport.device || pmReportInformation) && (() => {
-                    const info = pmReportInformation ?? (selectedReport as PMReport).device;
-                    const v = (key: keyof NonNullable<typeof pmReportInformation>) =>
-                      info && info[key] != null && String(info[key]).trim() !== '' ? String(info[key]) : '—';
-                    const fields: { label: string; key: keyof NonNullable<typeof pmReportInformation>; icon: React.ReactNode }[] = [
+                    const info: ReportInformationFields =
+                      pmReportInformation ??
+                      (selectedReport.device as ReportInformationFields | undefined) ??
+                      {};
+                    const v = (key: keyof ReportInformationFields) => {
+                      const val = info[key];
+                      return val != null && String(val).trim() !== '' ? String(val) : '—';
+                    };
+                    const fields: { label: string; key: keyof ReportInformationFields; icon: React.ReactNode }[] = [
                       { label: 'Site', key: 'Sitename', icon: <MapPin size={12} /> },
                       { label: 'Location', key: 'Location2', icon: <MapPin size={12} /> },
                       { label: 'Refer SOF', key: 'Refer_SOF', icon: <FileText size={12} /> },
