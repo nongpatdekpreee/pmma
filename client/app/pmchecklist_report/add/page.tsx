@@ -285,7 +285,8 @@ function AddPMReportPageContent() {
       Sitename: (a.Sitename ?? a.sitename ?? a.siteName ?? '') as string | undefined,
       Location2: (a.Location2 ?? a.location2 ?? '') as string | undefined,
       PR_No: a.PR_No as string | undefined,
-      Vendor: a.Vendor as string | undefined,
+      Vendor: (a.Vendor ?? a.vendor ?? '') as string | undefined,
+      Refer_SOF: (a.Refer_SOF ?? a.refer_sof ?? '') as string | undefined,
       SLid: a.SLid as number | undefined,
     };
   };

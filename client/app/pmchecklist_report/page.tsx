@@ -266,6 +266,10 @@ function ReportPageContent() {
   const [brokenDevicesDetailMap, setBrokenDevicesDetailMap] = useState<
     Record<string, { site?: string; location?: string }>
   >({});
+  /** PM รายละเอียดรายงาน: Site/Location/Refer SOF/Vendor จาก DB (ไม่พึ่งแค่ device_json ตอนบันทึก) */
+  const [pmDeviceDetailMap, setPmDeviceDetailMap] = useState<
+    Record<string, { Sitename?: string; Location2?: string; Refer_SOF?: string; Vendor?: string }>
+  >({});
 
   const getEngineerDisplay = (r: PMReport | MAReport): string => {
     const engineers = Array.isArray(r.engineers) ? r.engineers : [];
@@ -648,6 +652,62 @@ function ReportPageContent() {
     };
   }, [selectedReport, tab]);
 
+  // โหลด Site/Location/Refer SOF/Vendor จาก devices จริง (device_json ตอนสร้าง report อาจไม่ครบ)
+  useEffect(() => {
+    const source = tab === 'pm' ? pmReports : maReports;
+    const ids = new Set<string>();
+    for (const r of source) {
+      const base = r.device as { Did?: number } | undefined;
+      const did = String(r.deviceId || base?.Did || '').trim();
+      if (did) ids.add(did);
+      const assets = Array.isArray(r.assets) ? r.assets : [];
+      for (const a of assets) {
+        const aid = String((a as { id?: unknown; Did?: unknown; did?: unknown })?.id
+          ?? (a as { Did?: unknown })?.Did
+          ?? (a as { did?: unknown })?.did
+          ?? '').trim();
+        if (aid) ids.add(aid);
+      }
+    }
+    if (ids.size === 0) {
+      setPmDeviceDetailMap({});
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      const updates: Record<
+        string,
+        { Sitename?: string; Location2?: string; Refer_SOF?: string; Vendor?: string }
+      > = {};
+      await Promise.all(
+        Array.from(ids).map(async (did) => {
+          try {
+            const res = await fetch(apiUrl(`/api/devices/${did}`));
+            const json = await res.json();
+            if (res.ok && json.data) {
+              const d = json.data as Record<string, unknown>;
+              updates[did] = {
+                Sitename: String(d.Sitename ?? d.SiteName ?? d.sitename ?? '').trim() || undefined,
+                Location2: String(d.Location2 ?? d.location2 ?? '').trim() || undefined,
+                Refer_SOF: String(d.Refer_SOF ?? d.refer_sof ?? '').trim() || undefined,
+                Vendor: String(d.Vendor ?? d.vendor ?? '').trim() || undefined,
+              };
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+      );
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setPmDeviceDetailMap((prev) => ({ ...prev, ...updates }));
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, pmReports, maReports]);
+
   // Pair original assets with replacement devices (for MA)
   const assetPairs = useMemo(() => {
     if (!selectedReport || tab !== 'ma') return [];
@@ -729,6 +789,143 @@ function ReportPageContent() {
     }
     return [{ CI_Name: `Device ${report.deviceId}`, name: `Device ${report.deviceId}` }];
   };
+
+  const pickFirstNonEmpty = (...vals: unknown[]) => {
+    for (const v of vals) {
+      if (v != null && String(v).trim() !== '') return String(v).trim();
+    }
+    return '';
+  };
+
+  /** SOF สำหรับ ZIP/ดาวน์โหลด — ไม่พึ่งแค่ device_json (merge DB + assets + contract จาก task) */
+  const getReferSofFromReport = (r: PMReport | MAReport) => {
+    const base = r.device as Record<string, unknown> | undefined;
+    const firstDev = getReportDevices(r)[0];
+    const linkedTask =
+      r.taskId != null
+        ? pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(r.taskId))
+        : undefined;
+    const taskAny = linkedTask as { sofName?: string; sof_name?: string } | undefined;
+    const did = String(r.deviceId || base?.Did || '').trim();
+    const fromApi = did ? pmDeviceDetailMap[did] : undefined;
+    return (
+      pickFirstNonEmpty(
+        fromApi?.Refer_SOF,
+        base?.Refer_SOF,
+        base?.refer_sof,
+        firstDev?.Refer_SOF,
+        taskAny?.sofName,
+        taskAny?.sof_name
+      ) || 'Unknown SOF'
+    );
+  };
+
+  const getLinkedTaskForReport = (r: PMReport | MAReport) =>
+    r.taskId != null
+      ? pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(r.taskId))
+      : undefined;
+
+  /** Site + Location สำหรับ card / search — merge DB + device_json + assets + task */
+  const getReportSiteAndLocation = (r: PMReport | MAReport): { site: string; location: string } => {
+    const base = r.device as Record<string, unknown> | undefined;
+    const devices = getReportDevices(r);
+    const firstDev = devices[0];
+    const taskAny = getLinkedTaskForReport(r) as
+      | { siteName?: string; site_name?: string; location?: string }
+      | undefined;
+    const did = String(r.deviceId || base?.Did || '').trim();
+    const fromApi = did ? pmDeviceDetailMap[did] : undefined;
+    const rSiteName = pickFirstNonEmpty(
+      (r as PMReport).site_name,
+      (r as MAReport).site_name,
+      taskAny?.siteName,
+      taskAny?.site_name
+    );
+
+    let site = pickFirstNonEmpty(fromApi?.Sitename, base?.Sitename, firstDev?.Sitename, rSiteName);
+    let location = pickFirstNonEmpty(
+      fromApi?.Location2,
+      base?.Location2,
+      base?.location2,
+      firstDev?.Location2,
+      taskAny?.location
+    );
+
+    if (!location) {
+      for (const d of devices) {
+        const loc = pickFirstNonEmpty(d?.Location2, d?.location);
+        if (loc) {
+          location = loc;
+          break;
+        }
+      }
+    }
+
+    if (!location) {
+      const assets = Array.isArray(r.assets) ? r.assets : [];
+      for (const a of assets) {
+        const aid = String(
+          (a as { id?: unknown; Did?: unknown; did?: unknown })?.id
+            ?? (a as { Did?: unknown })?.Did
+            ?? (a as { did?: unknown })?.did
+            ?? ''
+        ).trim();
+        const fromAssetDb = aid ? pmDeviceDetailMap[aid]?.Location2 : undefined;
+        if (fromAssetDb) {
+          location = fromAssetDb;
+          break;
+        }
+      }
+    }
+
+    if (rSiteName) {
+      const { site: parsedSite, location: parsedLoc } = exportSiteAndLocation(rSiteName, location);
+      if (parsedLoc && parsedLoc !== '-') {
+        location = parsedLoc;
+      }
+      if (!site && parsedSite && parsedSite !== '-') {
+        site = parsedSite;
+      } else if (parsedSite && parsedSite !== '-' && parsedLoc && parsedLoc !== '-') {
+        site = parsedSite;
+      }
+    }
+
+    return { site, location };
+  };
+
+  const getReportCardTitle = (r: PMReport | MAReport): string => {
+    const { site, location } = getReportSiteAndLocation(r);
+    if (site) return location ? `${site}, ${location}` : site;
+    const fallback =
+      getReportDevices(r).map((d) => d.CI_Name || d.name || d.Asset_Number || '-').join(', ') || '-';
+    return fallback;
+  };
+
+  /** Site + Location สำหรับ Download modal / ZIP (fallback Unknown เมื่อว่าง) */
+  const getReportSiteLocationForDownload = (r: PMReport | MAReport) => {
+    const { site, location } = getReportSiteAndLocation(r);
+    return {
+      siteName: site || 'Unknown',
+      location: location || 'Unknown',
+    };
+  };
+
+  const pmReportInformation = useMemo(() => {
+    if (!selectedReport || tab !== 'pm') return null;
+    const report = selectedReport as PMReport;
+    const base = report.device as Record<string, unknown> | undefined;
+    const { site, location } = getReportSiteAndLocation(report);
+    return {
+      Sitename: site,
+      Location2: location,
+      Refer_SOF: getReferSofFromReport(report),
+      Vendor: pickFirstNonEmpty(
+        pmDeviceDetailMap[String(report.deviceId || base?.Did || '').trim()]?.Vendor,
+        base?.Vendor,
+        getReportDevices(report)[0]?.Vendor
+      ),
+    };
+  }, [selectedReport, tab, pmDeviceDetailMap, pmMaTasks]);
 
   // Tasks without Report (remaining)
   const reportedPMTaskIds = useMemo(
@@ -1321,9 +1518,6 @@ function ReportPageContent() {
     return d && typeof d === 'string' ? d.slice(0, 10) : '';
   };
 
-  const getReferSofFromReport = (r: PMReport | MAReport) =>
-    (r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF';
-
   type DownloadFileEntry = {
     path: string;
     name: string;
@@ -1337,9 +1531,7 @@ function ReportPageContent() {
   const buildFilesBySiteMap = (sourceReports: (PMReport | MAReport)[]) => {
     const bySite = new Map<string, DownloadFileEntry[]>();
     sourceReports.forEach((r: PMReport | MAReport) => {
-      const siteLocation = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
-      const d = r.device as { Location2?: string; location2?: string } | undefined;
-      const location = (d?.Location2 ?? d?.location2 ?? '').toString().trim() || 'Unknown';
+      const { siteName: siteLocation, location } = getReportSiteLocationForDownload(r);
       const visitRound = getVisitDate(r) || 'Unknown';
       const referSof = getReferSofFromReport(r);
       (r.uploadedFiles || []).forEach((f) => {
@@ -1479,9 +1671,7 @@ function ReportPageContent() {
   const getFilesFromReports = (sourceReports: (PMReport | MAReport)[]) => {
     const files: DownloadFileEntry[] = [];
     sourceReports.forEach((r: PMReport | MAReport) => {
-      const siteLocation = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
-      const d = r.device as { Location2?: string; location2?: string } | undefined;
-      const location = (d?.Location2 ?? d?.location2 ?? '').toString().trim() || 'Unknown';
+      const { siteName: siteLocation, location } = getReportSiteLocationForDownload(r);
       const visitRound = getVisitDate(r) || 'Unknown';
       const referSof = getReferSofFromReport(r);
       (r.uploadedFiles || []).forEach((f) => {
@@ -1498,9 +1688,7 @@ function ReportPageContent() {
 
   const downloadZipForSOF = async (sofName: string, sourceReports: (PMReport | MAReport)[]) => {
     const sofReports = sourceReports.filter(
-      (r: PMReport | MAReport) =>
-        (r.device?.Refer_SOF ?? '').toString().trim() === sofName ||
-        (sofName === 'Unknown SOF' && !(r.device?.Refer_SOF ?? '').toString().trim())
+      (r: PMReport | MAReport) => getReferSofFromReport(r) === sofName
     );
     const bySite = buildFilesBySiteMap(sofReports);
     if (bySite.size === 0) {
@@ -1551,10 +1739,7 @@ function ReportPageContent() {
   const downloadZipForSite = async (siteName: string, sourceReports: (PMReport | MAReport)[], locationFilter?: string) => {
     const siteReports = sourceReports.filter(
       (r: PMReport | MAReport) => {
-        const reportSite = ((r.device?.Sitename ?? '').toString().trim() || 'Unknown');
-        const reportLocation = (((r.device as { Location2?: string; location2?: string } | undefined)?.Location2
-          ?? (r.device as { Location2?: string; location2?: string } | undefined)?.location2
-          ?? '').toString().trim() || 'Unknown');
+        const { siteName: reportSite, location: reportLocation } = getReportSiteLocationForDownload(r);
         return reportSite === siteName && (!locationFilter || reportLocation === locationFilter);
       }
     );
@@ -1577,11 +1762,7 @@ function ReportPageContent() {
       const y1 = dates[dates.length - 1].slice(0, 4);
       return y0 === y1 ? y0 : `${y0}-${y1}`;
     })();
-    const locationName = locationFilter || (() => {
-      const d = siteReports[0]?.device as { Location2?: string; location2?: string } | undefined;
-      const loc = d?.Location2 ?? d?.location2 ?? '';
-      return (loc && typeof loc === 'string' ? loc : String(loc || '')).trim() || 'Unknown';
-    })();
+    const locationName = locationFilter || getReportSiteLocationForDownload(siteReports[0]).location;
 
     const roundMap = getRoundMapBySiteLocationDate(allFiles);
     const zip = new JSZip();
@@ -1636,10 +1817,7 @@ function ReportPageContent() {
 
     for (const selection of selections) {
       const locationReports = sourceReports.filter((r: PMReport | MAReport) => {
-        const reportSite = ((r.device?.Sitename ?? '').toString().trim() || 'Unknown');
-        const reportLocation = (((r.device as { Location2?: string; location2?: string } | undefined)?.Location2
-          ?? (r.device as { Location2?: string; location2?: string } | undefined)?.location2
-          ?? '').toString().trim() || 'Unknown');
+        const { siteName: reportSite, location: reportLocation } = getReportSiteLocationForDownload(r);
         return reportSite === selection.siteName && reportLocation === selection.location;
       });
 
@@ -1713,13 +1891,13 @@ function ReportPageContent() {
   const sofsWithImages = useMemo(() => {
     const map = new Map<string, { count: number; items: Array<{ siteName: string; visitDate: string }> }>();
     downloadSourceReports.forEach((r: PMReport | MAReport) => {
-      const sof = (r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF';
+      const sof = getReferSofFromReport(r);
       const fileCount = (r.uploadedFiles || []).filter((f) => {
         const path = typeof f === 'string' ? f : f?.path;
         return !!path;
       }).length;
       if (fileCount > 0) {
-        const siteName = r.device?.Sitename || 'Unknown';
+        const siteName = getReportSiteLocationForDownload(r).siteName;
         const visitDate = getVisitDate(r);
         const existing = map.get(sof);
         if (!existing) {
@@ -1735,13 +1913,13 @@ function ReportPageContent() {
     return Array.from(map.entries())
       .map(([sofName, { count, items }]) => ({ sofName, count, items }))
       .sort((a, b) => b.count - a.count);
-  }, [downloadSourceReports, tab]);
+  }, [downloadSourceReports, tab, pmMaTasks, pmDeviceDetailMap]);
 
   const sitesWithImages = useMemo(() => {
     const map = new Map<string, { count: number; items: Array<{ sofName: string; visitDate: string }> }>();
     downloadSourceReports.forEach((r: PMReport | MAReport) => {
-      const siteName = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
-      const sofName = (r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF';
+      const { siteName } = getReportSiteLocationForDownload(r);
+      const sofName = getReferSofFromReport(r);
       const fileCount = (r.uploadedFiles || []).filter((f) => {
         const path = typeof f === 'string' ? f : f?.path;
         return !!path;
@@ -1762,7 +1940,7 @@ function ReportPageContent() {
     return Array.from(map.entries())
       .map(([siteName, { count, items }]) => ({ siteName, count, items }))
       .sort((a, b) => b.count - a.count);
-  }, [downloadSourceReports, tab]);
+  }, [downloadSourceReports, tab, pmMaTasks, pmDeviceDetailMap]);
 
   const downloadModalSites = useMemo(() => {
     const locationMap = new Map<string, {
@@ -1774,11 +1952,8 @@ function ReportPageContent() {
       visitDates: Set<string>;
     }>();
     downloadSourceReports.forEach((r: PMReport | MAReport) => {
-      const siteName = (r.device?.Sitename ?? '').toString().trim() || 'Unknown';
-      const location = ((r.device as { Location2?: string; location2?: string } | undefined)?.Location2
-        ?? (r.device as { Location2?: string; location2?: string } | undefined)?.location2
-        ?? '').toString().trim() || 'Unknown';
-      const sofName = (r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF';
+      const { siteName, location } = getReportSiteLocationForDownload(r);
+      const sofName = getReferSofFromReport(r);
       const fileCount = (r.uploadedFiles || []).filter((f) => {
         const path = typeof f === 'string' ? f : f?.path;
         return !!path;
@@ -1824,18 +1999,19 @@ function ReportPageContent() {
         visitCount: Array.from(row.visitDates).filter((v) => v && v !== '-').length,
       }))
       .sort((a, b) => a.siteName.localeCompare(b.siteName) || a.location.localeCompare(b.location));
-  }, [downloadSourceReports, downloadSiteSearch, downloadLocationFilter, downloadSofFilter, dateKey]);
+  }, [downloadSourceReports, downloadSiteSearch, downloadLocationFilter, downloadSofFilter, dateKey, pmMaTasks, pmDeviceDetailMap]);
 
   const downloadLocationOptions = useMemo(
-    () => Array.from(new Set(downloadSourceReports.map((r) => (((r.device as { Location2?: string; location2?: string } | undefined)?.Location2
-      ?? (r.device as { Location2?: string; location2?: string } | undefined)?.location2
-      ?? '').toString().trim() || 'Unknown')))).sort((a, b) => a.localeCompare(b)),
-    [downloadSourceReports]
+    () =>
+      Array.from(
+        new Set(downloadSourceReports.map((r) => getReportSiteLocationForDownload(r).location))
+      ).sort((a, b) => a.localeCompare(b)),
+    [downloadSourceReports, pmMaTasks, pmDeviceDetailMap]
   );
   const downloadSofOptions = useMemo(
-    () => Array.from(new Set(downloadSourceReports.map((r) => ((r.device?.Refer_SOF ?? '').toString().trim() || 'Unknown SOF'))))
+    () => Array.from(new Set(downloadSourceReports.map((r) => getReferSofFromReport(r))))
       .sort((a, b) => a.localeCompare(b)),
-    [downloadSourceReports]
+    [downloadSourceReports, pmMaTasks, pmDeviceDetailMap]
   );
 
   const downloadModalTotal = downloadModalSites.length;
@@ -1951,7 +2127,7 @@ function ReportPageContent() {
 
       for (const { sofName } of sofsWithImages) {
         const sofReports = downloadSourceReports.filter(
-          (r: PMReport | MAReport) => (r.device?.Refer_SOF ?? '').toString().trim() === sofName || (sofName === 'Unknown SOF' && !(r.device?.Refer_SOF ?? '').toString().trim())
+          (r: PMReport | MAReport) => getReferSofFromReport(r) === sofName
         );
         const bySite = buildFilesBySiteMap(sofReports);
 
@@ -2236,14 +2412,7 @@ function ReportPageContent() {
                 const result = report[resultKey as keyof typeof report] as string;
                 const dateVal = report[dateKey as keyof typeof report] as string | undefined;
                 const isSelected = selectedReportIds.has(String(report.id));
-                const cardTitle = (() => {
-                  if (tab === 'ma' && (report as MAReport).site_name?.trim()) return (report as MAReport).site_name!.trim();
-                  const site = report.device?.Sitename || getReportDevices(report)[0]?.Sitename;
-                  const loc = (report.device as { Location2?: string })?.Location2 || getReportDevices(report)[0]?.Location2;
-                  const fallback = getReportDevices(report).map((d) => (d.CI_Name || d.name || d.Asset_Number || '-')).join(', ') || '-';
-                  if (site) return loc ? `${site}, ${loc}` : site;
-                  return fallback;
-                })();
+                const cardTitle = getReportCardTitle(report);
                 const engineerLine = getEngineerDisplay(report);
                 const dateShown = formatDate(dateVal);
                 const qTrim = searchTerm.trim();
@@ -3033,10 +3202,11 @@ function ReportPageContent() {
                     </div>
                   </div>
                 ) : (
-                  selectedReport.device && (() => {
-                    const d = selectedReport.device as Record<string, unknown>;
-                    const v = (key: string) => (d[key] != null && String(d[key]).trim() !== '' ? String(d[key]) : '—');
-                    const fields: { label: string; key: string; icon: React.ReactNode }[] = [
+                  (selectedReport.device || pmReportInformation) && (() => {
+                    const info = pmReportInformation ?? (selectedReport as PMReport).device;
+                    const v = (key: keyof NonNullable<typeof pmReportInformation>) =>
+                      info && info[key] != null && String(info[key]).trim() !== '' ? String(info[key]) : '—';
+                    const fields: { label: string; key: keyof NonNullable<typeof pmReportInformation>; icon: React.ReactNode }[] = [
                       { label: 'Site', key: 'Sitename', icon: <MapPin size={12} /> },
                       { label: 'Location', key: 'Location2', icon: <MapPin size={12} /> },
                       { label: 'Refer SOF', key: 'Refer_SOF', icon: <FileText size={12} /> },
