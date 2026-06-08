@@ -46,6 +46,12 @@ import {
 import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { mapEmployeesToEngineerRoster } from '@/lib/engineerRoster';
 import { toTimeHHmm } from '@/lib/downtimeHours';
+import {
+  MA_BROKEN_ASSET_STATE_OPTIONS,
+  maBrokenAssetStateSelectClass,
+  resolveMaBrokenAssetStateDefault,
+  type MaBrokenAssetState,
+} from '@/lib/maBrokenAssetState';
 
 
 interface Props {
@@ -250,6 +256,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   interface BrokenDevicePair {
     id: string; // unique ID for this pair
     brokenDevice: Device;
+    /** Asset_State ที่จะตั้งให้อุปกรณ์ที่เสียเมื่อบันทึก plan */
+    brokenAssetState: MaBrokenAssetState;
     replacementDevice: Device | null;
     replacementDevices: Device[]; // available replacements for this broken device
     loading: boolean;
@@ -810,6 +818,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           const pairs: BrokenDevicePair[] = brokenDevicesWithDetails.map((device: Device, index: number) => ({
             id: randomUUID(),
             brokenDevice: device,
+            brokenAssetState: resolveMaBrokenAssetStateDefault(
+              (editingAssets[index] as { brokenAssetState?: string }).brokenAssetState ??
+                device.assetState
+            ),
             replacementDevice: replacementDetails[index] || null,
             replacementDevices: [],
             loading: false,
@@ -1191,6 +1203,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     const newPair: BrokenDevicePair = {
       id: pairId,
       brokenDevice: device,
+      brokenAssetState: resolveMaBrokenAssetStateDefault(device.assetState),
       replacementDevice: null,
       replacementDevices: [],
       loading: false,
@@ -1211,6 +1224,31 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         pair.id === pairId ? { ...pair, replacementDevice } : pair
       )
     );
+  };
+
+  const updateBrokenDeviceAssetState = (pairId: string, brokenAssetState: MaBrokenAssetState) => {
+    setBrokenDevicePairs((prev) =>
+      prev.map((pair) => (pair.id === pairId ? { ...pair, brokenAssetState } : pair))
+    );
+  };
+
+  const buildMaAssetFromPair = (pair: BrokenDevicePair) => {
+    const deviceId = pair.brokenDevice.id;
+    const did =
+      typeof deviceId === 'number'
+        ? deviceId
+        : parseInt(String(deviceId), 10);
+    return {
+      ...pair.brokenDevice,
+      id: !Number.isNaN(did) && did > 0 ? did : deviceId,
+      ...( !Number.isNaN(did) && did > 0 ? { Did: did } : {}),
+      brokenAssetState: pair.brokenAssetState,
+      replacementDeviceId: pair.replacementDevice
+        ? typeof pair.replacementDevice.id === 'number'
+          ? pair.replacementDevice.id
+          : parseInt(String(pair.replacementDevice.id), 10)
+        : null,
+    };
   };
 
   /* ================= handlers ================= */
@@ -1728,14 +1766,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     }
 
     // For MA: use brokenDevicePairs (แต่ละ asset มี replacementDeviceId ของตัวเอง), for PM: use selectedDevices
-    const maAssets = taskType === 'MA' && brokenDevicePairs.length > 0
-      ? brokenDevicePairs.map(pair => ({
-        ...pair.brokenDevice,
-        replacementDeviceId: pair.replacementDevice
-          ? (typeof pair.replacementDevice.id === 'number' ? pair.replacementDevice.id : parseInt(String(pair.replacementDevice.id), 10))
-          : null,
-      }))
-      : selectedDevices;
+    const maAssets =
+      taskType === 'MA' && brokenDevicePairs.length > 0
+        ? brokenDevicePairs.map(buildMaAssetFromPair)
+        : selectedDevices;
 
     // Backward compat: first replacement for replacement_device_id column
     const maReplacementDeviceId = taskType === 'MA' && brokenDevicePairs.length > 0 && brokenDevicePairs[0].replacementDevice
@@ -1886,14 +1920,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           }
           const payloads = keys.map((cid) => {
             const pairs = grouped.get(cid)!;
-            const assets = pairs.map((pair) => ({
-              ...pair.brokenDevice,
-              replacementDeviceId: pair.replacementDevice
-                ? typeof pair.replacementDevice.id === 'number'
-                  ? pair.replacementDevice.id
-                  : parseInt(String(pair.replacementDevice.id), 10)
-                : null,
-            }));
+            const assets = pairs.map(buildMaAssetFromPair);
             const firstRep = pairs[0]?.replacementDevice;
             const repId = firstRep
               ? typeof firstRep.id === 'number'
@@ -2512,89 +2539,101 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
             {/* Broken Device Pairs (for MA only) */}
             {taskType === 'MA' && (
-              <div className="border-slate-200">
-                <label className={fieldLabel}> Device and Replacement Device</label>
+              <div className="space-y-2">
+                <div>
+                  <label className={fieldLabel}>
+                    Broken device & replacement <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-[10px] text-slate-500">
+                    Asset State จะอัปเดตในระบบเมื่อกด Done ใน task detail เท่านั้น
+                  </p>
+                </div>
 
-                {/* First broken device selection (if no pairs yet) */}
                 {brokenDevicePairs.length === 0 && (
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Device 1 <span className="text-red-500">*</span>
-                      </label>
-                      {devicesToShow.length === 0 ? (
-                        <p className="text-xs text-slate-400">
-                          {!Sid
-                            ? 'Select Site'
-                            : selectedContractIds.length === 0
-                              ? 'Select contract(s) to load devices'
-                              : Sid
-                                ? 'No devices for the selected site in these contracts'
-                                : 'No devices in these contracts'}
-                        </p>
-                      ) : (
-                        <SearchableDeviceSelect
-                          devices={devicesToShow}
-                          value={null}
-                          placeholder="-- Select Device --"
-                          onSelect={(d) => d && addBrokenDevicePair(d)}
-                        />
-                      )}
-                    </div>
-                  </div>
+                  <>
+                    {devicesToShow.length === 0 ? (
+                      <p className="text-xs text-slate-400">
+                        {!Sid
+                          ? 'Select Site'
+                          : selectedContractIds.length === 0
+                            ? 'Select contract(s) to load devices'
+                            : Sid
+                              ? 'No devices for the selected site in these contracts'
+                              : 'No devices in these contracts'}
+                      </p>
+                    ) : (
+                      <SearchableDeviceSelect
+                        devices={devicesToShow}
+                        value={null}
+                        placeholder="Select broken device"
+                        onSelect={(d) => d && addBrokenDevicePair(d)}
+                      />
+                    )}
+                  </>
                 )}
 
-                {/* Display existing broken device pairs */}
                 {brokenDevicePairs.map((pair, index) => (
-                  <div key={pair.id} className="mb-3 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <p className="text-xs font-semibold text-slate-700 mb-1">
-                          Device {index + 1}: {pair.brokenDevice.name}
+                  <div
+                    key={pair.id}
+                    className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-slate-800">
+                          {index + 1}. {pair.brokenDevice.name}
                         </p>
-                        <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-500">
-                          <span>Type: {pair.brokenDevice.role || pair.brokenDevice.type || '-'}</span>
-                          {pair.brokenDevice.serialNumber && <span>| SN: {pair.brokenDevice.serialNumber}</span>}
-                          {pair.brokenDevice.assetNumber && <span>| Asset: {pair.brokenDevice.assetNumber}</span>}
-                        </div>
+                        <p className="truncate text-[10px] text-slate-500">
+                          {[
+                            pair.brokenDevice.role || pair.brokenDevice.type,
+                            pair.brokenDevice.serialNumber && `SN ${pair.brokenDevice.serialNumber}`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
                       </div>
+                      <select
+                        value={pair.brokenAssetState}
+                        disabled={editingEvent?.status === 'done'}
+                        onChange={(e) =>
+                          updateBrokenDeviceAssetState(
+                            pair.id,
+                            e.target.value as MaBrokenAssetState
+                          )
+                        }
+                        aria-label={`Asset state for device ${index + 1}`}
+                        title="อัปเดตใน DB เมื่อกด Done"
+                        className={`h-8 w-[9.5rem] shrink-0 rounded-lg border px-2 text-xs ${maBrokenAssetStateSelectClass(pair.brokenAssetState, editingEvent?.status === 'done')}`}
+                      >
+                        {MA_BROKEN_ASSET_STATE_OPTIONS.map((state) => (
+                          <option key={state} value={state}>
+                            {state}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         onClick={() => removeBrokenDevicePair(pair.id)}
-                        className="p-1 text-red-500 hover:bg-red-50 rounded-none"
+                        className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                        aria-label={`Remove device ${index + 1}`}
                       >
                         <X size={14} />
                       </button>
                     </div>
 
-                    <div>
-                      <label className="text-[10px] font-semibold text-slate-600 mb-1 block">
-                        Replacement Device
-                      </label>
-                      {pair.loading ? (
-                        <p className="text-xs text-slate-400">Loading...</p>
-                      ) : pair.replacementDevices.length === 0 ? (
-                        <p className="text-xs text-slate-400">No devices in store</p>
-                      ) : (
-                        <SearchableDeviceSelect
-                          devices={pair.replacementDevices}
-                          value={pair.replacementDevice}
-                          placeholder="-- Select Replacement Device --"
-                          onSelect={(d) => updateBrokenDeviceReplacement(pair.id, d)}
-                          showTypeRoleFilters
-                          showClearOption
-                        />
-                      )}
-                      {pair.replacementDevice && (
-                        <button
-                          type="button"
-                          onClick={() => updateBrokenDeviceReplacement(pair.id, null)}
-                          className="mt-2 text-[11px] font-semibold text-slate-500 hover:text-slate-700 underline"
-                        >
-                          Clear replacement device
-                        </button>
-                      )}
-                    </div>
+                    {pair.loading ? (
+                      <p className="text-xs text-slate-400">Loading replacements...</p>
+                    ) : pair.replacementDevices.length === 0 ? (
+                      <p className="text-xs text-slate-400">No replacement devices in store</p>
+                    ) : (
+                      <SearchableDeviceSelect
+                        devices={pair.replacementDevices}
+                        value={pair.replacementDevice}
+                        placeholder="Replacement device (optional)"
+                        onSelect={(d) => updateBrokenDeviceReplacement(pair.id, d)}
+                        showTypeRoleFilters
+                        showClearOption
+                      />
+                    )}
                   </div>
                 ))}
 
@@ -3328,7 +3367,6 @@ const inputBase =
 
 const sectionCard =
   'rounded-xl border border-slate-100 bg-white p-3 space-y-3';
-
 
 const assetCard = (active: boolean) =>
   `flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition ${active

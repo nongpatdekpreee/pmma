@@ -4,6 +4,7 @@ const db = require('../config/database');
 const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
 const { isProjectOwenSnsPlan } = require('../utils/projectOwenSns');
 const { notifyTeamsPlanCreated } = require('../services/teamsPlanNotification');
+const { MA_BROKEN_DEVICE_ASSET_STATE_SET } = require('../config/maBrokenAssetState');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
@@ -540,6 +541,44 @@ const syncMaReferTicketOnDevices = async (assets, ticket, taskReplacementDeviceI
   );
 };
 
+const extractBrokenDeviceIdFromAsset = (asset) => {
+  if (asset == null) return null;
+  if (typeof asset === 'number' || typeof asset === 'string') {
+    return parsePositiveDeviceId(asset);
+  }
+  if (typeof asset === 'object') {
+    return parsePositiveDeviceId(
+      asset.id ?? asset.Did ?? asset.did ?? asset.device_id ?? asset.deviceId
+    );
+  }
+  return null;
+};
+
+const resolveMaBrokenAssetStateForDone = (asset) => {
+  const rawState = asset?.brokenAssetState ?? asset?.broken_asset_state;
+  const state = rawState != null ? String(rawState).trim() : '';
+  if (MA_BROKEN_DEVICE_ASSET_STATE_SET.has(state)) return state;
+  return 'In Store';
+};
+
+/** MA: อัปเดต Asset_State อุปกรณ์ที่เสียเมื่อกด Done เท่านั้น (ใช้ brokenAssetState จาก assets) */
+const applyMaBrokenAssetStatesOnDone = async (assets) => {
+  if (!Array.isArray(assets) || assets.length === 0) return;
+  for (const asset of assets) {
+    if (asset == null || typeof asset !== 'object') continue;
+    const deviceId = extractBrokenDeviceIdFromAsset(asset);
+    if (!deviceId) {
+      console.warn('[applyMaBrokenAssetStatesOnDone] skip asset without device id:', asset);
+      continue;
+    }
+    const state = resolveMaBrokenAssetStateForDone(asset);
+    await updateDeviceAssetState(deviceId, state);
+    if (state === 'In Store') {
+      await db.execute('UPDATE devices SET SLid = 2 WHERE Did = ?', [deviceId]);
+    }
+  }
+};
+
 // POST /api/tasks
 const createTask = async (req, res) => {
   try {
@@ -686,8 +725,8 @@ const createTask = async (req, res) => {
 
     await db.execute(insertSql, insertValues);
 
-    // MA: Asset_State และ SLid จะถูกอัปเดตเมื่อกด Done ใน detail เท่านั้น (ไม่ทำที่นี่)
-    if (taskType === 'MA') {
+    // MA: Asset_State อุปกรณ์ที่เสียจะอัปเดตเมื่อกด Done เท่านั้น
+    if (String(taskType || '').toUpperCase() === 'MA') {
       await syncMaReferTicketOnDevices(assets, ticket, safeParseInt(replacementDeviceId));
     }
 
@@ -1010,11 +1049,8 @@ const updateTask = async (req, res) => {
           }
         }
         
-        // Update new original device: current state -> In Store, ย้ายไป SLid = 2 (คลัง)
-        if (newOriginalDeviceId) {
-          await updateDeviceAssetState(newOriginalDeviceId, 'In Store');
-          await db.execute('UPDATE devices SET SLid = 2 WHERE Did = ?', [newOriginalDeviceId]);
-        }
+        // อุปกรณ์ที่เสียทุกตัวใน assets — ใช้ brokenAssetState ที่เลือกไว้ใน plan (default In Store)
+        await applyMaBrokenAssetStatesOnDone(newAssets);
 
         // Update contract_device: replace broken device with replacement device
         const contractIdNum = safeParseInt(newContractId);
