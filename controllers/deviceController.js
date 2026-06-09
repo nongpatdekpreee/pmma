@@ -1,4 +1,6 @@
 const db = require('../config/database');
+const { applyReferSofToSiteLocation } = require('../backend/config/deviceSof');
+/** @deprecated Prefer backend/server.js + backend/controllers/deviceController.js */
 const multer = require('multer');
 const xlsx = require('xlsx');
 
@@ -230,10 +232,10 @@ const createDevice = async (req, res) => {
           const [result] = await db.execute(
             `INSERT INTO devices (
               Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-              Project_purchase, SLid, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+              Project_purchase, SLid, PO_No, Loan_Start, Request_Date,
               Refer_Ticket, Assigned_Service, Reason, Dtypeid, DeRoleid,
               Project_code_purchase, Waranty_start, Waranty_end, Received_date, Description
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               deviceData.Asset_State,
               deviceData.serial,
@@ -246,7 +248,6 @@ const createDevice = async (req, res) => {
               deviceData.PO_No,
               deviceData.Loan_Start,
               deviceData.Request_Date,
-              deviceData.Refer_SOF,
               deviceData.Refer_Ticket,
               deviceData.Assigned_Service,
               deviceData.Reason,
@@ -261,6 +262,9 @@ const createDevice = async (req, res) => {
           );
 
           const deviceId = result.insertId;
+          if (deviceData.Refer_SOF != null && deviceData.SLid != null) {
+            await applyReferSofToSiteLocation(db, deviceData.SLid, deviceData.Refer_SOF);
+          }
 
           insertedDevices.push({
             id: result.insertId,
@@ -425,10 +429,10 @@ const createDevice = async (req, res) => {
           values.push(updateData.Request_Date);
           changedFields.Request_Date = updateData.Request_Date;
         }
-        if (updateData.Refer_SOF !== undefined) {
-          updates.push('Refer_SOF = ?');
-          values.push(updateData.Refer_SOF);
-          changedFields.Refer_SOF = updateData.Refer_SOF;
+        const pendingReferSof =
+          updateData.Refer_SOF !== undefined ? updateData.Refer_SOF : undefined;
+        if (pendingReferSof !== undefined) {
+          changedFields.Refer_SOF = pendingReferSof;
         }
         if (updateData.Refer_Ticket !== undefined) {
           updates.push('Refer_Ticket = ?');
@@ -491,12 +495,29 @@ const createDevice = async (req, res) => {
             action: 'updated',
             _index: device._index
           });
+        } else if (pendingReferSof !== undefined) {
+          updatedDevices.push({
+            id: device._id,
+            action: 'updated',
+            _index: device._index
+          });
         } else {
           updatedDevices.push({
             id: device._id,
             action: 'no_changes',
             _index: device._index
           });
+        }
+
+        if (pendingReferSof !== undefined) {
+          let slidForSof = updateData.SLid;
+          if (slidForSof == null) {
+            const [slRows] = await db.execute('SELECT SLid FROM devices WHERE Did = ?', [device._id]);
+            slidForSof = slRows[0]?.SLid;
+          }
+          if (slidForSof != null) {
+            await applyReferSofToSiteLocation(db, slidForSof, pendingReferSof);
+          }
         }
       } catch (error) {
         errors.push({
@@ -597,7 +618,7 @@ const getDevices = async (req, res) => {
     const sql = `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
                  devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
                  sites.Sid, location.Location2, 
-                 devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+                 devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
                  devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
                  devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
                  devices.Asset_Type, devices.Owner,
@@ -700,7 +721,7 @@ const getDevicesExcludeInStore = async (req, res) => {
     const sql = `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
                  devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
                  sites.Sid, location.Location2, 
-                 devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+                 devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
                  devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
                  devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
                  devices.Asset_Type, devices.Owner,
@@ -834,7 +855,7 @@ const getDevicesByAssetState = async (req, res) => {
     const sql = `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
                  devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
                  sites.Sid, location.Location2, 
-                 devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+                 devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
                  devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
                  devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
                  devices.Asset_Type, devices.Owner,
@@ -937,7 +958,7 @@ const getDevicesExcludeOutStore = async (req, res) => {
     const sql = `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
                  devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
                  sites.Sid, location.Location2, 
-                 devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+                 devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
                  devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
                  devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
                  devices.Asset_Type, devices.Owner,
@@ -1204,7 +1225,7 @@ const getDevicesBySite = async (req, res) => {
     const sql = `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
                  devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
                  sites.Sid, location.Location2, 
-                 devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+                 devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
                  devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
                  devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
                  devices.Asset_Type, devices.Owner,
@@ -1471,7 +1492,7 @@ const searchDevices = async (req, res) => {
     // ดึงข้อมูลตาม pagination
     const sql = `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
                  devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
-                 devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+                 devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
                  devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
                  devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
                  devices.Asset_Type, devices.Owner,
@@ -1540,7 +1561,7 @@ const getDeviceById = async (req, res) => {
     const sql = `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
                  devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
                  sites.Sid, location.Location2, 
-                 devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+                 devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
                  devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
                  devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
                  devices.Asset_Type, devices.Owner,
@@ -1619,7 +1640,11 @@ const updateAssetState = async (req, res) => {
 
     // ดึงข้อมูลเดิมทั้งหมด (batch query)
     const placeholders = deviceIds.map(() => '?').join(',');
-    const checkSql = `SELECT Did, Asset_State, SLid, Request_Date, Refer_SOF, Refer_Ticket, Reason, Assigned_Service FROM devices WHERE Did IN (${placeholders})`;
+    const checkSql = `SELECT d.Did, d.Asset_State, d.SLid, d.Request_Date, sl.SOF AS Refer_SOF,
+                      d.Refer_Ticket, d.Reason, d.Assigned_Service
+                      FROM devices d
+                      LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+                      WHERE d.Did IN (${placeholders})`;
     const [existingDevices] = await db.execute(checkSql, deviceIds);
 
     // สร้าง map สำหรับค้นหาเร็ว
@@ -1724,10 +1749,10 @@ const updateAssetState = async (req, res) => {
           changes.Request_Date = { old: oldData.Request_Date, new: newRequestDate };
         }
 
-        // Refer_SOF
+        // Refer_SOF → sites_location.SOF
+        let pendingReferSofUpdate = null;
         if (newReferSOF !== null && newReferSOF !== undefined) {
-          updateFields.push('Refer_SOF = ?');
-          updateParams.push(newReferSOF);
+          pendingReferSofUpdate = newReferSOF;
           changes.Refer_SOF = { old: oldData.Refer_SOF, new: newReferSOF };
         }
 
@@ -1769,6 +1794,14 @@ const updateAssetState = async (req, res) => {
             changes: changes,
             action: 'updated'
           });
+        } else if (pendingReferSofUpdate !== null) {
+          updatedDevices.push({
+            Did: deviceId,
+            oldAssetState: oldAssetState,
+            newAssetState: newAssetState,
+            changes: changes,
+            action: 'updated'
+          });
         } else {
           // ถ้าไม่มีการเปลี่ยนแปลง
           updatedDevices.push({
@@ -1777,6 +1810,13 @@ const updateAssetState = async (req, res) => {
             newAssetState: newAssetState,
             action: 'no_changes'
           });
+        }
+
+        if (pendingReferSofUpdate !== null) {
+          const slidForSof = finalSLid || oldData.SLid;
+          if (slidForSof != null) {
+            await applyReferSofToSiteLocation(db, slidForSof, pendingReferSofUpdate);
+          }
         }
       } catch (error) {
         errors.push({
@@ -1791,7 +1831,7 @@ const updateAssetState = async (req, res) => {
     if (errors.length > 0 && updatedDevices.length === 0) {
       return res.status(500).json({
         success: false,
-        message: 'เกิดข้อผิดพลาดในการอัพเดท Asset_State ทั้งหมด',
+        message: 'เกิดข้อผิดพลาดในการอัพเดท Asset_State Other ทั้งหมด',
         errors: errors
       });
     }
@@ -2169,8 +2209,8 @@ const updateDevice = async (req, res) => {
         return existing[0].SLid;
       }
       const [result] = await connection.execute(
-        'INSERT INTO sites_location (Sid, lid) VALUES (?, ?)',
-        [sid, lid]
+        'INSERT INTO sites_location (Sid, lid, SOF) VALUES (?, ?, ?)',
+        [sid, lid, '']
       );
       return result.insertId;
     };
@@ -2315,10 +2355,10 @@ const updateDevice = async (req, res) => {
       values.push(updateData.Request_Date);
       changedFields.Request_Date = updateData.Request_Date;
     }
-    if (updateData.Refer_SOF !== undefined) {
-      updates.push('Refer_SOF = ?');
-      values.push(updateData.Refer_SOF);
-      changedFields.Refer_SOF = updateData.Refer_SOF;
+    const pendingReferSofSingle =
+      updateData.Refer_SOF !== undefined ? updateData.Refer_SOF : undefined;
+    if (pendingReferSofSingle !== undefined) {
+      changedFields.Refer_SOF = pendingReferSofSingle;
     }
     if (updateData.Refer_Ticket !== undefined) {
       updates.push('Refer_Ticket = ?');
@@ -2371,8 +2411,17 @@ const updateDevice = async (req, res) => {
 
     values.push(id);
 
-    const sql = `UPDATE devices SET ${updates.join(', ')} WHERE Did = ?`;
-    await connection.execute(sql, values);
+    if (updates.length > 0) {
+      const sql = `UPDATE devices SET ${updates.join(', ')} WHERE Did = ?`;
+      await connection.execute(sql, values);
+    }
+
+    if (pendingReferSofSingle !== undefined) {
+      const slidForSof = slid ?? (await connection.execute('SELECT SLid FROM devices WHERE Did = ?', [id]))[0][0]?.SLid;
+      if (slidForSof != null) {
+        await applyReferSofToSiteLocation(connection, slidForSof, pendingReferSofSingle);
+      }
+    }
 
     await connection.commit();
 
@@ -2381,7 +2430,7 @@ const updateDevice = async (req, res) => {
       `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
        devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
        sites.Sid, location.Location2, 
-       devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+       devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
        devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
        devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
        devices.Asset_Type, devices.Owner,
@@ -3167,7 +3216,7 @@ const getDeviceHistory = async (req, res) => {
     const checkSql = `SELECT d.Did, d.Asset_State, d.serial, d.CI_Name, d.Asset_Number,
                       d.PR_No, d.Vendor, d.Project_purchase, d.SLid,
                       sl.Sid, l.Location2,
-                      d.PO_No, d.Loan_Start, d.Request_Date, d.Refer_SOF,
+                      d.PO_No, d.Loan_Start, d.Request_Date, sl.SOF AS Refer_SOF,
                       d.Refer_Ticket, d.Assigned_Service, d.Reason, d.Dtypeid, d.DeRoleid,
                       d.Project_code_purchase, d.Waranty_start, d.Waranty_end, d.Received_date,
                       d.Asset_Type, d.Owner
@@ -3762,8 +3811,9 @@ const importExcel = async (req, res) => {
               }
             });
 
-            // Add other fields
+            // Add other fields (Refer_SOF → sites_location.SOF, not devices column)
             Object.keys(prep.deviceData).forEach(key => {
+              if (key === 'Refer_SOF') return;
               if (!requiredFields.includes(key) && prep.deviceData[key] !== undefined && prep.deviceData[key] !== null) {
                 insertFields.push(key);
                 insertValues.push(prep.deviceData[key]);
@@ -3779,6 +3829,10 @@ const importExcel = async (req, res) => {
                 `INSERT INTO devices (${insertFields.join(', ')}) VALUES (${placeholders.join(', ')})`,
                 insertValues
               );
+
+              if (prep.deviceData.Refer_SOF != null && prep.deviceData.SLid != null) {
+                await applyReferSofToSiteLocation(connection, prep.deviceData.SLid, prep.deviceData.Refer_SOF);
+              }
 
               results.push({
                 index: prep.index,
@@ -3805,7 +3859,10 @@ const importExcel = async (req, res) => {
           const updates = [];
           const values = [];
 
+          const pendingReferSofExcel = prep.deviceData.Refer_SOF;
+
           Object.keys(prep.deviceData).forEach(key => {
+            if (key === 'Refer_SOF') return;
             if (prep.deviceData[key] !== undefined && prep.deviceData[key] !== null) {
               updates.push(`${key} = ?`);
               values.push(prep.deviceData[key]);
@@ -3828,6 +3885,13 @@ const importExcel = async (req, res) => {
               Did: prep.deviceId,
               Asset_Number: prep.deviceData.Asset_Number
             });
+          } else if (pendingReferSofExcel !== undefined && pendingReferSofExcel !== null) {
+            results.push({
+              index: prep.index,
+              action: 'updated',
+              Did: prep.deviceId,
+              Asset_Number: prep.deviceData.Asset_Number
+            });
           } else {
             results.push({
               index: prep.index,
@@ -3835,6 +3899,19 @@ const importExcel = async (req, res) => {
               Did: prep.deviceId,
               Asset_Number: prep.deviceData.Asset_Number
             });
+          }
+
+          if (pendingReferSofExcel !== undefined && pendingReferSofExcel !== null) {
+            const slidForSof = prep.deviceData.SLid;
+            if (slidForSof != null) {
+              await applyReferSofToSiteLocation(connection, slidForSof, pendingReferSofExcel);
+            } else {
+              const [slRows] = await connection.execute('SELECT SLid FROM devices WHERE Did = ?', [prep.deviceId]);
+              const slid = slRows[0]?.SLid;
+              if (slid != null) {
+                await applyReferSofToSiteLocation(connection, slid, pendingReferSofExcel);
+              }
+            }
           }
         } catch (error) {
           errors.push({
@@ -4058,7 +4135,7 @@ const getDevicesSell = async (req, res) => {
     const sql = `SELECT devices.Did, devices.Asset_State, devices.serial, devices.CI_Name, devices.Asset_Number, 
                  devices.PR_No, devices.Vendor, devices.Project_purchase, devices.SLid,
                  sites.Sid, location.Location2, 
-                 devices.PO_No, devices.Loan_Start, devices.Request_Date, devices.Refer_SOF, 
+                 devices.PO_No, devices.Loan_Start, devices.Request_Date, sites_location.SOF AS Refer_SOF, 
                  devices.Refer_Ticket, devices.Assigned_Service, devices.Reason, devices.Dtypeid, devices.DeRoleid,
                  devices.Project_code_purchase, devices.Waranty_start, devices.Waranty_end, devices.Received_date, 
                  devices.Asset_Type, devices.Owner,

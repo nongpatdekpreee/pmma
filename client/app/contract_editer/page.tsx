@@ -6,7 +6,7 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
-import { apiUrl, getSitesLocation } from '@/lib/api';
+import { apiUrl, getSitesLocation, syncContractsFromReferSof } from '@/lib/api';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearchListDropdown';
@@ -734,29 +734,38 @@ function ContractEditorPageContent() {
     }
   };
 
+  const contractsEndpoint =
+    siteIdFilter && String(siteIdFilter).trim() !== ''
+      ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteIdFilter).trim())}`)
+      : apiUrl('/api/contracts');
+
+  const fetchAndSetContracts = async (cancelled: () => boolean) => {
+    const res = await fetch(contractsEndpoint);
+    const json = await res.json();
+    if (cancelled()) return false;
+    if (!json.success || !Array.isArray(json.data)) {
+      setContracts([]);
+      setContractsError(json.message || 'Failed to load contract list');
+      return false;
+    }
+    const list: Contract[] = json.data.map((c: Parameters<typeof mapApiRowToContract>[0]) =>
+      mapApiRowToContract(c),
+    );
+    const merged = await mergeTerminatedHistoryRows(list);
+    if (!cancelled()) setContracts(merged);
+    return true;
+  };
+
   useEffect(() => {
     let cancelled = false;
+    const isCancelled = () => cancelled;
+
     setContractsLoading(true);
     setContractsError('');
-    const contractsEndpoint =
-      siteIdFilter && String(siteIdFilter).trim() !== ''
-        ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteIdFilter).trim())}`)
-        : apiUrl('/api/contracts');
+
     (async () => {
       try {
-        const res = await fetch(contractsEndpoint);
-        const json = await res.json();
-        if (cancelled) return;
-        if (!json.success || !Array.isArray(json.data)) {
-          setContracts([]);
-          setContractsError(json.message || 'Failed to load contract list');
-          return;
-        }
-        const list: Contract[] = json.data.map((c: Parameters<typeof mapApiRowToContract>[0]) =>
-          mapApiRowToContract(c),
-        );
-        const merged = await mergeTerminatedHistoryRows(list);
-        if (!cancelled) setContracts(merged);
+        await fetchAndSetContracts(isCancelled);
       } catch (err) {
         if (!cancelled) {
           setContracts([]);
@@ -765,7 +774,26 @@ function ContractEditorPageContent() {
       } finally {
         if (!cancelled) setContractsLoading(false);
       }
+
+      // Sync Refer_SOF หลังแสดงรายการ — ไม่บล็อก loading (รองรับ device ใหม่ของ SOF เดิม)
+      if (cancelled) return;
+      try {
+        const syncResult = await syncContractsFromReferSof();
+        if (cancelled || !syncResult.success || !syncResult.data) return;
+        const { created = 0, linked = 0 } = syncResult.data;
+        if (created > 0 || linked > 0) {
+          toastSuccess(
+            linked > 0 && created === 0
+              ? `Added devices to ${linked} existing contract(s) from Refer_SOF`
+              : `Auto-created ${created} contract(s), linked ${linked} to existing from Refer_SOF`
+          );
+          await fetchAndSetContracts(isCancelled);
+        }
+      } catch (syncErr) {
+        console.warn('Refer_SOF contract sync skipped:', syncErr);
+      }
     })();
+
     return () => {
       cancelled = true;
     };

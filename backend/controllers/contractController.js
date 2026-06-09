@@ -1,5 +1,13 @@
 const db = require('../config/database');
 const { DEFAULT_IN_STORE_SITE_NAME } = require('../config/inStoreSite');
+const {
+  normalizeReferSofKey,
+  PENDING_REFER_SOF_SQL,
+  DEVICES_FOR_REFER_SOF_SQL,
+  syncSofOnSiteLocations,
+  syncSofRenameOnSiteLocations,
+  noSofWhere,
+} = require('../config/deviceSof');
 
 const EMAIL_LINE_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -670,21 +678,17 @@ const createContract = async (req, res) => {
           console.error('Error saving contract history:', historyErr);
         }
 
-        // หลัง renew SOF: อัปเดต Refer_SOF บน devices — ทุกเครื่องที่ยังอ้าง SOF เก่า + เครื่องในรายการผูกสัญญา (กรณี Refer_SOF ว่าง)
+        // หลัง renew SOF: อัปเดต sites_location.SOF
         if (contractStatus !== 'draft' && sofValue) {
           const newSofTrim = String(sofValue).trim();
           if (newSofTrim) {
             const oldSofTrim =
               oldSofFromDb != null && String(oldSofFromDb).trim() !== '' ? String(oldSofFromDb).trim() : '';
             if (oldSofTrim && oldSofTrim !== newSofTrim) {
-              await conn.execute(
-                `UPDATE devices SET Refer_SOF = ? WHERE Refer_SOF IS NOT NULL AND TRIM(Refer_SOF) = ?`,
-                [newSofTrim, oldSofTrim]
-              );
+              await syncSofRenameOnSiteLocations(conn, oldSofTrim, newSofTrim);
             }
-            if (deviceIdList.length > 0) {
-              const ph = deviceIdList.map(() => '?').join(',');
-              await conn.execute(`UPDATE devices SET Refer_SOF = ? WHERE Did IN (${ph})`, [newSofTrim, ...deviceIdList]);
+            if (siteIdList.length > 0) {
+              await syncSofOnSiteLocations(conn, newSofTrim, siteIdList);
             }
           }
         }
@@ -726,13 +730,9 @@ const createContract = async (req, res) => {
         }
       }
 
-      // อัปเดต devices: Refer_SOF เท่านั้นเมื่อไม่ใช่ draft — Assigned_Service เก็บที่ contract เท่านั้น
-      if (contractStatus !== 'draft' && sofValue && deviceIdList.length > 0) {
-        const placeholders = deviceIdList.map(() => '?').join(',');
-        await conn.execute(
-          `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
-          [sofValue, ...deviceIdList]
-        );
+      // อัปเดต sites_location.SOF ตาม site ในสัญญา (ไม่ใช่ draft)
+      if (contractStatus !== 'draft' && sofValue && siteIdList.length > 0) {
+        await syncSofOnSiteLocations(conn, sofValue, siteIdList);
       }
 
       } // end else (สร้างสัญญาใหม่)
@@ -995,9 +995,9 @@ const getAvailableDevices = async (req, res) => {
     
     let whereCondition = `WHERE d.Did NOT IN (${excludeContractCondition})`;
 
-    // ตอน edit contract: เฉพาะ device ที่ยังไม่มี SOF และอยู่ใต้คลัง (ชื่อบริษัทตรง in-store canonical)
+    // ตอน edit contract: เฉพาะ device ที่ location ยังไม่มี SOF และอยู่ใต้คลัง
     if (contractId) {
-      whereCondition += ` AND (d.Refer_SOF IS NULL OR d.Refer_SOF = '') AND LOWER(TRIM(COALESCE(s.Name, ''))) = LOWER(TRIM(?))`;
+      whereCondition += ` AND ${noSofWhere('sl', 'd')} AND LOWER(TRIM(COALESCE(s.Name, ''))) = LOWER(TRIM(?))`;
       params.push(DEFAULT_IN_STORE_SITE_NAME);
     } else if (siteId) {
       const sid = parseInt(siteId, 10);
@@ -1007,7 +1007,6 @@ const getAvailableDevices = async (req, res) => {
       }
     }
 
-    // TccStock (7): devices.SLid = sites_location.SLid; ดึง type (model) และ role จาก database
     const sql = `
       SELECT 
         d.Did,
@@ -2344,13 +2343,9 @@ const updateContract = async (req, res) => {
       }
     }
 
-    // อัปเดต Refer_SOF ใน devices เฉพาะเมื่อไม่ใช่ draft — Assigned_Service เก็บที่ contract เท่านั้น
-    if (status !== 'draft' && deviceIdList.length > 0 && sof_name != null && String(sof_name).trim() !== '') {
-      const placeholders = deviceIdList.map(() => '?').join(',');
-      await conn.execute(
-        `UPDATE devices SET Refer_SOF = ? WHERE Did IN (${placeholders})`,
-        [sof_name.trim(), ...deviceIdList]
-      );
+    // อัปเดต sites_location.SOF ตาม site ในสัญญา (ไม่ใช่ draft)
+    if (status !== 'draft' && siteIdList.length > 0 && sof_name != null && String(sof_name).trim() !== '') {
+      await syncSofOnSiteLocations(conn, sof_name.trim(), siteIdList);
     }
 
     // บันทึกประวัติ Terminated เมื่อกด "Do not renew" (เปลี่ยนเป็น not_renewing ครั้งแรก)
@@ -2410,10 +2405,293 @@ const updateContract = async (req, res) => {
     conn.release();
   }
 };
+function pickMostCommonAssignedService(devices) {
+  const counts = new Map();
+  for (const d of devices) {
+    const v = d.Assigned_Service != null ? String(d.Assigned_Service).trim() : '';
+    if (!v) continue;
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  let best = '';
+  let bestN = 0;
+  for (const [k, n] of counts) {
+    if (n > bestN) {
+      best = k;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
+function groupDevicesBySlid(devices) {
+  const pairs = [];
+  const bySlid = new Map();
+  for (const d of devices) {
+    const slid = parseInt(d.SLid, 10);
+    const did = parseInt(d.Did, 10);
+    if (isNaN(slid) || isNaN(did)) continue;
+    if (!bySlid.has(slid)) bySlid.set(slid, []);
+    bySlid.get(slid).push(did);
+  }
+  for (const [slid, deviceIds] of bySlid) {
+    pairs.push({ site_id: slid, device_ids: deviceIds });
+  }
+  return pairs;
+}
+
+function defaultContractDates() {
+  const start = new Date();
+  const end = new Date(start);
+  end.setFullYear(end.getFullYear() + 1);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  return { start_date: fmt(start), end_date: fmt(end) };
+}
+
+async function findContractIdBySofName(conn, referSof) {
+  const key = normalizeReferSofKey(referSof);
+  const [rows] = await conn.execute(
+    `SELECT contract_id, sof_name FROM contract
+     WHERE sof_name IS NOT NULL AND TRIM(sof_name) != ''
+       AND (sof_name = ? OR TRIM(LEADING '0' FROM COALESCE(sof_name, '')) = ?)
+     ORDER BY contract_id DESC
+     LIMIT 1`,
+    [referSof, key]
+  );
+  return rows.length > 0 ? rows[0].contract_id : null;
+}
+
+async function insertContractDevicePairs(conn, contractId, pairs) {
+  for (const p of pairs) {
+    const slid = p.site_id != null ? p.site_id : null;
+    for (const did of p.device_ids || []) {
+      await conn.execute(
+        'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
+        [contractId, did, slid]
+      ).catch(() =>
+        conn.execute('INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)', [
+          contractId,
+          did,
+        ])
+      );
+    }
+  }
+}
+
+async function insertNewContractRow(conn, { referSof, assignedService, startDate, endDate }) {
+  const finalContractId = await generateNextContractId();
+  const [existing] = await conn.execute('SELECT contract_id FROM contract WHERE contract_id = ?', [
+    finalContractId,
+  ]);
+  if (existing.length > 0) {
+    throw new Error('Cannot allocate contract_id, please try again');
+  }
+
+  const insertCols =
+    'contract_id, contract_name, start_date, end_date, sof_name, sla_term, Assigned_Service, sale_account, tel_acc, email_acc, coverage_scope, file_paths, image_paths';
+  const insertVals = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
+  const insertParams = [
+    finalContractId,
+    `SOF ${referSof}`,
+    startDate,
+    endDate,
+    referSof,
+    2,
+    assignedService || '',
+    null,
+    null,
+    '',
+    null,
+    null,
+    null,
+  ];
+
+  let insertContractSql = `INSERT INTO contract (${insertCols}) VALUES (${insertVals})`;
+  try {
+    const [pmCols] = await conn.execute("SHOW COLUMNS FROM contract LIKE 'pm_time_per_year'");
+    if (pmCols && pmCols.length > 0) {
+      insertContractSql = `INSERT INTO contract (${insertCols}, pm_time_per_year) VALUES (${insertVals}, ?)`;
+      insertParams.push('2');
+    }
+  } catch (_) { /* skip */ }
+  try {
+    const [statusCols] = await conn.execute("SHOW COLUMNS FROM contract LIKE 'status'");
+    if (statusCols && statusCols.length > 0) {
+      insertContractSql = insertContractSql
+        .replace(/\)\s*VALUES\s*\(/, ', status) VALUES (')
+        .replace(/\)\s*$/, ', ?)');
+      insertParams.push('official');
+    }
+  } catch (_) { /* skip */ }
+  try {
+    const [remarkCols] = await conn.execute("SHOW COLUMNS FROM contract LIKE 'remark'");
+    if (remarkCols && remarkCols.length > 0) {
+      insertContractSql = insertContractSql
+        .replace(/\)\s*VALUES\s*\(/, ', remark) VALUES (')
+        .replace(/\)\s*$/, ', ?)');
+      insertParams.push('Auto-provisioned from sites_location.SOF');
+    }
+  } catch (_) { /* skip */ }
+  insertContractSql = insertContractSql
+    .replace(/\)\s*VALUES\s*\(/, ', created_at) VALUES (')
+    .replace(/\)\s*$/, ', NOW())');
+
+  await conn.execute(insertContractSql, insertParams);
+  return finalContractId;
+}
+
+/**
+ * สร้าง/ผูก contract จาก SOF (sites_location.SOF) — จัดกลุ่ม device ตาม devices.SLid
+ */
+async function provisionSingleReferSof(conn, referSof, options = {}) {
+  const key = normalizeReferSofKey(referSof);
+  const [deviceRows] = await conn.execute(DEVICES_FOR_REFER_SOF_SQL, [referSof, key]);
+  if (!deviceRows.length) {
+    return { refer_sof: referSof, action: 'skipped', reason: 'no_eligible_devices' };
+  }
+
+  const pairs = groupDevicesBySlid(deviceRows);
+  if (!pairs.length) {
+    return { refer_sof: referSof, action: 'skipped', reason: 'no_site_pairs' };
+  }
+
+  const assignedService = pickMostCommonAssignedService(deviceRows);
+  const dates = defaultContractDates();
+  const startDate = options.start_date || dates.start_date;
+  const endDate = options.end_date || dates.end_date;
+
+  if (options.dry_run) {
+    return {
+      refer_sof: referSof,
+      action: 'would_create',
+      assigned_service: assignedService,
+      start_date: startDate,
+      end_date: endDate,
+      site_device_pairs: pairs,
+      device_count: deviceRows.length,
+    };
+  }
+
+  const existingContractId = await findContractIdBySofName(conn, referSof);
+  let contractId;
+  let action;
+
+  if (existingContractId) {
+    contractId = existingContractId;
+    action = 'linked_devices';
+    await insertContractDevicePairs(conn, contractId, pairs);
+  } else {
+    contractId = await insertNewContractRow(conn, {
+      referSof,
+      assignedService,
+      startDate,
+      endDate,
+    });
+    action = 'created';
+    await insertContractDevicePairs(conn, contractId, pairs);
+  }
+
+  const deviceIds = pairs.flatMap((p) => p.device_ids);
+
+  return {
+    refer_sof: referSof,
+    action,
+    contract_id: contractId,
+    device_count: deviceIds.length,
+    site_count: pairs.length,
+    assigned_service: assignedService,
+  };
+}
+
+/**
+ * POST /api/contracts/sync-from-refer-sof
+ * Body: { dry_run?: boolean, refer_sof?: string, start_date?: string, end_date?: string }
+ * สร้าง/อัปเดต contract อัตโนมัติจาก sites_location.SOF + devices.SLid
+ */
+const syncContractsFromReferSof = async (req, res) => {
+  const dryRun = Boolean(req.body && req.body.dry_run);
+  const singleSof =
+    req.body && req.body.refer_sof != null ? String(req.body.refer_sof).trim() : '';
+  const startDate =
+    req.body && req.body.start_date ? String(req.body.start_date).trim() : undefined;
+  const endDate = req.body && req.body.end_date ? String(req.body.end_date).trim() : undefined;
+
+  let conn;
+  try {
+    let referSofs = [];
+    if (singleSof) {
+      referSofs = [singleSof];
+    } else {
+      const [rows] = await db.execute(PENDING_REFER_SOF_SQL);
+      referSofs = rows.map((r) => r.refer_sof).filter(Boolean);
+    }
+
+    if (referSofs.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No Refer_SOF pending contract provisioning',
+        data: { created: 0, linked: 0, skipped: 0, results: [] },
+      });
+    }
+
+    conn = await db.getConnection();
+    const results = [];
+    let created = 0;
+    let linked = 0;
+    let skipped = 0;
+
+    for (const referSof of referSofs) {
+      try {
+        if (!dryRun) await conn.beginTransaction();
+        const result = await provisionSingleReferSof(conn, referSof, {
+          dry_run: dryRun,
+          start_date: startDate,
+          end_date: endDate,
+        });
+        if (!dryRun) await conn.commit();
+
+        results.push(result);
+        if (result.action === 'created') created += 1;
+        else if (result.action === 'linked_devices') linked += 1;
+        else skipped += 1;
+      } catch (err) {
+        if (!dryRun && conn) {
+          try {
+            await conn.rollback();
+          } catch (_) { /* ignore */ }
+        }
+        results.push({
+          refer_sof: referSof,
+          action: 'error',
+          error: err.message || String(err),
+        });
+        skipped += 1;
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: dryRun
+        ? `Dry run: ${referSofs.length} Refer_SOF(s) reviewed`
+        : `Synced ${created} new contract(s), linked ${linked} existing, skipped ${skipped}`,
+      data: { created, linked, skipped, dry_run: dryRun, results },
+    });
+  } catch (error) {
+    console.error('Error syncing contracts from Refer_SOF:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error syncing contracts from Refer_SOF',
+      error: error.message,
+    });
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
 //
 module.exports = {
   createContract,
   uploadContractFile,
+  syncContractsFromReferSof,
   getContractsBySite,
   postContractHistoryDisplayRows,
   getContractHistoryDetailByHistoryId,

@@ -24,7 +24,7 @@ import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem } from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, syncContractsFromReferSof, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import * as XLSX from 'xlsx';
@@ -664,6 +664,23 @@ function ScheduleManagementContent() {
           setAvailableEngineers(mapEmployeesToEngineerRoster(employeesResult.data) as Engineer[]);
         }
         
+        // Auto-provision contracts จาก Refer_SOF ที่มีใน devices แต่ยังไม่มี contract_device
+        try {
+          const syncResult = await syncContractsFromReferSof();
+          if (syncResult.success && syncResult.data) {
+            const { created = 0, linked = 0 } = syncResult.data;
+            if (created > 0 || linked > 0) {
+              toastSuccess(
+                linked > 0 && created === 0
+                  ? `Added devices to ${linked} existing contract(s) from Refer_SOF`
+                  : `Auto-created ${created} contract(s), linked ${linked} to existing from Refer_SOF`
+              );
+            }
+          }
+        } catch (syncErr) {
+          console.warn('Refer_SOF contract sync skipped:', syncErr);
+        }
+
         // Load contracts for sof_name → contract_id lookup
         const contractsResult = await getContractsBySite();
         if (contractsResult.success && contractsResult.data) {

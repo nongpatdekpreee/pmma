@@ -49,6 +49,7 @@ app.get('/', (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
+  console.warn('⚠️  Root server.js is legacy. Use backend/server.js for MA/PM Plan API.');
   console.log(`🚀 Server กำลังทำงานที่ port ${PORT}`);
   console.log(`📡 http://localhost:${PORT}`);
 });

@@ -1,5 +1,5 @@
--- Fix Trigger: SOF from sites_location.SOF via devices.SLid (schema ใหม่)
--- Same as migrations/sites_location_sof_triggers.sql
+-- SOF อยู่ที่ sites_location.SOF (ไม่ใช่ devices.Refer_SOF)
+-- อัปเดต triggers ให้บันทึก Refer_SOF ใน devices_history จาก sites_location
 
 DELIMITER $$
 

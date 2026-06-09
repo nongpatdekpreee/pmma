@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: db:3306
--- Generation Time: May 22, 2026 at 07:56 AM
+-- Generation Time: Jun 09, 2026 at 02:38 AM
 -- Server version: 11.3.2-MariaDB-1:11.3.2+maria~ubu2204
 -- PHP Version: 8.3.26
 
@@ -42,7 +42,8 @@ CREATE TABLE `contract` (
   `coverage_scope` text DEFAULT NULL,
   `file_paths` text DEFAULT NULL COMMENT 'JSON array of file paths',
   `image_paths` text DEFAULT NULL COMMENT 'JSON array of image paths',
-  `status` enum('draft','official','not_renewing') NOT NULL DEFAULT 'draft'
+  `status` enum('draft','official','not_renewing') NOT NULL DEFAULT 'draft',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -72,6 +73,7 @@ CREATE TABLE `contract_history` (
   `renewed_at` datetime DEFAULT current_timestamp() COMMENT 'วันที่ต่อสัญญา',
   `created_at` timestamp NULL DEFAULT current_timestamp(),
   `status_history` varchar(32) DEFAULT NULL COMMENT 'Renew | Terminated',
+  `terminated_reason` text DEFAULT NULL COMMENT 'Reason for termination/not renewing',
   `contract_snapshot` longtext DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ประวัติการต่อสัญญา';
 
@@ -87,7 +89,6 @@ CREATE TABLE `devices` (
   `serial` varchar(100) DEFAULT NULL,
   `CI_Name` varchar(100) DEFAULT NULL,
   `Asset_Number` varchar(100) DEFAULT NULL,
-  `Refer_SOF` varchar(100) DEFAULT NULL,
   `PR_No` varchar(100) DEFAULT NULL,
   `Vendor` varchar(100) DEFAULT NULL,
   `Project_purchase` varchar(255) DEFAULT NULL,
@@ -110,17 +111,7 @@ CREATE TABLE `devices` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
--- Dumping data for table `devices`
---
-
-INSERT INTO `devices` (`Did`, `Asset_State`, `serial`, `CI_Name`, `Asset_Number`, `Refer_SOF`, `PR_No`, `Vendor`, `Project_purchase`, `SLid`, `PO_No`, `Loan_Start`, `Request_Date`, `Refer_Ticket`, `Assigned_Service`, `Reason`, `Dtypeid`, `DeRoleid`, `Project_code_purchase`, `Waranty_start`, `Waranty_end`, `Received_date`, `Asset_Type`, `Owner`, `Project_Owen`) VALUES
-(1, 'Sell', 'SN123456789', 'PC-BKK-001', 'AST-001', 'SOF-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'PO-2024-001', '2024-01-01', '2024-01-15', 'TKT-001', 'IT Support', 'New Installation', 1, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10 00:00:00', 'Asset', 'OBK', 'TCC'),
-(2, 'Sell', 'SN1234567899', 'PC-BKK-001', 'AST-001', 'SOF-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'PO-2024-001', '2024-01-01', '2024-01-15', 'TKT-001', 'IT Support', 'New Installation', 2, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10 00:00:00', 'Asset', 'Bank', 'SNS'),
-(3, 'In Use', 'SN123456789', 'PC-BKK-001', 'AST-001', 'SOF-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'PO-2024-001', '2024-01-01', '2024-01-15', 'TKT-001', 'IT Support', 'New Installation', 1, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10 00:00:00', 'Asset', 'OBK', 'TCC'),
-(4, 'In Use', 'SN1234567899', 'PC-BKK-001', 'AST-001', 'SOF-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'PO-2024-001', '2024-01-01', '2024-01-15', 'TKT-001', 'IT Support', 'New Installation', 2, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10 00:00:00', 'Asset', 'Bank', 'SNS');
-
---
--- Triggers `devices` — SOF จาก sites_location.SOF (schema ใหม่; หลัง migrate ใช้ fix_trigger.sql)
+-- Triggers `devices`
 --
 DELIMITER $$
 CREATE TRIGGER `trg_devices_insert` AFTER INSERT ON `devices` FOR EACH ROW BEGIN
@@ -221,18 +212,6 @@ CREATE TABLE `devices_history` (
   `Description` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `devices_history`
---
-
-INSERT INTO `devices_history` (`log_id`, `action_type`, `changed_at`, `Did`, `Asset_State`, `serial`, `CI_Name`, `Asset_Number`, `PR_No`, `Vendor`, `Project_purchase`, `Sid`, `Location2`, `PO_No`, `Loan_Start`, `Request_Date`, `Refer_SOF`, `Refer_Ticket`, `Assigned_Service`, `Reason`, `Dtypeid`, `DeRoleid`, `Project_code_purchase`, `Waranty_start`, `Waranty_end`, `Received_date`, `Asset_Type`, `Owner`, `Description`) VALUES
-(1, 'INSERT', '2026-05-22 04:26:36', 1, 'In Use', 'SN123456789', 'PC-BKK-001', 'AST-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'Floor 3', 'PO-2024-001', '2024-01-01', '2024-01-15', 'SOF-001', 'TKT-001', 'IT Support', 'New Installation', 1, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10', 'Asset', 'OBK', 'Sample device'),
-(2, 'INSERT', '2026-05-22 04:26:36', 2, 'In Use', 'SN1234567899', 'PC-BKK-001', 'AST-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'Floor 3', 'PO-2024-001', '2024-01-01', '2024-01-15', 'SOF-001', 'TKT-001', 'IT Support', 'New Installation', 2, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10', 'Asset', 'Bank', 'Import from Excel'),
-(3, 'UPDATE', '2026-05-22 04:29:56', 1, 'Sell', 'SN123456789', 'PC-BKK-001', 'AST-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'Floor 3', 'PO-2024-001', '2024-01-01', '2024-01-15', 'SOF-001', 'TKT-001', 'IT Support', 'New Installation', 1, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10', 'Asset', 'OBK', 'ok'),
-(4, 'UPDATE', '2026-05-22 04:29:56', 2, 'Sell', 'SN1234567899', 'PC-BKK-001', 'AST-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'Floor 3', 'PO-2024-001', '2024-01-01', '2024-01-15', 'SOF-001', 'TKT-001', 'IT Support', 'New Installation', 2, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10', 'Asset', 'Bank', 'ok'),
-(5, 'INSERT', '2026-05-22 06:42:22', 3, 'In Use', 'SN123456789', 'PC-BKK-001', 'AST-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'Floor 3', 'PO-2024-001', '2024-01-01', '2024-01-15', 'SOF-001', 'TKT-001', 'IT Support', 'New Installation', 1, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10', 'Asset', 'OBK', 'Sample device'),
-(6, 'INSERT', '2026-05-22 06:42:22', 4, 'In Use', 'SN1234567899', 'PC-BKK-001', 'AST-001', 'PR-2024-001', 'Vendor Co Ltd', 'Project Alpha', 1, 'Floor 3', 'PO-2024-001', '2024-01-01', '2024-01-15', 'SOF-001', 'TKT-001', 'IT Support', 'New Installation', 2, 1, 'PROJ-001', '2024-01-01', '2027-01-01', '2024-01-10', 'Asset', 'Bank', 'Import from Excel');
-
 -- --------------------------------------------------------
 
 --
@@ -245,13 +224,6 @@ CREATE TABLE `device_role` (
   `slug` varchar(100) NOT NULL,
   `color` varchar(100) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `device_role`
---
-
-INSERT INTO `device_role` (`DeRoleid`, `name`, `slug`, `color`) VALUES
-(1, 'Server', 'server', '#52fe91');
 
 -- --------------------------------------------------------
 
@@ -266,14 +238,6 @@ CREATE TABLE `device_type` (
   `u_height` float NOT NULL DEFAULT 1,
   `Mid` int(11) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `device_type`
---
-
-INSERT INTO `device_type` (`Dtypeid`, `model`, `slug`, `u_height`, `Mid`) VALUES
-(1, 'MacBook Pro 14', 'macbook-pro-14', 1, 1),
-(2, 'MacBook Pro 15', 'macbook-pro-15', 1, 1);
 
 -- --------------------------------------------------------
 
@@ -291,13 +255,6 @@ CREATE TABLE `location` (
   `Description` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `location`
---
-
-INSERT INTO `location` (`lid`, `Location2`, `District`, `Subdistrict`, `Province`, `Address_code`, `Description`) VALUES
-(1, 'Floor 3', NULL, NULL, NULL, NULL, NULL);
-
 -- --------------------------------------------------------
 
 --
@@ -309,13 +266,6 @@ CREATE TABLE `manufacturer` (
   `name` varchar(100) NOT NULL,
   `slug` varchar(100) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `manufacturer`
---
-
-INSERT INTO `manufacturer` (`Mid`, `name`, `slug`) VALUES
-(1, 'Apple', 'apple');
 
 -- --------------------------------------------------------
 
@@ -365,13 +315,6 @@ CREATE TABLE `sites` (
   `Status` enum('Active','Planned','Staging','Decommissioning') NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
---
--- Dumping data for table `sites`
---
-
-INSERT INTO `sites` (`Sid`, `Name`, `Slug`, `Status`) VALUES
-(1, 'Bangkok HQ', 'bangkok-hq', 'Active');
-
 -- --------------------------------------------------------
 
 --
@@ -381,15 +324,9 @@ INSERT INTO `sites` (`Sid`, `Name`, `Slug`, `Status`) VALUES
 CREATE TABLE `sites_location` (
   `SLid` int(11) NOT NULL,
   `Sid` int(11) NOT NULL,
-  `lid` int(11) NOT NULL
+  `lid` int(11) NOT NULL,
+  `SOF` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `sites_location`
---
-
-INSERT INTO `sites_location` (`SLid`, `Sid`, `lid`) VALUES
-(1, 1, 1);
 
 -- --------------------------------------------------------
 
@@ -415,6 +352,7 @@ CREATE TABLE `tasks` (
   `coverage_scope` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `start_date` date NOT NULL,
   `end_date` date NOT NULL,
+  `downtime_date` date DEFAULT NULL,
   `engineers` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `asset_binding` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `status` enum('not-started','working','stuck','done') CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT 'not-started',
@@ -423,7 +361,12 @@ CREATE TABLE `tasks` (
   `reschedule_note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
   `photos` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `assigned_service` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `downtime_time` time DEFAULT NULL,
+  `uptime_date` date DEFAULT NULL,
+  `uptime_time` time DEFAULT NULL,
+  `downtime_total_hours` decimal(12,2) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -458,10 +401,19 @@ CREATE TABLE `user_profiles` (
   `name` varchar(255) NOT NULL,
   `phone` varchar(20) DEFAULT NULL,
   `gmail` varchar(150) DEFAULT NULL,
-  `type` varchar(255) NOT NULL,
+  `type` enum('Technical','Management','Engineer') NOT NULL,
   `employment` varchar(255) NOT NULL,
   `em_picture` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- Dumping data for table `user_profiles`
+--
+
+INSERT INTO `user_profiles` (`profile_id`, `user_id`, `name`, `phone`, `gmail`, `type`, `employment`, `em_picture`) VALUES
+(1, 1, 'SNS Natthawat Sirisappanya', '0649649636', 'natthawat.s@shinasub.com', 'Engineer', 'Full-Time', '/uploads/employees/1779432797790-Screenshot_2026-05-22_135750.png'),
+(2, 2, 'Vender CSPM', '6625039243-491', 'nattaya.a@cspm.co.th', 'Technical', 'Contract', '/uploads/employees/1779433898313-CSPM.jpg'),
+(3, 3, 'Vender Synnex', '0909805273', 'dechawat_n@synnex.co.th', 'Technical', 'Contract', '/uploads/employees/1779434000884-channels4_profile.jpg');
 
 --
 -- Indexes for dumped tables
@@ -595,37 +547,37 @@ ALTER TABLE `contract_history`
 -- AUTO_INCREMENT for table `devices`
 --
 ALTER TABLE `devices`
-  MODIFY `Did` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `Did` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `devices_history`
 --
 ALTER TABLE `devices_history`
-  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `device_role`
 --
 ALTER TABLE `device_role`
-  MODIFY `DeRoleid` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `DeRoleid` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `device_type`
 --
 ALTER TABLE `device_type`
-  MODIFY `Dtypeid` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `Dtypeid` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `location`
 --
 ALTER TABLE `location`
-  MODIFY `lid` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `lid` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `manufacturer`
 --
 ALTER TABLE `manufacturer`
-  MODIFY `Mid` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `Mid` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `netbox`
@@ -643,13 +595,13 @@ ALTER TABLE `report`
 -- AUTO_INCREMENT for table `sites`
 --
 ALTER TABLE `sites`
-  MODIFY `Sid` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `Sid` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `sites_location`
 --
 ALTER TABLE `sites_location`
-  MODIFY `SLid` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `SLid` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `tasks`
@@ -667,7 +619,7 @@ ALTER TABLE `user`
 -- AUTO_INCREMENT for table `user_profiles`
 --
 ALTER TABLE `user_profiles`
-  MODIFY `profile_id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `profile_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- Constraints for dumped tables

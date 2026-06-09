@@ -1,5 +1,13 @@
 const db = require('../config/database');
 const { DEFAULT_IN_STORE_SITE_NAME } = require('../config/inStoreSite');
+const {
+  normalizeReferSofKey,
+  deviceSofSelect,
+  sofMatchWhere,
+  noSofWhere,
+  REFER_SOF_DROPDOWN_SQL,
+  applyReferSofToSiteLocation,
+} = require('../config/deviceSof');
 
 //
 // devices_history is populated by DB triggers (trg_devices_insert, trg_devices_update)
@@ -78,10 +86,10 @@ const createDevice = async (req, res) => {
           const [result] = await db.execute(
             `INSERT INTO devices (
               Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
-              Project_purchase, SLid, PO_No, Loan_Start, Request_Date, Refer_SOF,
+              Project_purchase, SLid, PO_No, Loan_Start, Request_Date,
               Refer_Ticket, Assigned_Service, Reason, Dtypeid, DeRoleid,
               Project_code_purchase, Waranty_start, Waranty_end, Received_date, Asset_Type, Owner
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               device.Asset_State || null,
               device.serial || null,
@@ -94,7 +102,6 @@ const createDevice = async (req, res) => {
               device.PO_No || null,
               device.Loan_Start || null,
               device.Request_Date || null,
-              device.Refer_SOF || null,
               device.Refer_Ticket || null,
               device.Assigned_Service || null,
               device.Reason || null,
@@ -110,6 +117,9 @@ const createDevice = async (req, res) => {
           );
 
           const deviceId = result.insertId;
+          if (device.Refer_SOF !== undefined && device.SLid != null) {
+            await applyReferSofToSiteLocation(db, device.SLid, device.Refer_SOF);
+          }
 
           insertedDevices.push({
             id: result.insertId,
@@ -206,10 +216,10 @@ const createDevice = async (req, res) => {
           values.push(device.Request_Date);
           changedFields.Request_Date = device.Request_Date;
         }
-        if (device.Refer_SOF !== undefined) {
-          updates.push('Refer_SOF = ?');
-          values.push(device.Refer_SOF);
-          changedFields.Refer_SOF = device.Refer_SOF;
+        const pendingReferSof =
+          device.Refer_SOF !== undefined ? device.Refer_SOF : undefined;
+        if (pendingReferSof !== undefined) {
+          changedFields.Refer_SOF = pendingReferSof;
         }
         if (device.Refer_Ticket !== undefined) {
           updates.push('Refer_Ticket = ?');
@@ -254,12 +264,29 @@ const createDevice = async (req, res) => {
             action: 'updated',
             _index: device._index
           });
+        } else if (pendingReferSof !== undefined) {
+          updatedDevices.push({
+            id: device._id,
+            action: 'updated',
+            _index: device._index
+          });
         } else {
           updatedDevices.push({
             id: device._id,
             action: 'no_changes',
             _index: device._index
           });
+        }
+
+        if (pendingReferSof !== undefined) {
+          let slidForSof = device.SLid;
+          if (slidForSof == null) {
+            const [slRows] = await db.execute('SELECT SLid FROM devices WHERE Did = ?', [device._id]);
+            slidForSof = slRows[0]?.SLid;
+          }
+          if (slidForSof != null) {
+            await applyReferSofToSiteLocation(db, slidForSof, pendingReferSof);
+          }
         }
       } catch (error) {
         errors.push({
@@ -355,7 +382,7 @@ const getDevices = async (req, res) => {
     const totalPages = Math.ceil(totalRecords / limit);
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-                 devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, sl.SOF AS Refer_SOF, 
                  Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
                  FROM devices
@@ -449,7 +476,7 @@ const getDevicesExcludeInStore = async (req, res) => {
     const totalPages = Math.ceil(totalRecords / limit);
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
-                 devices.SLid, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 devices.SLid, PO_No, Loan_Start, Request_Date, sites_location.SOF AS Refer_SOF, 
                  Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
                  FROM devices
@@ -545,7 +572,7 @@ const getDevicesExcludeOutStore = async (req, res) => {
     const totalPages = Math.ceil(totalRecords / limit);
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-                 devices.SLid, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 devices.SLid, PO_No, Loan_Start, Request_Date, sites_location.SOF AS Refer_SOF, 
                  Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
                  FROM devices
@@ -608,7 +635,7 @@ const getDeviceById = async (req, res) => {
     const { id } = req.params;
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
-                 devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+                 devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, sl.SOF AS Refer_SOF, 
                  Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, devices.DeRoleid,
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename,
                  dr.name as roleName
@@ -907,8 +934,6 @@ const updateDevice = async (req, res) => {
       changedFields.Request_Date = Request_Date;
     }
     if (Refer_SOF !== undefined) {
-      updates.push('Refer_SOF = ?');
-      values.push(Refer_SOF);
       changedFields.Refer_SOF = Refer_SOF;
     }
     if (Refer_Ticket !== undefined) {
@@ -947,15 +972,34 @@ const updateDevice = async (req, res) => {
       changedFields.Waranty_end = Waranty_end;
     }
 
-    values.push(id);
+    if (updates.length === 0 && Refer_SOF === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'No fields to update'
+      });
+    }
 
-    const sql = `UPDATE devices SET ${updates.join(', ')} WHERE Did = ?`;
-    await db.execute(sql, values);
+    if (updates.length > 0) {
+      values.push(id);
+      const sql = `UPDATE devices SET ${updates.join(', ')} WHERE Did = ?`;
+      await db.execute(sql, values);
+    }
+
+    if (Refer_SOF !== undefined) {
+      let slidForSof = SLid;
+      if (slidForSof == null) {
+        const [slRows] = await db.execute('SELECT SLid FROM devices WHERE Did = ?', [id]);
+        slidForSof = slRows[0]?.SLid;
+      }
+      if (slidForSof != null) {
+        await applyReferSofToSiteLocation(db, slidForSof, Refer_SOF);
+      }
+    }
 
     // ดึงข้อมูลที่อัพเดทแล้วมาแสดง (พร้อม JOIN)
     const [updated] = await db.execute(
       `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
-       devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, Refer_SOF, 
+       devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, ${deviceSofSelect('sl')}, 
        Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
        device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
        FROM devices
@@ -1183,21 +1227,10 @@ const getVendors = async (req, res) => {
 };
 
 // GET - ดึง Devices ตาม site_id (= SLid, sites_location) สำหรับ Contract / Asset Binding
-// GET - ดึง unique Refer_SOF values จาก Devices table
+// GET - ดึง unique SOF จาก sites_location (ผ่าน devices.SLid)
 const getReferSOFList = async (req, res) => {
   try {
-    const [rows] = await db.execute(
-      `SELECT DISTINCT d.Refer_SOF AS refer_sof
-       FROM devices d
-       WHERE d.Refer_SOF IS NOT NULL AND d.Refer_SOF != '' AND d.Refer_SOF != 'Not Assigned'
-         AND NOT EXISTS (
-           SELECT 1
-           FROM contract_device cd
-           INNER JOIN devices d2 ON d2.Did = cd.device_id
-           WHERE d2.Refer_SOF = d.Refer_SOF
-         )
-       ORDER BY d.Refer_SOF ASC`
-    );
+    const [rows] = await db.execute(REFER_SOF_DROPDOWN_SQL);
     res.status(200).json({ 
       success: true, 
       data: rows.map(r => r.refer_sof).filter(Boolean)
@@ -1256,10 +1289,10 @@ const getDevicesBySOFAndSite = async (req, res) => {
         message: 'Please provide sid (site id) or site_id (SLid)'
       });
     }
-    // รองรับ SOF ทั้งแบบมีและไม่มี 0 นำหน้า (เช่น 0987 กับ 987)
-    const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
+    const referSOFTrim = normalizeReferSofKey(referSOF) || '0';
   
-    const sofMatch = `(d.Refer_SOF = ? OR TRIM(LEADING '0' FROM COALESCE(d.Refer_SOF, '')) = ?)`;
+    const sofMatch = sofMatchWhere('sl');
+    const sofSelect = deviceSofSelect('sl');
     let rows;
     if (sid) {
       const sidNum = parseInt(sid, 10);
@@ -1267,25 +1300,25 @@ const getDevicesBySOFAndSite = async (req, res) => {
         return res.status(400).json({ success: false, message: 'sid is not valid' });
       }
       [rows] = await db.execute(
-        `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
+        `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
          FROM devices d
          LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
          LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
          LEFT JOIN manufacturer m ON dt.Mid = m.Mid
-         LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+         INNER JOIN sites_location sl ON d.SLid = sl.SLid
          LEFT JOIN location L ON sl.lid = L.lid
-         WHERE sl.Sid = ?  AND ${sofMatch}
+         WHERE sl.Sid = ? AND ${sofMatch}
          ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
         [sidNum, referSOF, referSOFTrim]
       );
     } else {
       [rows] = await db.execute(
-        `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
+        `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
          FROM devices d
          LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
          LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
          LEFT JOIN manufacturer m ON dt.Mid = m.Mid
-         LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+         INNER JOIN sites_location sl ON d.SLid = sl.SLid
          LEFT JOIN location L ON sl.lid = L.lid
          WHERE d.SLid = ? AND ${sofMatch}
          ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
@@ -1321,14 +1354,14 @@ const getImportLocation2HintsByContractAndSof = async (req, res) => {
         message: 'Please provide contract_id and refer_sof',
       });
     }
-    const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
-    const sofMatch = `(d.Refer_SOF = ? OR TRIM(LEADING '0' FROM COALESCE(d.Refer_SOF, '')) = ?)`;
+    const referSOFTrim = normalizeReferSofKey(referSOF) || '0';
+    const sofMatch = sofMatchWhere('sl');
     const [rows] = await db.execute(
       `SELECT DISTINCT cd.SLid AS SLid,
               TRIM(L.Location2) AS Location2
        FROM contract_device cd
        INNER JOIN devices d ON cd.device_id = d.Did
-       LEFT JOIN sites_location sl ON sl.SLid = cd.SLid
+       INNER JOIN sites_location sl ON d.SLid = sl.SLid
        LEFT JOIN location L ON sl.lid = L.lid
        WHERE cd.contract_id = ?
          AND cd.SLid IS NOT NULL
@@ -1361,7 +1394,7 @@ const getDevicesByContractAndSite = async (req, res) => {
     }
 
     const [rows] = await db.execute(
-      `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
+      `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${deviceSofSelect('sl')}, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
        FROM contract_device cd
        INNER JOIN devices d ON cd.device_id = d.Did
        LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
@@ -1415,12 +1448,8 @@ const getDevicesBySiteNoSOF = async (req, res) => {
     const siteId = req.query.site_id;
     const sid = req.query.sid;
     let sql, params;
-    // เงื่อนไข: Refer_SOF เป็น NULL, empty string, หรือ 'Not Assigned' (case insensitive)
-    const noSofCondition = `(d.Refer_SOF IS NULL 
-                             OR TRIM(COALESCE(d.Refer_SOF,'')) = '' 
-                             OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned'
-                             OR LOWER(TRIM(d.Refer_SOF)) = 'n/a'
-                             OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
+    const noSofCondition = noSofWhere('sl', 'd');
+    const sofSelect = deviceSofSelect('sl');
     const notInContract = `d.Did NOT IN (SELECT device_id FROM contract_device WHERE device_id IS NOT NULL)`;
     const inStore = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
     
@@ -1429,7 +1458,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
       if (isNaN(sidNum)) {
         return res.status(400).json({ success: false, message: 'sid is not valid' });
       }
-      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
+      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername
              FROM devices d
              LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
              LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
@@ -1442,11 +1471,12 @@ const getDevicesBySiteNoSOF = async (req, res) => {
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
       params = [sidNum];
     } else if (siteId) {
-      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
+      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername
              FROM devices d
              LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
              LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
              LEFT JOIN manufacturer m ON dt.Mid = m.Mid
+             INNER JOIN sites_location sl ON d.SLid = sl.SLid
              WHERE d.SLid = ?
                AND ${inStore}
                AND ${noSofCondition}
@@ -1454,7 +1484,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
       params = [siteId];
     } else {
-      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
+      sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername
              FROM devices d
              LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
              LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
@@ -1486,11 +1516,8 @@ const getDevicesBySiteNoSOF = async (req, res) => {
 const getDevicesNoSofInStore = async (req, res) => {
   try {
     const contractId = req.query.contract_id;
-    const noSofCondition = `(d.Refer_SOF IS NULL 
-                             OR TRIM(COALESCE(d.Refer_SOF,'')) = '' 
-                             OR LOWER(TRIM(d.Refer_SOF)) = 'not assigned'
-                             OR LOWER(TRIM(d.Refer_SOF)) = 'n/a'
-                             OR LOWER(TRIM(d.Refer_SOF)) = 'na')`;
+    const noSofCondition = noSofWhere('sl', 'd');
+    const sofSelect = deviceSofSelect('sl');
     const inStoreCondition = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
     let contractExclusionCondition = '';
     const params = [DEFAULT_IN_STORE_SITE_NAME];
@@ -1507,7 +1534,7 @@ const getDevicesNoSofInStore = async (req, res) => {
         AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE device_id IS NOT NULL)
       `;
     }
-    const sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, d.Refer_SOF, dt.model, dr.name as roleName, m.name as manufacturername
+    const sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername
                  FROM devices d
                  LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
                  LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid

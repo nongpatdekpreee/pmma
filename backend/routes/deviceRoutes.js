@@ -41,7 +41,7 @@ router.get('/by-model', getDevicesByModel);
 // GET - รายการ Vendor (DISTINCT Project_purchase จาก Devices สำหรับ dropdown)
 router.get('/vendors', getVendors);
 
-// GET - รายการ Refer_SOF (unique values จาก Devices table)
+// GET - รายการ Refer SOF (distinct sites_location.SOF)
 router.get('/refer-sof', getReferSOFList);
 
 // GET - รายการ Assigned_Service (DISTINCT จาก devices สำหรับ Add Contract dropdown Service)
@@ -53,7 +53,7 @@ router.get('/by-sof-and-site', getDevicesBySOFAndSite);
 // GET - Devices จาก contract_device ตาม contract_id + slid (Site+Location)
 router.get('/by-contract-and-site', getDevicesByContractAndSite);
 
-// GET - Distinct Location2 per SLid on contract where device Refer_SOF matches (schedule import hints)
+// GET - Distinct Location2 per SLid on contract where sites_location.SOF matches (schedule import hints)
 router.get('/import-location2-hints', getImportLocation2HintsByContractAndSof);
 
 // GET - Devices ตาม Serial หลายตัว (สำหรับ Import Contract) ?serials=FGL2314A91L,FGL2314A92L

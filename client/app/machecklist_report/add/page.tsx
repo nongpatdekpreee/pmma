@@ -88,6 +88,88 @@ interface Device {
   Reason?: string;
 }
 
+/** แปลงแถวจาก GET /api/devices ให้เป็น Device รูปแบบเดียวกัน */
+function normalizeApiDevice(raw: Record<string, unknown>): Device {
+  const did = Number(raw.Did ?? raw.did);
+  const str = (v: unknown) => {
+    if (v == null) return undefined;
+    const s = String(v).trim();
+    return s === '' ? undefined : s;
+  };
+  return {
+    Did: did,
+    Asset_State: str(raw.Asset_State ?? raw.assetState),
+    CI_Name: str(raw.CI_Name ?? raw.name),
+    Asset_Number: str(raw.Asset_Number ?? raw.assetNumber),
+    serial: str(raw.serial ?? raw.serialNumber),
+    model: str(raw.model ?? raw.type),
+    Manufacturername: str(raw.Manufacturername ?? raw.manufacturername ?? raw.manufacturer),
+    Sitename: str(raw.Sitename ?? raw.SiteName ?? raw.site ?? raw.sitename),
+    Location2: str(raw.Location2 ?? raw.location ?? raw.Location),
+    PR_No: str(raw.PR_No),
+    Vendor: str(raw.Vendor ?? raw.vendor),
+    SLid: raw.SLid != null ? Number(raw.SLid) : undefined,
+    Refer_SOF: str(raw.Refer_SOF ?? raw.refer_sof ?? raw.SOF),
+    Refer_Ticket: str(raw.Refer_Ticket ?? raw.refer_ticket),
+    Assigned_Service: str(raw.Assigned_Service ?? raw.assigned_service),
+    Reason: str(raw.Reason),
+  };
+}
+
+/** ใช้ snapshot จาก task.assets เมื่อ Did ไม่อยู่ใน GET /api/devices */
+function deviceFromTaskAssetSnapshot(raw: unknown, didNum: number): Device {
+  const a = (raw ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => {
+    if (v == null) return undefined;
+    const s = String(v).trim();
+    return s === '' ? undefined : s;
+  };
+  return {
+    Did: didNum,
+    Asset_State: str(a.Asset_State ?? a.assetState),
+    CI_Name: str(a.CI_Name ?? a.name),
+    Asset_Number: str(a.Asset_Number ?? a.assetNumber),
+    serial: str(a.serial ?? a.serialNumber),
+    model: str(a.model ?? a.type),
+    Manufacturername: str(a.Manufacturername ?? a.manufacturername ?? a.manufacturer),
+    Sitename: str(a.Sitename ?? a.sitename ?? a.siteName ?? a.site ?? a.SiteName),
+    Location2: str(a.Location2 ?? a.location2 ?? a.location ?? a.Location),
+    PR_No: str(a.PR_No),
+    Vendor: str(a.Vendor ?? a.vendor),
+    Refer_SOF: str(a.Refer_SOF ?? a.refer_sof ?? a.SOF),
+    Assigned_Service: str(a.Assigned_Service ?? a.assigned_service),
+    SLid: a.SLid != null ? Number(a.SLid) : undefined,
+  };
+}
+
+/** เติมค่าจาก task (SOF สัญญา, Assigned Service, Vendor) เมื่อ device ไม่มีหลัง MA Done */
+function enrichDeviceForDisplay(device: Device, task: Record<string, unknown> | null | undefined): Device {
+  if (!task) return device;
+  const str = (v: unknown) => {
+    if (v == null) return undefined;
+    const s = String(v).trim();
+    return s === '' ? undefined : s;
+  };
+  return {
+    ...device,
+    Refer_SOF: device.Refer_SOF ?? str(task.sofName ?? task.contract_sof_name),
+    Assigned_Service:
+      device.Assigned_Service ?? str(task.assignedService ?? task.assigned_service),
+    Vendor: device.Vendor ?? str(task.vendorName ?? task.vendor_name),
+    Sitename: device.Sitename ?? str(task.siteName ?? task.site_name),
+  };
+}
+
+/** ดึง device ID จาก task.assets (รองรับหลายรูปแบบที่ API/DB อาจส่งมา) */
+function getDeviceIdFromAsset(a: unknown): string {
+  if (a == null) return '';
+  if (typeof a === 'number') return String(a);
+  if (typeof a === 'string') return a.trim();
+  const o = a as Record<string, unknown>;
+  const id = o.id ?? o.Did ?? o.did ?? o.deviceId ?? o.device_id ?? o.ID;
+  return id != null ? String(id).trim() : '';
+}
+
 function AddMAReportPageContent() {
   const router = useRouter();
   const pathname = usePathname();
@@ -301,7 +383,9 @@ function AddMAReportPageContent() {
         const response = await fetch(apiUrl('/api/devices?limit=1000'));
         const data = await response.json();
         if (data.success && data.data) {
-          setDevices(data.data);
+          setDevices(
+            (data.data as Record<string, unknown>[]).map((row) => normalizeApiDevice(row))
+          );
         }
       } catch (error) {
         console.error('Error fetching devices:', error);
@@ -312,21 +396,22 @@ function AddMAReportPageContent() {
     fetchDevices();
   }, []);
 
-  /** เครื่องทดแทนอาจไม่อยู่ใน GET /api/devices?limit=1000 — ดึงรายละเอียดตาม Did แล้ว merge (เครื่องเสียมี snapshot ใน task.assets อยู่แล้ว) */
+  /** เครื่องในงาน MA อาจไม่อยู่ใน GET /api/devices?limit=1000 — ดึงรายละเอียดตาม Did แล้ว merge */
   useEffect(() => {
     if (selectedTaskId == null) return;
     const task = availableMATasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
     if (!task) return;
 
     const need = new Set<number>();
-    const pushRep = (repId: unknown) => {
-      const n = typeof repId === 'number' ? repId : parseInt(String(repId), 10);
+    const pushId = (id: unknown) => {
+      const n = typeof id === 'number' ? id : parseInt(String(id), 10);
       if (!Number.isNaN(n) && n > 0) need.add(n);
     };
     (task.assets || []).forEach((a: any, i: number) => {
-      pushRep(a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null));
+      pushId(getDeviceIdFromAsset(a));
+      pushId(a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null));
     });
-    if (task.replacementDeviceId != null) pushRep(task.replacementDeviceId);
+    if (task.replacementDeviceId != null) pushId(task.replacementDeviceId);
 
     const missing = [...need].filter((id) => !devices.some((d) => Number(d.Did) === id));
     if (missing.length === 0) return;
@@ -338,7 +423,7 @@ function AddMAReportPageContent() {
           try {
             const res = await fetch(apiUrl(`/api/devices/${id}`));
             const data = await res.json();
-            if (data?.success && data.data) return data.data as Device;
+            if (data?.success && data.data) return normalizeApiDevice(data.data as Record<string, unknown>);
           } catch (e) {
             console.error('[MA report add] fetch device by id', id, e);
           }
@@ -370,35 +455,6 @@ function AddMAReportPageContent() {
   // Handle device selection change
   const handleDeviceChange = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
-  };
-
-  // ดึง device ID จาก task.assets (รองรับหลายรูปแบบที่ API/DB อาจส่งมา)
-  const getDeviceIdFromAsset = (a: any): string => {
-    if (a == null) return '';
-    if (typeof a === 'number') return String(a);
-    if (typeof a === 'string') return a.trim();
-    const id =
-      a.id ?? a.Did ?? a.did ?? a.deviceId ?? a.device_id ?? (a as any).ID;
-    return id != null ? String(id).trim() : '';
-  };
-
-  /** ใช้ snapshot จาก task.assets เมื่อ Did ไม่อยู่ใน GET /api/devices (เช่น limit 1000 + ORDER BY Did DESC) */
-  const deviceFromTaskAssetSnapshot = (raw: any, didNum: number): Device => {
-    const a = raw as Record<string, unknown>;
-    return {
-      Did: didNum,
-      Asset_State: a.Asset_State as string | undefined,
-      CI_Name: (a.CI_Name ?? a.name ?? '') as string | undefined,
-      Asset_Number: (a.Asset_Number ?? a.assetNumber ?? '') as string | undefined,
-      serial: (a.serial ?? a.serialNumber ?? '') as string | undefined,
-      model: (a.model ?? a.type ?? '') as string | undefined,
-      Manufacturername: a.Manufacturername as string | undefined,
-      Sitename: (a.Sitename ?? a.sitename ?? a.siteName ?? '') as string | undefined,
-      Location2: (a.Location2 ?? a.location2 ?? '') as string | undefined,
-      PR_No: a.PR_No as string | undefined,
-      Vendor: a.Vendor as string | undefined,
-      SLid: a.SLid as number | undefined,
-    };
   };
 
   // Device จาก Task ที่เลือก (assets + replacement) — ใช้ snapshot ใน task ถ้าไม่พบในรายการ devices ที่โหลดมา
@@ -447,7 +503,7 @@ function AddMAReportPageContent() {
       addReplacement(task.replacementDeviceId);
     }
 
-    return out;
+    return out.map((d) => enrichDeviceForDisplay(d, task));
   }, [devices, availableMATasks, selectedTaskId]);
 
   useEffect(() => {
@@ -908,9 +964,12 @@ function AddMAReportPageContent() {
             )}
             {/* Selected device - show fields from fetched device */}
             {selectedDeviceId && (() => {
-              const selected = allowedDevices.find(d => d.Did.toString() === selectedDeviceId) ?? devices.find(d => d.Did.toString() === selectedDeviceId);
-              if (!selected) return null;
+              const rawSelected =
+                allowedDevices.find((d) => d.Did.toString() === selectedDeviceId) ??
+                devices.find((d) => d.Did.toString() === selectedDeviceId);
+              if (!rawSelected) return null;
               const task = selectedTaskId != null ? availableMATasks.find((t: any) => t.id === selectedTaskId) : null;
+              const selected = enrichDeviceForDisplay(rawSelected, task);
               const isReplacement = task && (task.replacementDeviceId === selected.Did || task.assets?.some((a: any, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === selected.Did));
               const formatDate = (v: string | null | undefined) => {
                 if (!v) return undefined;
@@ -922,7 +981,7 @@ function AddMAReportPageContent() {
                 { label: 'Serial', value: selected.serial },
                 { label: 'Model', value: selected.model },
                 { label: 'SOF', value: selected.Refer_SOF },
-                { label: 'Manufacturer', value: (selected as any).manufacturername ?? selected.Manufacturername },
+                { label: 'Manufacturer', value: selected.Manufacturername },
                 { label: 'Site', value: selected.Sitename },
                 { label: 'Location', value: (selected as any).Location2 ?? selected.Location2 },
                 { label: 'Vendor', value: selected.Vendor },

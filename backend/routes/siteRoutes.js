@@ -7,6 +7,7 @@ const {
   getSitesLocationBySOF,
   getSitesLocationWithContracts,
   getSiteRegistryCounts,
+  updateSitesLocationSof,
   updateSite,
   deleteSite
 } = require('../controllers/siteController');
@@ -23,8 +24,11 @@ router.get('/registry-counts', getSiteRegistryCounts);
 // GET - ดึง Sites_Location (SLid สำหรับ contract.site_id)
 router.get('/locations', getSitesLocation);
 
-// GET - ดึง Sites_Location เฉพาะที่มี device ที่มี Refer_SOF นี้
+// GET - ดึง Sites_Location ที่ sites_location.SOF ตรง refer_sof
 router.get('/locations-by-sof', getSitesLocationBySOF);
+
+// PATCH - อัปเดต SOF ของ sites_location (body: SOF หรือ Refer_SOF)
+router.patch('/locations/:slid/sof', updateSitesLocationSof);
 
 // GET - ดึง Sites_Location เฉพาะที่มี contract
 router.get('/locations-with-contracts', getSitesLocationWithContracts);

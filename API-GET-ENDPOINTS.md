@@ -1,5 +1,7 @@
 # 📋 GET Endpoints - Device Controller
 
+> **Schema (2026):** SOF เก็บที่ `sites_location.SOF` — ฟิลด์ `Refer_SOF` ใน response device เป็น alias จาก location ผ่าน `devices.SLid`
+
 ## Base URL
 `/api/devices`
 

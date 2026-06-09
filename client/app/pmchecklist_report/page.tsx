@@ -257,6 +257,8 @@ function ReportPageContent() {
   const [downloadSiteSearch, setDownloadSiteSearch] = useState('');
   const [downloadSofFilter, setDownloadSofFilter] = useState('');
   const [downloadLocationFilter, setDownloadLocationFilter] = useState('');
+  const [reportMonthFilter, setReportMonthFilter] = useState('');
+  const [reportRoundFilter, setReportRoundFilter] = useState('');
   const [downloadModalPage, setDownloadModalPage] = useState(1);
   const [pmMaTasks, setPmMaTasks] = useState<any[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
@@ -451,7 +453,7 @@ function ReportPageContent() {
   const dateKey = tab === 'pm' ? 'pmDate' : 'maDate';
   const resultKey = tab === 'pm' ? 'pmResult' : 'maResult';
 
-  const filteredReports = useMemo(() => {
+  const searchFilteredReports = useMemo(() => {
     if (!searchTerm) return reports;
     const q = searchTerm.toLowerCase();
     return reports.filter((report: PMReport | MAReport) => {
@@ -484,7 +486,7 @@ function ReportPageContent() {
     });
   }, [reports, searchTerm, dateKey]);
 
-  /** กรอง PM/MA task (ยังไม่มี report) ตามช่องค้นหา — สอดคล้องกับ filteredReports */
+  /** กรอง PM/MA task (ยังไม่มี report) ตามช่องค้นหา — สอดคล้องกับรายการ report */
   const pmMaTaskWithoutReportMatchesSearch = (task: any, term: string) => {
     const t = term.trim();
     if (!t) return true;
@@ -537,18 +539,6 @@ function ReportPageContent() {
       statusStr.includes(q)
     );
   };
-
-  const totalPages = Math.ceil(filteredReports.length / ITEMS_PER_PAGE);
-  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-  const paginatedReports = filteredReports.slice(startIndex, startIndex + ITEMS_PER_PAGE);
-  const selectedReportsArray = useMemo(
-    () => filteredReports.filter((r) => selectedReportIds.has(String(r.id))),
-    [filteredReports, selectedReportIds]
-  );
-  const downloadSourceReports = useMemo(
-    () => (selectedReportsArray.length > 0 ? selectedReportsArray : filteredReports),
-    [selectedReportsArray, filteredReports]
-  );
 
   // Load replacement devices for MA reports (from task.assets replacementDeviceId)
   useEffect(() => {
@@ -974,6 +964,116 @@ function ReportPageContent() {
       location: location || 'Unknown',
     };
   };
+
+  const getVisitDate = (r: PMReport | MAReport) => {
+    const d = r[dateKey as keyof typeof r];
+    return d && typeof d === 'string' ? d.slice(0, 10) : '';
+  };
+
+  const visitMonthKey = (visitRound: string) => {
+    if (visitRound && /^\d{4}-\d{2}-\d{2}$/.test(visitRound)) return visitRound.slice(0, 7);
+    if (visitRound && /^\d{4}-\d{2}/.test(visitRound)) return visitRound.slice(0, 7);
+    return '';
+  };
+
+  const visitYearKey = (visitRound: string) => {
+    if (visitRound && /^\d{4}-\d{2}-\d{2}$/.test(visitRound)) return visitRound.slice(0, 4);
+    if (visitRound && /^\d{4}/.test(visitRound)) return visitRound.slice(0, 4);
+    return '';
+  };
+
+  const formatVisitMonthLabel = (yyyyMm: string) => {
+    const [y, m] = yyyyMm.split('-');
+    if (!y || !m) return yyyyMm;
+    const d = new Date(Number(y), Number(m) - 1, 1);
+    if (Number.isNaN(d.getTime())) return yyyyMm;
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  };
+
+  const reportHasUploadFiles = (r: PMReport | MAReport) =>
+    (r.uploadedFiles || []).some((f) => {
+      const path = typeof f === 'string' ? f : f?.path;
+      return !!path;
+    });
+
+  /** รอบที่ n ต่อ Site + Location + ปีปฏิทิน + SOF — ปีใหม่เริ่มรอบ 1 ใหม่ */
+  const buildYearlyRoundMapForReports = (
+    source: (PMReport | MAReport)[],
+    opts?: { requireUploadFiles?: boolean }
+  ) => {
+    const requireFiles = opts?.requireUploadFiles ?? false;
+    const groups = new Map<string, (PMReport | MAReport)[]>();
+    source.forEach((r) => {
+      if (requireFiles && !reportHasUploadFiles(r)) return;
+      const { siteName, location } = getReportSiteLocationForDownload(r);
+      const year = visitYearKey(getVisitDate(r));
+      const sof = getReferSofFromReport(r);
+      const groupKey = `${siteName}|||${location}|||${year || 'unknown'}|||${sof}`;
+      const arr = groups.get(groupKey) ?? [];
+      arr.push(r);
+      groups.set(groupKey, arr);
+    });
+
+    const roundByReportId = new Map<string, number>();
+    groups.forEach((groupReports) => {
+      [...groupReports]
+        .sort((a, b) => {
+          const da = getVisitDate(a);
+          const db = getVisitDate(b);
+          return da.localeCompare(db) || String(a.id).localeCompare(String(b.id));
+        })
+        .forEach((r, index) => {
+          roundByReportId.set(String(r.id), index + 1);
+        });
+    });
+    return roundByReportId;
+  };
+
+  const reportMonthOptions = useMemo(() => {
+    const months = new Set<string>();
+    reports.forEach((r) => {
+      const m = visitMonthKey(getVisitDate(r));
+      if (m) months.add(m);
+    });
+    return Array.from(months).sort((a, b) => b.localeCompare(a));
+  }, [reports, dateKey]);
+
+  const reportRoundOptions = useMemo(() => {
+    const pool = reportMonthFilter
+      ? reports.filter((r) => visitMonthKey(getVisitDate(r)) === reportMonthFilter)
+      : reports;
+    const roundMap = buildYearlyRoundMapForReports(reports);
+    const rounds = new Set<number>();
+    pool.forEach((r) => {
+      const n = roundMap.get(String(r.id));
+      if (n != null) rounds.add(n);
+    });
+    return Array.from(rounds).sort((a, b) => a - b);
+  }, [reports, reportMonthFilter, dateKey]);
+
+  const filteredReports = useMemo(() => {
+    let list = searchFilteredReports;
+    if (reportMonthFilter) {
+      list = list.filter((r) => visitMonthKey(getVisitDate(r)) === reportMonthFilter);
+    }
+    if (reportRoundFilter) {
+      const roundMap = buildYearlyRoundMapForReports(reports);
+      list = list.filter((r) => String(roundMap.get(String(r.id)) ?? '') === reportRoundFilter);
+    }
+    return list;
+  }, [searchFilteredReports, reports, reportMonthFilter, reportRoundFilter, dateKey]);
+
+  const totalPages = Math.ceil(filteredReports.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedReports = filteredReports.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const selectedReportsArray = useMemo(
+    () => filteredReports.filter((r) => selectedReportIds.has(String(r.id))),
+    [filteredReports, selectedReportIds]
+  );
+  const downloadSourceReports = useMemo(
+    () => (selectedReportsArray.length > 0 ? selectedReportsArray : filteredReports),
+    [selectedReportsArray, filteredReports]
+  );
 
   const pmReportInformation = useMemo(() => {
     if (!selectedReport || tab !== 'pm') return null;
@@ -1577,10 +1677,6 @@ function ReportPageContent() {
 
   const [downloadingImages, setDownloadingImages] = useState(false);
   const [showSiteImageMenu, setShowSiteImageMenu] = useState(false);
-  const getVisitDate = (r: PMReport | MAReport) => {
-    const d = r[dateKey as keyof typeof r];
-    return d && typeof d === 'string' ? d.slice(0, 10) : '';
-  };
 
   type DownloadFileEntry = {
     path: string;
@@ -1866,7 +1962,8 @@ function ReportPageContent() {
 
   const downloadZipForSelectedLocations = async (
     selections: Array<{ siteName: string; location: string }>,
-    sourceReports: (PMReport | MAReport)[]
+    sourceReports: (PMReport | MAReport)[],
+    periodOpts?: { monthLabel?: string; roundLabel?: string }
   ) => {
     if (selections.length === 0) {
       toastWarning('No locations selected for download');
@@ -1894,13 +1991,14 @@ function ReportPageContent() {
         const y = visitCalendarYear(f.visitRound);
         const visitDate = getNormalizedVisitDate(f.visitRound, y);
         const n = roundMap.get(f) ?? 1;
+        const roundSuffix = `รอบที่${n}`;
         try {
           const res = await fetch(apiUrl(f.path));
           if (res.ok) {
             const blob = await res.blob();
             const ext = getExt(f.name, f.type);
             const sofPart = safeZipEntryPart(f.referSof);
-            const baseEntryName = `${sofPart}/${safeZipEntryPart(selection.siteName)}_${safeZipEntryPart(selection.location)}_${visitDate}_round${n}${ext}`;
+            const baseEntryName = `${sofPart}/${safeZipEntryPart(selection.siteName)}_${safeZipEntryPart(selection.location)}_${visitDate}_${roundSuffix}${ext}`;
             zip.file(baseEntryName, blob, { binary: true });
             addedFiles += 1;
           }
@@ -1917,9 +2015,15 @@ function ReportPageContent() {
 
     const zipBytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
     const zipBuffer = Uint8Array.from(zipBytes);
+    const periodPart = [
+      periodOpts?.monthLabel,
+      periodOpts?.roundLabel ? `round${periodOpts.roundLabel}` : '',
+    ]
+      .filter(Boolean)
+      .join('_');
     triggerBlobDownload(
       new Blob([zipBuffer], { type: 'application/zip' }),
-      `${taskLabel}_Selected_Locations_${new Date().toISOString().slice(0, 10)}.zip`
+      `${taskLabel}${periodPart ? `_${periodPart}` : ''}_Selected_Locations_${new Date().toISOString().slice(0, 10)}.zip`
     );
   };
 
@@ -2063,7 +2167,15 @@ function ReportPageContent() {
         visitCount: Array.from(row.visitDates).filter((v) => v && v !== '-').length,
       }))
       .sort((a, b) => a.siteName.localeCompare(b.siteName) || a.location.localeCompare(b.location));
-  }, [downloadSourceReports, downloadSiteSearch, downloadLocationFilter, downloadSofFilter, dateKey, pmMaTasks, pmDeviceDetailMap]);
+  }, [
+    downloadSourceReports,
+    downloadSiteSearch,
+    downloadLocationFilter,
+    downloadSofFilter,
+    dateKey,
+    pmMaTasks,
+    pmDeviceDetailMap,
+  ]);
 
   const downloadLocationOptions = useMemo(
     () =>
@@ -2073,8 +2185,10 @@ function ReportPageContent() {
     [downloadSourceReports, pmMaTasks, pmDeviceDetailMap]
   );
   const downloadSofOptions = useMemo(
-    () => Array.from(new Set(downloadSourceReports.map((r) => getReferSofFromReport(r))))
-      .sort((a, b) => a.localeCompare(b)),
+    () =>
+      Array.from(new Set(downloadSourceReports.map((r) => getReferSofFromReport(r)))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
     [downloadSourceReports, pmMaTasks, pmDeviceDetailMap]
   );
 
@@ -2163,7 +2277,11 @@ function ReportPageContent() {
     try {
       await downloadZipForSelectedLocations(
         toDownload.map((row) => ({ siteName: row.siteName, location: row.location })),
-        downloadSourceReports
+        downloadSourceReports,
+        {
+          monthLabel: reportMonthFilter,
+          roundLabel: reportRoundFilter,
+        }
       );
     } catch (e) {
       console.error(e);
@@ -2176,7 +2294,30 @@ function ReportPageContent() {
   useEffect(() => {
     if (!isDownloadFilesModalOpen) return;
     setDownloadModalPage(1);
-  }, [downloadSiteSearch, downloadLocationFilter, downloadSofFilter, isDownloadFilesModalOpen]);
+  }, [
+    downloadSiteSearch,
+    downloadLocationFilter,
+    downloadSofFilter,
+    isDownloadFilesModalOpen,
+  ]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [reportMonthFilter, reportRoundFilter]);
+
+  useEffect(() => {
+    if (reportMonthFilter && !reportMonthOptions.includes(reportMonthFilter)) {
+      setReportMonthFilter('');
+      setReportRoundFilter('');
+    }
+  }, [tab, reportMonthOptions, reportMonthFilter]);
+
+  useEffect(() => {
+    if (!reportRoundFilter) return;
+    if (!reportRoundOptions.includes(Number(reportRoundFilter))) {
+      setReportRoundFilter('');
+    }
+  }, [reportMonthFilter, reportRoundOptions, reportRoundFilter]);
 
   // ดาวน์โหลดทั้งหมด — zip เดียว ข้างในโครงสร้าง SOF / Site / file_วันที่ไป_รอบที่X (รอบที่ของ site นั้นๆ)
   const handleDownloadAllSites1Site1SOF = async () => {
@@ -2330,7 +2471,8 @@ function ReportPageContent() {
           </div>
         </div>
 
-        {/* Tab Buttons + Export CSV + Download files by SOF — แถวเดียวกัน */}
+        {/* Tab + actions + month/round filters */}
+        <div className="flex flex-col gap-3 w-full">
         <div className="flex flex-wrap items-center justify-between gap-4 w-full">
           <div className="flex gap-2 p-1.5 bg-white/80 rounded-2xl border border-slate-200/80 shadow-sm w-fit">
             <button
@@ -2381,6 +2523,85 @@ function ReportPageContent() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-end justify-end gap-3 w-full">
+          <div className="w-full sm:w-[200px]">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">
+              Month
+            </label>
+            <div className="relative">
+              <input
+                type="month"
+                value={reportMonthFilter}
+                onChange={(e) => {
+                  setReportMonthFilter(e.target.value);
+                  setReportRoundFilter('');
+                }}
+                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-9 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              />
+              {reportMonthFilter && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReportMonthFilter('');
+                    setReportRoundFilter('');
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  title="Clear month"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="w-full sm:w-[180px]">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">
+              Round (year)
+            </label>
+            <div className="relative">
+              <select
+                value={reportRoundFilter}
+                onChange={(e) => setReportRoundFilter(e.target.value)}
+                disabled={!reportMonthFilter || reportRoundOptions.length === 0}
+                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:bg-slate-50 disabled:text-slate-400"
+                title={!reportMonthFilter ? 'Select a month first' : undefined}
+              >
+                <option value="">
+                  {!reportMonthFilter ? 'Select month first' : 'All rounds'}
+                </option>
+                {reportRoundOptions.map((n) => (
+                  <option key={n} value={String(n)}>
+                    Round {n}
+                  </option>
+                ))}
+              </select>
+              {reportRoundFilter && (
+                <button
+                  type="button"
+                  onClick={() => setReportRoundFilter('')}
+                  className="absolute right-7 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  title="Clear round"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        {(reportMonthFilter || reportRoundFilter) && (
+          <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-right">
+            Showing reports
+            {reportMonthFilter ? ` in ${formatVisitMonthLabel(reportMonthFilter)}` : ''}
+            {reportRoundFilter
+              ? ` — round ${reportRoundFilter} only (within calendar year)`
+              : reportMonthFilter
+                ? ' — all rounds in selected month'
+                : ''}
+            {' '}
+            ({filteredReports.length} report{filteredReports.length === 1 ? '' : 's'})
+          </p>
+        )}
+        </div>
+
         {/* Search Bar */}
         <div className="bg-white/90 backdrop-blur-sm p-4 rounded-2xl border border-slate-200/80 shadow-sm">
           <div className="relative">
@@ -2412,12 +2633,20 @@ function ReportPageContent() {
               <FileText size={32} className="text-slate-500" />
             </div>
             <p className="text-slate-700 text-lg font-semibold mb-2">
-              {searchTerm ? 'Searched item was not found' : ` There are no reports for ${tab === 'pm' ? 'PM' : 'MA'}`}
+              {searchTerm
+                ? 'Searched item was not found'
+                : reportMonthFilter || reportRoundFilter
+                  ? 'No reports match the selected month / round'
+                  : ` There are no reports for ${tab === 'pm' ? 'PM' : 'MA'}`}
             </p>
             <p className="text-slate-500 text-sm mb-6">
-              {searchTerm ? 'Try different search terms' : 'Click the "Create New Report"'}
+              {searchTerm
+                ? 'Try different search terms'
+                : reportMonthFilter || reportRoundFilter
+                  ? 'Try another month or round, or clear the filters above'
+                  : 'Click the "Create New Report"'}
             </p>  
-            {!searchTerm && (
+            {!searchTerm && !reportMonthFilter && !reportRoundFilter && (
               <button
                 onClick={() => setShowCreateMenu(true)}
                 className="px-5 py-2 bg-slate-800 text-white rounded-lg text-sm font-semibold hover:bg-slate-900 transition-colors shadow-md"
@@ -2720,8 +2949,8 @@ function ReportPageContent() {
                     </button>
                   </div>
                 )}
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex-1">
+                <div className="flex flex-col sm:flex-row flex-wrap gap-3">
+                  <div className="flex-1 min-w-[200px]">
                     <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Search</label>
                     <div className="relative">
                       <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2759,7 +2988,7 @@ function ReportPageContent() {
                       )}
                     </div>
                   </div>
-                  <div className="w-full sm:w-[220px]">
+                  <div className="w-full sm:w-[200px]">
                     <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Location</label>
                     <div className="relative">
                       <select

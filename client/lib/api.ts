@@ -169,13 +169,26 @@ async function parseJsonResponse<T>(res: Response, fallback: T): Promise<T> {
   }
 }
 
-/** GET /api/sites/locations - สำหรับ dropdown Site (SLid, Sid, lid, SiteName, Location2) */
+/** GET /api/sites/locations - สำหรับ dropdown Site (SLid, Sid, lid, SiteName, Location2, SOF) */
 export async function getSitesLocation(): Promise<{
   success: boolean;
-  data: { SLid: number; Sid: number; lid: number; SiteName: string; Location2: string }[];
+  data: { SLid: number; Sid: number; lid: number; SiteName: string; Location2: string; SOF?: string; Refer_SOF?: string }[];
 }> {
   const res = await fetch(apiUrl('/api/sites/locations'));
   return jsonWithFallback(res, { success: false, data: [] });
+}
+
+/** PATCH /api/sites/locations/:slid/sof — อัปเดต SOF ที่ sites_location */
+export async function updateSitesLocationSof(
+  slid: number | string,
+  sof: string
+): Promise<{ success: boolean; data?: { SLid: number; SOF?: string; Refer_SOF?: string }; message?: string }> {
+  const res = await fetch(apiUrl(`/api/sites/locations/${encodeURIComponent(String(slid))}/sof`), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ SOF: sof }),
+  });
+  return res.json();
 }
 
 /** GET /api/sites/registry-counts — จำนวนแถวในตาราง sites และ sites_location */
@@ -200,7 +213,7 @@ export async function getDevicesBySite(siteId: number | string): Promise<{ succe
   return res.json();
 }
 
-/** GET /api/devices/import-location2-hints — SLid + Location2 on contract where Refer_SOF matches SOF (import hints) */
+/** GET /api/devices/import-location2-hints — SLid + Location2 on contract where sites_location.SOF matches SOF (import hints) */
 export async function getImportLocation2HintsByContractAndSof(
   contractId: number,
   referSof: string
@@ -217,6 +230,38 @@ export async function getImportLocation2HintsByContractAndSof(
 export async function getAssignedServices(): Promise<{ success: boolean; data: string[] }> {
   const res = await fetch(apiUrl('/api/devices/assigned-services'));
   return parseJsonResponse(res, { success: false, data: [] });
+}
+
+/** POST /api/contracts/sync-from-refer-sof — สร้าง/อัปเดต contract จาก sites_location.SOF (รวม device ใหม่ของ SOF เดิม) */
+export async function syncContractsFromReferSof(options?: {
+  dry_run?: boolean;
+  refer_sof?: string;
+  start_date?: string;
+  end_date?: string;
+}): Promise<{
+  success: boolean;
+  message?: string;
+  data?: {
+    created: number;
+    linked: number;
+    skipped: number;
+    dry_run?: boolean;
+    results: Array<{
+      refer_sof: string;
+      action: string;
+      contract_id?: number;
+      device_count?: number;
+      reason?: string;
+      error?: string;
+    }>;
+  };
+}> {
+  const res = await fetch(apiUrl('/api/contracts/sync-from-refer-sof'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options ?? {}),
+  });
+  return parseJsonResponse(res, { success: false });
 }
 
 /** GET /api/contracts?site_id=xxx - รายการ Contract ตาม site_id (ไม่ส่ง site_id = ดึงทั้งหมด) */

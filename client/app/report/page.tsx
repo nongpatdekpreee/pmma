@@ -363,7 +363,7 @@ export default function ReportPage() {
   const siteDropdownRef = useRef<HTMLDivElement>(null);
   const [equipmentOrderBy, setEquipmentOrderBy] = useState<'total' | 'vendor'>('total');
   const [deviceRolesList, setDeviceRolesList] = useState<{ DeRoleid: number; name: string }[]>([]);
-  const [sitesList, setSitesList] = useState<{ SLid: number; Sid: number; lid: number; SiteName: string; Location2: string }[]>([]);
+  const [sitesList, setSitesList] = useState<{ SLid: number; Sid: number; lid: number; SiteName: string; Location2: string; SOF?: string; Refer_SOF?: string }[]>([]);
   const [overdueModalOpen, setOverdueModalOpen] = useState(false);
   const [maTrendView, setMaTrendView] = useState<'summary' | 'top-model'>('summary');
   const [maTrendRoleFilterId, setMaTrendRoleFilterId] = useState<number | null>(null);
@@ -1022,19 +1022,20 @@ export default function ReportPage() {
   const sitesLocationGroupedBySite = useMemo(() => {
     const map = new Map<
       string,
-      { siteName: string; sid: number; locations: { SLid: number; label: string }[] }
+      { siteName: string; sid: number; locations: { SLid: number; label: string; sof?: string }[] }
     >();
     for (const row of sitesLocationDetailRows) {
       const siteName = row.SiteName?.trim() || '—';
       const key =
         typeof row.Sid === 'number' && row.Sid > 0 ? `sid:${row.Sid}` : `name:${siteName}`;
       const locLabel = row.Location2?.trim() || '—';
+      const sof = String(row.SOF ?? row.Refer_SOF ?? '').trim() || undefined;
       const sid = typeof row.Sid === 'number' && row.Sid > 0 ? row.Sid : 0;
       const cur = map.get(key);
       if (!cur) {
-        map.set(key, { siteName, sid, locations: [{ SLid: row.SLid, label: locLabel }] });
+        map.set(key, { siteName, sid, locations: [{ SLid: row.SLid, label: locLabel, sof }] });
       } else {
-        cur.locations.push({ SLid: row.SLid, label: locLabel });
+        cur.locations.push({ SLid: row.SLid, label: locLabel, sof });
         if (siteName !== '—') cur.siteName = siteName;
         if (sid > 0) cur.sid = sid;
       }
@@ -2634,6 +2635,9 @@ export default function ReportPage() {
                               />
                               <span className="min-w-0" title={loc.label}>
                                 {formatLocationLabelEn(loc.label)}
+                                {loc.sof ? (
+                                  <span className="mt-0.5 block text-[10px] text-slate-500">SOF: {loc.sof}</span>
+                                ) : null}
                               </span>
                             </li>
                           ))}

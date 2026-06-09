@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { applyReferSofToSiteLocation } = require('../config/deviceSof');
 
 // POST - สร้าง Site ใหม่
 const createSite = async (req, res) => {
@@ -38,7 +39,8 @@ const createSite = async (req, res) => {
 const getSitesLocation = async (req, res) => {
   try {
     const sql = `
-      SELECT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
+      SELECT SL.SLid, SL.Sid, SL.lid, SL.SOF, SL.SOF AS Refer_SOF,
+             S.Name AS SiteName, L.Location2
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
@@ -56,7 +58,7 @@ const getSitesLocation = async (req, res) => {
   }
 };
 
-// GET - ดึง Sites_Location เฉพาะที่มี device ที่มี Refer_SOF นี้ (สำหรับ dropdown Site เมื่อเลือก SOF ที่มีใน DB)
+// GET - ดึง Sites_Location ที่มี SOF ตรงกับ sites_location.SOF (schema ใหม่)
 const getSitesLocationBySOF = async (req, res) => {
   try {
     const referSOF = req.query.refer_sof;
@@ -66,17 +68,16 @@ const getSitesLocationBySOF = async (req, res) => {
         message: 'Please provide refer_sof'
       });
     }
+    const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
     const sql = `
       SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
-      WHERE SL.SLid IN (
-        SELECT DISTINCT SLid FROM devices WHERE Refer_SOF = ? AND SLid IS NOT NULL
-      )
+      WHERE (SL.SOF = ? OR TRIM(LEADING '0' FROM COALESCE(SL.SOF, '')) = ?)
       ORDER BY S.Name, L.Location2
     `;
-    const [rows] = await db.execute(sql, [referSOF]);
+    const [rows] = await db.execute(sql, [referSOF, referSOFTrim]);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting sites-location by SOF:', error);
@@ -275,6 +276,52 @@ const deleteSite = async (req, res) => {
   }
 };
 
+/** PATCH — อัปเดต SOF ของ sites_location (schema ใหม่) */
+const updateSitesLocationSof = async (req, res) => {
+  try {
+    const slid = parseInt(req.params.slid, 10);
+    const { SOF, Refer_SOF, sof, refer_sof } = req.body || {};
+    const sofValue = SOF ?? Refer_SOF ?? sof ?? refer_sof;
+
+    if (isNaN(slid)) {
+      return res.status(400).json({ success: false, message: 'Invalid SLid' });
+    }
+    if (sofValue === undefined) {
+      return res.status(400).json({ success: false, message: 'Please provide SOF' });
+    }
+
+    const [rows] = await db.execute('SELECT SLid FROM sites_location WHERE SLid = ?', [slid]);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Site location not found' });
+    }
+
+    await applyReferSofToSiteLocation(db, slid, sofValue);
+
+    const [updated] = await db.execute(
+      `SELECT SL.SLid, SL.Sid, SL.lid, SL.SOF, SL.SOF AS Refer_SOF,
+              S.Name AS SiteName, L.Location2
+       FROM sites_location SL
+       JOIN sites S ON SL.Sid = S.Sid
+       JOIN location L ON SL.lid = L.lid
+       WHERE SL.SLid = ?`,
+      [slid]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'SOF updated successfully',
+      data: updated[0],
+    });
+  } catch (error) {
+    console.error('Error updating sites_location SOF:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating sites_location SOF',
+      error: error.message,
+    });
+  }
+};
+
 /** GET — จำนวน Site (ตาราง sites) และ Location (ตาราง sites_location) จาก DB */
 const getSiteRegistryCounts = async (req, res) => {
   try {
@@ -304,6 +351,7 @@ module.exports = {
   getSitesLocationBySOF,         // GET /locations-by-sof?refer_sof=XXX
   getSitesLocationWithContracts, // GET /locations-with-contracts
   getSiteRegistryCounts,         // GET /registry-counts
+  updateSitesLocationSof,        // PATCH /locations/:slid/sof
   updateSite,                    // PUT
   deleteSite                     // DELETE
 };

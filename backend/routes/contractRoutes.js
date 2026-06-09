@@ -6,6 +6,7 @@ const fs = require('fs');
 const {
   createContract,
   uploadContractFile,
+  syncContractsFromReferSof,
   getContractsBySite,
   postContractHistoryDisplayRows,
   getContractHistoryDetailByHistoryId,
@@ -47,6 +48,9 @@ router.post('/upload', upload.single('file'), uploadContractFile);
 
 // POST /api/contracts — สร้างสัญญา
 router.post('/', createContract);
+
+// POST /api/contracts/sync-from-refer-sof — สร้าง contract อัตโนมัติจาก sites_location.SOF
+router.post('/sync-from-refer-sof', syncContractsFromReferSof);
 
 // GET /api/contracts/devices/available — ดึง Devices ที่ไม่มี Contract (รองรับ site_id query parameter)
 router.get('/devices/available', getAvailableDevices);
