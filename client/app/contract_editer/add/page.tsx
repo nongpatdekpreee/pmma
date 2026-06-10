@@ -4,7 +4,7 @@ import {
   ArrowLeft,
   FileText,
   Calendar,
-  Cpu,
+  Building2,
   Paperclip,
   Loader2,
   Plus,
@@ -12,6 +12,12 @@ import {
   Trash2,
   X,
   ChevronDown,
+  Pencil,
+  FilePlus,
+  RefreshCw,
+  AlertTriangle,
+  CircleX,
+  Save,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -404,7 +410,8 @@ function AddContractPageContent() {
   const [referSOFLoading, setReferSOFLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   const [devicesLoading, setDevicesLoading] = useState(false);
-  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveLoadingMode, setSaveLoadingMode] = useState<'draft' | 'submit' | null>(null);
+  const saveLoading = saveLoadingMode !== null;
   const [uploading, setUploading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -1542,7 +1549,7 @@ function AddContractPageContent() {
       }));
 
       if (pairsFromOld.length > 0) {
-        setSaveLoading(true);
+        setSaveLoadingMode('submit');
         try {
           const body: Record<string, unknown> = {
             contract_name: contractName.trim() || null,
@@ -1575,14 +1582,18 @@ function AddContractPageContent() {
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
-          const msg = `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`;
+          let msg = `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`;
+          if (data.data?.history_saved === false) {
+            msg += ' — แต่บันทึกประวัติ (contract_history) ไม่สำเร็จ ตรวจสอบ backend log';
+            toastError('บันทึกประวัติสัญญาไม่สำเร็จ — ตรวจสอบตาราง contract_history');
+          }
           router.push('/contract_editer?toast=success&msg=' + encodeURIComponent(msg));
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Save failed';
           setSaveError(msg);
           toastError(msg);
         } finally {
-          setSaveLoading(false);
+          setSaveLoadingMode(null);
         }
         return;
       }
@@ -1601,7 +1612,7 @@ function AddContractPageContent() {
       }
     }
 
-    setSaveLoading(true);
+    setSaveLoadingMode(isDraft ? 'draft' : 'submit');
     try {
       // รวม devices จากสัญญาเก่าเข้ากับ site_device_pairs
       const allPairs: SiteDevicePair[] = sitePairsFromEntries(validPairs);
@@ -1697,54 +1708,37 @@ function AddContractPageContent() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
-      const message = editContractId
+      let message = editContractId
         ? (isDraft ? 'Saved as draft' : 'Contract updated successfully')
         : renewContractId
           ? `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`
           : isDraft
             ? 'Saved as draft'
             : 'New contract saved successfully';
+      if (renewContractId && data.data?.history_saved === false) {
+        message += ' — แต่บันทึกประวัติ (contract_history) ไม่สำเร็จ';
+        toastError('บันทึกประวัติสัญญาไม่สำเร็จ — ตรวจสอบตาราง contract_history');
+      }
       router.push('/contract_editer?toast=success&msg=' + encodeURIComponent(message));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Save failed';
       setSaveError(msg);
       toastError(msg);
     } finally {
-      setSaveLoading(false);
+      setSaveLoadingMode(null);
     }
   };
+
+  const primarySaveLabel = editContractId
+    ? 'Save Changes'
+    : renewContractId
+      ? 'Renew Contract'
+      : 'Save Contract';
 
   return (
     <SidebarLayout>
       <DashboardHeader />
       <div className="flex flex-col gap-6 p-6 pt-0">
-        {/* Page Header */}
-        <div className="relative overflow-hidden rounded-2xl border border-slate-200/50 bg-gradient-to-br from-white via-sky-50/40 to-indigo-50/50 p-6 shadow-md shadow-slate-900/[0.04] ring-1 ring-white/80">
-          <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-sky-200/25 blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-20 -left-10 h-40 w-40 rounded-full bg-violet-200/20 blur-3xl" />
-          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIwLjUiIG9wYWNpdHk9IjAuMDMiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-[0.35]" />
-          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <Link
-                href="/contract_editer"
-                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/60 bg-white/90 text-slate-600 shadow-sm shadow-slate-900/5 backdrop-blur-sm transition-all hover:border-sky-200 hover:bg-white hover:text-sky-700 hover:shadow-md"
-              >
-                <ArrowLeft size={20} />
-              </Link>
-              <div>
-                <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-800 sm:text-3xl">
-                  <span className="text-3xl">{editContractId ? '✏️' : '📝'}</span>
-                  <span>{editContractId ? 'Edit Contract' : 'Add New Contract'}</span>
-                </h1>
-                <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
-                  <span>{editContractId ? '🔧' : '✨'}</span>
-                  <span>{editContractId ? 'Edit contract information' : 'Enter contract information completely'}</span>
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Alerts */}
         {(fetchError || saveError) && (
           <div
@@ -1754,19 +1748,49 @@ function AddContractPageContent() {
                 : 'border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50 text-amber-800'
             }`}
           >
-            <span className="text-lg">{saveError ? '❌' : '⚠️'}</span>
+            {saveError ? (
+              <CircleX size={18} className="shrink-0 text-red-600" aria-hidden />
+            ) : (
+              <AlertTriangle size={18} className="shrink-0 text-amber-600" aria-hidden />
+            )}
             <span>{saveError || fetchError}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Page Header */}
+          <div className="relative overflow-hidden rounded-2xl border border-slate-200/50 bg-gradient-to-br from-white via-sky-50/40 to-indigo-50/50 p-6 shadow-md shadow-slate-900/[0.04] ring-1 ring-white/80">
+            <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-sky-200/25 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-20 -left-10 h-40 w-40 rounded-full bg-violet-200/20 blur-3xl" />
+            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIwLjUiIG9wYWNpdHk9IjAuMDMiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-[0.35]" />
+            <div className="relative flex items-center gap-4">
+              <Link
+                href="/contract_editer"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/60 bg-white/90 text-slate-600 shadow-sm shadow-slate-900/5 backdrop-blur-sm transition-all hover:border-sky-200 hover:bg-white hover:text-sky-700 hover:shadow-md"
+              >
+                <ArrowLeft size={20} />
+              </Link>
+              <div>
+                <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-800 sm:text-3xl">
+                  {editContractId ? (
+                    <Pencil size={28} className="shrink-0 text-sky-600" aria-hidden />
+                  ) : (
+                    <FilePlus size={28} className="shrink-0 text-sky-600" aria-hidden />
+                  )}
+                  <span>{editContractId ? 'Edit Contract' : 'Add New Contract'}</span>
+                </h1>
+                <p className="mt-1 text-sm text-slate-600">
+                  {editContractId ? 'Edit contract information' : 'Enter contract information completely'}
+                </p>
+              </div>
+            </div>
+          </div>
           {/* Section สำหรับต่อสัญญา: แสดงข้อมูลสัญญาเก่า */}
           {renewContractId && (
             <FormSection
               title="Old Contract Information"
               description="Information from the contract to be renewed"
-              icon={FileText}
-              emoji="🔄"
+              icon={RefreshCw}
               gradient="from-amber-50 to-orange-50"
             >
               {loadingOldContract ? (
@@ -1839,7 +1863,6 @@ function AddContractPageContent() {
             title="Basic Information"
             description="Contract name and service information"
             icon={FileText}
-            emoji="📋"
             gradient="from-blue-50 to-cyan-50"
             className={
               serviceDropdownOpen || sourceSofDropdownOpen ? 'z-[100]' : ''
@@ -2342,7 +2365,6 @@ function AddContractPageContent() {
             title="Contract Period"
             description="Start Date, End Date and Contract Sign Date"
             icon={Calendar}
-            emoji="📅"
             gradient="from-purple-50 to-pink-50"
           >
             <div className="grid w-full min-w-0 grid-cols-1 gap-4 md:grid-cols-4 [&>div]:min-w-0">
@@ -2458,8 +2480,7 @@ function AddContractPageContent() {
                 ? 'Add source SOFs and Contract SOF above, then pick site and devices'
                 : 'Select SOF first, then select Site and Device'
             }
-            icon={Cpu}
-            emoji="🏢"
+            icon={Building2}
             gradient="from-emerald-50 to-teal-50"
             className={
               siteLocationPicker || viewSiteDropdownOpen ? 'z-[100]' : ''
@@ -3185,7 +3206,6 @@ function AddContractPageContent() {
             title="Details and Files"
             description="Coverage Scope, Remark and Supporting Documents"
             icon={Paperclip}
-            emoji="📎"
             gradient="from-amber-50 to-orange-50"
           >
             <div className="space-y-4">
@@ -3222,7 +3242,7 @@ function AddContractPageContent() {
             </div>
           </FormSection>
 
-          {/* Actions */}
+          {/* Actions — ชุดเดียว ท้ายฟอร์ม */}
           <div className="flex flex-col-reverse gap-3 border-t border-slate-200/80 pt-6 sm:flex-row sm:justify-end">
             <Link
               href="/contract_editer"
@@ -3232,38 +3252,40 @@ function AddContractPageContent() {
               <span>Back</span>
             </Link>
             <div className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={(e) => handleSubmit(e, true)}
-                disabled={saveLoading}
-                className="flex items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50/90 px-6 py-3 font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {saveLoading ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-lg">📄</span>
-                    <span>Save as draft</span>
-                  </>
-                )}
-              </button>
+              {!renewContractId && (
+                <button
+                  type="button"
+                  onClick={(e) => handleSubmit(e, true)}
+                  disabled={saveLoading}
+                  className="flex items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50/90 px-6 py-3 font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {saveLoadingMode === 'draft' ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileText size={18} aria-hidden />
+                      <span>Save as draft</span>
+                    </>
+                  )}
+                </button>
+              )}
               <button
                 type="submit"
                 disabled={saveLoading}
                 className="group flex items-center justify-center gap-2 rounded-xl bg-indigo-500 px-8 py-3 font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                {saveLoading ? (
+                {saveLoadingMode === 'submit' ? (
                   <>
                     <Loader2 size={18} className="animate-spin" />
                     <span>{editContractId ? 'กำลังบันทึก...' : 'Saving...'}</span>
                   </>
                 ) : (
                   <>
-                    <span className="text-lg">💾</span>
-                    <span>{editContractId ? 'Save Changes' : 'Save Contract'}</span>
+                    <Save size={18} aria-hidden />
+                    <span>{primarySaveLabel}</span>
                   </>
                 )}
               </button>

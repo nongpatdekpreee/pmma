@@ -508,6 +508,7 @@ const createContract = async (req, res) => {
 
     // app_db: contract_device มีแค่ (contract_id, device_id) ไม่มี SLid
     let contractId;
+    let renewHistorySaved = null;
     let conn;
     try {
       conn = await db.getConnection();
@@ -669,12 +670,14 @@ const createContract = async (req, res) => {
         }
 
         // บันทึกประวัติการต่อสัญญา (ใช้ contract_id เดิม) + snapshot ที่สร้างไว้ก่อน UPDATE/รีเฟรช device
+        renewHistorySaved = true;
         try {
           await conn.execute(
             'INSERT INTO contract_history (contract_id, old_contract_id, old_sof, new_sof, renewed_at, contract_snapshot, status_history) VALUES (?, ?, ?, ?, NOW(), ?, ?)',
             [contractId, contractId, oldSofFromDb, sofValue, contractSnapshotForHistory, 'Renew']
           );
         } catch (historyErr) {
+          renewHistorySaved = false;
           console.error('Error saving contract history:', historyErr);
         }
 
@@ -750,7 +753,10 @@ const createContract = async (req, res) => {
     res.status(201).json({
       success: true,
       message: oldContractIdVal ? 'Contract renewed successfully' : 'Contract created successfully',
-      data: { contract_id: contractId }
+      data: {
+        contract_id: contractId,
+        ...(oldContractIdVal ? { history_saved: renewHistorySaved !== false } : {}),
+      },
     });
   } catch (error) {
     console.error('Error creating contract:', error);
@@ -2125,9 +2131,9 @@ const updateContract = async (req, res) => {
       tel_acc,
     } = req.body;
 
-    // ตรวจสอบว่ามี contract นี้หรือไม่ + สถานะเดิม (สำหรับบันทึก Terminated เมื่อเปลี่ยนเป็น not_renewing)
+    // ตรวจสอบว่ามี contract นี้หรือไม่ + สถานะ/SOF เดิม (Terminated / บันทึกเมื่อแก้ SOF)
     const [existingContract] = await conn.execute(
-      'SELECT contract_id, status FROM contract WHERE contract_id = ?',
+      'SELECT contract_id, status, sof_name FROM contract WHERE contract_id = ?',
       [cid]
     );
 
@@ -2305,6 +2311,29 @@ const updateContract = async (req, res) => {
 
     // ไซต์หลักอยู่ที่ contract_device.SLid เท่านั้น — ไม่อัปเดต site_id บนตาราง contract
 
+    // แก้เลข SOF — snapshot ก่อน UPDATE (เหมือน renew)
+    let sofChangeHistory = null;
+    if (sof_name !== undefined) {
+      const prevSofRaw = existingContract[0].sof_name;
+      const oldSofTrim =
+        prevSofRaw != null && String(prevSofRaw).trim() !== '' ? String(prevSofRaw).trim() : null;
+      const newSofTrim =
+        sof_name != null && String(sof_name).trim() !== '' ? String(sof_name).trim() : null;
+      if ((oldSofTrim ?? '') !== (newSofTrim ?? '')) {
+        let contractSnapshotForSofChange = null;
+        try {
+          contractSnapshotForSofChange = await buildContractHistorySnapshot(conn, cid);
+        } catch (snapErr) {
+          console.error('Error building contract history snapshot (pre-SOF change):', snapErr);
+        }
+        sofChangeHistory = {
+          oldSof: oldSofTrim,
+          newSof: newSofTrim,
+          snapshot: contractSnapshotForSofChange,
+        };
+      }
+    }
+
     // อัปเดต contract
     if (updateFields.length > 0) {
       updateValues.push(cid);
@@ -2346,6 +2375,44 @@ const updateContract = async (req, res) => {
     // อัปเดต sites_location.SOF ตาม site ในสัญญา (ไม่ใช่ draft)
     if (status !== 'draft' && siteIdList.length > 0 && sof_name != null && String(sof_name).trim() !== '') {
       await syncSofOnSiteLocations(conn, sof_name.trim(), siteIdList);
+    }
+
+    // บันทึกประวัติเมื่อแก้เลข SOF (Edit / Save Changes)
+    if (sofChangeHistory) {
+      try {
+        await conn.execute(
+          `INSERT INTO contract_history (contract_id, old_contract_id, old_sof, new_sof, renewed_at, contract_snapshot, status_history)
+           VALUES (?, ?, ?, ?, NOW(), ?, ?)`,
+          [
+            cid,
+            cid,
+            sofChangeHistory.oldSof,
+            sofChangeHistory.newSof,
+            sofChangeHistory.snapshot,
+            'SOF Change',
+          ]
+        );
+      } catch (historyErr) {
+        console.error('Error saving contract history (SOF change):', historyErr);
+      }
+      const effectiveStatus =
+        status !== undefined
+          ? String(status).toLowerCase()
+          : prevDbStatus != null
+            ? String(prevDbStatus).toLowerCase()
+            : 'official';
+      if (
+        effectiveStatus !== 'draft' &&
+        sofChangeHistory.oldSof &&
+        sofChangeHistory.newSof &&
+        sofChangeHistory.oldSof !== sofChangeHistory.newSof
+      ) {
+        await syncSofRenameOnSiteLocations(
+          conn,
+          sofChangeHistory.oldSof,
+          sofChangeHistory.newSof
+        );
+      }
     }
 
     // บันทึกประวัติ Terminated เมื่อกด "Do not renew" (เปลี่ยนเป็น not_renewing ครั้งแรก)

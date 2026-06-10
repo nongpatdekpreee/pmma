@@ -1334,9 +1334,8 @@ function ContractEditorPageContent() {
 
       let histRows: ContractHistoryRow[] = [];
       if (histJson?.success && Array.isArray(histJson.data)) {
-        histRows = (histJson.data as ContractHistoryRow[]).filter(
-          (h) => Number(h.contract_id) === cid,
-        );
+        // API กรอง contract_id / old_contract_id แล้ว — ใช้ผลลัพธ์ตรงๆ
+        histRows = histJson.data as ContractHistoryRow[];
       }
 
       if (res.ok && json.data) {
@@ -3189,7 +3188,12 @@ function ContractEditorPageContent() {
                           </span>
                         </div>
                         {detailModalHistoryRows.length === 0 ? (
-                          <p className="text-sm text-slate-500">No history records found for this contract</p>
+                          <p className="text-sm text-slate-500">
+                            ยังไม่มีประวัติ — ระบบบันทึกเมื่อ{' '}
+                            <span className="font-medium text-slate-600">เปลี่ยนเลข SOF</span>,{' '}
+                            <span className="font-medium text-slate-600">ต่อสัญญา (Renew)</span> หรือ{' '}
+                            <span className="font-medium text-slate-600">ไม่ต่อสัญญา (Do not renew)</span>
+                          </p>
                         ) : (
                           <ul className="space-y-2">
                             {detailModalHistoryRows.map((row) => {
