@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -112,18 +113,18 @@ export function Sidebar() {
         onClick={closeLogoutModal}
       >
         <div
-          className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden"
+          className="w-full max-w-md rounded-2xl bg-card text-card-foreground shadow-2xl overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <h2 id="logout-modal-title" className="text-base font-bold text-slate-900">
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <h2 id="logout-modal-title" className="text-base font-bold text-foreground">
               Confirm Logout
             </h2>
             <button
               type="button"
               onClick={closeLogoutModal}
-              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               aria-label="Close"
             >
               <X size={20} strokeWidth={2} />
@@ -132,20 +133,20 @@ export function Sidebar() {
 
           {/* Body */}
           <div className="flex gap-4 px-5 py-5">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-50">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-500/10">
               <AlertTriangle className="text-amber-500" size={26} strokeWidth={2} aria-hidden />
             </div>
-            <p className="text-sm leading-relaxed text-slate-600 pt-0.5">
+            <p className="text-sm leading-relaxed text-muted-foreground pt-0.5">
               Are you sure you want to logout? You will need to login again to access the system.
             </p>
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 border-t border-slate-100 px-5 py-4">
+          <div className="flex items-center justify-end gap-3 border-t border-border px-5 py-4">
             <button
               type="button"
               onClick={closeLogoutModal}
-              className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              className="rounded-xl px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               Cancel
             </button>
@@ -179,7 +180,7 @@ export function Sidebar() {
         onMouseEnter={() => isCollapsed && setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         className={`
-          fixed top-0 left-0 h-full bg-white border-r border-slate-200/80
+          fixed top-0 left-0 h-full bg-sidebar border-r border-sidebar-border
           transition-all duration-300 ease-in-out z-50
           shadow-lg overflow-hidden
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
@@ -190,7 +191,7 @@ export function Sidebar() {
       >
         <div className="flex flex-col h-full">
           {/* Header - กระชับตอนย่อ */}
-          <div className={`flex items-center border-b border-slate-200/80 shrink-0 ${isExpanded ? 'p-4' : 'px-3 py-3'}`}>
+          <div className={`flex items-center border-b border-sidebar-border shrink-0 ${isExpanded ? 'p-4' : 'px-3 py-3'}`}>
             <Link 
               href="/dashboard" 
               className={`flex items-center gap-2 text-blue-600 cursor-pointer group ${!isExpanded ? 'justify-center w-full' : ''}`}
@@ -205,7 +206,7 @@ export function Sidebar() {
               </div>
               <span 
                 className={`
-                  font-semibold text-sm text-slate-800
+                  font-semibold text-sm text-sidebar-foreground
                   transition-all duration-300 ease-in-out overflow-hidden
                   ${isExpanded 
                     ? 'opacity-100 max-w-[180px] delay-150 truncate' 
@@ -238,7 +239,7 @@ export function Sidebar() {
                   >
                     <span 
                       className={`
-                        text-[10px] font-medium text-slate-400 uppercase tracking-wider
+                        text-[10px] font-medium text-muted-foreground uppercase tracking-wider
                         whitespace-nowrap
                       `}
                     >
@@ -265,8 +266,8 @@ export function Sidebar() {
                       cursor-pointer transition-all duration-200
                       group relative
                       ${isActive
-                        ? 'bg-gradient-to-r from-blue-50 to-blue-50/50 text-blue-600 font-medium shadow-sm shadow-blue-100/50'
-                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                        ? 'bg-gradient-to-r from-blue-50 to-blue-50/50 text-blue-600 font-medium shadow-sm shadow-blue-100/50 dark:from-blue-950/60 dark:to-blue-950/30 dark:text-blue-400 dark:shadow-blue-900/20'
+                        : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
                       }
                       ${!isExpanded ? 'justify-center' : ''}
                     `}
@@ -302,14 +303,15 @@ export function Sidebar() {
             })}
           </nav>
 
-          {/* Logout Button */}
-          <div className="shrink-0 px-2 py-2 border-t border-slate-200/80">
+          {/* Theme + Logout */}
+          <div className="shrink-0 px-2 py-2 border-t border-sidebar-border space-y-1">
+            <ThemeToggle expanded={isExpanded} />
             <button
               type="button"
               onClick={openLogoutModal}
               className={`
                 flex items-center gap-2 px-2 py-2 min-h-11 rounded-lg
-                text-slate-500 hover:text-red-500 hover:bg-red-50
+                text-sidebar-foreground/70 hover:text-red-500 hover:bg-red-500/10
                 transition-all duration-200 w-full
                 ${!isExpanded ? 'justify-center' : ''}
               `}
@@ -345,8 +347,8 @@ export function SidebarToggle() {
       className={`
         md:hidden fixed top-4 left-4 z-50 
         flex items-center justify-center w-10 h-10 
-        rounded-lg bg-white shadow-lg border border-slate-200 
-        text-slate-600 hover:bg-slate-50 hover:shadow-xl
+        rounded-lg bg-card shadow-lg border border-border 
+        text-foreground hover:bg-muted hover:shadow-xl
         transition-all duration-200
         ${isMobileOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}
       `}

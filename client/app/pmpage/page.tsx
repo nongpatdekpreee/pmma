@@ -263,13 +263,13 @@ export default function CalendarPage() {
       <div className="flex-1 p-8 space-y-8 md:mt-0 mt-16">
         {/* Header & Chart Section */}
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-slate-800">Dashboard</h1>
+          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
         </div>
 
         <div className="grid grid-cols-3 gap-6">
-          <div className="col-span-2 bg-white p-6 rounded-[2.5rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-6">PM Schedule (Gant View)</h3>
-            <div className="h-48 bg-slate-50 rounded-3xl border-2 border-dashed flex items-center justify-center text-slate-300">
+          <div className="col-span-2 bg-card p-6 rounded-[2.5rem] shadow-sm">
+            <h3 className="font-bold text-muted-foreground mb-6">PM Schedule (Gant View)</h3>
+            <div className="h-48 bg-muted rounded-3xl border-2 border-dashed flex items-center justify-center text-muted-foreground/60">
               ( Bar Chart Placeholder )
             </div>
           </div>
@@ -315,11 +315,11 @@ function TaskItem({
     <div 
       draggable
       onDragStart={() => onDragStart(taskData)}
-      className={`bg-white p-4 rounded-2xl border-l-8 ${color} shadow-sm cursor-move hover:shadow-md transition-shadow`}
+      className={`bg-card p-4 rounded-2xl border-l-8 ${color} shadow-sm cursor-move hover:shadow-md transition-shadow`}
     >
       <p className="font-bold text-sm">{taskData.title}</p>
-      <p className="text-xs text-slate-400">{taskData.time}</p>
-      <p className="text-xs text-slate-500 mt-1">{taskData.engineer}</p>
+      <p className="text-xs text-muted-foreground">{taskData.time}</p>
+      <p className="text-xs text-muted-foreground mt-1">{taskData.engineer}</p>
     </div>
   );
 }

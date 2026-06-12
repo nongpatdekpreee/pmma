@@ -694,10 +694,10 @@ function AddMAReportPageContent() {
     return (
       <SidebarLayout>
         <DashboardHeader />
-        <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="flex items-center justify-center min-h-screen bg-muted">
           <div className="text-center">
-            <p className="text-slate-500 mb-2">Checking tasks...</p>
-            <p className="text-sm text-slate-400">Please wait</p>
+            <p className="text-muted-foreground mb-2">Checking tasks...</p>
+            <p className="text-sm text-muted-foreground">Please wait</p>
           </div>
         </div>
         <ToastContainer toasts={toasts} onRemove={removeToast} />
@@ -711,15 +711,15 @@ function AddMAReportPageContent() {
     return (
       <SidebarLayout>
         <DashboardHeader />
-        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/20 to-slate-50">
+        <div className="flex items-center justify-center min-h-screen bg-background">
           <div className="text-center p-8">
             <div className={`w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center ${allReported ? 'bg-green-100' : 'bg-amber-100'}`}>
               <AlertCircle size={40} className={allReported ? 'text-green-600' : 'text-amber-500'} />
             </div>
-            <p className="text-slate-700 text-lg font-semibold mb-2">
+            <p className="text-muted-foreground text-lg font-semibold mb-2">
               {allReported ? 'All reports completed' : 'Cannot create MA Report'}
             </p>
-            <p className="text-slate-500 text-sm mb-6">
+            <p className="text-muted-foreground text-sm mb-6">
               {allReported
                 ? 'All done tasks have reports. No tasks pending report.'
                 : 'Please wait until MA tasks have status "Done".'}
@@ -741,21 +741,21 @@ function AddMAReportPageContent() {
     <SidebarLayout>
       <DashboardHeader />
       
-      <div className="flex flex-col p-6 pt-0 gap-6 min-h-screen bg-gradient-to-br from-slate-50 via-emerald-50/20 to-slate-50">
+      <div className="flex flex-col p-6 pt-0 gap-6 min-h-screen bg-background">
         {/* Header Section */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => router.push('/pmchecklist_report?tab=ma')}
-              className="p-2.5 hover:bg-white/80 rounded-xl transition-colors border border-slate-200/80 shadow-sm"
+              className="p-2.5 hover:bg-card/80 rounded-xl transition-colors border border-border shadow-sm"
             >
-              <ArrowLeft size={22} className="text-slate-600" />
+              <ArrowLeft size={22} className="text-muted-foreground" />
             </button>
             <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+              <h1 className="page-heading">
                 Create MA Checklist Report
               </h1>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Record maintenance agreement report
               </p>
             </div>
@@ -764,35 +764,35 @@ function AddMAReportPageContent() {
 
         {/* Tasks to Report */}
         {availableMATasks.length > 0 && (
-          <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div className="bg-card/95 backdrop-blur-sm p-6 rounded-2xl border border-border shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <ClipboardList size={22} className="text-green-600" />
-              <h2 className="text-lg font-bold text-slate-800">Tasks to Report</h2>
+              <h2 className="text-lg font-bold text-foreground">Tasks to Report</h2>
             </div>
-            <p className="text-sm text-slate-500 mb-4">
+            <p className="text-sm text-muted-foreground mb-4">
               Select completed tasks that do not yet have a report to auto-fill the form.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
               <div className="relative flex-1">
-                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={searchTaskReport}
                   onChange={(e) => { setSearchTaskReport(e.target.value); setTaskPage(1); }}
                   placeholder="Search location, date, person, device..."
-                  className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                  className="w-full pl-10 pr-3 py-2 bg-muted border border-border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none"
                 />
               </div>
               <select
                 value={sortTaskBy}
                 onChange={(e) => { setSortTaskBy(e.target.value as any); setTaskPage(1); }}
-                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                className="px-3 py-2 bg-muted border border-border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none"
               >
                 <option value="date-desc">Newest first</option>
                 <option value="date-asc">Oldest first</option>
               </select>
             </div>
-            <div className="mb-3 text-xs text-slate-500">
+            <div className="mb-3 text-xs text-muted-foreground">
               Showing {filteredAndSortedTasks.length === 0 ? 0 : (taskPageSafe - 1) * TASKS_PER_PAGE + 1}-{Math.min(taskPageSafe * TASKS_PER_PAGE, filteredAndSortedTasks.length)} of {filteredAndSortedTasks.length} tasks
             </div>
             <div className="space-y-3">
@@ -802,26 +802,26 @@ function AddMAReportPageContent() {
                   className={`p-4 rounded-xl border-2 transition-all ${
                     selectedTaskId === task.id
                       ? 'border-green-500 bg-green-50'
-                      : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                      : 'border-border bg-muted hover:border-border'
                   }`}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap gap-4 text-sm">
-                      <span className="flex items-center gap-1.5 text-slate-600">
-                        <MapPin size={16} className="text-slate-400" />
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <MapPin size={16} className="text-muted-foreground" />
                         {task.siteName || task.site_name || '-'}
                       </span>
-                      <span className="flex items-center gap-1.5 text-slate-600">
-                        <Calendar size={16} className="text-slate-400" />
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <Calendar size={16} className="text-muted-foreground" />
                         {task.startDate ? new Date(task.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
                         {task.endDate && ` - ${new Date(task.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                       </span>
-                      <span className="flex items-center gap-1.5 text-slate-600">
-                        <User size={16} className="text-slate-400" />
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <User size={16} className="text-muted-foreground" />
                         {formatTaskEngineersLine(task.engineers ?? task.Eng_ids) || '—'}
                       </span>
                       {task.assets?.length > 0 && (
-                        <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-slate-600">
+                        <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-muted-foreground">
                           {task.assets.map((a: any, idx: number) => {
                             const repId = a.replacementDeviceId ?? (idx === 0 ? task.replacementDeviceId : null);
                             const rep = repId != null ? devices.find((d) => d.Did === Number(repId)) : null;
@@ -832,7 +832,7 @@ function AddMAReportPageContent() {
                                 <span>{brokenName}</span>
                                 {repName && (
                                   <>
-                                    <span className="text-[10px] font-semibold text-slate-400">replaced by</span>
+                                    <span className="text-[10px] font-semibold text-muted-foreground">replaced by</span>
                                     <span className="text-green-700">{repName}</span>
                                   </>
                                 )}
@@ -844,24 +844,24 @@ function AddMAReportPageContent() {
                     </div>
                     {/* Contract Information (MA) - compact one line */}
                     {(task.vendorName || task.vendor_name || task.vendorTel || task.vendor_tel || task.reporterName || (task as any).reporter_name || task.ticket) && (
-                      <div className="mt-1.5 pt-1.5 border-t border-slate-200 text-xs text-slate-600">
-                        <span className="font-bold text-slate-700">Contract Info: </span>
+                      <div className="mt-1.5 pt-1.5 border-t border-border text-xs text-muted-foreground">
+                        <span className="font-bold text-muted-foreground">Contract Info: </span>
                         <span>
                           {(task.vendorName || task.vendor_name) && (
-                            <>Vendor: <span className="text-slate-800 font-medium">{task.vendorName || task.vendor_name}</span>{' · '}</>
+                            <>Vendor: <span className="text-foreground font-medium">{task.vendorName || task.vendor_name}</span>{' · '}</>
                           )}
                           {(task.reporterName || (task as any).reporter_name) && (
-                            <>Reporter: <span className="text-slate-800 font-medium">{task.reporterName || (task as any).reporter_name}</span>{' · '}</>
+                            <>Reporter: <span className="text-foreground font-medium">{task.reporterName || (task as any).reporter_name}</span>{' · '}</>
                           )}
                           {task.ticket && (
-                            <>Ticket: <span className="text-slate-800 font-medium">{task.ticket}</span></>
+                            <>Ticket: <span className="text-foreground font-medium">{task.ticket}</span></>
                           )}
                         </span>
                       </div>
                     )}
                     {normalizeRepairPathsFromPhotos(task.photos).length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-slate-200 w-full">
-                        <p className="text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1">
+                      <div className="mt-2 pt-2 border-t border-border w-full">
+                        <p className="text-xs font-semibold text-muted-foreground mb-1.5 flex items-center gap-1">
                           <Paperclip size={14} className="text-sky-600 shrink-0" aria-hidden />
                           Remark
                         </p>
@@ -891,7 +891,7 @@ function AddMAReportPageContent() {
                       className={`mt-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap ${
                         selectedTaskId === task.id
                           ? 'bg-green-500 text-white'
-                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                          : 'bg-card border border-border text-muted-foreground hover:bg-muted'
                       }`}
                     >
                       {selectedTaskId === task.id ? 'Using this data' : 'Use this task'}
@@ -906,16 +906,16 @@ function AddMAReportPageContent() {
                   type="button"
                   onClick={() => setTaskPage(p => Math.max(1, p - 1))}
                   disabled={taskPageSafe <= 1}
-                  className="p-2 rounded-lg border border-slate-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                  className="p-2 rounded-lg border border-border bg-card disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
                 >
                   <ChevronLeft size={20} />
                 </button>
-                <span className="text-sm text-slate-600 px-2">Page {taskPageSafe} / {totalTaskPages}</span>
+                <span className="text-sm text-muted-foreground px-2">Page {taskPageSafe} / {totalTaskPages}</span>
                 <button
                   type="button"
                   onClick={() => setTaskPage(p => Math.min(totalTaskPages, p + 1))}
                   disabled={taskPageSafe >= totalTaskPages}
-                  className="p-2 rounded-lg border border-slate-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                  className="p-2 rounded-lg border border-border bg-card disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
                 >
                   <ChevronRight size={20} />
                 </button>
@@ -925,17 +925,17 @@ function AddMAReportPageContent() {
         )}
 
         {/* Main Form */}
-        <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+        <div className="bg-card/95 backdrop-blur-sm p-6 rounded-2xl border border-border shadow-sm">
           {/* Device Selection */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-3">
-              Device * <span className="text-slate-400 font-normal">(Only from selected Task)</span>
+            <label className="block text-sm font-bold text-muted-foreground mb-3">
+              Device * <span className="text-muted-foreground font-normal">(Only from selected Task)</span>
             </label>
             <select
               value={selectedDeviceId}
               onChange={(e) => handleDeviceChange(e.target.value)}
               disabled={loadingDevices}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <option value="">
                 {loadingDevices
@@ -960,7 +960,7 @@ function AddMAReportPageContent() {
               })}
             </select>
             {doneMATasks.length > 0 && allowedDevices.length > 0 && (
-              <p className="mt-1 text-xs text-slate-500">Only show devices from selected Task</p>
+              <p className="mt-1 text-xs text-muted-foreground">Only show devices from selected Task</p>
             )}
             {/* Selected device - show fields from fetched device */}
             {selectedDeviceId && (() => {
@@ -1033,18 +1033,18 @@ function AddMAReportPageContent() {
               ] : [];
               return (
                 <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                  <div className="p-4 bg-muted rounded-xl border border-border">
                     <div className="flex items-center gap-2 mb-3">
-                      <p className="text-sm font-bold text-slate-700">Selected device</p>
+                      <p className="text-sm font-bold text-muted-foreground">Selected device</p>
                       {isReplacement && (
                         <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded">Replacement device</span>
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       {deviceFields.map(({ label, value }) => (
-                        <div key={label} className="bg-white rounded-lg p-3 border border-slate-100">
-                          <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-                          <p className="text-sm font-medium text-slate-800 truncate" title={value != null && value !== '' ? String(value) : undefined}>
+                        <div key={label} className="bg-card rounded-lg p-3 border border-border">
+                          <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
+                          <p className="text-sm font-medium text-foreground truncate" title={value != null && value !== '' ? String(value) : undefined}>
                             {value ?? '-'}
                           </p>
                         </div>
@@ -1052,14 +1052,14 @@ function AddMAReportPageContent() {
                     </div>
                   </div>
                   {pairDevice && pairLabel && (
-                    <div className="p-4 bg-slate-100/80 rounded-xl border border-slate-200">
-                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Replaced equipment</p>
-                      <p className="text-sm font-bold text-slate-700 mb-2">{pairLabel}</p>
+                    <div className="p-4 bg-muted/80 rounded-xl border border-border">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Replaced equipment</p>
+                      <p className="text-sm font-bold text-muted-foreground mb-2">{pairLabel}</p>
                       <div className="grid grid-cols-2 gap-3">
                         {pairFields.map(({ label, value }) => (
-                          <div key={label} className="bg-white rounded-lg p-3 border border-slate-100">
-                            <p className="text-xs text-slate-500 mb-0.5">{label}</p>
-                            <p className="text-sm font-medium text-slate-800 truncate" title={value != null && value !== '' ? String(value) : undefined}>
+                          <div key={label} className="bg-card rounded-lg p-3 border border-border">
+                            <p className="text-xs text-muted-foreground mb-0.5">{label}</p>
+                            <p className="text-sm font-medium text-foreground truncate" title={value != null && value !== '' ? String(value) : undefined}>
                               {value ?? '-'}
                             </p>
                           </div>
@@ -1075,18 +1075,18 @@ function AddMAReportPageContent() {
           {/* Downtime จากงาน / Uptime กรอกตอนส่ง report */}
           {selectedTaskId != null && selectedMaTask && (
             <div className="mb-6 p-4 bg-emerald-50/60 rounded-xl border border-emerald-200/80">
-              <h3 className="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <h3 className="text-sm font-bold text-foreground mb-1 flex items-center gap-2">
                 <Calendar size={18} className="text-emerald-600 shrink-0" aria-hidden />
                 Uptime & total downtime
               </h3>
-              <p className="text-xs text-slate-600 mb-3">
+              <p className="text-xs text-muted-foreground mb-3">
                 Enter the date and time the system came back online (Uptime) — will be saved to the task when submitting the report
               </p>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 items-start">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Downtime date</p>
-                  <p className="text-sm font-semibold text-slate-800 tabular-nums">
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Downtime date</p>
+                  <p className="text-sm font-semibold text-foreground tabular-nums">
                     {formatDateLocale(
                       selectedMaTask.downtimeDate ??
                         selectedMaTask.downTimeStartDate ??
@@ -1097,8 +1097,8 @@ function AddMAReportPageContent() {
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Downtime time</p>
-                  <p className="text-sm font-semibold text-slate-800 tabular-nums">
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Downtime time</p>
+                  <p className="text-sm font-semibold text-foreground tabular-nums">
                     {formatTime12h(
                       selectedMaTask.downtimeTime ??
                         selectedMaTask.downTimeStartTime ??
@@ -1109,26 +1109,26 @@ function AddMAReportPageContent() {
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Uptime date</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Uptime date</p>
                   <input
                     type="date"
                     value={reportUptimeDate}
                     onChange={(e) => setReportUptimeDate(e.target.value)}
-                    className="w-full text-sm font-semibold text-slate-800 tabular-nums p-2.5 bg-white border border-slate-200 rounded-xl min-h-[42px] focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full text-sm font-semibold text-foreground tabular-nums p-2.5 bg-card border border-border rounded-xl min-h-[42px] focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Uptime time</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Uptime time</p>
                   <input
                     type="time"
                     step={60}
                     value={reportUptimeTime}
                     onChange={(e) => setReportUptimeTime(e.target.value)}
-                    className="w-full text-sm font-semibold text-slate-800 tabular-nums p-2.5 bg-white border border-slate-200 rounded-xl min-h-[42px] focus:ring-2 focus:ring-emerald-500 outline-none"
+                    className="w-full text-sm font-semibold text-foreground tabular-nums p-2.5 bg-card border border-border rounded-xl min-h-[42px] focus:ring-2 focus:ring-emerald-500 outline-none"
                   />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-slate-500 mb-1">Total downtime (ชม.)</p>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Total downtime (ชม.)</p>
                   <p className="text-sm font-semibold text-emerald-800 tabular-nums min-h-[2.5rem] flex items-center">
                     {downtimeTotalPreview.hours != null
                       ? `${downtimeTotalPreview.hours} hrs`
@@ -1146,37 +1146,37 @@ function AddMAReportPageContent() {
             const hasContract = task.vendorName || task.vendor_name || task.vendorTel || task.vendor_tel || task.reporterName || (task as any).reporter_name || task.reporterTel || (task as any).reporter_tel || task.ticket;
             if (!hasContract) return null;
             return (
-              <div className="mb-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <h3 className="text-sm font-bold text-slate-700 mb-3">Contract Information</h3>
+              <div className="mb-6 p-4 bg-muted rounded-xl border border-border">
+                <h3 className="text-sm font-bold text-muted-foreground mb-3">Contract Information</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
                   {(task.vendorName || task.vendor_name) && (
                     <div>
-                      <p className="text-xs font-medium text-slate-500 mb-0.5">Third Party Vendor name</p>
-                      <p className="font-medium text-slate-800">{task.vendorName || task.vendor_name}</p>
+                      <p className="text-xs font-medium text-muted-foreground mb-0.5">Third Party Vendor name</p>
+                      <p className="font-medium text-foreground">{task.vendorName || task.vendor_name}</p>
                     </div>
                   )}
                   {(task.vendorTel || task.vendor_tel) && (
                     <div>
-                      <p className="text-xs font-medium text-slate-500 mb-0.5">Third Party Vendor phone</p>
-                      <p className="font-medium text-slate-800">{task.vendorTel || task.vendor_tel}</p>
+                      <p className="text-xs font-medium text-muted-foreground mb-0.5">Third Party Vendor phone</p>
+                      <p className="font-medium text-foreground">{task.vendorTel || task.vendor_tel}</p>
                     </div>
                   )}
                   {(task.reporterName || (task as any).reporter_name) && (
                     <div>
-                      <p className="text-xs font-medium text-slate-500 mb-0.5">Reporter name</p>
-                      <p className="font-medium text-slate-800">{task.reporterName || (task as any).reporter_name}</p>
+                      <p className="text-xs font-medium text-muted-foreground mb-0.5">Reporter name</p>
+                      <p className="font-medium text-foreground">{task.reporterName || (task as any).reporter_name}</p>
                     </div>
                   )}
                   {(task.reporterTel || (task as any).reporter_tel) && (
                     <div>
-                      <p className="text-xs font-medium text-slate-500 mb-0.5">Reporter phone</p>
-                      <p className="font-medium text-slate-800">{task.reporterTel || (task as any).reporter_tel}</p>
+                      <p className="text-xs font-medium text-muted-foreground mb-0.5">Reporter phone</p>
+                      <p className="font-medium text-foreground">{task.reporterTel || (task as any).reporter_tel}</p>
                     </div>
                   )}
                   {task.ticket && (
                     <div>
-                      <p className="text-xs font-medium text-slate-500 mb-0.5">Ticket</p>
-                      <p className="font-medium text-slate-800">{task.ticket}</p>
+                      <p className="text-xs font-medium text-muted-foreground mb-0.5">Ticket</p>
+                      <p className="font-medium text-foreground">{task.ticket}</p>
                     </div>
                   )}
                 </div>
@@ -1198,8 +1198,8 @@ function AddMAReportPageContent() {
                       <Paperclip size={18} aria-hidden />
                     </span>
                     <div>
-                      <h3 className="text-sm font-bold text-slate-800">Repair notice</h3>
-                      <p className="text-xs text-slate-500">Files attached when the MA task was created</p>
+                      <h3 className="text-sm font-bold text-foreground">Repair notice</h3>
+                      <p className="text-xs text-muted-foreground">Files attached when the MA task was created</p>
                     </div>
                   </div>
                   <ul className="mt-3 space-y-2">
@@ -1208,9 +1208,9 @@ function AddMAReportPageContent() {
                       return (
                         <li
                           key={path}
-                          className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+                          className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm"
                         >
-                          <FileText size={16} className="mt-0.5 shrink-0 text-slate-400" aria-hidden />
+                          <FileText size={16} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden />
                           <a
                             href={repairFileHref(path)}
                             target="_blank"
@@ -1230,7 +1230,7 @@ function AddMAReportPageContent() {
           {/* MA Information */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">
+              <label className="block text-sm font-bold text-muted-foreground mb-2">
                 Technician 
               </label>
               <input
@@ -1238,28 +1238,28 @@ function AddMAReportPageContent() {
                 value={technicianName}
                 onChange={(e) => setTechnicianName(e.target.value)}
                 placeholder="กรอกชื่อ-นามสกุล"
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                className="w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">
+              <label className="block text-sm font-bold text-muted-foreground mb-2">
                Maintenance Agreement Date *
               </label>
               <input
                 type="date"
                 value={maDate}
                 onChange={(e) => setMaDate(e.target.value)}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                className="w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
             </div>
           </div>
 
           {/* File Upload Section */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-3">
+            <label className="block text-sm font-bold text-muted-foreground mb-3">
               Upload Images / Documents / MA Results
             </label>
-            <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 bg-slate-50">
+            <div className="border-2 border-dashed border-border rounded-xl p-6 bg-muted">
               <input
                 type="file"
                 id="file-upload"
@@ -1273,11 +1273,11 @@ function AddMAReportPageContent() {
                 htmlFor="file-upload"
                 className="flex flex-col items-center justify-center cursor-pointer"
               >
-                <Upload size={32} className="text-slate-400 mb-2" />
-                <p className="text-sm text-slate-600 font-medium">
+                <Upload size={32} className="text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground font-medium">
                   Click to upload files (PDF/Images)
                 </p>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Supports image and PDF files
                 </p>
               </label>
@@ -1289,7 +1289,7 @@ function AddMAReportPageContent() {
                 {uploadedFiles.map((file) => (
                   <div
                     key={file.id}
-                    className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                    className="flex items-center gap-3 p-3 bg-muted rounded-lg border border-border"
                   >
                     {file.type === 'image' && file.preview ? (
                       <img
@@ -1307,10 +1307,10 @@ function AddMAReportPageContent() {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">
+                      <p className="text-sm font-medium text-foreground truncate">
                         {file.name}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-muted-foreground">
                         {file.type === 'image' ? 'Image' : file.type === 'pdf' ? 'PDF' : 'File'}
                       </p>
                     </div>
@@ -1328,7 +1328,7 @@ function AddMAReportPageContent() {
 
           {/* MA Result - Complete */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-3">
+            <label className="block text-sm font-bold text-muted-foreground mb-3">
               MA Result *
             </label>
             <div className="flex flex-wrap items-center gap-3">
@@ -1336,7 +1336,7 @@ function AddMAReportPageContent() {
                 <CheckCircle2 size={16} />
                 Complete
               </div>
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-muted-foreground">
                 Saved automatically as complete.
               </span>
             </div>
@@ -1344,7 +1344,7 @@ function AddMAReportPageContent() {
 
           {/* Comment Field */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-3">
+            <label className="block text-sm font-bold text-muted-foreground mb-3">
              Notes from Technician
             </label>
             <textarea
@@ -1352,7 +1352,7 @@ function AddMAReportPageContent() {
               onChange={(e) => setComment(e.target.value)}
               placeholder="Enter additional notes..."
               rows={4}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-none"
+              className="w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-none"
             />
           </div>
 

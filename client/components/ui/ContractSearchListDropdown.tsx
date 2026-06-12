@@ -5,36 +5,36 @@ import type { ReactNode } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-/** เปลือก control — ให้สอดคล้อง input ชื่อสัญญา (p-3, border-slate-200/90, shadow, focus ring) */
+/** เปลือก control — ให้สอดคล้อง input ชื่อสัญญา (p-3, border-border/90, shadow, focus ring) */
 export const contractDropdownShellClass =
-  'relative flex w-full min-w-0 items-stretch rounded-xl border border-slate-200/90 bg-white text-sm text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all hover:border-sky-300/90 focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-500/15 has-[:disabled]:opacity-50';
+  'relative flex w-full min-w-0 items-stretch rounded-xl border border-border/90 bg-card text-sm text-foreground shadow-sm shadow-slate-900/[0.03] outline-none transition-all hover:border-sky-300/90 focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-500/15 has-[:disabled]:opacity-50';
 
 export const contractDropdownTextButtonClass =
-  'flex min-h-0 min-w-0 flex-1 items-center px-3 py-3 text-left text-sm font-medium text-slate-800 outline-none focus-visible:outline-none disabled:pointer-events-none rounded-l-xl';
+  'flex min-h-0 min-w-0 flex-1 items-center px-3 py-3 text-left text-sm font-medium text-foreground outline-none focus-visible:outline-none disabled:pointer-events-none rounded-l-xl';
 
 export const contractDropdownNativeSelectClass =
-  'min-h-0 min-w-0 flex-1 cursor-pointer appearance-none rounded-l-xl border-0 bg-transparent px-3 py-3 text-left text-sm font-medium text-slate-800 outline-none focus-visible:outline-none disabled:pointer-events-none disabled:cursor-not-allowed';
+  'min-h-0 min-w-0 flex-1 cursor-pointer appearance-none rounded-l-xl border-0 bg-transparent px-3 py-3 text-left text-sm font-medium text-foreground outline-none focus-visible:outline-none disabled:pointer-events-none disabled:cursor-not-allowed';
 
 export const contractDropdownComboboxInputClass =
-  'min-h-0 min-w-0 flex-1 border-0 bg-transparent px-3 py-3 text-sm font-medium text-slate-800 outline-none placeholder:font-normal placeholder:text-slate-400 focus-visible:outline-none rounded-l-xl';
+  'min-h-0 min-w-0 flex-1 border-0 bg-transparent px-3 py-3 text-sm font-medium text-foreground outline-none placeholder:font-normal placeholder:text-muted-foreground focus-visible:outline-none rounded-l-xl';
 
 export function contractDropdownTrailingClass(showDivider: boolean) {
   return showDivider
-    ? 'flex shrink-0 items-center gap-0.5 self-stretch border-l border-slate-100 py-0 pl-1 pr-1.5'
+    ? 'flex shrink-0 items-center gap-0.5 self-stretch border-l border-border py-0 pl-1 pr-1.5'
     : 'flex shrink-0 items-center gap-0.5 self-stretch py-0 pl-0.5 pr-1.5';
 }
 
 export const contractDropdownClearBtnClass =
-  'flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600';
+  'flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600';
 
 export const contractDropdownChevronBtnClass =
-  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:pointer-events-none';
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none';
 
 export function NativeSelectDropdownShell({ children }: { children: ReactNode }) {
   return (
     <div className={contractDropdownShellClass}>
       {children}
-      <div className="pointer-events-none flex shrink-0 items-center self-stretch border-l border-slate-100 py-0 pl-1 pr-2 text-slate-500">
+      <div className="pointer-events-none flex shrink-0 items-center self-stretch border-l border-border py-0 pl-1 pr-2 text-muted-foreground">
         <ChevronDown size={18} aria-hidden />
       </div>
     </div>
@@ -45,11 +45,11 @@ export type ContractSearchListItem = { value: string; label: string; description
 
 /** แผงแบบ absolute ใต้ทริกเกอร์ (z สูงพอให้เหนือ sticky ใน modal) */
 const DROPDOWN_PANEL_OUTER_DEFAULT =
-  'absolute left-0 right-0 top-full z-[12050] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg shadow-slate-900/[0.06]';
+  'absolute left-0 right-0 top-full z-[12050] mt-1 flex max-h-[min(24rem,calc(100vh-8rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/90 bg-card shadow-lg shadow-slate-900/[0.06]';
 
 /** แผงใน portal (fixed wrapper ด้านนอก) */
 const DROPDOWN_PANEL_OUTER_PORTAL_INNER =
-  'flex max-h-[min(24rem,calc(100vh-2rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-lg shadow-slate-900/[0.06]';
+  'flex max-h-[min(24rem,calc(100vh-2rem))] w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border/90 bg-card shadow-lg shadow-slate-900/[0.06]';
 
 type SearchListPanelProps = {
   panelTitle: string;
@@ -116,18 +116,18 @@ function SearchListDropdownPanel({
 
   return (
     <div className={outerClassName}>
-      <p className="shrink-0 border-b border-slate-100 bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+      <p className="shrink-0 border-b border-border bg-card px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {panelTitle}
       </p>
       {betweenTitleAndSearch != null ? (
-        <div className="shrink-0 border-b border-slate-100">{betweenTitleAndSearch}</div>
+        <div className="shrink-0 border-b border-border">{betweenTitleAndSearch}</div>
       ) : null}
       <input
         type="text"
         value={filter}
         onChange={(e) => onFilterChange(e.target.value)}
         placeholder={searchPlaceholder}
-        className="w-full min-w-0 shrink-0 border-b border-slate-100 px-3 py-2 text-sm outline-none focus:bg-slate-50"
+        className="w-full min-w-0 shrink-0 border-b border-border px-3 py-2 text-sm outline-none focus:bg-muted"
         autoFocus={filterInputAutoFocus}
       />
       <div
@@ -137,13 +137,13 @@ function SearchListDropdownPanel({
           <button
             type="button"
             onClick={() => onClear?.()}
-            className="flex w-full px-3 py-2 text-left text-sm text-slate-500 hover:bg-slate-50"
+            className="flex w-full px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted"
           >
             — Clear —
           </button>
         )}
         {filtered.length === 0 ? (
-          <p className="px-3 py-4 text-center text-xs text-slate-500">{emptyText}</p>
+          <p className="px-3 py-4 text-center text-xs text-muted-foreground">{emptyText}</p>
         ) : (
           filtered.map((item) => {
             const selected = multiSelect && onToggleItem
@@ -163,7 +163,7 @@ function SearchListDropdownPanel({
                 {multiSelect && onToggleItem ? (
                   <span
                     className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 ${
-                      selected ? 'border-sky-600 bg-sky-600 text-white' : 'border-slate-300 bg-white'
+                      selected ? 'border-sky-600 bg-sky-600 text-white' : 'border-border bg-card'
                     }`}
                     aria-hidden
                   >
@@ -172,19 +172,19 @@ function SearchListDropdownPanel({
                 ) : (
                   <span
                     className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full border-2 ${
-                      selected ? 'border-sky-600 bg-sky-600' : 'border-slate-300 bg-white'
+                      selected ? 'border-sky-600 bg-sky-600' : 'border-border bg-card'
                     }`}
                     aria-hidden
                   />
                 )}
                 <span className="min-w-0 flex-1">
                   <span
-                    className={`block break-words text-left text-slate-800 ${itemLabelClassName}`}
+                    className={`block break-words text-left text-foreground ${itemLabelClassName}`}
                   >
                     {item.label}
                   </span>
                   {item.description ? (
-                    <span className="mt-0.5 block text-xs text-slate-500">{item.description}</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{item.description}</span>
                   ) : null}
                 </span>
               </button>
@@ -193,7 +193,7 @@ function SearchListDropdownPanel({
         )}
       </div>
       {showFilterCountHint && filter.trim() && filtered.length > 0 ? (
-        <div className="shrink-0 border-t border-slate-200 bg-slate-50/95 px-3 py-1.5 text-center text-[10px] text-slate-400">
+        <div className="shrink-0 border-t border-border bg-muted/95 px-3 py-1.5 text-center text-[10px] text-muted-foreground">
           Showing {filtered.length}/{items.length} {countNoun}
         </div>
       ) : null}
@@ -350,9 +350,9 @@ export function ContractSimpleSearchListDropdown({
           <span
             className={`min-w-0 flex-1 text-left text-sm font-medium ${
               multiSelect && displayText
-                ? 'line-clamp-3 break-words leading-snug text-slate-900'
+                ? 'line-clamp-3 break-words leading-snug text-foreground'
                 : 'truncate'
-            } ${displayText ? 'text-slate-900' : 'text-slate-500'}`}
+            } ${displayText ? 'text-foreground' : 'text-muted-foreground'}`}
             title={displayText || undefined}
           >
             {displayText || emptyPlaceholder}
@@ -448,7 +448,7 @@ export function ContractShellSearchListDropdown({
   panelFooter,
   itemLabelClassName,
   triggerSelectedClassName = '',
-  triggerPlaceholderClassName = 'text-slate-500',
+  triggerPlaceholderClassName = 'text-muted-foreground',
   betweenTitleAndSearch,
   showFilterCountHint,
   countNoun,
@@ -510,12 +510,12 @@ export function ContractShellSearchListDropdown({
           <span
             className={`min-w-0 flex-1 text-left ${
               multiSelect && hasValue && !loading
-                ? `line-clamp-2 break-words leading-snug text-slate-900 ${triggerSelectedClassName}`
+                ? `line-clamp-2 break-words leading-snug text-foreground ${triggerSelectedClassName}`
                 : `truncate ${
                     loading
-                      ? 'text-slate-500'
+                      ? 'text-muted-foreground'
                       : hasValue
-                        ? `text-slate-900 ${triggerSelectedClassName}`
+                        ? `text-foreground ${triggerSelectedClassName}`
                         : triggerPlaceholderClassName
                   }`
             }`}

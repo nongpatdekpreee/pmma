@@ -41,17 +41,17 @@ function ToastItem({ toast, onRemove }: ToastProps) {
   };
 
   const bgColors = {
-    success: 'bg-green-50 border-green-200',
-    error: 'bg-red-50 border-red-200',
-    info: 'bg-blue-50 border-blue-200',
-    warning: 'bg-yellow-50 border-yellow-200',
+    success: 'bg-green-50 border-green-200 dark:bg-green-500/15 dark:border-green-500/30',
+    error: 'bg-red-50 border-red-200 dark:bg-red-500/15 dark:border-red-500/30',
+    info: 'bg-blue-50 border-blue-200 dark:bg-blue-500/15 dark:border-blue-500/30',
+    warning: 'bg-yellow-50 border-yellow-200 dark:bg-yellow-500/15 dark:border-yellow-500/30',
   };
 
   const textColors = {
-    success: 'text-green-800',
-    error: 'text-red-800',
-    info: 'text-blue-800',
-    warning: 'text-yellow-800',
+    success: 'text-green-800 dark:text-green-300',
+    error: 'text-red-800 dark:text-red-300',
+    info: 'text-blue-800 dark:text-blue-300',
+    warning: 'text-yellow-800 dark:text-yellow-300',
   };
 
   return (

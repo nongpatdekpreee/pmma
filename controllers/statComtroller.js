@@ -317,7 +317,7 @@ const processExcelFile = async (req, res) => {
       
       const userData = dayUsers.get(userIdentifier);
       
-      // หา @timestamp.min ที่น้อยที่สุด ในช่วง 8:00-12:00 (เวลาที่เข้ามาครั้งแรก)
+      // หา @timestamp.min ที่น้อยที่สุด ใน 8:00-12:00 (เวลาที่เข้ามาครั้งแรก)
       if (timestampMin && isInFirstLoginTimeRange(timestampMin)) {
         if (!userData.firstLogin || timestampMin < userData.firstLogin) {
           userData.firstLogin = timestampMin;

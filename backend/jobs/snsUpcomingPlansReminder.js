@@ -64,9 +64,9 @@ function mapTaskRow(row) {
 
 async function fetchTasksStartingWithinDays(days) {
   const [rows] = await db.execute(
-    `SELECT t.*, c.sof_name AS contract_sof_name
+    `SELECT t.*, sl.SOF AS contract_sof_name
      FROM tasks t
-     LEFT JOIN contract c ON t.contract_id = c.contract_id
+     LEFT JOIN sites_location sl ON t.contract_id = sl.SLid
      WHERE t.status != 'done'
        AND t.start_date >= CURDATE()
        AND t.start_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)

@@ -559,10 +559,10 @@ function AddPMReportPageContent() {
     return (
       <SidebarLayout>
         <DashboardHeader />
-        <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="flex items-center justify-center min-h-screen bg-muted">
           <div className="text-center">
-            <p className="text-slate-500 mb-2">Checking tasks...</p>
-            <p className="text-sm text-slate-400">Please wait</p>
+            <p className="text-muted-foreground mb-2">Checking tasks...</p>
+            <p className="text-sm text-muted-foreground">Please wait</p>
           </div>
         </div>
         <ToastContainer toasts={toasts} onRemove={removeToast} />
@@ -576,15 +576,15 @@ function AddPMReportPageContent() {
     return (
       <SidebarLayout>
         <DashboardHeader />
-        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-slate-50">
+        <div className="flex items-center justify-center min-h-screen bg-background">
           <div className="text-center p-8">
             <div className={`w-20 h-20 mx-auto mb-6 rounded-2xl flex items-center justify-center ${allReported ? 'bg-green-100' : 'bg-amber-100'}`}>
               <AlertCircle size={40} className={allReported ? 'text-green-600' : 'text-amber-500'} />
             </div>
-            <p className="text-slate-700 text-lg font-semibold mb-2">
+            <p className="text-muted-foreground text-lg font-semibold mb-2">
               {allReported ? 'All reports completed' : 'Cannot create PM Report'}
             </p>
-            <p className="text-slate-500 text-sm mb-6">
+            <p className="text-muted-foreground text-sm mb-6">
               {allReported
                 ? 'All done tasks have reports. No tasks pending report.'
                 : 'Please wait until PM tasks have status "Done".'}
@@ -606,21 +606,21 @@ function AddPMReportPageContent() {
     <SidebarLayout>
       <DashboardHeader />
       
-      <div className="flex flex-col p-6 pt-0 gap-6 min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/20 to-slate-50">
+      <div className="flex flex-col p-6 pt-0 gap-6 min-h-screen bg-background">
         {/* Header Section */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => router.push('/pmchecklist_report')}
-              className="p-2.5 hover:bg-white/80 rounded-xl transition-colors border border-slate-200/80 shadow-sm"
+              className="p-2.5 hover:bg-card/80 rounded-xl transition-colors border border-border shadow-sm"
             >
-              <ArrowLeft size={22} className="text-slate-600" />
+              <ArrowLeft size={22} className="text-muted-foreground" />
             </button>
             <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+              <h1 className="page-heading">
                 Create PM Checklist Report
               </h1>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 Record preventive maintenance report
               </p>
             </div>
@@ -629,29 +629,29 @@ function AddPMReportPageContent() {
 
       
         {availablePMTasks.length > 0 && (
-          <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+          <div className="bg-card/95 backdrop-blur-sm p-6 rounded-2xl border border-border shadow-sm">
             <div className="flex items-center gap-2 mb-4">
               <ClipboardList size={22} className="text-blue-600" />
-              <h2 className="text-lg font-bold text-slate-800">Tasks to Report</h2>
+              <h2 className="text-lg font-bold text-foreground">Tasks to Report</h2>
             </div>
-            <p className="text-sm text-slate-500 mb-4">
+            <p className="text-sm text-muted-foreground mb-4">
               Select completed tasks that do not yet have a report to auto-fill the form. Filter by SOF (from contract) to work on one service order at a time.
             </p>
             <div className="flex flex-col lg:flex-row gap-3 mb-4 flex-wrap">
               <div className="relative flex-1 min-w-[200px]">
-                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
                   type="text"
                   value={searchTaskReport}
                   onChange={(e) => { setSearchTaskReport(e.target.value); setTaskPage(1); }}
                   placeholder="Search location, SOF, date, person, device..."
-                  className="w-full pl-10 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full pl-10 pr-3 py-2 bg-muted border border-border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
               <select
                 value={sofFilter}
                 onChange={(e) => { setSofFilter(e.target.value); setTaskPage(1); }}
-                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-[180px]"
+                className="px-3 py-2 bg-muted border border-border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none min-w-[180px]"
                 aria-label="Filter by SOF"
               >
                 <option value="">All SOF</option>
@@ -667,13 +667,13 @@ function AddPMReportPageContent() {
               <select
                 value={sortTaskBy}
                 onChange={(e) => { setSortTaskBy(e.target.value as any); setTaskPage(1); }}
-                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="px-3 py-2 bg-muted border border-border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 <option value="date-desc">Newest first</option>
                 <option value="date-asc">Oldest first</option>
               </select>
             </div>
-            <div className="mb-3 text-xs text-slate-500">
+            <div className="mb-3 text-xs text-muted-foreground">
               Showing {filteredAndSortedTasks.length === 0 ? 0 : (taskPageSafe - 1) * TASKS_PER_PAGE + 1}-{Math.min(taskPageSafe * TASKS_PER_PAGE, filteredAndSortedTasks.length)} of {filteredAndSortedTasks.length} tasks
             </div>
             <div className="space-y-3">
@@ -683,40 +683,40 @@ function AddPMReportPageContent() {
                   className={`p-4 rounded-xl border-2 transition-all ${
                     selectedTaskId === task.id
                       ? 'border-blue-500 bg-blue-50'
-                      : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                      : 'border-border bg-muted hover:border-border'
                   }`}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap gap-4 text-sm">
-                      <span className="flex items-center gap-1.5 text-slate-600">
-                        <MapPin size={16} className="text-slate-400" />
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <MapPin size={16} className="text-muted-foreground" />
                         {task.siteName || task.site_name || '-'}
                       </span>
-                      <span className="flex items-center gap-1.5 text-slate-600">
-                        <FileText size={16} className="text-slate-400" />
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <FileText size={16} className="text-muted-foreground" />
                         <span>
                           SOF:{' '}
-                          <span className="font-medium text-slate-800">
+                          <span className="font-medium text-foreground">
                             {taskSofLabel(task) || '—'}
                           </span>
                         </span>
                       </span>
-                      <span className="flex items-center gap-1.5 text-slate-600">
-                        <Calendar size={16} className="text-slate-400" />
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <Calendar size={16} className="text-muted-foreground" />
                         {task.startDate ? new Date(task.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
                         {task.endDate && ` - ${new Date(task.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                       </span>
-                      <span className="flex items-center gap-1.5 text-slate-600">
-                        <User size={16} className="text-slate-400" />
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <User size={16} className="text-muted-foreground" />
                         {formatTaskEngineersLine(task.engineers ?? task.Eng_ids) || '—'}
                       </span>
                       {task.assets?.length > 0 && (
-                        <span className="text-slate-600">
+                        <span className="text-muted-foreground">
                           {task.assets.length === 1 ? 'Device' : 'Devices'}: {task.assets.length}
                         </span>
                       )}
                       {task.replacementDeviceId != null && (
-                        <span className="text-slate-600">
+                        <span className="text-muted-foreground">
                           Replacement device: {(() => {
                             const rep = devices.find((d) => d.Did === Number(task.replacementDeviceId));
                             return rep ? (rep.CI_Name || rep.Asset_Number || rep.serial || `Device ${task.replacementDeviceId}`) : `Device ${task.replacementDeviceId}`;
@@ -730,7 +730,7 @@ function AddPMReportPageContent() {
                       className={`px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap ${
                         selectedTaskId === task.id
                           ? 'bg-blue-500 text-white'
-                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                          : 'bg-card border border-border text-muted-foreground hover:bg-muted'
                       }`}
                     >
                       {selectedTaskId === task.id ? 'Using this data' : 'Use this task'}
@@ -745,16 +745,16 @@ function AddPMReportPageContent() {
                   type="button"
                   onClick={() => setTaskPage(p => Math.max(1, p - 1))}
                   disabled={taskPageSafe <= 1}
-                  className="p-2 rounded-lg border border-slate-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                  className="p-2 rounded-lg border border-border bg-card disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
                 >
                   <ChevronLeft size={20} />
                 </button>
-                <span className="text-sm text-slate-600 px-2">Page {taskPageSafe} / {totalTaskPages}</span>
+                <span className="text-sm text-muted-foreground px-2">Page {taskPageSafe} / {totalTaskPages}</span>
                 <button
                   type="button"
                   onClick={() => setTaskPage(p => Math.min(totalTaskPages, p + 1))}
                   disabled={taskPageSafe >= totalTaskPages}
-                  className="p-2 rounded-lg border border-slate-200 bg-white disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
+                  className="p-2 rounded-lg border border-border bg-card disabled:opacity-50 disabled:cursor-not-allowed hover:bg-muted"
                 >
                   <ChevronRight size={20} />
                 </button>
@@ -764,31 +764,31 @@ function AddPMReportPageContent() {
         )}
 
         {/* Main Form */}
-        <div className="bg-white/95 backdrop-blur-sm p-6 rounded-2xl border border-slate-200/80 shadow-sm">
+        <div className="bg-card/95 backdrop-blur-sm p-6 rounded-2xl border border-border shadow-sm">
           {/* Devices – แสดงเฉพาะจำนวนอุปกรณ์ ไม่ต้องโชว์ตาราง */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-1">
+            <label className="block text-sm font-bold text-muted-foreground mb-1">
               Devices
             </label>
             {loadingDevices ? (
-              <p className="text-sm text-slate-500 py-2">Loading devices...</p>
+              <p className="text-sm text-muted-foreground py-2">Loading devices...</p>
             ) : !selectedTaskId && availablePMTasks.length > 0 ? (
-              <p className="text-sm text-slate-500 py-2">Please select a task above first.</p>
+              <p className="text-sm text-muted-foreground py-2">Please select a task above first.</p>
             ) : allowedDevices.length > 0 ? (
               <div className="py-2 space-y-1">
-                <p className="inline-flex items-center gap-2 text-sm font-semibold text-slate-800">
-                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 text-slate-700 text-xs">
+                <p className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-muted text-muted-foreground text-xs">
                     {allowedDevices.length}
                   </span>
                   <span>{allowedDevices.length === 1 ? 'Device' : 'Devices'}</span>
                 </p>
                 {selectedTaskId != null && (selectedSiteDisplayName || selectedLocationDisplayName) ? (
                   <div className="space-y-0.5">
-                    <p className="text-base font-extrabold text-slate-900">
+                    <p className="text-base font-extrabold text-foreground">
                       {selectedSiteDisplayName}
                     </p>
                     {selectedLocationDisplayName ? (
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-muted-foreground">
                         {selectedLocationDisplayName}
                       </p>
                     ) : null}
@@ -798,14 +798,14 @@ function AddPMReportPageContent() {
             ) : selectedTaskId != null ? (
               <p className="text-sm text-amber-700 py-2">This task has no linked devices in its data.</p>
             ) : (
-              <p className="text-sm text-slate-500 py-2">No devices to show. Select a task above.</p>
+              <p className="text-sm text-muted-foreground py-2">No devices to show. Select a task above.</p>
             )}
           </div>
 
           {/* PM Information */}
           <div className="grid grid-cols-2 gap-4 mb-6">
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">
+              <label className="block text-sm font-bold text-muted-foreground mb-2">
                 Technician 
               </label>
               <input
@@ -813,18 +813,18 @@ function AddPMReportPageContent() {
                 value={technicianName}
                 onChange={(e) => setTechnicianName(e.target.value)}
                 placeholder="Enter technician name and surname"
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                className="w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-2">
+              <label className="block text-sm font-bold text-muted-foreground mb-2">
                Preventive Maintenance Date *
               </label>
               <input
                 type="date"
                 value={pmDate}
                 onChange={(e) => setPmDate(e.target.value)}
-                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                className="w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
             </div>
           </div>
@@ -832,10 +832,10 @@ function AddPMReportPageContent() {
          
           {/* File Upload Section */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-3">
+            <label className="block text-sm font-bold text-muted-foreground mb-3">
               Upload Images / Documents / PM Results
             </label>
-            <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 bg-slate-50">
+            <div className="border-2 border-dashed border-border rounded-xl p-6 bg-muted">
               <input
                 type="file"
                 id="file-upload"
@@ -849,11 +849,11 @@ function AddPMReportPageContent() {
                 htmlFor="file-upload"
                 className="flex flex-col items-center justify-center cursor-pointer"
               >
-                <Upload size={32} className="text-slate-400 mb-2" />
-                <p className="text-sm text-slate-600 font-medium">
+                <Upload size={32} className="text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground font-medium">
                   Click to upload files (PDF/Images)
                 </p>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Supports image and PDF files
                 </p>
               </label>
@@ -865,7 +865,7 @@ function AddPMReportPageContent() {
                 {uploadedFiles.map((file) => (
                   <div
                     key={file.id}
-                    className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                    className="flex items-center gap-3 p-3 bg-muted rounded-lg border border-border"
                   >
                     {file.type === 'image' && file.preview ? (
                       <img
@@ -883,10 +883,10 @@ function AddPMReportPageContent() {
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">
+                      <p className="text-sm font-medium text-foreground truncate">
                         {file.name}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-muted-foreground">
                         {file.type === 'image' ? 'Image' : file.type === 'pdf' ? 'PDF' : 'File'}
                       </p>
                     </div>
@@ -904,8 +904,8 @@ function AddPMReportPageContent() {
 
           {/* PM Result - อิงตาม sla_term จาก Contract (ไม่แสดง threshold)
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-3">
-              PM Result * <span className="font-normal text-slate-500">(SLA Term)</span>
+            <label className="block text-sm font-bold text-muted-foreground mb-3">
+              PM Result * <span className="font-normal text-muted-foreground">(SLA Term)</span>
             </label>
             <div className="flex flex-wrap items-center gap-4">
               <input
@@ -915,7 +915,7 @@ function AddPMReportPageContent() {
                 value={slaResult}
                 onChange={(e) => setSlaResult(e.target.value)}
                 placeholder="e.g. 85"
-                className="w-32 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                className="w-32 p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
               />
               {slaResult.trim() !== '' && !Number.isNaN(Number(slaResult)) && (
                 <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${Number(slaResult) > slaThreshold ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -928,7 +928,7 @@ function AddPMReportPageContent() {
 
           {/* Comment Field */}
           <div className="mb-6">
-            <label className="block text-sm font-bold text-slate-700 mb-3">
+            <label className="block text-sm font-bold text-muted-foreground mb-3">
              Notes from Technician
             </label>
             <textarea
@@ -936,7 +936,7 @@ function AddPMReportPageContent() {
               onChange={(e) => setComment(e.target.value)}
               placeholder="Enter additional notes..."
               rows={4}
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-none"
+              className="w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-none"
             />
           </div>
 

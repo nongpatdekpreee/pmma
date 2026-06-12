@@ -1983,7 +1983,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       }}
     >
       <div
-        className="w-full max-w-4xl h-[90vh] max-h-[800px] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-full max-w-4xl h-[90vh] max-h-[800px] bg-card rounded-3xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => {
           // Prevent closing modal when clicking on modal content
           e.stopPropagation();
@@ -1993,19 +1993,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         {/* ===== header ===== */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="text-lg font-extrabold">Add New Task</h2>
-          <button onClick={onClose} className="p-1.5 bg-slate-100 rounded-none">
+          <button onClick={onClose} className="p-1.5 bg-muted rounded-none">
             <X size={18} />
           </button>
         </div>
 
         {/* ===== task type ===== */}
         <div className="px-6 pt-4">
-          <div className="flex bg-slate-100 p-1 rounded-2xl">
+          <div className="flex bg-muted p-1 rounded-2xl">
             <button
               onClick={() => setTaskType('PM')}
               className={`flex-1 py-2 rounded-xl font-bold text-sm ${taskType === 'PM'
-                ? 'bg-white text-blue-600 shadow'
-                : 'text-slate-400'
+                ? 'bg-card text-blue-600 shadow'
+                : 'text-muted-foreground'
                 }`}
             >
               <CalendarClock size={14} className="inline mr-1.5" />
@@ -2014,8 +2014,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             <button
               onClick={() => setTaskType('MA')}
               className={`flex-1 py-2 rounded-xl font-bold text-sm ${taskType === 'MA'
-                ? 'bg-white text-blue-600 shadow'
-                : 'text-slate-400'
+                ? 'bg-card text-blue-600 shadow'
+                : 'text-muted-foreground'
                 }`}
             >
               <ShieldCheck size={14} className="inline mr-1.5" />
@@ -2031,7 +2031,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
           {/* Site & Contract (select site first, then contract) */}
           <div className={sectionCard}>
-            <h3 className="text-xs font-bold text-slate-700">Site & Contract Information</h3>
+            <h3 className="text-xs font-bold text-muted-foreground">Site & Contract Information</h3>
 
             <div>
               <label className={fieldLabel}>Site Name <span className="text-red-500">*</span></label>
@@ -2075,7 +2075,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   countNoun="sites"
                 />
               </div>
-              {loadingSites && <p className="text-[10px] text-slate-400 mt-1">Loading sites...</p>}
+              {loadingSites && <p className="text-[10px] text-muted-foreground mt-1">Loading sites...</p>}
             </div>
 
             {/* Contract Selection - appears after site is selected */}
@@ -2084,7 +2084,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 <label className={fieldLabel}>
                   Contract / SOF <span className="text-red-500">*</span>
                 </label>
-                <p className="text-[10px] text-slate-500 -mt-0.5 mb-1">
+                <p className="text-[10px] text-muted-foreground -mt-0.5 mb-1">
                   {editingEvent
                     ? 'Select contract to specify SOF.'
                     : taskType === 'MA'
@@ -2148,7 +2148,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       !editingEvent && taskType === 'PM' ? (
                         <button
                           type="button"
-                          className="w-full border-t border-slate-100 bg-slate-50/80 px-3 py-2.5 text-center text-xs font-semibold text-sky-700 hover:bg-sky-50"
+                          className="w-full border-t border-border bg-muted/80 px-3 py-2.5 text-center text-xs font-semibold text-sky-700 hover:bg-sky-50"
                           onClick={() => {
                             setShowContractDropdown(false);
                             setContractSearch('');
@@ -2160,7 +2160,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     }
                   />
                 </div>
-                {loadingContracts && <p className="text-[10px] text-slate-400 mt-1">Loading contracts...</p>}
+                {loadingContracts && <p className="text-[10px] text-muted-foreground mt-1">Loading contracts...</p>}
               </div>
             )}
           </div>
@@ -2169,39 +2169,39 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {taskType === 'PM' && (
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <h3 className="text-sm font-bold text-slate-700">Asset Binding</h3>
+                  <h3 className="text-sm font-bold text-muted-foreground">Asset Binding</h3>
                   {selectedContractIds.length === 1 && selectedContractIds[0] ? (
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       From SOF{' '}
-                      <span className="font-semibold text-slate-700">
+                      <span className="font-semibold text-muted-foreground">
                         {getPmContractSofLabel(selectedContractIds[0])}
                       </span>
                     </p>
                   ) : selectedContractIds.length > 1 ? (
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs text-muted-foreground mt-0.5">
                       Separate by SOF — Select devices in each box below
                     </p>
                   ) : null}
                 </div>
-                <span className="text-xs text-slate-400 shrink-0">{selectedDevices.length} selected</span>
+                <span className="text-xs text-muted-foreground shrink-0">{selectedDevices.length} selected</span>
               </div>
             )}
 
             {deviceError && <p className="text-xs text-red-500">{deviceError}</p>}
-            {loadingDevices && <p className="text-xs text-slate-400">Loading devices...</p>}
+            {loadingDevices && <p className="text-xs text-muted-foreground">Loading devices...</p>}
 
             {devicesToShow.length > 0 && taskType === 'PM' && (
               <div className="space-y-1.5">
                 {/* Search and Filter Row */}
                 <div className="space-y-2">
                   <div className="relative">
-                    <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
                       placeholder="Find device..."
                       value={deviceSearchPm}
                       onChange={(e) => setDeviceSearchPm(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+                      className="w-full pl-9 pr-3 py-2 rounded-lg border border-border text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
                     />
                   </div>
 
@@ -2217,7 +2217,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           onChange={(e) => setDeviceRoleFilter(e.target.value)}
                           className={`w-full pl-9 ${deviceRoleFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${deviceRoleFilter
                             ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
-                            : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                            : 'border-border bg-muted focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
                             }`}
                         >
                           <option value="">All Role</option>
@@ -2234,7 +2234,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                               e.stopPropagation();
                               setDeviceRoleFilter('');
                             }}
-                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors z-20"
+                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors z-20"
                             title="Clear Role Filter"
                           >
                             <X size={12} />
@@ -2242,7 +2242,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         )}
                         <ChevronDown
                           size={14}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10"
                         />
                       </div>
 
@@ -2254,7 +2254,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           onChange={(e) => setDeviceModelFilter(e.target.value)}
                           className={`w-full pl-9 ${deviceModelFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer ${deviceModelFilter
                             ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
-                            : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                            : 'border-border bg-muted focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
                             }`}
                         >
                           <option value="">All Model</option>
@@ -2271,7 +2271,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                               e.stopPropagation();
                               setDeviceModelFilter('');
                             }}
-                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors z-20"
+                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors z-20"
                             title="Clear Model Filter"
                           >
                             <X size={12} />
@@ -2279,7 +2279,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         )}
                         <ChevronDown
                           size={14}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10"
                         />
                       </div>
 
@@ -2291,7 +2291,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           disabled={loadingManufacturers}
                           className={`w-full pl-9 ${deviceManufacturerFilter ? 'pr-14' : 'pr-8'} py-1.5 rounded-lg border text-xs outline-none transition-all appearance-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${deviceManufacturerFilter
                             ? 'border-blue-400 bg-blue-50/50 ring-2 ring-blue-200'
-                            : 'border-slate-200 bg-slate-50 focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
+                            : 'border-border bg-muted focus:ring-2 focus:ring-blue-200 focus:border-blue-400'
                             }`}
                         >
                           <option value="">All Manufacturer</option>
@@ -2313,7 +2313,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                               setDeviceManufacturerFilter('');
                             }}
                             disabled={loadingManufacturers}
-                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-slate-700 hover:bg-slate-200 transition-colors z-20 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors z-20 disabled:opacity-50 disabled:cursor-not-allowed"
                             title="Clear Manufacturer Filter"
                           >
                             <X size={12} />
@@ -2321,7 +2321,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         )}
                         <ChevronDown
                           size={14}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none z-10"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10"
                         />
                       </div>
 
@@ -2337,7 +2337,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                               onClick={handleSelectAllFiltered}
                               className={`w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${allFilteredSelected
                                 ? 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm'
-                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 shadow-sm'
+                                : 'bg-muted text-muted-foreground hover:bg-muted shadow-sm'
                                 }`}
                             >
 
@@ -2352,7 +2352,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         <button
                           type="button"
                           onClick={handleClearAll}
-                          className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:bg-slate-200 shadow-sm"
+                          className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-muted px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-all hover:bg-muted shadow-sm"
                         >
                           <span>Clear All</span>
                         </button>
@@ -2371,14 +2371,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       return (
                         <div
                           key={cid}
-                          className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-2"
+                          className="rounded-xl border border-border bg-muted/70 p-3 space-y-2"
                         >
-                          <div className="flex items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
-                            <h4 className="text-xs font-bold text-slate-800">
+                          <div className="flex items-center justify-between gap-2 border-b border-border/80 pb-2">
+                            <h4 className="text-xs font-bold text-foreground">
                               Asset Binding — SOF{' '}
                               <span className="text-sky-800">{sofLabel}</span>
                             </h4>
-                            <span className="text-[10px] text-slate-500 shrink-0">{groupSelCount} selected</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">{groupSelCount} selected</span>
                           </div>
                           <div className="max-h-48 overflow-y-auto space-y-1.5 pr-0.5">
                             {groupAvail.map((d) => {
@@ -2391,7 +2391,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                                 >
                                   <div>
                                     <p className="text-xs font-medium">{d.name}</p>
-                                    <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400">
+                                    <div className="flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
                                       <span>Type: {d.role || d.type || '-'}</span>
                                       {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
                                       {d.site && <span>| Site: {d.site}</span>}
@@ -2406,7 +2406,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             })}
                           </div>
                           {groupAvail.length === 0 && (
-                            <p className="text-[10px] text-slate-400 leading-snug">
+                            <p className="text-[10px] text-muted-foreground leading-snug">
                               No devices in this list (already selected, filtered out, or no assets on this contract for the site).
                             </p>
                           )}
@@ -2427,7 +2427,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           >
                             <div>
                               <p className="text-xs font-medium">{d.name}</p>
-                              <div className="flex flex-wrap gap-1.5 text-[10px] text-slate-400">
+                              <div className="flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
                                 <span>Type: {d.role || d.type || '-'}</span>
                                 {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
                                 {d.site && <span>| Site: {d.site}</span>}
@@ -2443,8 +2443,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     </div>
 
                     {totalDevicePages > 1 && (
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                        <div className="text-xs text-slate-500">
+                      <div className="flex items-center justify-between pt-2 border-t border-border">
+                        <div className="text-xs text-muted-foreground">
                           Showing {startDeviceIndex + 1}-{Math.min(endDeviceIndex, availableDevices.length)} from{' '}
                           {availableDevices.length} devices
                         </div>
@@ -2453,18 +2453,18 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             type="button"
                             onClick={() => setDevicePage((prev) => Math.max(1, prev - 1))}
                             disabled={devicePage === 1}
-                            className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-2 py-1 text-xs rounded border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Previous
                           </button>
-                          <span className="px-2 py-1 text-xs text-slate-600">
+                          <span className="px-2 py-1 text-xs text-muted-foreground">
                             Page {devicePage} / {totalDevicePages}
                           </span>
                           <button
                             type="button"
                             onClick={() => setDevicePage((prev) => Math.min(totalDevicePages, prev + 1))}
                             disabled={devicePage === totalDevicePages}
-                            className="px-2 py-1 text-xs rounded border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-2 py-1 text-xs rounded border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Next
                           </button>
@@ -2475,7 +2475,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 )}
 
                 {deviceSearchPm && availableDevices.length < devicesToShow.length && (
-                  <p className="text-xs text-slate-500 mt-1">Showing {availableDevices.length}/{devicesToShow.length} devices (filtered)</p>
+                  <p className="text-xs text-muted-foreground mt-1">Showing {availableDevices.length}/{devicesToShow.length} devices (filtered)</p>
                 )}
               </div>
             )}
@@ -2483,42 +2483,42 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {/* Selected Assets Table */}
             {selectedDevices.length > 0 && (
               <div className="mt-4">
-                <h4 className="text-xs font-semibold text-slate-700 mb-2">Selected Assets ({selectedDevices.length})</h4>
-                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
+                <h4 className="text-xs font-semibold text-muted-foreground mb-2">Selected Assets ({selectedDevices.length})</h4>
+                <div className="max-h-48 overflow-y-auto border border-border rounded-lg">
                   <table className="w-full text-xs">
-                    <thead className="bg-slate-50 sticky top-0">
+                    <thead className="bg-muted sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Asset Name</th>
+                        <th className="px-3 py-2 text-left font-semibold text-muted-foreground border-b border-border">Asset Name</th>
                         {taskType === 'PM' && selectedContractIds.length > 1 ? (
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200 whitespace-nowrap">
+                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground border-b border-border whitespace-nowrap">
                             SOF
                           </th>
                         ) : null}
-                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Type</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Serial Number</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">Site</th>
-                        <th className="px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200">State</th>
-                        <th className="px-3 py-2 text-center font-semibold text-slate-700 border-b border-slate-200 w-12">Action</th>
+                        <th className="px-3 py-2 text-left font-semibold text-muted-foreground border-b border-border">Type</th>
+                        <th className="px-3 py-2 text-left font-semibold text-muted-foreground border-b border-border">Serial Number</th>
+                        <th className="px-3 py-2 text-left font-semibold text-muted-foreground border-b border-border">Site</th>
+                        <th className="px-3 py-2 text-left font-semibold text-muted-foreground border-b border-border">State</th>
+                        <th className="px-3 py-2 text-center font-semibold text-muted-foreground border-b border-border w-12">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedDevices.map((d) => (
                         <tr
                           key={d.id}
-                          className="border-b border-slate-100 hover:bg-slate-50 transition-colors"
+                          className="border-b border-border hover:bg-muted transition-colors"
                         >
-                          <td className="px-3 py-2 text-slate-800">{d.name}</td>
+                          <td className="px-3 py-2 text-foreground">{d.name}</td>
                           {taskType === 'PM' && selectedContractIds.length > 1 ? (
-                            <td className="px-3 py-2 text-slate-600 font-medium">
+                            <td className="px-3 py-2 text-muted-foreground font-medium">
                               {d.contract_id != null
                                 ? getPmContractSofLabel(String(d.contract_id))
                                 : '—'}
                             </td>
                           ) : null}
-                          <td className="px-3 py-2 text-slate-600">{d.role || '-'}</td>
-                          <td className="px-3 py-2 text-slate-600">{d.serialNumber || '-'}</td>
-                          <td className="px-3 py-2 text-slate-600">{d.site || '-'}</td>
-                          <td className="px-3 py-2 text-slate-600">{d.assetState || '-'}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{d.role || '-'}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{d.serialNumber || '-'}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{d.site || '-'}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{d.assetState || '-'}</td>
                           <td className="px-3 py-2 text-center">
                             <button
                               type="button"
@@ -2544,7 +2544,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   <label className={fieldLabel}>
                     Broken device & replacement <span className="text-red-500">*</span>
                   </label>
-                  <p className="text-[10px] text-slate-500">
+                  <p className="text-[10px] text-muted-foreground">
                     Asset State จะอัปเดตในระบบเมื่อกด Done ใน task detail เท่านั้น
                   </p>
                 </div>
@@ -2552,7 +2552,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 {brokenDevicePairs.length === 0 && (
                   <>
                     {devicesToShow.length === 0 ? (
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-muted-foreground">
                         {!Sid
                           ? 'Select Site'
                           : selectedContractIds.length === 0
@@ -2575,14 +2575,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 {brokenDevicePairs.map((pair, index) => (
                   <div
                     key={pair.id}
-                    className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5"
+                    className="space-y-2 rounded-lg border border-border bg-muted/60 p-2.5"
                   >
                     <div className="flex items-center gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-xs font-semibold text-slate-800">
+                        <p className="truncate text-xs font-semibold text-foreground">
                           {index + 1}. {pair.brokenDevice.name}
                         </p>
-                        <p className="truncate text-[10px] text-slate-500">
+                        <p className="truncate text-[10px] text-muted-foreground">
                           {[
                             pair.brokenDevice.role || pair.brokenDevice.type,
                             pair.brokenDevice.serialNumber && `SN ${pair.brokenDevice.serialNumber}`,
@@ -2613,7 +2613,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       <button
                         type="button"
                         onClick={() => removeBrokenDevicePair(pair.id)}
-                        className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                        className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
                         aria-label={`Remove device ${index + 1}`}
                       >
                         <X size={14} />
@@ -2621,9 +2621,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     </div>
 
                     {pair.loading ? (
-                      <p className="text-xs text-slate-400">Loading replacements...</p>
+                      <p className="text-xs text-muted-foreground">Loading replacements...</p>
                     ) : pair.replacementDevices.length === 0 ? (
-                      <p className="text-xs text-slate-400">No replacement devices in store</p>
+                      <p className="text-xs text-muted-foreground">No replacement devices in store</p>
                     ) : (
                       <SearchableDeviceSelect
                         devices={pair.replacementDevices}
@@ -2658,7 +2658,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           {/* MA Contract Info (Vendor & SLA) */}
           {taskType === 'MA' && (
             <div className={sectionCard}>
-              <h3 className="text-xs font-bold text-slate-700">Contract Information</h3>
+              <h3 className="text-xs font-bold text-muted-foreground">Contract Information</h3>
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 items-start">
                 <div>
@@ -2719,7 +2719,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           setVendorTelError('');
                           vendorPhoneMainOverflowWarned.current = false;
                         }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors"
                         title="Clear"
                       >
                         <X size={16} />
@@ -2754,7 +2754,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           {/* Client (MA only) */}
           {taskType === 'MA' && (
             <div className={sectionCard}>
-              <h3 className="text-xs font-bold text-slate-700">Client</h3>
+              <h3 className="text-xs font-bold text-muted-foreground">Client</h3>
                 
               <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                 <div className="flex min-w-0 flex-1 basis-0 flex-col">
@@ -2796,7 +2796,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 <div className="flex min-w-0 w-full flex-1 basis-0 flex-col">
                   {/* แถวป้ายใช้คอลัมน์เดียวกับแถวช่องกรอก (หลัก | - | ต่อ) */}
                   <div className="mb-1 grid w-full min-w-0 grid-cols-[minmax(0,1fr)_1.25rem_5.5rem] items-end gap-x-0 sm:grid-cols-[minmax(0,1fr)_1.5rem_6rem]">
-                    <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    <label className="block min-w-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Phone number <span className="text-red-500">*</span>
                     </label>
                     <span
@@ -2805,7 +2805,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     >
                       -
                     </span>
-                    <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    <span className="block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                       EXT
                     </span>
                   </div>
@@ -2852,7 +2852,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             reporterPhoneMainOverflowWarned.current = false;
                             reporterPhoneExtOverflowWarned.current = false;
                           }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors"
                           title="Clear"
                         >
                           <X size={16} />
@@ -2860,7 +2860,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       ) : null}
                     </div>
                     <span
-                      className="flex shrink-0 select-none items-center justify-center text-base font-medium leading-none text-slate-400"
+                      className="flex shrink-0 select-none items-center justify-center text-base font-medium leading-none text-muted-foreground"
                       aria-hidden
                     >
                       -
@@ -2909,7 +2909,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                             );
                             reporterPhoneExtOverflowWarned.current = false;
                           }}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-muted-foreground hover:bg-muted"
                           title="Clear extension"
                         >
                           <X size={14} />
@@ -2951,14 +2951,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 </div>
               </div>
 
-              <div className="mt-3 border-t border-slate-100 pt-3">
+              <div className="mt-3 border-t border-border pt-3">
                 <div className="mb-1.5 flex items-start gap-2">
-                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 text-slate-500 ring-1 ring-slate-200/80 shadow-sm">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-slate-50 to-slate-100 text-muted-foreground ring-1 ring-border shadow-sm">
                     <Paperclip size={16} strokeWidth={2} aria-hidden />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Remark</p>
-                    <p className="mt-0.5 text-xs leading-snug text-slate-500">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Remark</p>
+                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
                       PDF or images. Files are sent to the server when you save the task.
                     </p>
                   </div>
@@ -2979,10 +2979,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 />
                 <label
                   htmlFor={repairNoticeInputId}
-                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${editingEvent?.status === 'done' ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
+                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/50 px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${editingEvent?.status === 'done' ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
                     }`}
                 >
-                  <Paperclip size={16} className="text-slate-400 transition-colors group-hover:text-sky-600" aria-hidden />
+                  <Paperclip size={16} className="text-muted-foreground transition-colors group-hover:text-sky-600" aria-hidden />
                   Add files
                 </label>
                 {(taskAttachmentPaths.length > 0 || taskAttachmentFilesPending.length > 0) && (
@@ -2993,9 +2993,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       return (
                         <li
                           key={path}
-                          className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm shadow-sm"
+                          className="flex items-center gap-2 rounded-xl border border-border/90 bg-card px-3 py-2.5 text-sm shadow-sm"
                         >
-                          <Paperclip size={14} className="shrink-0 text-slate-400" aria-hidden />
+                          <Paperclip size={14} className="shrink-0 text-muted-foreground" aria-hidden />
                           <a
                             href={href}
                             target="_blank"
@@ -3007,7 +3007,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           {editingEvent?.status !== 'done' && (
                             <button
                               type="button"
-                              className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                              className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
                               onClick={() => setTaskAttachmentPaths((p) => p.filter((x) => x !== path))}
                               aria-label="Remove attachment"
                             >
@@ -3020,14 +3020,14 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     {taskAttachmentFilesPending.map((file) => (
                       <li
                         key={`${file.name}-${file.size}-${file.lastModified}`}
-                        className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3 py-2.5 text-sm shadow-sm"
+                        className="flex items-center gap-2 rounded-xl border border-border/90 bg-card px-3 py-2.5 text-sm shadow-sm"
                       >
-                        <Paperclip size={14} className="shrink-0 text-slate-400" aria-hidden />
-                        <span className="min-w-0 flex-1 truncate font-medium text-slate-700">{file.name}</span>
+                        <Paperclip size={14} className="shrink-0 text-muted-foreground" aria-hidden />
+                        <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">{file.name}</span>
                         {editingEvent?.status !== 'done' && (
                           <button
                             type="button"
-                            className="shrink-0 rounded-lg p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                            className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
                             onClick={() =>
                               setTaskAttachmentFilesPending((prev) => prev.filter((f) => f !== file))
                             }
@@ -3049,7 +3049,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
           {taskType === 'MA' && (
             <div className={sectionCard}>
-              <h3 className="text-xs font-bold text-slate-700">Issue Details</h3>
+              <h3 className="text-xs font-bold text-muted-foreground">Issue Details</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start mt-3">
                 <div>
                   <label className={fieldLabel}>Root Cause</label>
@@ -3078,7 +3078,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           )}
 
           <div className={sectionCard}>
-            <h3 className="text-sm font-bold text-slate-700">Schedule</h3>
+            <h3 className="text-sm font-bold text-muted-foreground">Schedule</h3>
             {editingEvent?.status === 'done' && (
               <p className="text-xs text-amber-600 mb-2">Task that is already done cannot be edited</p>
             )}
@@ -3104,7 +3104,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     }
                   }}
                   disabled={editingEvent?.status === 'done'}
-                  className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                  className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-muted cursor-not-allowed' : 'cursor-pointer'}`}
                 />
               </div>
               <div>
@@ -3134,7 +3134,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     }
                   }}
                   disabled={editingEvent?.status === 'done'}
-                  className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                  className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-muted cursor-not-allowed' : 'cursor-pointer'}`}
                 />
               </div>
             </div>
@@ -3142,8 +3142,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
             {taskType === 'MA' && (
               <>
-                <h3 className="text-sm font-bold text-slate-700">Downtime (start)</h3>
-                <p className="text-[11px] text-slate-500 mb-2">
+                <h3 className="text-sm font-bold text-muted-foreground">Downtime (start)</h3>
+                <p className="text-[11px] text-muted-foreground mb-2">
                   When the outage begins — uptime date and time are entered on the MA report when you submit it.
                 </p>
                 {editingEvent?.status === 'done' && (
@@ -3165,7 +3165,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         }
                       }}
                       disabled={editingEvent?.status === 'done'}
-                      className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : 'cursor-pointer'}`}
+                      className={`${inputBase} w-full ${editingEvent?.status === 'done' ? 'bg-muted cursor-not-allowed' : 'cursor-pointer'}`}
                     />
                   </div>
                   <div>
@@ -3176,7 +3176,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       value={downtimeTime}
                       onChange={(e) => setDowntimeTime(e.target.value)}
                       disabled={editingEvent?.status === 'done'}
-                      className={`${inputBase} w-full tabular-nums ${editingEvent?.status === 'done' ? 'bg-slate-100 cursor-not-allowed' : ''}`}
+                      className={`${inputBase} w-full tabular-nums ${editingEvent?.status === 'done' ? 'bg-muted cursor-not-allowed' : ''}`}
                     />
                   </div>
                 </div>
@@ -3187,17 +3187,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
             {/* Assignment Section */}
 
-            <h3 className="text-xs font-bold text-slate-700">Assignment</h3>
+            <h3 className="text-xs font-bold text-muted-foreground">Assignment</h3>
 
             <div className="relative">
               <label className={fieldLabel}>Assign Engineer <span className="text-red-500">*</span></label>
-              <p className="text-[10px] text-slate-500 -mt-0.5 mb-1">
+              <p className="text-[10px] text-muted-foreground -mt-0.5 mb-1">
                 Select engineers from the list
               </p>
 
               {/* Email-style input container */}
               <div
-                className={`max-h-36 min-h-9 w-full min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-wrap content-start gap-1.5 items-start [scrollbar-width:thin] ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-500 border-blue-400' : ''
+                className={`max-h-36 min-h-9 w-full min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-1.5 bg-muted border border-border rounded-xl flex flex-wrap content-start gap-1.5 items-start [scrollbar-width:thin] ${showEngineerDropdown && filteredEngineers.length > 0 ? 'ring-2 ring-blue-500 border-blue-400' : ''
                   }`}
                 onClick={() => {
                   const input = document.getElementById('engineer-input');
@@ -3249,13 +3249,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       ? 'Type name to search engineers…'
                       : 'Add engineer — Type search…'
                   }
-                  className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5 placeholder:text-slate-400"
+                  className="flex-1 min-w-[120px] bg-transparent border-0 outline-none text-sm py-0.5 placeholder:text-muted-foreground"
                 />
               </div>
 
               {/* Dropdown */}
               {showEngineerDropdown && filteredEngineers.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-40 overflow-y-auto">
+                <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-xl shadow-lg max-h-40 overflow-y-auto">
                   {filteredEngineers.map((eng) => (
                     <div
                       key={eng.id}
@@ -3267,7 +3267,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                         displayName={engineerDisplayName(eng)}
                         size="md"
                       />
-                      <p className="text-sm font-medium text-slate-700">
+                      <p className="text-sm font-medium text-muted-foreground">
                         {engineerDisplayName(eng)}
                       </p>
                     </div>
@@ -3277,8 +3277,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
               {/* Empty state */}
               {showEngineerDropdown && filteredEngineers.length === 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg p-3">
-                  <p className="text-sm text-slate-400">
+                <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-xl shadow-lg p-3">
+                  <p className="text-sm text-muted-foreground">
                     {loadingEngineers
                       ? 'Loading engineers…'
                       : availableEngineers.length === 0
@@ -3352,30 +3352,30 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
 /* ================= helpers ================= */
 const input =
-  'w-full p-3 bg-slate-50 border border-slate-100 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm';
+  'w-full p-3 bg-muted border border-border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm';
 
 const label =
-  'block text-[10px] font-bold uppercase text-slate-600 mb-1';
+  'block text-[10px] font-bold uppercase text-muted-foreground mb-1';
 
 const iconBtn =
-  'p-2 bg-slate-100 rounded-xl hover:bg-slate-200 transition';
+  'p-2 bg-muted rounded-xl hover:bg-muted transition';
 const fieldLabel =
-  'block text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1';
+  'block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1';
 
 const inputBase =
-  'w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none transition focus:ring-2 focus:ring-blue-500 focus:border-blue-400';
+  'w-full h-9 px-3 bg-muted border border-border rounded-xl text-sm outline-none transition focus:ring-2 focus:ring-blue-500 focus:border-blue-400';
 
 const sectionCard =
-  'rounded-xl border border-slate-100 bg-white p-3 space-y-3';
+  'rounded-xl border border-border bg-card p-3 space-y-3';
 
 const assetCard = (active: boolean) =>
   `flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition ${active
     ? 'bg-blue-50 border-blue-400 shadow-sm'
-    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+    : 'bg-muted border-border hover:bg-muted'
   }`;
 
 const deviceFilterSelectClass =
-  'w-full h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs outline-none focus:ring-2 focus:ring-sky-500/20';
+  'w-full h-8 rounded-lg border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-sky-500/20';
 
 /** Device / Replacement — ใช้ ContractSimpleSearchListDropdown (โครงเดียวกับ contract add) */
 function SearchableDeviceSelect({
@@ -3479,7 +3479,7 @@ function SearchableDeviceSelect({
       <div className="grid grid-cols-1 gap-2 p-2 sm:grid-cols-2">
         {roleOptions.length > 0 && (
           <div>
-            <label className="mb-0.5 block text-[10px] font-semibold uppercase text-slate-500">Role</label>
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase text-muted-foreground">Role</label>
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
@@ -3497,7 +3497,7 @@ function SearchableDeviceSelect({
         )}
         {typeOptions.length > 0 && (
           <div>
-            <label className="mb-0.5 block text-[10px] font-semibold uppercase text-slate-500">Type</label>
+            <label className="mb-0.5 block text-[10px] font-semibold uppercase text-muted-foreground">Type</label>
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
@@ -3632,14 +3632,14 @@ function AssetSelectModal({
 
   return (
     <div className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-2xl rounded-3xl shadow-xl flex flex-col max-h-[85vh]">
+      <div className="bg-card w-full max-w-2xl rounded-3xl shadow-xl flex flex-col max-h-[85vh]">
 
         {/* header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h3 className="text-lg font-bold">
             {taskType === 'MA' ? 'Select Broken Device' : 'Select Assets'}
           </h3>
-          <button onClick={onClose} className="p-2 bg-slate-100 rounded-none">
+          <button onClick={onClose} className="p-2 bg-muted rounded-none">
             <X size={18} />
           </button>
         </div>
@@ -3647,17 +3647,17 @@ function AssetSelectModal({
         {/* search */}
         <div className="px-6 py-3 border-b">
           <div className="relative">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               placeholder="Find device..."
               value={deviceSearch}
               onChange={(e) => setDeviceSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-border text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-400 outline-none"
             />
           </div>
           {filteredDevices.length < devices.length && (
-            <p className="text-xs text-slate-500 mt-1">Showing {filteredDevices.length}/{devices.length} devices</p>
+            <p className="text-xs text-muted-foreground mt-1">Showing {filteredDevices.length}/{devices.length} devices</p>
           )}
         </div>
 
@@ -3675,12 +3675,12 @@ function AssetSelectModal({
                 </button>
                 <button
                   onClick={clearAll}
-                  className="px-3 py-1.5 text-xs font-semibold bg-slate-100 rounded-lg"
+                  className="px-3 py-1.5 text-xs font-semibold bg-muted rounded-lg"
                 >
                   Clear
                 </button>
               </div>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-muted-foreground">
                 {localSelected.length} selected
               </span>
             </div>
@@ -3690,7 +3690,7 @@ function AssetSelectModal({
         {/* list */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
           {filteredDevices.length === 0 ? (
-            <p className="text-sm text-slate-500 text-center py-8">No devices found</p>
+            <p className="text-sm text-muted-foreground text-center py-8">No devices found</p>
           ) : (
             filteredDevices.map((d) => {
               const checked = taskType === 'MA'
@@ -3699,11 +3699,11 @@ function AssetSelectModal({
               return (
                 <label
                   key={d.id}
-                  className="flex items-center justify-between p-3 rounded-xl border cursor-pointer hover:bg-slate-50"
+                  className="flex items-center justify-between p-3 rounded-xl border cursor-pointer hover:bg-muted"
                 >
                   <div>
                     <p className="text-sm font-medium">{d.name}</p>
-                    <div className="flex gap-2 text-xs text-slate-400">
+                    <div className="flex gap-2 text-xs text-muted-foreground">
                       <span>Type: {d.role || d.type || '-'}</span>
                       {d.serialNumber && <span>| SN: {d.serialNumber}</span>}
                       {d.site && <span>| Site: {d.site}</span>}
@@ -3727,7 +3727,7 @@ function AssetSelectModal({
         <div className="flex justify-end gap-3 px-6 py-4 border-t">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm bg-slate-100 rounded-xl"
+            className="px-4 py-2 text-sm bg-muted rounded-xl"
           >
             Cancel
           </button>
@@ -3744,7 +3744,7 @@ function AssetSelectModal({
             }}
             disabled={taskType === 'MA' && !singleSelected}
             className={`px-5 py-2 text-sm rounded-xl font-bold ${taskType === 'MA' && !singleSelected
-              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+              ? 'bg-gray-300 text-muted-foreground cursor-not-allowed'
               : 'bg-blue-500 text-white hover:bg-blue-600'
               }`}
           >

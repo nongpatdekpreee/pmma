@@ -1,19 +1,14 @@
 /**
  * Base URL สำหรับ `apiUrl()` — ต้องชี้ไปที่ Express ที่มี `/api/...`
- * - ค่าว่าง: ใช้ same-origin `/api` (เช่น nginx รวมใน Docker) — ใน dev ต้องมี rewrite หรือตั้ง URL เต็ม
- * - ไม่ตั้ง env: dev → http://127.0.0.1:5000, production build → "" (same-origin)
+ * - ค่าว่าง / ไม่ตั้ง env: same-origin `/api` (dev ใช้ rewrite ใน next.config → Express)
+ * - ตั้งเต็มเมื่อ API อยู่คนละ host (เช่น http://10.x.x.x:5000)
  */
 function getApiBase(): string {
   if (typeof process === 'undefined') return '';
   const raw = process.env.NEXT_PUBLIC_API_URL;
-  const isDev = process.env.NODE_ENV === 'development';
-  if (raw === undefined || raw === null) {
-    return isDev ? 'http://127.0.0.1:5000' : '';
-  }
+  if (raw === undefined || raw === null) return '';
   const s = String(raw).trim();
-  if (s === '') {
-    return isDev ? 'http://127.0.0.1:5000' : '';
-  }
+  if (s === '') return '';
   return s.replace(/\/$/, '');
 }
 const API_BASE = getApiBase();

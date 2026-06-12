@@ -2380,14 +2380,14 @@ function ReportPageContent() {
   return (
     <SidebarLayout>
       <DashboardHeader />
-      <div className="flex flex-col p-6 pt-0 gap-6 min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50">
+      <div className="flex flex-col p-6 pt-0 gap-6 min-h-screen bg-background">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900 tracking-tight">
+            <h1 className="text-2xl font-semibold text-foreground tracking-tight">
               PM / MA Checklist Report
             </h1>
-            <p className="text-sm text-slate-600 mt-1.5">
+            <p className="text-sm text-muted-foreground mt-1.5">
               Manage and view equipment maintenance reports
             </p>
           </div>
@@ -2398,7 +2398,7 @@ function ReportPageContent() {
                 disabled={loadingTasks || (remainingPMTasks.length === 0 && remainingMATasks.length === 0)}
                 className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all duration-200 ${
                   loadingTasks || (remainingPMTasks.length === 0 && remainingMATasks.length === 0)
-                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                    ? 'bg-muted text-muted-foreground cursor-not-allowed'
                     : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 hover:-translate-y-0.5'
                 }`}
                 title={
@@ -2416,23 +2416,23 @@ function ReportPageContent() {
               {showCreateMenu && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowCreateMenu(false)} />
-                <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl border border-slate-200/80 shadow-xl shadow-slate-200/50 z-20 overflow-hidden backdrop-blur-sm">
-                  <div className="p-2 bg-slate-50/80 border-b border-slate-100">
-                    <p className="text-xs font-medium text-slate-500 px-2">Select report type</p>
+                <div className="absolute right-0 top-full mt-2 w-56 bg-card rounded-2xl border border-border shadow-xl shadow-slate-200/50 z-20 overflow-hidden backdrop-blur-sm">
+                  <div className="p-2 bg-muted/80 border-b border-border">
+                    <p className="text-xs font-medium text-muted-foreground px-2">Select report type</p>
                   </div>
                   <button
                     onClick={handleCreatePM}
                     disabled={remainingPMTasks.length === 0}
                     className={`w-full px-4 py-3 text-left transition-colors flex items-center gap-3 ${
                       remainingPMTasks.length === 0
-                        ? 'text-slate-400 cursor-not-allowed opacity-60'
-                        : 'text-slate-700 hover:bg-slate-50'
+                        ? 'text-muted-foreground cursor-not-allowed opacity-60'
+                        : 'text-muted-foreground hover:bg-muted'
                     }`}
                     title={remainingPMTasks.length === 0 ? 'No PM tasks available' : ''}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-800">Report PM</div>
-                      <div className="text-xs text-slate-500 mt-0.5">
+                      <div className="font-bold text-foreground">Report PM</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         {remainingPMTasks.length === 0 ? 'All tasks completed' : 'Preventive Maintenance'}
                       </div>
                     </div>
@@ -2445,16 +2445,16 @@ function ReportPageContent() {
                   <button
                     onClick={handleCreateMA}
                     disabled={remainingMATasks.length === 0}
-                    className={`w-full px-4 py-3.5 text-left transition-all flex items-center gap-3 border-t border-slate-100 ${
+                    className={`w-full px-4 py-3.5 text-left transition-all flex items-center gap-3 border-t border-border ${
                       remainingMATasks.length === 0
-                        ? 'text-slate-400 cursor-not-allowed opacity-60'
-                        : 'text-slate-700 hover:bg-emerald-50/80'
+                        ? 'text-muted-foreground cursor-not-allowed opacity-60'
+                        : 'text-muted-foreground hover:bg-emerald-50/80'
                     }`}
                     title={remainingMATasks.length === 0 ? 'No MA tasks available' : ''}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-800">Report MA</div>
-                      <div className="text-xs text-slate-500 mt-0.5">
+                      <div className="font-bold text-foreground">Report MA</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         {remainingMATasks.length === 0 ? 'All tasks completed' : 'Maintenance Agreement'}
                       </div>
                     </div>
@@ -2474,13 +2474,13 @@ function ReportPageContent() {
         {/* Tab + actions + month/round filters */}
         <div className="flex flex-col gap-3 w-full">
         <div className="flex flex-wrap items-center justify-between gap-4 w-full">
-          <div className="flex gap-2 p-1.5 bg-white/80 rounded-2xl border border-slate-200/80 shadow-sm w-fit">
+          <div className="flex gap-2 p-1.5 bg-card/80 rounded-2xl border border-border shadow-sm w-fit">
             <button
               onClick={() => setTabAndUrl('ma')}
               className={`px-6 py-2.5 rounded-xl font-bold transition-all duration-200 ${
                 tab === 'ma'
                   ? 'bg-gradient-to-r from-blue-400 to-blue-500 text-white shadow-md shadow-blue-400/20'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  : 'text-muted-foreground hover:bg-muted'
               }`}
             >
               Report MA
@@ -2490,7 +2490,7 @@ function ReportPageContent() {
               className={`px-6 py-2.5 rounded-xl font-bold transition-all duration-200 ${
                 tab === 'pm'
                   ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md shadow-blue-500/20'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  : 'text-muted-foreground hover:bg-muted'
               }`}
             >
               Report PM
@@ -2525,7 +2525,7 @@ function ReportPageContent() {
 
         <div className="flex flex-wrap items-end justify-end gap-3 w-full">
           <div className="w-full sm:w-[200px]">
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
               Month
             </label>
             <div className="relative">
@@ -2536,7 +2536,7 @@ function ReportPageContent() {
                   setReportMonthFilter(e.target.value);
                   setReportRoundFilter('');
                 }}
-                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-9 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                className="w-full rounded-lg border border-border bg-card py-2 pl-3 pr-9 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               />
               {reportMonthFilter && (
                 <button
@@ -2545,7 +2545,7 @@ function ReportPageContent() {
                     setReportMonthFilter('');
                     setReportRoundFilter('');
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-red-50 hover:text-red-600"
                   title="Clear month"
                 >
                   <X size={14} />
@@ -2554,7 +2554,7 @@ function ReportPageContent() {
             </div>
           </div>
           <div className="w-full sm:w-[180px]">
-            <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">
+            <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
               Round (year)
             </label>
             <div className="relative">
@@ -2562,7 +2562,7 @@ function ReportPageContent() {
                 value={reportRoundFilter}
                 onChange={(e) => setReportRoundFilter(e.target.value)}
                 disabled={!reportMonthFilter || reportRoundOptions.length === 0}
-                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:bg-slate-50 disabled:text-slate-400"
+                className="w-full rounded-lg border border-border bg-card py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:bg-muted disabled:text-muted-foreground"
                 title={!reportMonthFilter ? 'Select a month first' : undefined}
               >
                 <option value="">
@@ -2578,7 +2578,7 @@ function ReportPageContent() {
                 <button
                   type="button"
                   onClick={() => setReportRoundFilter('')}
-                  className="absolute right-7 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                  className="absolute right-7 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-red-50 hover:text-red-600"
                   title="Clear round"
                 >
                   <X size={14} />
@@ -2603,9 +2603,9 @@ function ReportPageContent() {
         </div>
 
         {/* Search Bar */}
-        <div className="bg-white/90 backdrop-blur-sm p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+        <div className="bg-card/90 backdrop-blur-sm p-4 rounded-2xl border border-border shadow-sm">
           <div className="relative">
-            <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               value={searchTerm}
@@ -2614,32 +2614,32 @@ function ReportPageContent() {
                 setCurrentPage(1);
               }}
               placeholder="Search device, technician, date, site, or location..."
-              className="w-full pl-11 pr-4 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400 outline-none text-sm transition-all"
+              className="w-full pl-11 pr-4 py-2.5 bg-muted/80 border border-border rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400 outline-none text-sm transition-all"
             />
           </div>
         </div>
 
         {/* Report list */}
         {loading ? (
-          <div className="bg-white p-16 rounded-lg border border-slate-300 shadow-sm text-center">
-            <div className="inline-flex items-center gap-3 text-slate-600">
-              <div className="w-5 h-5 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
+          <div className="bg-card p-16 rounded-lg border border-border shadow-sm text-center">
+            <div className="inline-flex items-center gap-3 text-muted-foreground">
+              <div className="w-5 h-5 border-2 border-border0 border-t-transparent rounded-full animate-spin" />
               <span className="text-sm font-medium">Loading reports...</span>
             </div>
           </div>
         ) : paginatedReports.length === 0 ? (
-          <div className="bg-white p-16 rounded-lg border border-slate-300 shadow-sm text-center">
-            <div className="w-16 h-16 mx-auto mb-5 rounded-lg bg-slate-200 flex items-center justify-center border border-slate-300">
-              <FileText size={32} className="text-slate-500" />
+          <div className="bg-card p-16 rounded-lg border border-border shadow-sm text-center">
+            <div className="w-16 h-16 mx-auto mb-5 rounded-lg bg-muted flex items-center justify-center border border-border">
+              <FileText size={32} className="text-muted-foreground" />
             </div>
-            <p className="text-slate-700 text-lg font-semibold mb-2">
+            <p className="text-muted-foreground text-lg font-semibold mb-2">
               {searchTerm
                 ? 'Searched item was not found'
                 : reportMonthFilter || reportRoundFilter
                   ? 'No reports match the selected month / round'
                   : ` There are no reports for ${tab === 'pm' ? 'PM' : 'MA'}`}
             </p>
-            <p className="text-slate-500 text-sm mb-6">
+            <p className="text-muted-foreground text-sm mb-6">
               {searchTerm
                 ? 'Try different search terms'
                 : reportMonthFilter || reportRoundFilter
@@ -2659,7 +2659,7 @@ function ReportPageContent() {
           <>
             <div className="space-y-4">
               {/* Select / Clear for current page */}
-              <div className="flex items-center justify-between text-xs text-slate-500 px-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
                 <div className="flex items-center gap-3">
                   <label className="inline-flex items-center gap-2 cursor-pointer">
                     <input
@@ -2680,22 +2680,22 @@ function ReportPageContent() {
                           return next;
                         });
                       }}
-                      className="rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                      className="rounded border-border text-blue-500 focus:ring-blue-500"
                     />
-                    <span className="font-medium text-slate-600">Select all on page</span>
+                    <span className="font-medium text-muted-foreground">Select all on page</span>
                   </label>
                   {selectedReportsArray.length > 0 && (
                     <button
                       type="button"
                       onClick={() => setSelectedReportIds(new Set())}
-                      className="text-xs font-medium text-slate-500 hover:text-slate-700 hover:underline"
+                      className="text-xs font-medium text-muted-foreground hover:text-muted-foreground hover:underline"
                     >
                       Clear selection ({selectedReportsArray.length})
                     </button>
                   )}
                 </div>
                 {selectedReportsArray.length > 0 && (
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-muted-foreground">
                     {selectedReportsArray.length} selected
                   </span>
                 )}
@@ -2717,10 +2717,10 @@ function ReportPageContent() {
                       if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return;
                       setSelectedReport(report);
                     }}
-                    className={`group bg-white/95 backdrop-blur-sm p-4 rounded-xl border shadow-sm hover:shadow-lg hover:shadow-slate-200/50 transition-all duration-300 cursor-pointer ${
+                    className={`group bg-card/95 backdrop-blur-sm p-4 rounded-xl border shadow-sm hover:shadow-lg hover:shadow-slate-200/50 transition-all duration-300 cursor-pointer ${
                       isSelected
                         ? 'border-blue-400 ring-1 ring-blue-200'
-                        : 'border-slate-200/80 hover:border-slate-300/80'
+                        : 'border-border hover:border-border/80'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -2739,32 +2739,32 @@ function ReportPageContent() {
                                 return next;
                               });
                             }}
-                            className="rounded border-slate-300 text-blue-500 focus:ring-blue-500"
+                            className="rounded border-border text-blue-500 focus:ring-blue-500"
                           />
                         </div>
                         <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-base font-bold text-slate-800 group-hover:text-blue-600 transition-colors break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                            <h3 className="text-base font-bold text-foreground group-hover:text-blue-600 transition-colors break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                               {qTrim ? highlightSearchInText(cardTitle, searchTerm) : cardTitle}
                             </h3>
                             {getReportDevices(report).length > 1 && !(report.device?.Sitename || getReportDevices(report)[0]?.Sitename) && (
-                              <p className="text-[10px] text-slate-500 mt-0.5">{getReportDevices(report).length} devices</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">{getReportDevices(report).length} devices</p>
                             )}
                           </div>
                         </div>
-                        <div className="flex flex-wrap gap-4 text-xs text-slate-600 mb-2">
+                        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-2">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center shrink-0">
-                              <User size={12} className="text-slate-500" />
+                            <div className="w-6 h-6 rounded-md bg-muted flex items-center justify-center shrink-0">
+                              <User size={12} className="text-muted-foreground" />
                             </div>
                             <span className="font-medium break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                               {qTrim ? highlightSearchInText(engineerLine, searchTerm) : engineerLine}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center">
-                              <Calendar size={12} className="text-slate-500" />
+                            <div className="w-6 h-6 rounded-md bg-muted flex items-center justify-center">
+                              <Calendar size={12} className="text-muted-foreground" />
                             </div>
                             <span className="font-medium">{qTrim ? highlightSearchInText(dateShown, searchTerm) : dateShown}</span>
                           </div>
@@ -2803,28 +2803,28 @@ function ReportPageContent() {
                         )}
                         </div>
                         {/* จำนวนอุปกรณ์ที่ไปทำ และ File ใน card (ไม่โชว์ serial) */}
-                        <div className="flex flex-wrap gap-3 text-xs text-slate-500 mb-2">
+                        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-2">
                           <div className="flex items-center gap-1.5">
-                            <Cpu size={12} className="text-slate-400" />
+                            <Cpu size={12} className="text-muted-foreground" />
                             <span>{getReportDevices(report).length} Devices</span>
                           </div>
                           {report.uploadedFiles && report.uploadedFiles.length > 0 && (
                             <div className="flex items-center gap-1.5">
-                              <FileText size={12} className="text-slate-400" />
+                              <FileText size={12} className="text-muted-foreground" />
                               <span>{report.uploadedFiles.length} file{report.uploadedFiles.length > 1 ? 's' : ''}</span>
                             </div>
                           )}
                           {report.comment && (
                             <div className="flex items-center gap-1.5">
-                              <MessageSquare size={12} className="text-slate-400" />
+                              <MessageSquare size={12} className="text-muted-foreground" />
                               <span className="truncate max-w-[150px]" title={report.comment}>Has comment</span>
                             </div>
                           )}
                         </div>
                         {report.checklistItems && report.checklistItems.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-slate-100">
+                          <div className="mt-2 pt-2 border-t border-border">
                             <div className="flex items-center justify-between mb-1.5">
-                              <p className="text-[10px] font-semibold text-slate-500">Checklist ({report.checklistItems.length})</p>
+                              <p className="text-[10px] font-semibold text-muted-foreground">Checklist ({report.checklistItems.length})</p>
                               <div className="flex items-center gap-1.5">
                                 <span className="text-[10px] text-emerald-600 font-semibold">✓{report.checklistItems.filter(i => i.status === 'pass').length}</span>
                                 <span className="text-[10px] text-amber-600 font-semibold">⚠{report.checklistItems.filter(i => i.status === 'warning').length}</span>
@@ -2839,7 +2839,7 @@ function ReportPageContent() {
                                     item.status === 'pass' ? 'bg-emerald-50 text-emerald-700' :
                                     item.status === 'warning' ? 'bg-amber-50 text-amber-700' :
                                     item.status === 'fail' ? 'bg-red-50 text-red-700' :
-                                    'bg-slate-100 text-slate-600'
+                                    'bg-muted text-muted-foreground'
                                   }`}
                                   title={item.notes ? item.notes : undefined}
                                 >
@@ -2847,7 +2847,7 @@ function ReportPageContent() {
                                 </span>
                               ))}
                               {report.checklistItems.length > 5 && (
-                                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 text-slate-600">
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-muted text-muted-foreground">
                                   +{report.checklistItems.length - 5}
                                 </span>
                               )}
@@ -2866,7 +2866,7 @@ function ReportPageContent() {
                             e.stopPropagation();
                             requestDeleteReport(report);
                           }}
-                          className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="p-2 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {deletingReportId === String(report.id) ? (
                             <Loader2 size={18} className="animate-spin" aria-hidden />
@@ -2874,7 +2874,7 @@ function ReportPageContent() {
                             <Trash2 size={18} aria-hidden />
                           )}
                         </button>
-                        <p className="text-[10px] text-slate-400">
+                        <p className="text-[10px] text-muted-foreground">
                           {qTrim
                             ? highlightSearchInText(`Created: ${formatDate(report.createdAt)}`, searchTerm)
                             : `Created: ${formatDate(report.createdAt)}`}
@@ -2890,17 +2890,17 @@ function ReportPageContent() {
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm transition-all"
+                  className="px-5 py-2.5 bg-card border border-border rounded-xl hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm transition-all"
                 >
                   Previous
                 </button>
-                <span className="px-5 py-2.5 text-sm text-slate-600 font-medium bg-white rounded-xl border border-slate-200">
+                <span className="px-5 py-2.5 text-sm text-muted-foreground font-medium bg-card rounded-xl border border-border">
                   Page {currentPage} of {totalPages}
                 </span>
                 <button
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
-                  className="px-5 py-2.5 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm transition-all"
+                  className="px-5 py-2.5 bg-card border border-border rounded-xl hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm transition-all"
                 >
                   Next
                 </button>
@@ -2916,11 +2916,11 @@ function ReportPageContent() {
               if (e.target === e.currentTarget && !downloadingImages) setIsDownloadFilesModalOpen(false);
             }}
           >
-            <div className="bg-white w-full max-w-5xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden">
+            <div className="bg-card w-full max-w-5xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden">
               <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-violet-50 to-purple-50">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Download Files</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <h3 className="text-lg font-bold text-foreground">Download Files</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Choose locations to download files from {selectedReportsArray.length > 0 ? `${selectedReportsArray.length} selected report${selectedReportsArray.length > 1 ? 's' : ''}` : 'current filtered reports'}
                   </p>
                 </div>
@@ -2928,7 +2928,7 @@ function ReportPageContent() {
                   <button
                     onClick={() => setIsDownloadFilesModalOpen(false)}
                     disabled={downloadingImages}
-                    className="p-2 rounded-full hover:bg-white/70 transition-colors disabled:opacity-50"
+                    className="p-2 rounded-full hover:bg-card/70 transition-colors disabled:opacity-50"
                   >
                     <X size={18} />
                   </button>
@@ -2951,25 +2951,25 @@ function ReportPageContent() {
                 )}
                 <div className="flex flex-col sm:flex-row flex-wrap gap-3">
                   <div className="flex-1 min-w-[200px]">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Search</label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Search</label>
                     <div className="relative">
-                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                       <input
                         type="text"
                         value={downloadSiteSearch}
                         onChange={(e) => setDownloadSiteSearch(e.target.value)}
                         placeholder="Search site or location..."
-                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                        className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
                       />
                     </div>
                   </div>
                   <div className="w-full sm:w-[220px]">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">SOF</label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">SOF</label>
                     <div className="relative">
                       <select
                         value={downloadSofFilter}
                         onChange={(e) => setDownloadSofFilter(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                        className="w-full rounded-lg border border-border bg-card py-2 pl-3 pr-8 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
                       >
                         <option value="">All SOFs</option>
                         {downloadSofOptions.map((sof) => (
@@ -2980,7 +2980,7 @@ function ReportPageContent() {
                         <button
                           type="button"
                           onClick={() => setDownloadSofFilter('')}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-red-50 hover:text-red-600"
                           title="Clear"
                         >
                           <X size={14} />
@@ -2989,12 +2989,12 @@ function ReportPageContent() {
                     </div>
                   </div>
                   <div className="w-full sm:w-[200px]">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Location</label>
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Location</label>
                     <div className="relative">
                       <select
                         value={downloadLocationFilter}
                         onChange={(e) => setDownloadLocationFilter(e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                        className="w-full rounded-lg border border-border bg-card py-2 pl-3 pr-8 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
                       >
                         <option value="">All locations</option>
                         {downloadLocationOptions.map((loc) => (
@@ -3005,7 +3005,7 @@ function ReportPageContent() {
                         <button
                           type="button"
                           onClick={() => setDownloadLocationFilter('')}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-red-50 hover:text-red-600"
                           title="Clear"
                         >
                           <X size={14} />
@@ -3015,26 +3015,26 @@ function ReportPageContent() {
                   </div>
                 </div>
 
-                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="border border-border rounded-lg overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-full">
-                      <thead className="bg-slate-100 sticky top-0">
+                      <thead className="bg-muted sticky top-0">
                         <tr>
-                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Site</th>
-                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">
+                          <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Site</th>
+                          <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">
                             <label className="inline-flex items-center gap-2">
                               <input
                                 type="checkbox"
                                 checked={downloadModalAllPageSelected}
                                 onChange={(e) => toggleDownloadSitePage(e.target.checked)}
-                                className="rounded border-slate-300"
+                                className="rounded border-border"
                               />
                               <span>Location</span>
                             </label>
                           </th>
-                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Files</th>
-                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">SOFs</th>
-                          <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Visits</th>
+                          <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Files</th>
+                          <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">SOFs</th>
+                          <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Visits</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -3042,34 +3042,34 @@ function ReportPageContent() {
                           const siteKeys = getDownloadLocationKeysBySite(group.siteName);
                           const allSiteSelected = siteKeys.length > 0 && siteKeys.every((key) => downloadSiteSelected.has(key));
                           return group.rows.map((row, index) => (
-                            <tr key={row.key} className="border-t border-slate-100 hover:bg-slate-50">
+                            <tr key={row.key} className="border-t border-border hover:bg-muted">
                               {index === 0 && (
-                                <td rowSpan={group.rows.length} className="px-3 py-2 font-medium text-slate-800 align-top bg-white">
+                                <td rowSpan={group.rows.length} className="px-3 py-2 font-medium text-foreground align-top bg-card">
                                   <label className="inline-flex items-center gap-2 cursor-pointer">
                                     <input
                                       type="checkbox"
                                       checked={allSiteSelected}
                                       onChange={() => toggleDownloadSiteGroup(group.siteName)}
-                                      className="rounded border-slate-300 mt-0.5"
+                                      className="rounded border-border mt-0.5"
                                     />
                                     <span>{group.siteName}</span>
                                   </label>
                                 </td>
                               )}
-                              <td className="px-3 py-2 text-slate-600">
+                              <td className="px-3 py-2 text-muted-foreground">
                                 <label className="inline-flex items-center gap-2 cursor-pointer">
                                   <input
                                     type="checkbox"
                                     checked={downloadSiteSelected.has(row.key)}
                                     onChange={() => toggleDownloadLocation(row.key)}
-                                    className="rounded border-slate-300"
+                                    className="rounded border-border"
                                   />
                                   <span>{row.location}</span>
                                 </label>
                               </td>
-                              <td className="px-3 py-2 text-slate-600">{row.fileCount}</td>
-                              <td className="px-3 py-2 text-slate-600">{row.sofCount}</td>
-                              <td className="px-3 py-2 text-slate-600">{row.visitCount || '—'}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{row.fileCount}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{row.sofCount}</td>
+                              <td className="px-3 py-2 text-muted-foreground">{row.visitCount || '—'}</td>
                             </tr>
                           ));
                         })}
@@ -3078,14 +3078,14 @@ function ReportPageContent() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 flex-wrap text-sm text-slate-600">
+                <div className="flex items-center justify-between gap-3 flex-wrap text-sm text-muted-foreground">
                   <span>{downloadModalSelectedCount} of {downloadModalLocationRows.length} locations selected</span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setDownloadModalPage((p) => Math.max(1, p - 1))}
                       disabled={downloadModalCurrentPage <= 1}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <ChevronLeft size={16} /> Previous page
                     </button>
@@ -3094,7 +3094,7 @@ function ReportPageContent() {
                       type="button"
                       onClick={() => setDownloadModalPage((p) => Math.min(downloadModalTotalPages, p + 1))}
                       disabled={downloadModalCurrentPage >= downloadModalTotalPages}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Next page <ChevronRight size={16} />
                     </button>
@@ -3102,16 +3102,16 @@ function ReportPageContent() {
                 </div>
 
                 {downloadModalTotal === 0 && (
-                  <p className="text-sm text-slate-500 text-center py-6">No locations match the current filter.</p>
+                  <p className="text-sm text-muted-foreground text-center py-6">No locations match the current filter.</p>
                 )}
 
               </div>
 
-              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-slate-50">
+              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-muted">
                 <button
                   onClick={() => setIsDownloadFilesModalOpen(false)}
                   disabled={downloadingImages}
-                  className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-60"
+                  className="px-6 py-2 text-sm font-semibold text-muted-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-60"
                 >
                   Cancel
                 </button>
@@ -3144,14 +3144,14 @@ function ReportPageContent() {
             onClick={() => setSelectedReport(null)}
           >
             <div
-              className="w-full max-w-4xl max-h-[90vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden"
+              className="w-full max-w-4xl max-h-[90vh] bg-card rounded-3xl shadow-2xl flex flex-col overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Modal Header */}
               <div className={`flex items-center justify-between px-8 py-6 ${
                 tab === 'pm'
-                  ? 'bg-gradient-to-r from-blue-500/10 to-blue-600/5 border-b border-slate-200'
-                  : 'bg-gradient-to-r from-emerald-500/10 to-emerald-600/5 border-b border-slate-200'
+                  ? 'bg-gradient-to-r from-blue-500/10 to-blue-600/5 border-b border-border'
+                  : 'bg-gradient-to-r from-emerald-500/10 to-emerald-600/5 border-b border-border'
               }`}>
                 <div className="flex items-center gap-3">
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
@@ -3160,12 +3160,12 @@ function ReportPageContent() {
                     <FileText size={24} className={tab === 'pm' ? 'text-blue-600' : 'text-emerald-600'} />
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-slate-800">
+                    <h2 className="text-xl font-bold text-foreground">
                       {tab === 'pm' ? 'PM' : 'MA'} Report Details
                     </h2>
                     {tab === 'ma' && (selectedReport as MAReport).site_name?.trim() && (
                       <p
-                        className="text-sm text-slate-500 break-words"
+                        className="text-sm text-muted-foreground break-words"
                         style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
                       >
                         {searchTerm.trim()
@@ -3177,9 +3177,9 @@ function ReportPageContent() {
                 </div>
                 <button
                   onClick={() => setSelectedReport(null)}
-                  className="p-2.5 hover:bg-slate-100 rounded-xl transition-colors"
+                  className="p-2.5 hover:bg-muted rounded-xl transition-colors"
                 >
-                  <X size={22} className="text-slate-600" />
+                  <X size={22} className="text-muted-foreground" />
                 </button>
               </div>
 
@@ -3194,17 +3194,17 @@ function ReportPageContent() {
                       : 'grid-cols-2 sm:grid-cols-4'
                   }`}
                 >
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 min-w-0 text-center">
-                    <p className="text-xs font-medium text-slate-500 mb-1">Technician</p>
-                    <p className="text-sm font-semibold text-slate-800 break-words leading-snug" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                  <div className="p-4 bg-muted rounded-2xl border border-border min-w-0 text-center">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Technician</p>
+                    <p className="text-sm font-semibold text-foreground break-words leading-snug" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                       {searchTerm.trim()
                         ? highlightSearchInText(getEngineerDisplay(selectedReport), searchTerm)
                         : getEngineerDisplay(selectedReport)}
                     </p>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
-                    <p className="text-xs font-medium text-slate-500 mb-1">{tab === 'pm' ? 'PM Date' : 'MA Date'}</p>
-                    <p className="font-semibold text-slate-800">
+                  <div className="p-4 bg-muted rounded-2xl border border-border text-center">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">{tab === 'pm' ? 'PM Date' : 'MA Date'}</p>
+                    <p className="font-semibold text-foreground">
                       {searchTerm.trim()
                         ? highlightSearchInText(
                             formatDate(tab === 'pm' ? (selectedReport as PMReport).pmDate : (selectedReport as MAReport).maDate),
@@ -3213,9 +3213,9 @@ function ReportPageContent() {
                         : formatDate(tab === 'pm' ? (selectedReport as PMReport).pmDate : (selectedReport as MAReport).maDate)}
                     </p>
                   </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
-                    <p className="text-xs font-medium text-slate-500 mb-1">Number of Devices</p>
-                    <p className="font-semibold text-slate-800">{getReportDevices(selectedReport).length}</p>
+                  <div className="p-4 bg-muted rounded-2xl border border-border text-center">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">Number of Devices</p>
+                    <p className="font-semibold text-foreground">{getReportDevices(selectedReport).length}</p>
                   </div>
                   {tab === 'ma' &&
                     (selectedReport as MAReport).downtimeTotalHours != null &&
@@ -3235,8 +3235,8 @@ function ReportPageContent() {
                         </p>
                       </div>
                     )}
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
-                    <p className="text-xs font-medium text-slate-500 mb-1">{tab === 'pm' ? 'Status' : 'Result'}</p>
+                  <div className="p-4 bg-muted rounded-2xl border border-border text-center">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">{tab === 'pm' ? 'Status' : 'Result'}</p>
                     <div className="flex items-center justify-center gap-2">
                       {tab === 'pm' ? (
                         <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold text-white bg-emerald-500">
@@ -3261,42 +3261,42 @@ function ReportPageContent() {
                   const hasContract = ma.vendorName || ma.vendorTel || ma.reporterName || ma.reporterTel || ma.ticket;
                   if (!hasContract) return null;
                   return (
-                    <div className="bg-white rounded-2xl border border-slate-200 p-6">
+                    <div className="bg-card rounded-2xl border border-border p-6">
                       <div className="flex items-center gap-2 mb-4">
-                        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
-                          <FileText size={20} className="text-slate-600" />
+                        <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center">
+                          <FileText size={20} className="text-muted-foreground" />
                         </div>
-                        <h3 className="font-bold text-slate-800">Contract Information</h3>
+                        <h3 className="font-bold text-foreground">Contract Information</h3>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {ma.vendorName && (
                           <div>
-                            <p className="text-xs font-medium text-slate-500 mb-1">Third Party Vendor name</p>
-                            <p className="text-sm font-semibold text-slate-800">{ma.vendorName}</p>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Third Party Vendor name</p>
+                            <p className="text-sm font-semibold text-foreground">{ma.vendorName}</p>
                           </div>
                         )}
                         {ma.vendorTel && (
                           <div>
-                            <p className="text-xs font-medium text-slate-500 mb-1">Third Party Vendor phone</p>
-                            <p className="text-sm font-semibold text-slate-800">{ma.vendorTel}</p>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Third Party Vendor phone</p>
+                            <p className="text-sm font-semibold text-foreground">{ma.vendorTel}</p>
                           </div>
                         )}
                         {ma.reporterName && (
                           <div>
-                            <p className="text-xs font-medium text-slate-500 mb-1">Reporter name</p>
-                            <p className="text-sm font-semibold text-slate-800">{ma.reporterName}</p>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Reporter name</p>
+                            <p className="text-sm font-semibold text-foreground">{ma.reporterName}</p>
                           </div>
                         )}
                         {ma.reporterTel && (
                           <div>
-                            <p className="text-xs font-medium text-slate-500 mb-1">Reporter phone</p>
-                            <p className="text-sm font-semibold text-slate-800">{ma.reporterTel}</p>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Reporter phone</p>
+                            <p className="text-sm font-semibold text-foreground">{ma.reporterTel}</p>
                           </div>
                         )}
                         {ma.ticket && (
                           <div>
-                            <p className="text-xs font-medium text-slate-500 mb-1">Ticket</p>
-                            <p className="text-sm font-semibold text-slate-800">{ma.ticket}</p>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Ticket</p>
+                            <p className="text-sm font-semibold text-foreground">{ma.ticket}</p>
                           </div>
                         )}
                       </div>
@@ -3335,12 +3335,12 @@ function ReportPageContent() {
                     const { site: siteForRepairLabel } = exportSiteAndLocation(rawSite, explicitLoc);
                     const ticketStr = ma.ticket != null ? String(ma.ticket) : '';
                     return (
-                      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+                      <div className="bg-card rounded-2xl border border-border p-6">
                         <div className="flex items-center gap-2 mb-3">
                           <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center">
                             <Paperclip size={20} className="text-sky-700" />
                           </div>
-                          <h3 className="font-bold text-slate-800">Remark</h3>
+                          <h3 className="font-bold text-foreground">Remark</h3>
                         </div>
                         <ul className="space-y-2">
                           {repairPaths.map((path, idx) => {
@@ -3378,12 +3378,12 @@ function ReportPageContent() {
                 {/* 
                 {selectedReport.sla_result != null && (
                         <div>
-                          <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                          <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
                             <ClipboardList size={12} />
                             Result Score
                           </p>
                           <div className="flex items-center gap-2">
-                            <p className="text-lg font-bold text-slate-800">{selectedReport.sla_result}</p>
+                            <p className="text-lg font-bold text-foreground">{selectedReport.sla_result}</p>
                             {selectedReport.sla_result >= 90 ? (
                               <span className="px-2 py-0.5 rounded-md text-[10px] font-bold text-white bg-emerald-500 flex items-center gap-1">
                                 <CheckCircle2 size={10} />
@@ -3406,43 +3406,43 @@ function ReportPageContent() {
 
                 {/* Device & Replacement Information */}
                 {tab === 'ma' && assetPairs.length > 0 ? (
-                  <div className="bg-white rounded-2xl border border-slate-200 p-6">
+                  <div className="bg-card rounded-2xl border border-border p-6">
                     <div className="flex items-center gap-2 mb-4">
                       <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
                         <FileText size={20} className="text-indigo-600" />
                       </div>
-                      <h3 className="font-bold text-slate-800">Device & Replacement</h3>
+                      <h3 className="font-bold text-foreground">Device & Replacement</h3>
                     </div>
                     <div className="space-y-4">
                       {assetPairs.map((pair, index) => (
                         <div key={index} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="border border-slate-200 rounded-xl p-4 bg-slate-50/70">
-                            <p className="text-xs font-semibold text-slate-500 mb-1">Original Device</p>
-                            <p className="text-sm font-semibold text-slate-900 mb-2 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                          <div className="border border-border rounded-xl p-4 bg-muted/70">
+                            <p className="text-xs font-semibold text-muted-foreground mb-1">Original Device</p>
+                            <p className="text-sm font-semibold text-foreground mb-2 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                               {pair.original.name || 'Device'}
                             </p>
                             {pair.original.assetNumber && (
-                              <p className="text-xs text-slate-600 mb-1">
+                              <p className="text-xs text-muted-foreground mb-1">
                                 <span className="font-semibold">Asset:</span> {pair.original.assetNumber}
                               </p>
                             )}
                             {pair.original.serial && (
-                              <p className="text-xs text-slate-600 mb-1">
+                              <p className="text-xs text-muted-foreground mb-1">
                                 <span className="font-semibold">Serial:</span> {pair.original.serial}
                               </p>
                             )}
                             {pair.original.model && (
-                              <p className="text-xs text-slate-600 mb-1">
+                              <p className="text-xs text-muted-foreground mb-1">
                                 <span className="font-semibold">Model:</span> {pair.original.model}
                               </p>
                             )}
                             {pair.original.site && (
-                              <p className="text-xs text-slate-600">
+                              <p className="text-xs text-muted-foreground">
                                 <span className="font-semibold">Site:</span> {pair.original.site}
                               </p>
                             )}
                             {(pair.original as { location?: string }).location && (
-                              <p className="text-xs text-slate-600 mt-0.5">
+                              <p className="text-xs text-muted-foreground mt-0.5">
                                 <span className="font-semibold">Location:</span>{' '}
                                 {(pair.original as { location?: string }).location}
                               </p>
@@ -3455,37 +3455,37 @@ function ReportPageContent() {
                             </p>
                             {pair.replacement ? (
                               <>
-                                <p className="text-sm font-semibold text-slate-900 mb-2 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                                <p className="text-sm font-semibold text-foreground mb-2 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                   {pair.replacement.name || 'Replacement Device'}
                                 </p>
                                 {pair.replacement.assetNumber && (
-                                  <p className="text-xs text-slate-700 mb-1">
+                                  <p className="text-xs text-muted-foreground mb-1">
                                     <span className="font-semibold">Asset:</span> {pair.replacement.assetNumber}
                                   </p>
                                 )}
                                 {pair.replacement.serialNumber && (
-                                  <p className="text-xs text-slate-700 mb-1">
+                                  <p className="text-xs text-muted-foreground mb-1">
                                     <span className="font-semibold">Serial:</span> {pair.replacement.serialNumber}
                                   </p>
                                 )}
                                 {pair.replacement.type && (
-                                  <p className="text-xs text-slate-700 mb-1">
+                                  <p className="text-xs text-muted-foreground mb-1">
                                     <span className="font-semibold">Model:</span> {pair.replacement.type}
                                   </p>
                                 )}
                             {pair.replacement.site && (
-                              <p className="text-xs text-slate-700">
+                              <p className="text-xs text-muted-foreground">
                                 <span className="font-semibold">Site:</span> {pair.replacement.site}
                               </p>
                             )}
                             {pair.replacement.location && (
-                              <p className="text-xs text-slate-700 mt-0.5">
+                              <p className="text-xs text-muted-foreground mt-0.5">
                                 <span className="font-semibold">Location:</span> {pair.replacement.location}
                               </p>
                             )}
                               </>
                             ) : (
-                              <p className="text-xs text-slate-500">
+                              <p className="text-xs text-muted-foreground">
                                 No replacement device linked for this asset.
                               </p>
                             )}
@@ -3511,21 +3511,21 @@ function ReportPageContent() {
                       { label: 'Vendor', key: 'Vendor', icon: <Building2 size={12} /> },
                     ];
                     return (
-                      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+                      <div className="bg-card rounded-2xl border border-border p-6">
                         <div className="flex items-center gap-2 mb-4">
                           <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
                             <FileText size={20} className="text-indigo-600" />
                           </div>
-                          <h3 className="font-bold text-slate-800">Information</h3>
+                          <h3 className="font-bold text-foreground">Information</h3>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                           {fields.map(({ label, key, icon }) => (
                             <div key={key}>
-                              <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                              <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
                                 {icon}
                                 {label}
                               </p>
-                              <p className="text-sm font-semibold text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                              <p className="text-sm font-semibold text-foreground break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                 {v(key)}
                               </p>
                             </div>
@@ -3543,22 +3543,22 @@ function ReportPageContent() {
                       <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
                         <ClipboardList size={20} className="text-blue-600" />
                       </div>
-                      <h3 className="font-bold text-slate-800">Checklist Items</h3>
+                      <h3 className="font-bold text-foreground">Checklist Items</h3>
                     </div>
                     <div className="space-y-2">
                       {selectedReport.checklistItems.map((item, index) => (
                         <div
                           key={item.id}
-                          className="flex items-center justify-between p-4 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow"
+                          className="flex items-center justify-between p-4 bg-card rounded-xl border border-border shadow-sm hover:shadow-md transition-shadow"
                         >
                           <div className="flex items-center gap-3 flex-1">
-                            <span className="text-xs font-bold text-slate-400 w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center">
+                            <span className="text-xs font-bold text-muted-foreground w-6 h-6 rounded-full bg-muted flex items-center justify-center">
                               {index + 1}
                             </span>
                             <div className="flex-1">
-                              <p className="text-sm font-medium text-slate-800">{item.task}</p>
+                              <p className="text-sm font-medium text-foreground">{item.task}</p>
                               {item.notes && (
-                                <p className="text-xs text-slate-600 mt-1 italic break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                                <p className="text-xs text-muted-foreground mt-1 italic break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                   {item.notes}
                                 </p>
                               )}
@@ -3569,7 +3569,7 @@ function ReportPageContent() {
                               item.status === 'pass' ? 'bg-emerald-100 text-emerald-700' :
                               item.status === 'warning' ? 'bg-amber-100 text-amber-700' :
                               item.status === 'fail' ? 'bg-red-100 text-red-700' :
-                              'bg-slate-100 text-slate-600'
+                              'bg-muted text-muted-foreground'
                             }`}
                           >
                             {item.status === 'pass' ? 'Pass' : item.status === 'warning' ? 'Warning' : item.status === 'fail' ? 'Fail' : 'Pending'}
@@ -3578,22 +3578,22 @@ function ReportPageContent() {
                       ))}
                     </div>
                     {/* Summary */}
-                    <div className="mt-4 p-4 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl border border-slate-200">
+                    <div className="mt-4 p-4 bg-gradient-to-r from-slate-50 to-slate-100 rounded-xl border border-border">
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div>
-                          <p className="text-xs text-slate-500 mb-1">Pass</p>
+                          <p className="text-xs text-muted-foreground mb-1">Pass</p>
                           <p className="text-lg font-bold text-emerald-600">
                             {selectedReport.checklistItems.filter(i => i.status === 'pass').length}
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs text-slate-500 mb-1">Warning</p>
+                          <p className="text-xs text-muted-foreground mb-1">Warning</p>
                           <p className="text-lg font-bold text-amber-600">
                             {selectedReport.checklistItems.filter(i => i.status === 'warning').length}
                           </p>
                         </div>
                         <div>
-                          <p className="text-xs text-slate-500 mb-1">Fail</p>
+                          <p className="text-xs text-muted-foreground mb-1">Fail</p>
                           <p className="text-lg font-bold text-red-600">
                             {selectedReport.checklistItems.filter(i => i.status === 'fail').length}
                           </p>
@@ -3610,9 +3610,9 @@ function ReportPageContent() {
                       <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
                         <MessageSquare size={20} className="text-blue-600" />
                       </div>
-                      <h3 className="font-bold text-slate-800">Notes from Technician</h3>
+                      <h3 className="font-bold text-foreground">Notes from Technician</h3>
                     </div>
-                    <p className="p-5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-700 whitespace-pre-wrap leading-relaxed break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                    <p className="p-5 bg-muted rounded-2xl border border-border text-muted-foreground whitespace-pre-wrap leading-relaxed break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                       {selectedReport.comment}
                     </p>
                   </div>
@@ -3625,7 +3625,7 @@ function ReportPageContent() {
                       <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
                         <FileText size={20} className="text-blue-600" />
                       </div>
-                      <h3 className="font-bold text-slate-800">Uploaded Files</h3>
+                      <h3 className="font-bold text-foreground">Uploaded Files</h3>
                     </div>
                     <div className="flex flex-wrap gap-3">
                       {selectedReport.uploadedFiles.map((f, i) => (
@@ -3648,7 +3648,7 @@ function ReportPageContent() {
                         ) : (
                           <span
                             key={i}
-                            className="px-4 py-2.5 bg-slate-100 rounded-xl text-sm text-slate-600"
+                            className="px-4 py-2.5 bg-muted rounded-xl text-sm text-muted-foreground"
                           >
                             {f.name} ({f.type})
                           </span>
@@ -3675,7 +3675,7 @@ export default function ReportPage() {
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="text-sm text-gray-600">กำลังโหลด...</span>
+          <span className="text-sm text-muted-foreground">กำลังโหลด...</span>
         </div>
       </div>
     }>

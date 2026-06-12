@@ -217,6 +217,14 @@ function contractRowApiId(c: Contract): string {
   return c.linkedContractId ?? c.id;
 }
 
+/** รายการสัญญาแบบหนึ่งแถวต่อ (contract, site) */
+function contractsListApiUrl(siteIdFilter: string | null | undefined): string {
+  const params = new URLSearchParams({ expand: 'sites' });
+  const sid = siteIdFilter != null ? String(siteIdFilter).trim() : '';
+  if (sid) params.set('site_id', sid);
+  return apiUrl(`/api/contracts?${params.toString()}`);
+}
+
 function mapApiRowToContract(c: {
   contract_id: number;
   contract_name?: string | null;
@@ -253,19 +261,27 @@ function mapApiRowToContract(c: {
     alignedRaw === 1 ||
     alignedRaw === true ||
     Number(alignedRaw) === 1;
+  const rowSiteName =
+    (c.contract_site_name != null && String(c.contract_site_name).trim()) ||
+    (c.site_name != null && String(c.site_name).trim()) ||
+    '';
+  const rowSiteLocation =
+    (c.contract_site_location != null && String(c.contract_site_location).trim()) ||
+    (c.site_location != null && String(c.site_location).trim()) ||
+    '';
+  const slid =
+    c.site_id != null && !Number.isNaN(Number(c.site_id)) ? Number(c.site_id) : null;
+  const cid = c.contract_id;
   return {
-    id: String(c.contract_id),
+    id: slid != null ? `${cid}-${slid}` : String(cid),
+    linkedContractId: String(cid),
     name: c.contract_name || '—',
     sofName: c.sof_name ?? null,
-    partner:
-      c.sale_account ||
-      (c.contract_site_name && String(c.contract_site_name).trim()) ||
-      c.site_name ||
-      '—',
-    siteName: c.site_name ?? undefined,
-    siteLocation: c.site_location ?? undefined,
-    contractSiteName: c.contract_site_name?.trim() || undefined,
-    contractSiteLocation: c.contract_site_location?.trim() || undefined,
+    partner: c.sale_account || rowSiteName || '—',
+    siteName: rowSiteName || undefined,
+    siteLocation: rowSiteLocation || undefined,
+    contractSiteName: rowSiteName || undefined,
+    contractSiteLocation: rowSiteLocation || undefined,
     startDate: c.start_date || '',
     endDate,
     value: '',
@@ -277,7 +293,7 @@ function mapApiRowToContract(c: {
     deviceCount: c.device_count || 0,
     contractStatus,
     devicesSlidAligned,
-    siteId: c.site_id != null && !Number.isNaN(Number(c.site_id)) ? Number(c.site_id) : null,
+    siteId: slid,
     historyStatus,
     renewHistOldSof:
       c.renew_hist_old_sof != null && String(c.renew_hist_old_sof).trim() !== ''
@@ -566,13 +582,13 @@ function ContractListPageJump({
   };
 
   return (
-    <label className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+    <label className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
       <span className="shrink-0">Page</span>
       <input
         type="text"
         inputMode="numeric"
         autoComplete="off"
-        className="w-12 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-center text-sm tabular-nums text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+        className="w-12 rounded-md border border-border bg-card px-1.5 py-0.5 text-center text-sm tabular-nums text-foreground outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
         value={draft}
         onChange={(e) => setDraft(e.target.value.replace(/\D/g, ''))}
         onBlur={commit}
@@ -734,13 +750,8 @@ function ContractEditorPageContent() {
     }
   };
 
-  const contractsEndpoint =
-    siteIdFilter && String(siteIdFilter).trim() !== ''
-      ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteIdFilter).trim())}`)
-      : apiUrl('/api/contracts');
-
   const fetchAndSetContracts = async (cancelled: () => boolean) => {
-    const res = await fetch(contractsEndpoint);
+    const res = await fetch(contractsListApiUrl(siteIdFilter));
     const json = await res.json();
     if (cancelled()) return false;
     if (!json.success || !Array.isArray(json.data)) {
@@ -1513,9 +1524,9 @@ function ContractEditorPageContent() {
       case 'renew':
         return 'border border-transparent bg-yellow-100 text-yellow-900';
       case 'closed':
-        return 'border border-transparent bg-slate-200 text-slate-700';
+        return 'border border-transparent bg-muted text-muted-foreground';
       default:
-        return 'border border-transparent bg-gray-100 text-gray-800';
+        return 'border border-transparent bg-muted text-foreground';
     }
   };
 
@@ -2025,11 +2036,7 @@ function ContractEditorPageContent() {
 
   const loadContracts = async () => {
     try {
-      const contractsEndpoint =
-        siteIdFilter && String(siteIdFilter).trim() !== ''
-          ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteIdFilter).trim())}`)
-          : apiUrl('/api/contracts');
-      const res = await fetch(contractsEndpoint);
+      const res = await fetch(contractsListApiUrl(siteIdFilter));
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         const list = (json.data as any[]).map((c: any) => mapApiRowToContract(c));
@@ -2057,7 +2064,7 @@ function ContractEditorPageContent() {
       <div className="flex min-w-0 w-full max-w-full flex-col gap-6 p-4 pt-0 sm:p-6">
         {/* Hero Section */}
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">
+          <h1 className="text-3xl font-bold text-foreground">
             Maintenance Contract System
           </h1>
 
@@ -2093,7 +2100,7 @@ function ContractEditorPageContent() {
           ];
           return (
         <div className="@container min-w-0 w-full max-w-full">
-       <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-white p-4 shadow-sm rounded-2xl border border-slate-200 @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-6 @[56rem]:gap-8 @[56rem]:p-10">
+       <div className="grid w-full min-w-0 grid-cols-2 grid-rows-none gap-3 gap-y-4 bg-card p-4 shadow-sm rounded-2xl border border-border @[36rem]:grid-cols-3 @[36rem]:gap-5 @[36rem]:p-6 @[36rem]:rounded-[2rem] @[56rem]:grid-cols-6 @[56rem]:gap-8 @[56rem]:p-10">
           {stats.map((stat, idx) => {
             const isSelected = activeFilter === stat.filter;
             return (
@@ -2102,16 +2109,16 @@ function ContractEditorPageContent() {
               type="button"
               onClick={() => setActiveFilter(stat.filter)}
               className={`relative w-full min-w-0 max-w-full rounded-xl px-1 py-2 text-center transition-colors focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 @[36rem]:-m-2 @[36rem]:px-2 ${
-                isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : 'hover:bg-slate-50'
+                isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : 'hover:bg-muted'
               }`}
             >
               {idx < stats.length - 1 && (
-                <div className="pointer-events-none absolute right-0 top-1/2 hidden h-[60%] w-px -translate-y-1/2 bg-slate-200 @[56rem]:block" />
+                <div className="pointer-events-none absolute right-0 top-1/2 hidden h-[60%] w-px -translate-y-1/2 bg-muted @[56rem]:block" />
               )}
               <span className="mb-1 block text-2xl font-bold text-blue-600 @[36rem]:mb-2 @[36rem]:text-3xl @[56rem]:text-[2.5rem]">
                 {stat.number}
               </span>
-              <span className={`block hyphens-auto break-words text-xs font-medium leading-snug @[36rem]:text-sm ${isSelected ? 'text-blue-700' : 'text-slate-500'}`}>{stat.label}</span>
+              <span className={`block hyphens-auto break-words text-xs font-medium leading-snug @[36rem]:text-sm ${isSelected ? 'text-blue-700' : 'text-muted-foreground'}`}>{stat.label}</span>
             </button>
           );
           })}
@@ -2122,7 +2129,7 @@ function ContractEditorPageContent() {
         <div className="flex gap-3 items-center mb-6 justify-end">
           <button
             onClick={openExportContractModal}
-            className="flex items-center gap-2 border border-slate-300 bg-white text-slate-700 px-3 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-2 border border-border bg-card text-muted-foreground px-3 py-2 rounded-xl text-sm font-bold hover:bg-muted transition-colors"
           >
             <FileSpreadsheet size={16} /> Export
           </button>
@@ -2150,7 +2157,7 @@ function ContractEditorPageContent() {
                 className={`px-6 py-2.5 rounded-lg cursor-pointer font-medium text-sm transition-all duration-300 ${
                   activeFilter === filter
                     ? 'bg-blue-600 text-white border border-blue-600'
-                    : 'border border-slate-200 bg-white text-slate-700 hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600'
+                    : 'border border-border bg-card text-muted-foreground hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600'
                 }`}
               >
                 {filter}
@@ -2158,19 +2165,19 @@ function ContractEditorPageContent() {
             ))}
           </div>
           <div className="flex-1 min-w-0 relative">
-            <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <input
               type="text"
               placeholder="Search contract..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full py-2.5 pl-12 pr-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              className="w-full py-2.5 pl-12 pr-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             />
           </div>
           {/* ช่วงวันเริ่มสัญญา (ทั้งสองช่องอิง contract start date) */}
-          <div className="flex items-center gap-2 text-xs text-slate-600 shrink-0">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
             <div className="flex flex-col">
-              <span className="mb-1" title="แสดงสัญญาที่วันเริ่มสัญญา ≥ วันที่เลือก">
+                <span className="mb-1" title="show contracts start date from the selected date">
                 Start from
               </span>
               <input
@@ -2180,11 +2187,11 @@ function ContractEditorPageContent() {
                   setStartDateFilter(e.target.value);
                   setContractPage(1);
                 }}
-                className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+                className="border border-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
               />
             </div>
             <div className="flex flex-col">
-              <span className="mb-1" title="แสดงสัญญาที่วันเริ่มสัญญา ≤ วันที่เลือก (ใช้คู่กับ Start from เป็นช่วงวันเริ่มสัญญา)">
+              <span className="mb-1" title="show contracts start date to the selected date">
                 Start to
               </span>
               <input
@@ -2194,15 +2201,15 @@ function ContractEditorPageContent() {
                   setEndDateFilter(e.target.value);
                   setContractPage(1);
                 }}
-                className="border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
+                className="border border-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-200"
               />
             </div>
           </div>
-          <div className="flex border border-slate-200 rounded-lg overflow-hidden shrink-0">
+          <div className="flex border border-border rounded-lg overflow-hidden shrink-0">
             <button
               type="button"
               onClick={() => setViewMode('card')}
-              className={`p-2.5 transition-colors ${viewMode === 'card' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              className={`p-2.5 transition-colors ${viewMode === 'card' ? 'bg-blue-600 text-white' : 'bg-card text-muted-foreground hover:bg-muted'}`}
               title="Card view"
             >
               <LayoutGrid size={20} />
@@ -2210,7 +2217,7 @@ function ContractEditorPageContent() {
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`p-2.5 transition-colors ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              className={`p-2.5 transition-colors ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-card text-muted-foreground hover:bg-muted'}`}
               title="Table view"
             >
               <Table2 size={20} />
@@ -2222,7 +2229,7 @@ function ContractEditorPageContent() {
 
         {/* Loading / Error */}
         {contractsLoading && (
-          <div className="flex items-center justify-center py-20 text-slate-500">
+          <div className="flex items-center justify-center py-20 text-muted-foreground">
             <span className="animate-pulse">Loading contract list...</span>
           </div>
         )}
@@ -2246,7 +2253,7 @@ function ContractEditorPageContent() {
             return (
             <div
               key={contract.id}
-              className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 transition-all duration-300 group hover:-translate-y-1 hover:shadow-md"
+              className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[2rem] border border-border bg-card p-6 transition-all duration-300 group hover:-translate-y-1 hover:shadow-md"
               style={{ 
                 animation: `fadeInUp 0.6s ease-out ${idx * 0.1}s both`
               }}
@@ -2257,7 +2264,7 @@ function ContractEditorPageContent() {
   transition-transform duration-300 
   group-hover:scale-y-100" />
               <div className="flex justify-between items-start mb-5 gap-3">
-                <div className="text-xl font-bold text-slate-800 flex-1 min-w-0 flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                <div className="text-xl font-bold text-foreground flex-1 min-w-0 flex items-center gap-2 flex-wrap" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                   {contract.isHistorySnapshotRow ? (
                     <span
                       className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100/90 px-2 py-0.5 text-xs font-semibold text-amber-900"
@@ -2273,49 +2280,49 @@ function ContractEditorPageContent() {
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Site:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
+                <span className="text-muted-foreground min-w-[100px] flex-shrink-0">Site:</span>
+                <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                   {contract.contractSiteName ?? contract.partner ?? '—'}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><MapPin size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Location:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><MapPin size={18} /></span>
+                <span className="text-muted-foreground min-w-[100px] flex-shrink-0">Location:</span>
+                <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                   {contract.contractSiteLocation ?? '—'}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Hash size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">SOF:</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><Hash size={18} /></span>
+                <span className="text-muted-foreground min-w-[100px] flex-shrink-0">SOF:</span>
+                <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
                   {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Calendar size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">Start Date (mm/dd/yyyy):</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedStartDate}</span>
+                <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><Calendar size={18} /></span>
+                <span className="text-muted-foreground min-w-[100px] flex-shrink-0">Start Date (mm/dd/yyyy):</span>
+                <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedStartDate}</span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
-                <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center"><Clock size={18} /></span>
-                <span className="text-slate-500 min-w-[100px] flex-shrink-0">End Date (mm/dd/yyyy):</span>
-                <span className="text-slate-700 font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedEndDate}</span>
+                <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><Clock size={18} /></span>
+                <span className="text-muted-foreground min-w-[100px] flex-shrink-0">End Date (mm/dd/yyyy):</span>
+                <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>{contract.formattedEndDate}</span>
               </div>
               {renewCol ? (
                 <div className="mb-3 flex items-start gap-3 text-sm">
-                  <span className="text-slate-500 min-w-[20px] flex-shrink-0 flex items-center justify-center">
+                  <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center">
                     <RefreshCw size={18} />
                   </span>
-                  <span className="text-slate-500 min-w-[100px] flex-shrink-0">Renew:</span>
-                  <div className="min-w-0 flex-1 text-xs leading-snug text-slate-600">
-                    {renewCol.sof ? <div className="font-medium text-slate-700">{renewCol.sof}</div> : null}
+                  <span className="text-muted-foreground min-w-[100px] flex-shrink-0">Renew:</span>
+                  <div className="min-w-0 flex-1 text-xs leading-snug text-muted-foreground">
+                    {renewCol.sof ? <div className="font-medium text-muted-foreground">{renewCol.sof}</div> : null}
                     {renewCol.dateLine ? <div>{renewCol.dateLine}</div> : null}
                   </div>
                 </div>
               ) : null}
-              <div className="mt-auto min-w-0 overflow-hidden border-t border-slate-200 pt-6">
+              <div className="mt-auto min-w-0 overflow-hidden border-t border-border pt-6">
                 <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
                   <div className="flex items-center gap-2">
                     <button
@@ -2361,7 +2368,7 @@ function ContractEditorPageContent() {
                       className={`flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 ${
                         showRenewBtn
                           ? 'cursor-pointer border border-yellow-300 bg-yellow-100 text-yellow-900 hover:bg-yellow-200'
-                          : `border border-slate-200 bg-white text-slate-700 ${
+                          : `border border-border bg-card text-muted-foreground ${
                               editDisabled
                                 ? 'cursor-not-allowed opacity-40'
                                 : 'cursor-pointer hover:border-blue-500 hover:text-blue-600'
@@ -2410,8 +2417,8 @@ function ContractEditorPageContent() {
           })}
         </div>
         {totalContracts > CONTRACT_CARD_PAGE_SIZE && (
-          <div className="flex items-center justify-between mt-6 py-3 px-4 bg-slate-50 rounded-xl border border-slate-200">
-            <span className="text-sm text-slate-600">
+          <div className="flex items-center justify-between mt-6 py-3 px-4 bg-muted rounded-xl border border-border">
+            <span className="text-sm text-muted-foreground">
               Show {(currentPage - 1) * CONTRACT_CARD_PAGE_SIZE + 1}–{Math.min(currentPage * CONTRACT_CARD_PAGE_SIZE, totalContracts)} from {totalContracts} list
             </span>
             <div className="flex items-center gap-2">
@@ -2419,7 +2426,7 @@ function ContractEditorPageContent() {
                 type="button"
                 onClick={() => setContractPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage <= 1}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <ChevronLeft size={16} /> Previous Page
               </button>
@@ -2432,7 +2439,7 @@ function ContractEditorPageContent() {
                 type="button"
                 onClick={() => setContractPage((p) => Math.min(cardTotalPages, p + 1))}
                 disabled={currentPage >= cardTotalPages}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next Page <ChevronRight size={16} />
               </button>
@@ -2441,36 +2448,36 @@ function ContractEditorPageContent() {
         )}
         </div>
         ) : (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Site</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Location</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">SOF</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">
+                <tr className="bg-muted border-b border-border">
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Site</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Location</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">SOF</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">
   Start Date
-  <div className="text-xs text-gray-400 mt-1">mm/dd/yyyy</div>
+  <div className="text-xs text-muted-foreground mt-1">mm/dd/yyyy</div>
 </th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">
   End Date
-  <div className="text-xs text-gray-400 mt-1">mm/dd/yyyy</div>
+  <div className="text-xs text-muted-foreground mt-1">mm/dd/yyyy</div>
 </th>
                   <th
-                    className="text-left py-4 px-4 text-sm font-semibold text-slate-700 whitespace-nowrap"
+                    className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground whitespace-nowrap"
 
                   >
                     Expiry Status
                   </th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Status</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Status</th>
                   <th
-                    className="text-left py-4 px-4 text-sm font-semibold text-slate-700 min-w-[10rem]"
+                    className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground min-w-[10rem]"
                     title=""
                   >
                     
                   </th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-slate-700">Actions</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -2488,19 +2495,19 @@ function ContractEditorPageContent() {
                   return (
                   <tr
                     key={contract.id}
-                    className="border-b border-slate-100 bg-white transition-colors hover:bg-slate-50/50"
+                    className="border-b border-border bg-card transition-colors hover:bg-muted/50"
                   >
-                    <td className="py-4 px-4 text-sm font-medium text-slate-800">
+                    <td className="py-4 px-4 text-sm font-medium text-foreground">
                       {contract.contractSiteName?.trim() ? contract.contractSiteName : '—'}
                     </td>
-                    <td className="py-4 px-4 text-sm text-slate-600">
+                    <td className="py-4 px-4 text-sm text-muted-foreground">
                       {contract.contractSiteLocation?.trim() ? contract.contractSiteLocation : '—'}
                     </td>
-                    <td className="py-4 px-4 text-sm text-slate-600 whitespace-nowrap">
+                    <td className="py-4 px-4 text-sm text-muted-foreground whitespace-nowrap">
                       {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
                     </td>
-                    <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedStartDate}</td>
-                    <td className="py-4 px-4 text-sm text-slate-600">{contract.formattedEndDate}</td>
+                    <td className="py-4 px-4 text-sm text-muted-foreground">{contract.formattedStartDate}</td>
+                    <td className="py-4 px-4 text-sm text-muted-foreground">{contract.formattedEndDate}</td>
                     <td className="py-4 px-4 text-sm whitespace-nowrap">
                       <span
                         className={
@@ -2510,7 +2517,7 @@ function ContractEditorPageContent() {
                               ? 'text-red-700 font-medium'
                               : incoming.tone === 'due'
                                 ? 'text-amber-800 font-medium'
-                                : 'text-slate-400'
+                                : 'text-muted-foreground'
                         }
                       >
                         {incoming.text}
@@ -2526,14 +2533,14 @@ function ContractEditorPageContent() {
                     <td className="py-4 px-4 align-top min-w-[10rem] max-w-[18rem]">
                       {renewCol ? (
                         <div
-                          className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-snug text-slate-600"
+                          className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-snug text-muted-foreground"
                           title={[renewCol.sof, renewCol.dateLine].filter(Boolean).join('\n')}
                         >
                           {renewCol.sof ? <span className="break-words">{renewCol.sof}</span> : null}
                           {renewCol.dateLine ? <span className="break-words">{renewCol.dateLine}</span> : null}
                         </div>
                       ) : (
-                        <span className="text-slate-400">—</span>
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </td>
                     <td className="min-w-[11rem] py-4 px-4">
@@ -2582,7 +2589,7 @@ function ContractEditorPageContent() {
                             className={`flex size-8 shrink-0 items-center justify-center rounded-md font-medium transition-all duration-200 ${
                               showRenewBtn
                                 ? 'border border-yellow-300 bg-yellow-100 text-yellow-900 hover:bg-yellow-200'
-                                : `border border-slate-200 bg-white text-slate-700 ${
+                                : `border border-border bg-card text-muted-foreground ${
                                     editDisabled
                                       ? 'cursor-not-allowed opacity-40'
                                       : 'hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600'
@@ -2633,8 +2640,8 @@ function ContractEditorPageContent() {
             </table>
           </div>
           {totalContracts > CONTRACT_TABLE_PAGE_SIZE && (
-            <div className="flex items-center justify-between py-3 px-4 border-t border-slate-200 bg-slate-50">
-              <span className="text-sm text-slate-600">
+            <div className="flex items-center justify-between py-3 px-4 border-t border-border bg-muted">
+              <span className="text-sm text-muted-foreground">
                 Show {(currentPage - 1) * CONTRACT_TABLE_PAGE_SIZE + 1}–{Math.min(currentPage * CONTRACT_TABLE_PAGE_SIZE, totalContracts)} from {totalContracts} list
               </span>
               <div className="flex items-center gap-2">
@@ -2642,7 +2649,7 @@ function ContractEditorPageContent() {
                   type="button"
                   onClick={() => setContractPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage <= 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft size={16} /> Previous Page
                 </button>
@@ -2655,7 +2662,7 @@ function ContractEditorPageContent() {
                   type="button"
                   onClick={() => setContractPage((p) => Math.min(tableTotalPages, p + 1))}
                   disabled={currentPage >= tableTotalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next Page <ChevronRight size={16} />
                 </button>
@@ -2670,16 +2677,16 @@ function ContractEditorPageContent() {
       {/* Add Contract Modal */}
       {showAddModal && (
         <Modal onClose={closeModal}>
-          <div className="bg-white rounded-[2rem] p-10 max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-800">Add New Contract</h2>
-              <button onClick={closeModal} className="text-2xl cursor-pointer text-slate-500 hover:text-slate-700 transition-colors duration-300 p-2">
+          <div className="bg-card rounded-[2rem] p-10 max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-8 pb-4 border-b border-border">
+              <h2 className="text-2xl font-bold text-foreground">Add New Contract</h2>
+              <button onClick={closeModal} className="text-2xl cursor-pointer text-muted-foreground hover:text-muted-foreground transition-colors duration-300 p-2">
                 ✕
               </button>
             </div>
             <form onSubmit={handleAddContract}>
               <div className="mb-6">
-                <label htmlFor="contractName" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="contractName" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Contract Name *
                 </label>
                 <input
@@ -2689,11 +2696,11 @@ function ContractEditorPageContent() {
                   placeholder="e.g. Maintenance Contract for Machine"
                   value={contractForm.name}
                   onChange={(e) => setContractForm({ ...contractForm, name: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
               <div className="mb-6">
-                <label htmlFor="contractPartner" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="contractPartner" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Contract Partner/Service Provider *
                 </label>
                 <input
@@ -2703,11 +2710,11 @@ function ContractEditorPageContent() {
                   placeholder="Enter the name of the service provider"
                   value={contractForm.site}
                   onChange={(e) => setContractForm({ ...contractForm, site: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
               <div className="mb-6">
-                <label htmlFor="maintenanceType" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="maintenanceType" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Maintenance Type *
                 </label>
                 <select
@@ -2715,7 +2722,7 @@ function ContractEditorPageContent() {
                   required
                   value={contractForm.maintenanceType}
                   onChange={(e) => setContractForm({ ...contractForm, maintenanceType: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 >
                   <option value="">Select...</option>
                   <option value="preventive">Preventive Maintenance (PM)</option>
@@ -2726,7 +2733,7 @@ function ContractEditorPageContent() {
               </div>
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="startDate" className="block mb-2 text-slate-700 font-semibold text-sm">
+                  <label htmlFor="startDate" className="block mb-2 text-muted-foreground font-semibold text-sm">
                     Start Date (mm/dd/yyyy) *
                   </label>
                   <input
@@ -2735,11 +2742,11 @@ function ContractEditorPageContent() {
                     required
                     value={contractForm.startDate}
                     onChange={(e) => setContractForm({ ...contractForm, startDate: e.target.value })}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   />
                 </div>
                 <div>
-                  <label htmlFor="endDate" className="block mb-2 text-slate-700 font-semibold text-sm">
+                  <label htmlFor="endDate" className="block mb-2 text-muted-foreground font-semibold text-sm">
                     End Date (mm/dd/yyyy) *
                   </label>
                   <input
@@ -2748,13 +2755,13 @@ function ContractEditorPageContent() {
                     required
                     value={contractForm.endDate}
                     onChange={(e) => setContractForm({ ...contractForm, endDate: e.target.value })}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="contractValue" className="block mb-2 text-slate-700 font-semibold text-sm">
+                  <label htmlFor="contractValue" className="block mb-2 text-muted-foreground font-semibold text-sm">
                     Contract Value (THB) *
                   </label>
                   <input
@@ -2765,11 +2772,11 @@ function ContractEditorPageContent() {
                     step="0.01"
                     value={contractForm.value}
                     onChange={(e) => setContractForm({ ...contractForm, value: e.target.value })}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   />
                 </div>
                 <div>
-                  <label htmlFor="contractStatus" className="block mb-2 text-slate-700 font-semibold text-sm">
+                  <label htmlFor="contractStatus" className="block mb-2 text-muted-foreground font-semibold text-sm">
                     Status *
                   </label>
                   <select
@@ -2777,7 +2784,7 @@ function ContractEditorPageContent() {
                     required
                     value={contractForm.status}
                     onChange={(e) => setContractForm({ ...contractForm, status: e.target.value as 'active' | 'expired' })}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   >
                     <option value="active">Active</option>
                     <option value="expired">Expired</option>
@@ -2785,7 +2792,7 @@ function ContractEditorPageContent() {
                 </div>
               </div>
               <div className="mb-6">
-                <label htmlFor="contractDescription" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="contractDescription" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Additional Details
                 </label>
                 <textarea
@@ -2793,17 +2800,17 @@ function ContractEditorPageContent() {
                   placeholder="Enter contract details, SLA terms, or special requirements"
                   value={contractForm.description}
                   onChange={(e) => setContractForm({ ...contractForm, description: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[100px] resize-y"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[100px] resize-y"
                 />
               </div>
               <div className="mb-6">
-                <label className="block mb-2 text-slate-700 font-semibold text-sm">Equipment Under Contract</label>
+                <label className="block mb-2 text-muted-foreground font-semibold text-sm">Equipment Under Contract</label>
                 <div className="mt-4">
                   {currentEquipmentList.map((equipment, idx) => (
-                    <div key={idx} className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-3 flex justify-between items-center hover:border-blue-500 hover:bg-white transition-all duration-300">
+                    <div key={idx} className="bg-muted p-4 rounded-lg border border-border mb-3 flex justify-between items-center hover:border-blue-500 hover:bg-card transition-all duration-300">
                       <div className="flex-1">
-                        <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Wrench size={14} className="text-slate-500 flex-shrink-0" /> {equipment.name}</div>
-                        <div className="text-sm text-slate-500">
+                        <div className="font-semibold text-foreground mb-1 flex items-center gap-1.5"><Wrench size={14} className="text-muted-foreground flex-shrink-0" /> {equipment.name}</div>
+                        <div className="text-sm text-muted-foreground">
                           {equipment.model && `Model: ${equipment.model}`}
                           {equipment.serial && ` | S/N: ${equipment.serial}`}
                           {equipment.location && ` | Location: ${equipment.location}`}
@@ -2813,14 +2820,14 @@ function ContractEditorPageContent() {
                         <button
                           type="button"
                           onClick={() => openEquipmentModal(idx)}
-                          className="px-3 py-1.5 text-sm rounded-md border border-slate-200 bg-white cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
+                          className="px-3 py-1.5 text-sm rounded-md border border-border bg-card cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
                           onClick={() => removeEquipment(idx)}
-                          className="px-3 py-1.5 text-sm rounded-md border border-slate-200 bg-white cursor-pointer transition-all duration-300 hover:border-red-500 hover:text-red-500"
+                          className="px-3 py-1.5 text-sm rounded-md border border-border bg-card cursor-pointer transition-all duration-300 hover:border-red-500 hover:text-red-500"
                         >
                           Delete
                         </button>
@@ -2831,16 +2838,16 @@ function ContractEditorPageContent() {
                 <button
                   type="button"
                   onClick={() => openEquipmentModal()}
-                  className="w-full py-3 border-2 border-dashed border-slate-200 bg-transparent rounded-lg text-slate-500 cursor-pointer transition-all duration-300 font-medium hover:border-blue-500 hover:text-blue-600 hover:bg-slate-50"
+                  className="w-full py-3 border-2 border-dashed border-border bg-transparent rounded-lg text-muted-foreground cursor-pointer transition-all duration-300 font-medium hover:border-blue-500 hover:text-blue-600 hover:bg-muted"
                 >
                   <><Plus size={14} className="flex-shrink-0" /> Add Equipment</>
                 </button>
               </div>
-              <div className="flex gap-4 mt-8 pt-6 border-t border-slate-200">
+              <div className="flex gap-4 mt-8 pt-6 border-t border-border">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 py-3.5 px-8 bg-transparent text-slate-700 border border-slate-200 rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
+                  className="flex-1 py-3.5 px-8 bg-transparent text-muted-foreground border border-border rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
                 >
                   Cancel
                 </button>
@@ -2859,16 +2866,16 @@ function ContractEditorPageContent() {
       {/* Edit Contract Modal */}
       {showEditModal && currentContract && (
         <Modal onClose={closeModal}>
-          <div className="bg-white rounded-[2rem] p-10 max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-800">Edit Contract</h2>
-              <button onClick={closeModal} className="text-2xl cursor-pointer text-slate-500 hover:text-slate-700 transition-colors duration-300 p-2">
+          <div className="bg-card rounded-[2rem] p-10 max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-8 pb-4 border-b border-border">
+              <h2 className="text-2xl font-bold text-foreground">Edit Contract</h2>
+              <button onClick={closeModal} className="text-2xl cursor-pointer text-muted-foreground hover:text-muted-foreground transition-colors duration-300 p-2">
                 ✕
               </button>
             </div>
             <form onSubmit={handleEditContract}>
               <div className="mb-6">
-                <label htmlFor="editContractName" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="editContractName" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Contract Name *
                 </label>
                 <input
@@ -2878,11 +2885,11 @@ function ContractEditorPageContent() {
                   placeholder="Enter contract name"
                   value={contractForm.name}
                   onChange={(e) => setContractForm({ ...contractForm, name: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
               <div className="mb-6">
-                <label htmlFor="editContractPartner" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="editContractPartner" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Contract Partner/Service Provider *
                 </label>
                 <input
@@ -2892,11 +2899,11 @@ function ContractEditorPageContent() {
                   placeholder="Enter the name of the service provider"
                   value={contractForm.site}
                   onChange={(e) => setContractForm({ ...contractForm, site: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
               <div className="mb-6">
-                <label htmlFor="editMaintenanceType" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="editMaintenanceType" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Maintenance Type *
                 </label>
                 <select
@@ -2904,7 +2911,7 @@ function ContractEditorPageContent() {
                   required
                   value={contractForm.maintenanceType}
                   onChange={(e) => setContractForm({ ...contractForm, maintenanceType: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 >
                   <option value="">Select...</option>
                   <option value="preventive">Preventive Maintenance (PM)</option>
@@ -2915,7 +2922,7 @@ function ContractEditorPageContent() {
               </div>
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="editStartDate" className="block mb-2 text-slate-700 font-semibold text-sm">
+                  <label htmlFor="editStartDate" className="block mb-2 text-muted-foreground font-semibold text-sm">
                     Start Date (mm/dd/yyyy) *
                   </label>
                   <input
@@ -2924,11 +2931,11 @@ function ContractEditorPageContent() {
                     required
                     value={contractForm.startDate}
                     onChange={(e) => setContractForm({ ...contractForm, startDate: e.target.value })}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   />
                 </div>
                 <div>
-                  <label htmlFor="editEndDate" className="block mb-2 text-slate-700 font-semibold text-sm">
+                  <label htmlFor="editEndDate" className="block mb-2 text-muted-foreground font-semibold text-sm">
                     End Date (mm/dd/yyyy) *
                   </label>
                   <input
@@ -2937,13 +2944,13 @@ function ContractEditorPageContent() {
                     required
                     value={contractForm.endDate}
                     onChange={(e) => setContractForm({ ...contractForm, endDate: e.target.value })}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
-                  <label htmlFor="editContractValue" className="block mb-2 text-slate-700 font-semibold text-sm">
+                  <label htmlFor="editContractValue" className="block mb-2 text-muted-foreground font-semibold text-sm">
                     Contract Value (THB) *
                   </label>
                   <input
@@ -2954,11 +2961,11 @@ function ContractEditorPageContent() {
                     step="0.01"
                     value={contractForm.value}
                     onChange={(e) => setContractForm({ ...contractForm, value: e.target.value })}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   />
                 </div>
                 <div>
-                  <label htmlFor="editContractStatus" className="block mb-2 text-slate-700 font-semibold text-sm">
+                  <label htmlFor="editContractStatus" className="block mb-2 text-muted-foreground font-semibold text-sm">
                     Status *
                   </label>
                   <select
@@ -2966,7 +2973,7 @@ function ContractEditorPageContent() {
                     required
                     value={contractForm.status}
                     onChange={(e) => setContractForm({ ...contractForm, status: e.target.value as 'active' | 'expired' })}
-                    className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                    className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                   >
                     <option value="active">Active</option>
                     <option value="expired">Expired</option>
@@ -2974,7 +2981,7 @@ function ContractEditorPageContent() {
                 </div>
               </div>
               <div className="mb-6">
-                <label htmlFor="editContractDescription" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="editContractDescription" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Additional Details
                 </label>
                 <textarea
@@ -2982,17 +2989,17 @@ function ContractEditorPageContent() {
                   placeholder="Enter contract details (optional)"
                   value={contractForm.description}
                   onChange={(e) => setContractForm({ ...contractForm, description: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[100px] resize-y"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[100px] resize-y"
                 />
               </div>
               <div className="mb-6">
-                <label className="block mb-2 text-slate-700 font-semibold text-sm">Equipment in Contract</label>
+                <label className="block mb-2 text-muted-foreground font-semibold text-sm">Equipment in Contract</label>
                 <div className="mt-4">
                   {currentEquipmentList.map((equipment, idx) => (
-                    <div key={idx} className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-3 flex justify-between items-center hover:border-blue-500 hover:bg-white transition-all duration-300">
+                    <div key={idx} className="bg-muted p-4 rounded-lg border border-border mb-3 flex justify-between items-center hover:border-blue-500 hover:bg-card transition-all duration-300">
                       <div className="flex-1">
-                        <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5"><Wrench size={14} className="text-slate-500 flex-shrink-0" /> {equipment.name}</div>
-                        <div className="text-sm text-slate-500">
+                        <div className="font-semibold text-foreground mb-1 flex items-center gap-1.5"><Wrench size={14} className="text-muted-foreground flex-shrink-0" /> {equipment.name}</div>
+                        <div className="text-sm text-muted-foreground">
                           {equipment.model && `Model: ${equipment.model}`}
                           {equipment.serial && ` | S/N: ${equipment.serial}`}
                           {equipment.location && ` | Location: ${equipment.location}`}
@@ -3002,14 +3009,14 @@ function ContractEditorPageContent() {
                         <button
                           type="button"
                           onClick={() => openEquipmentModal(idx)}
-                          className="px-3 py-1.5 text-sm rounded-md border border-slate-200 bg-white cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
+                          className="px-3 py-1.5 text-sm rounded-md border border-border bg-card cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
                           onClick={() => removeEquipment(idx)}
-                          className="px-3 py-1.5 text-sm rounded-md border border-slate-200 bg-white cursor-pointer transition-all duration-300 hover:border-red-500 hover:text-red-500"
+                          className="px-3 py-1.5 text-sm rounded-md border border-border bg-card cursor-pointer transition-all duration-300 hover:border-red-500 hover:text-red-500"
                         >
                           Delete
                         </button>
@@ -3020,16 +3027,16 @@ function ContractEditorPageContent() {
                 <button
                   type="button"
                   onClick={() => openEquipmentModal()}
-                  className="w-full py-3 border-2 border-dashed border-slate-200 bg-transparent rounded-lg text-slate-500 cursor-pointer transition-all duration-300 font-medium hover:border-blue-500 hover:text-blue-600 hover:bg-slate-50"
+                  className="w-full py-3 border-2 border-dashed border-border bg-transparent rounded-lg text-muted-foreground cursor-pointer transition-all duration-300 font-medium hover:border-blue-500 hover:text-blue-600 hover:bg-muted"
                 >
                   <><Plus size={14} className="flex-shrink-0" /> Add Equipment</>
                 </button>
               </div>
-              <div className="flex gap-4 mt-8 pt-6 border-t border-slate-200">
+              <div className="flex gap-4 mt-8 pt-6 border-t border-border">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 py-3.5 px-8 bg-transparent text-slate-700 border border-slate-200 rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
+                  className="flex-1 py-3.5 px-8 bg-transparent text-muted-foreground border border-border rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
                 >
                   Cancel
                 </button>
@@ -3048,19 +3055,19 @@ function ContractEditorPageContent() {
       {/* Detail Modal */}
       {showDetailModal && currentContract && (
         <Modal onClose={closeModal}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-[1000px] w-[90%] max-h-[90vh] overflow-hidden flex flex-col">
+          <div className="bg-card rounded-2xl shadow-xl max-w-[1000px] w-[90%] max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header */}
-            <div className="px-8 py-6 border-b border-slate-200 bg-white">
+            <div className="px-8 py-6 border-b border-border bg-card">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-2xl font-bold text-slate-800 mb-1">
+                  <h2 className="text-2xl font-bold text-foreground mb-1">
                     📄 Contract Details
                   </h2>
-                  <p className="text-slate-500 text-sm"></p>
+                  <p className="text-muted-foreground text-sm"></p>
                 </div>
                 <button 
                   onClick={closeModal} 
-                  className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-muted-foreground transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -3068,28 +3075,28 @@ function ContractEditorPageContent() {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-8 bg-slate-50">
+            <div className="flex-1 overflow-y-auto p-8 bg-muted">
               {loadingContractDetails ? (
                 <div className="flex flex-col items-center justify-center py-20">
-                  <Loader2 className="w-8 h-8 text-slate-400 animate-spin mb-3" />
-                  <div className="text-slate-500">Loading...</div>
+                  <Loader2 className="w-8 h-8 text-muted-foreground animate-spin mb-3" />
+                  <div className="text-muted-foreground">Loading...</div>
                 </div>
               ) : fullContractDetails ? (
                 <div className="space-y-6">
 
                   {/* General Information */}
-                  <div className="bg-white rounded-lg border border-slate-200">
-                    <div className="px-6 py-4 border-b border-slate-200">
-                      <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2"><FileText size={20} className="text-slate-500" /> General Information</h3>
+                  <div className="bg-card rounded-lg border border-border">
+                    <div className="px-6 py-4 border-b border-border">
+                      <h3 className="text-lg font-semibold text-foreground flex items-center gap-2"><FileText size={20} className="text-muted-foreground" /> General Information</h3>
                     </div>
                     <div className="p-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Contract No.</span>
-                          <span className="text-base font-semibold text-slate-800">{fullContractDetails.contract_id}</span>
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">Contract No.</span>
+                          <span className="text-base font-semibold text-foreground">{fullContractDetails.contract_id}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Status</span>
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1"> Status</span>
                           <span className="inline-block mt-1">
                             {contractListBadgeKey(currentContract) === 'renew' ? (
                               <span
@@ -3120,7 +3127,7 @@ function ContractEditorPageContent() {
                                 )}
                                 {(currentContract.contractStatus === 'not_renewing' ||
                                   currentContract.status === 'closed') && (
-                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium border border-slate-200">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted text-muted-foreground text-sm font-medium border border-border">
                                     <Ban className="w-3.5 h-3.5" />
                                     Terminated
                                   </span>
@@ -3130,48 +3137,48 @@ function ContractEditorPageContent() {
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Contract Name</span>
-                          <span className="text-base text-slate-700">{fullContractDetails.contract_name || '—'}</span>
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">Contract Name</span>
+                          <span className="text-base text-muted-foreground">{fullContractDetails.contract_name || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> SOF</span>
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1"> SOF</span>
                           <span className="text-base text-blue-600 font-medium">{fullContractDetails.sof_name || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Sale Account</span>
-                          <span className="text-base text-slate-700 whitespace-pre-line">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1"> Sale Account</span>
+                          <span className="text-base text-muted-foreground whitespace-pre-line">
                             {fullContractDetails.sale_account || '—'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">
                             Sale Email
                           </span>
-                          <span className="text-base text-slate-700 whitespace-pre-line">
+                          <span className="text-base text-muted-foreground whitespace-pre-line">
                             {fullContractDetails.email_acc || '—'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">
                             Sale Telephone
                           </span>
-                          <span className="text-base text-slate-700 whitespace-pre-line">
+                          <span className="text-base text-muted-foreground whitespace-pre-line">
                             {fullContractDetails.tel_acc || '—'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Assigned Service</span>
-                          <span className="text-base text-slate-700">{fullContractDetails.Assigned_Service || '—'}</span>
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1"> Assigned Service</span>
+                          <span className="text-base text-muted-foreground">{fullContractDetails.Assigned_Service || '—'}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> SLA Term</span>
-                          <span className="text-base font-semibold text-slate-800">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1"> SLA Term</span>
+                          <span className="text-base font-semibold text-foreground">
                             {fullContractDetails.sla_term != null ? `${fullContractDetails.sla_term}%` : '—'}
                           </span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> PM Time Per Year</span>
-                          <span className="text-base text-slate-700">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1"> PM Time Per Year</span>
+                          <span className="text-base text-muted-foreground">
                             {fullContractDetails.pm_time_per_year != null ? `${fullContractDetails.pm_time_per_year} times/year` : '—'}
                           </span>
                         </div>
@@ -3179,20 +3186,20 @@ function ContractEditorPageContent() {
                       </div>
 
                       {/* ประวัติ SOF จาก contract_history — กรองเฉพาะ contract_id เดียวกับสัญญา; คลิกเปิดรายละเอียด snapshot */}
-                      <div className="mt-6 pt-6 border-t border-slate-200">
+                      <div className="mt-6 pt-6 border-t border-border">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
-                          <History className="w-4 h-4 text-slate-500 shrink-0" />
-                          <span className="text-sm font-semibold text-slate-800">Contract history</span>
-                          <span className="text-xs text-slate-500">
+                          <History className="w-4 h-4 text-muted-foreground shrink-0" />
+                          <span className="text-sm font-semibold text-foreground">Contract history</span>
+                          <span className="text-xs text-muted-foreground">
                             contract_id {fullContractDetails.contract_id} 
                           </span>
                         </div>
                         {detailModalHistoryRows.length === 0 ? (
-                          <p className="text-sm text-slate-500">
+                          <p className="text-sm text-muted-foreground">
                             ยังไม่มีประวัติ — ระบบบันทึกเมื่อ{' '}
-                            <span className="font-medium text-slate-600">เปลี่ยนเลข SOF</span>,{' '}
-                            <span className="font-medium text-slate-600">ต่อสัญญา (Renew)</span> หรือ{' '}
-                            <span className="font-medium text-slate-600">ไม่ต่อสัญญา (Do not renew)</span>
+                            <span className="font-medium text-muted-foreground">เปลี่ยนเลข SOF</span>,{' '}
+                            <span className="font-medium text-muted-foreground">ต่อสัญญา (Renew)</span> หรือ{' '}
+                            <span className="font-medium text-muted-foreground">ไม่ต่อสัญญา (Do not renew)</span>
                           </p>
                         ) : (
                           <ul className="space-y-2">
@@ -3220,32 +3227,32 @@ function ContractEditorPageContent() {
                                     className={`w-full flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
                                       activeSnap
                                         ? 'border-blue-300 bg-blue-50/70 cursor-default'
-                                        : 'border-slate-200 bg-white hover:border-blue-400 hover:bg-slate-50 cursor-pointer'
+                                        : 'border-border bg-card hover:border-blue-400 hover:bg-muted cursor-pointer'
                                     }`}
                                   >
-                                    <Clock className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                                    <Clock className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                                     <div className="flex-1 min-w-0">
-                                      <div className="text-xs text-slate-500 mb-1">
+                                      <div className="text-xs text-muted-foreground mb-1">
                                         {when ? formatDateThai(String(when)) : '—'}
                                       </div>
-                                      <div className="text-sm text-slate-800">
-                                        <span className="text-slate-500">Old SOF</span>{' '}
-                                        <span className="font-medium text-slate-900">{oldS}</span>
-                                        <span className="text-slate-400 mx-1.5">→</span>
-                                        <span className="text-slate-500">New SOF</span>{' '}
+                                      <div className="text-sm text-foreground">
+                                        <span className="text-muted-foreground">Old SOF</span>{' '}
+                                        <span className="font-medium text-foreground">{oldS}</span>
+                                        <span className="text-muted-foreground mx-1.5">→</span>
+                                        <span className="text-muted-foreground">New SOF</span>{' '}
                                         <span className="font-medium text-blue-700">{newS}</span>
                                       </div>
                                       {st ? (
-                                        <div className="mt-1 text-xs text-slate-600">Status: {st}</div>
+                                        <div className="mt-1 text-xs text-muted-foreground">Status: {st}</div>
                                       ) : null}
                                       {terminateReason ? (
-                                        <div className="mt-1 text-xs text-slate-600">
+                                        <div className="mt-1 text-xs text-muted-foreground">
                                           Reason: {terminateReason}
                                         </div>
                                       ) : null}
                                     </div>
                                     {!activeSnap ? (
-                                      <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" aria-hidden />
+                                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" aria-hidden />
                                     ) : null}
                                   </button>
                                 </li>
@@ -3258,29 +3265,29 @@ function ContractEditorPageContent() {
                   </div>
 
                   {/* Duration & Value */}
-                  <div className="bg-white rounded-lg border border-slate-200">
-                    <div className="px-6 py-4 border-b border-slate-200">
-                      <h3 className="text-lg font-semibold text-slate-800">Duration</h3>
+                  <div className="bg-card rounded-lg border border-border">
+                    <div className="px-6 py-4 border-b border-border">
+                      <h3 className="text-lg font-semibold text-foreground">Duration</h3>
                     </div>
                     <div className="p-6">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Start Date</span>
-                          <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.start_date)}</span>
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">Start Date</span>
+                          <span className="text-base text-muted-foreground">{formatDateThai(fullContractDetails.start_date)}</span>
                         </div>
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> End Date</span>
-                          <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.end_date)}</span>
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1"> End Date</span>
+                          <span className="text-base text-muted-foreground">{formatDateThai(fullContractDetails.end_date)}</span>
                         </div>
                         {fullContractDetails.contract_sign_date && (
                           <div>
-                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Contract Sign Date</span>
-                            <span className="text-base text-slate-700">{formatDateThai(fullContractDetails.contract_sign_date)}</span>
+                            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">Contract Sign Date</span>
+                            <span className="text-base text-muted-foreground">{formatDateThai(fullContractDetails.contract_sign_date)}</span>
                           </div>
                         )}
                         <div>
-                          <span className="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1"> Remaining Period</span>
-                          <span className="text-base text-slate-700">
+                          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1"> Remaining Period</span>
+                          <span className="text-base text-muted-foreground">
                             {fullContractDetails.end_date ? calculateRemainingDays(fullContractDetails.end_date) : '—'}
                           </span>
                         </div>
@@ -3312,42 +3319,42 @@ function ContractEditorPageContent() {
                         <div>
                           <div className="max-h-96 overflow-y-auto">
                             <table className="w-full text-sm">
-                              <thead className="bg-slate-50 sticky top-0">
+                              <thead className="bg-muted sticky top-0">
                                 <tr>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">#</th>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Equipment Name</th>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Asset Number</th>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Serial</th>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Site</th>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Type</th>
-                                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Role</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">#</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Equipment Name</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Asset Number</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Serial</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Site</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Type</th>
+                                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Role</th>
                                   {!isRenewOrTerminatedDetail ? (
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Status</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">Status</th>
                                   ) : null}
                                 </tr>
                               </thead>
                               <tbody>
                                 {sliced.map((device, idx) => (
-                                  <tr key={device.Did} className="border-b border-slate-100 hover:bg-slate-50">
-                                    <td className="px-4 py-3 text-slate-500">{start + idx + 1}</td>
-                                    <td className="px-4 py-3 font-medium text-slate-700">{device.CI_Name || '—'}</td>
-                                    <td className="px-4 py-3 text-slate-600">{device.Asset_Number || '—'}</td>
-                                    <td className="px-4 py-3 text-slate-600 font-mono text-xs">{device.serial || '—'}</td>
-                                    <td className="px-4 py-3 text-slate-600">
+                                  <tr key={device.Did} className="border-b border-border hover:bg-muted">
+                                    <td className="px-4 py-3 text-muted-foreground">{start + idx + 1}</td>
+                                    <td className="px-4 py-3 font-medium text-muted-foreground">{device.CI_Name || '—'}</td>
+                                    <td className="px-4 py-3 text-muted-foreground">{device.Asset_Number || '—'}</td>
+                                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{device.serial || '—'}</td>
+                                    <td className="px-4 py-3 text-muted-foreground">
                                       {device.SiteName ? `${device.SiteName}${device.Location2 ? ` – ${device.Location2}` : ''}` : '—'}
                                     </td>
-                                    <td className="px-4 py-3 text-slate-600">{device.type_name || '—'}</td>
+                                    <td className="px-4 py-3 text-muted-foreground">{device.type_name || '—'}</td>
                                     <td className="px-4 py-3">
                                       {device.roleName ? (
                                         <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-xs font-medium text-blue-700 border border-blue-200">
                                           {device.roleName}
                                         </span>
                                       ) : (
-                                        <span className="text-xs text-slate-400">—</span>
+                                        <span className="text-xs text-muted-foreground">—</span>
                                       )}
                                     </td>
                                     {!isRenewOrTerminatedDetail ? (
-                                      <td className="px-4 py-3 text-slate-600 text-xs">{device.Asset_State || '—'}</td>
+                                      <td className="px-4 py-3 text-muted-foreground text-xs">{device.Asset_State || '—'}</td>
                                     ) : null}
                                   </tr>
                                 ))}
@@ -3355,8 +3362,8 @@ function ContractEditorPageContent() {
                             </table>
                           </div>
                           {total > EQUIPMENT_PAGE_SIZE && (
-                            <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50">
-                              <span className="text-xs text-slate-600">
+                            <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted">
+                              <span className="text-xs text-muted-foreground">
                                 Show {start + 1}–{start + sliced.length} from {total} list
                               </span>
                               <div className="flex items-center gap-2">
@@ -3364,7 +3371,7 @@ function ContractEditorPageContent() {
                                   type="button"
                                   onClick={() => setDetailEquipmentPage((p) => Math.max(0, p - 1))}
                                   disabled={page <= 0}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   <ChevronLeft size={14} /> Previous page
                                 </button>
@@ -3372,7 +3379,7 @@ function ContractEditorPageContent() {
                                   type="button"
                                   onClick={() => setDetailEquipmentPage((p) => Math.min(maxPage, p + 1))}
                                   disabled={page >= maxPage}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   Next page <ChevronRight size={14} />
                                 </button>
@@ -3389,22 +3396,22 @@ function ContractEditorPageContent() {
                           ? formatSitePillLabel(sites[0], fullContractDetails)
                           : 'Equipment in Contract';
                       return (
-                        <div className="bg-white rounded-lg border border-slate-200">
-                          <div className="px-6 py-4 border-b border-slate-200">
-                            <h3 className="text-lg font-semibold text-slate-800">
+                        <div className="bg-card rounded-lg border border-border">
+                          <div className="px-6 py-4 border-b border-border">
+                            <h3 className="text-lg font-semibold text-foreground">
                               {isRenewOrTerminatedDetail ? (
                                 <span className="flex items-center gap-1.5">
-                                  <Wrench size={16} className="text-slate-500 flex-shrink-0" aria-hidden />
+                                  <Wrench size={16} className="text-muted-foreground flex-shrink-0" aria-hidden />
                                   Devices in contract
                                 </span>
                               ) : sites.length === 1 ? (
                                 <span className="flex items-center gap-1">
-                                  <MapPin size={14} className="text-slate-500 flex-shrink-0" aria-hidden /> {siteLabel}
+                                  <MapPin size={14} className="text-muted-foreground flex-shrink-0" aria-hidden /> {siteLabel}
                                 </span>
                               ) : (
                                 'Equipment in Contract'
                               )}
-                              <span className="ml-2 text-sm font-normal text-slate-500">({devices.length} items)</span>
+                              <span className="ml-2 text-sm font-normal text-muted-foreground">({devices.length} items)</span>
                             </h3>
                           </div>
                           {renderDeviceTable(devices)}
@@ -3438,12 +3445,12 @@ function ContractEditorPageContent() {
                       detailSitePickItems.find((i) => i.value === selectedDetailSiteValueStr)?.label ?? '';
 
                     return (
-                      <div className="bg-white rounded-lg border border-slate-200">
-                        <div className="px-6 py-4 border-b border-slate-200">
-                          <h3 className="text-lg font-semibold text-slate-800 mb-3">
+                      <div className="bg-card rounded-lg border border-border">
+                        <div className="px-6 py-4 border-b border-border">
+                          <h3 className="text-lg font-semibold text-foreground mb-3">
                             {isRenewOrTerminatedDetail ? (
                               <span className="inline-flex items-center gap-1.5">
-                                <Wrench size={16} className="text-slate-500 flex-shrink-0" aria-hidden />
+                                <Wrench size={16} className="text-muted-foreground flex-shrink-0" aria-hidden />
                                 Devices in contract
                               </span>
                             ) : (
@@ -3451,7 +3458,7 @@ function ContractEditorPageContent() {
                             )}
                           </h3>
                           <div className="w-full min-w-0">
-                            <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                            <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                               View by site
                             </span>
                             <ContractSimpleSearchListDropdown
@@ -3490,12 +3497,12 @@ function ContractEditorPageContent() {
 
                   {/* Coverage Scope */}
                   {fullContractDetails.coverage_scope && (
-                    <div className="bg-white rounded-lg border border-slate-200">
-                      <div className="px-6 py-4 border-b border-slate-200">
-                        <h3 className="text-lg font-semibold text-slate-800">📋 Coverage Scope</h3>
+                    <div className="bg-card rounded-lg border border-border">
+                      <div className="px-6 py-4 border-b border-border">
+                        <h3 className="text-lg font-semibold text-foreground">📋 Coverage Scope</h3>
                       </div>
                       <div className="p-6">
-                        <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                        <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
                           {fullContractDetails.coverage_scope}
                         </div>
                       </div>
@@ -3504,12 +3511,12 @@ function ContractEditorPageContent() {
 
                   {/* Remark */}
                   {fullContractDetails.remark && (
-                    <div className="bg-white rounded-lg border border-slate-200">
-                      <div className="px-6 py-4 border-b border-slate-200">
-                        <h3 className="text-lg font-semibold text-slate-800">📝 Remarks</h3>
+                    <div className="bg-card rounded-lg border border-border">
+                      <div className="px-6 py-4 border-b border-border">
+                        <h3 className="text-lg font-semibold text-foreground">📝 Remarks</h3>
                       </div>
                       <div className="p-6">
-                        <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                        <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
                           {fullContractDetails.remark}
                         </div>
                       </div>
@@ -3518,9 +3525,9 @@ function ContractEditorPageContent() {
 
                   {/* Files */}
                   {(fullContractDetails.file_paths || fullContractDetails.image_paths) && (
-                    <div className="bg-white rounded-lg border border-slate-200">
-                      <div className="px-6 py-4 border-b border-slate-200">
-                        <h3 className="text-lg font-semibold text-slate-800">📎 Attachments</h3>
+                    <div className="bg-card rounded-lg border border-border">
+                      <div className="px-6 py-4 border-b border-border">
+                        <h3 className="text-lg font-semibold text-foreground">📎 Attachments</h3>
                       </div>
                       <div className="p-6 space-y-4">
                         {fullContractDetails.file_paths && (() => {
@@ -3528,7 +3535,7 @@ function ContractEditorPageContent() {
                             const files = JSON.parse(fullContractDetails.file_paths);
                             return Array.isArray(files) && files.length > 0 ? (
                               <div>
-                                <h4 className="text-sm font-medium text-slate-600 mb-3">📄 Documents ({files.length} files)</h4>
+                                <h4 className="text-sm font-medium text-muted-foreground mb-3">📄 Documents ({files.length} files)</h4>
                                 <div className="space-y-2">
                                   {files.map((file: string, idx: number) => (
                                     <a 
@@ -3536,9 +3543,9 @@ function ContractEditorPageContent() {
                                       href={file} 
                                       target="_blank" 
                                       rel="noopener noreferrer"
-                                      className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                                      className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted hover:border-border transition-colors"
                                     >
-                                      <FileIcon className="w-4 h-4 text-slate-400" />
+                                      <FileIcon className="w-4 h-4 text-muted-foreground" />
                                       <span className="text-sm text-blue-600 flex-1 truncate hover:underline">
                                         {file.split('/').pop() || file}
                                       </span>
@@ -3556,7 +3563,7 @@ function ContractEditorPageContent() {
                             const images = JSON.parse(fullContractDetails.image_paths);
                             return Array.isArray(images) && images.length > 0 ? (
                               <div>
-                                <h4 className="text-sm font-medium text-slate-600 mb-3">🖼️ Images ({images.length} files)</h4>
+                                <h4 className="text-sm font-medium text-muted-foreground mb-3">🖼️ Images ({images.length} files)</h4>
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                                   {images.map((image: string, idx: number) => (
                                     <a 
@@ -3564,7 +3571,7 @@ function ContractEditorPageContent() {
                                       href={image} 
                                       target="_blank" 
                                       rel="noopener noreferrer"
-                                      className="rounded-lg border border-slate-200 overflow-hidden hover:border-slate-300 transition-colors"
+                                      className="rounded-lg border border-border overflow-hidden hover:border-border transition-colors"
                                     >
                                       <img src={image} alt={`Image ${idx + 1}`} className="w-full h-auto" />
                                     </a>
@@ -3583,20 +3590,20 @@ function ContractEditorPageContent() {
 
                 </div>
               ) : (
-                <div className="bg-white rounded-lg border border-slate-200 p-12">
+                <div className="bg-card rounded-lg border border-border p-12">
                   <div className="text-center py-8">
-                    <AlertCircle className="w-10 h-10 text-slate-400 mx-auto mb-3" />
-                    <div className="text-slate-600">Failed to load contract data</div>
+                    <AlertCircle className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+                    <div className="text-muted-foreground">Failed to load contract data</div>
                   </div>
                 </div>
               )}
             </div>
 
             {/* Footer */}
-            <div className="bg-white border-t border-slate-200 px-8 py-6 flex gap-4">
+            <div className="bg-card border-t border-border px-8 py-6 flex gap-4">
               <button
                 onClick={closeModal}
-                className="flex-1 py-3 px-6 bg-white text-slate-700 border border-slate-300 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors"
+                className="flex-1 py-3 px-6 bg-card text-muted-foreground border border-border rounded-lg font-medium text-sm hover:bg-muted transition-colors"
               >
                 Close
               </button>
@@ -3616,7 +3623,7 @@ function ContractEditorPageContent() {
                   }
                   className={`flex-1 py-3 px-6 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2 ${
                     contractListDisablesEdit(currentContract)
-                      ? 'cursor-not-allowed bg-slate-300 text-slate-500'
+                      ? 'cursor-not-allowed bg-slate-300 text-muted-foreground'
                       : 'bg-blue-600 text-white hover:bg-blue-700'
                   }`}
                 >
@@ -3632,18 +3639,18 @@ function ContractEditorPageContent() {
       {/* Equipment Modal */}
       {showEquipmentModal && (
         <Modal onClose={closeModal}>
-          <div className="bg-white rounded-[2rem] p-10 max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-200">
-              <h2 className=" text-3xl text-slate-800">
+          <div className="bg-card rounded-[2rem] p-10 max-w-[600px] w-[90%] max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-8 pb-4 border-b border-border">
+              <h2 className=" text-3xl text-foreground">
                 {editingEquipmentIndex !== null ? 'Edit Equipment' : 'Add Equipment'}
               </h2>
-              <button onClick={closeModal} className="text-2xl cursor-pointer text-slate-500 hover:text-blue-600 transition-colors duration-300 p-2">
+              <button onClick={closeModal} className="text-2xl cursor-pointer text-muted-foreground hover:text-blue-600 transition-colors duration-300 p-2">
                 ✕
               </button>
             </div>
             <form onSubmit={handleEquipmentSubmit}>
               <div className="mb-6">
-                <label htmlFor="equipmentName" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="equipmentName" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Equipment Name *
                 </label>
                 <input
@@ -3653,11 +3660,11 @@ function ContractEditorPageContent() {
                   placeholder="e.g. Air conditioner, Water pump"
                   value={equipmentForm.name}
                   onChange={(e) => setEquipmentForm({ ...equipmentForm, name: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
               <div className="mb-6">
-                <label htmlFor="equipmentModel" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="equipmentModel" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Model
                 </label>
                 <input
@@ -3666,11 +3673,11 @@ function ContractEditorPageContent() {
                   placeholder="Enter equipment model"
                   value={equipmentForm.model}
                   onChange={(e) => setEquipmentForm({ ...equipmentForm, model: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
               <div className="mb-6">
-                <label htmlFor="equipmentSerial" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="equipmentSerial" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Serial Number
                 </label>
                 <input
@@ -3679,11 +3686,11 @@ function ContractEditorPageContent() {
                   placeholder="Enter Serial Number"
                   value={equipmentForm.serial}
                   onChange={(e) => setEquipmentForm({ ...equipmentForm, serial: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
               <div className="mb-6">
-                <label htmlFor="equipmentLocation" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="equipmentLocation" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Installation Location
                 </label>
                 <input
@@ -3692,11 +3699,11 @@ function ContractEditorPageContent() {
                   placeholder="e.g. Building A, 3rd Floor"
                   value={equipmentForm.location}
                   onChange={(e) => setEquipmentForm({ ...equipmentForm, location: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                 />
               </div>
               <div className="mb-6">
-                <label htmlFor="equipmentNotes" className="block mb-2 text-slate-700 font-semibold text-sm">
+                <label htmlFor="equipmentNotes" className="block mb-2 text-muted-foreground font-semibold text-sm">
                   Remarks
                 </label>
                 <textarea
@@ -3704,14 +3711,14 @@ function ContractEditorPageContent() {
                   placeholder="Additional equipment details"
                   value={equipmentForm.notes}
                   onChange={(e) => setEquipmentForm({ ...equipmentForm, notes: e.target.value })}
-                  className="w-full py-3 px-4 border border-slate-200 rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[100px] resize-y"
+                  className="w-full py-3 px-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 min-h-[100px] resize-y"
                 />
               </div>
-              <div className="flex gap-4 mt-8 pt-6 border-t border-slate-200">
+              <div className="flex gap-4 mt-8 pt-6 border-t border-border">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 py-3.5 px-8 bg-transparent text-slate-700 border border-slate-200 rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
+                  className="flex-1 py-3.5 px-8 bg-transparent text-muted-foreground border border-border rounded-lg font-semibold text-base cursor-pointer transition-all duration-300 hover:border-blue-500 hover:text-blue-600"
                 >
                   Cancel
                 </button>
@@ -3730,9 +3737,9 @@ function ContractEditorPageContent() {
       {/* Assign Devices to Site Modal */}
       {showAssignSiteModal && (
         <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <div className="bg-card rounded-2xl shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                 <MapPin size={22} className="text-amber-500" />
                 Assign the device to Site
               </h3>
@@ -3740,7 +3747,7 @@ function ContractEditorPageContent() {
                 type="button"
                 onClick={() => !assignModalSubmitting && setShowAssignSiteModal(false)}
                 disabled={assignModalSubmitting}
-                className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                className="p-2 rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-50"
               >
                 <X size={20} />
               </button>
@@ -3751,13 +3758,13 @@ function ContractEditorPageContent() {
                   <Loader2 size={32} className="animate-spin text-blue-500" />
                 </div>
               ) : !fullContractDetails?.devices || fullContractDetails.devices.length === 0 ? (
-                <div className="py-12 text-center text-slate-500">
+                <div className="py-12 text-center text-muted-foreground">
                   This contract has no devices
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="relative mb-3">
-                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
                       placeholder="Search for devices (Name, Asset Number, Serial, SLid, Site...)"
@@ -3767,11 +3774,11 @@ function ContractEditorPageContent() {
                       w-full
                       pl-10 pr-4 py-2.5
                       rounded-xl
-                      border border-gray-300
-                      text-sm text-gray-900
+                      border border-border
+                      text-sm text-foreground
                       placeholder-gray-400
                       focus:ring-2 focus:ring-gray-300
-                      focus:border-gray-500
+                      focus:border-border0
                       outline-none
                     "
                     />
@@ -3904,7 +3911,7 @@ function ContractEditorPageContent() {
                   <>
                   {showSitePills && (
                     <div className="mb-4 w-full min-w-0">
-                      <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      <span className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         View by site
                       </span>
                       <ContractSimpleSearchListDropdown
@@ -3946,7 +3953,7 @@ function ContractEditorPageContent() {
                       />
                     </div>
                   )}
-                  <p className="text-sm text-slate-600 mb-2">
+                  <p className="text-sm text-muted-foreground mb-2">
                     Select Devices
                   </p>
                   <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -3957,23 +3964,23 @@ function ContractEditorPageContent() {
                     >
                       Select All
                     </button>
-                    <span className="text-slate-300">|</span>
+                    <span className="text-muted-foreground/60">|</span>
                     <button
                       type="button"
                       onClick={() => setAssignDeviceSelected(new Set())}
-                      className="text-xs font-medium text-slate-500 hover:text-slate-700 hover:underline"
+                      className="text-xs font-medium text-muted-foreground hover:text-muted-foreground hover:underline"
                     >
                       Deselect All
                     </button>
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-muted-foreground">
                       ({selectedCount} selected{filteredDevices.length < allDevices.length ? ` • Showing ${filteredDevices.length}/${allDevices.length}` : ''})
                     </span>
                   </div>
           
-                  <div className="rounded-xl border border-slate-200">
+                  <div className="rounded-xl border border-border">
                     <table className="w-full text-sm">
                       <thead>
-                        <tr className="bg-slate-50 border-b border-slate-200">
+                        <tr className="bg-muted border-b border-border">
                           <th className="px-3 py-2 text-left w-10">
                             <input
                               type="checkbox"
@@ -3993,12 +4000,12 @@ function ContractEditorPageContent() {
                                   });
                                 }
                               }}
-                              className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                              className="rounded border-border text-amber-500 focus:ring-amber-500"
                             />
                           </th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[180px]">Device</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[160px]">Current Status</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700 min-w-[260px]">
+                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[180px]">Device</th>
+                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[160px]">Current Status</th>
+                          <th className="px-3 py-2 text-left font-semibold text-muted-foreground min-w-[260px]">
                             Target Site
                           </th>
                         </tr>
@@ -4044,7 +4051,7 @@ function ContractEditorPageContent() {
                             assignRowPicker?.did === didStr && assignRowPicker?.kind === 'loc';
                           const rowAssignRaiseZ = sitePickerOpen || locPickerOpen;
                           return (
-                            <tr key={device.Did} className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/50 ${!isSelected ? 'opacity-60' : ''}`}>
+                            <tr key={device.Did} className={`border-b border-border last:border-0 hover:bg-muted/50 ${!isSelected ? 'opacity-60' : ''}`}>
                               <td className="px-3 py-2">
                                 <input
                                   type="checkbox"
@@ -4058,10 +4065,10 @@ function ContractEditorPageContent() {
                                       return next;
                                     });
                                   }}
-                                  className="rounded border-slate-300 text-amber-500 focus:ring-amber-500"
+                                  className="rounded border-border text-amber-500 focus:ring-amber-500"
                                 />
                               </td>
-                              <td className="px-3 py-2 font-medium text-slate-800 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{deviceLabel}</td>
+                              <td className="px-3 py-2 font-medium text-foreground break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>{deviceLabel}</td>
                               <td className="px-3 py-2">
                                 {statusLabel ? (
                                   isDeviceSlidMatchesContractDevice ? (
@@ -4070,12 +4077,12 @@ function ContractEditorPageContent() {
                                       {statusLabel}
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 border border-slate-200 break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-muted px-2 py-1 text-xs font-medium text-muted-foreground border border-border break-words" style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                       {statusLabel}
                                     </span>
                                   )
                                 ) : (
-                                  <span className="text-slate-500 text-xs">Not assigned</span>
+                                  <span className="text-muted-foreground text-xs">Not assigned</span>
                                 )}
                               </td>
                               <td className="px-3 py-2">
@@ -4169,7 +4176,7 @@ function ContractEditorPageContent() {
                     </table>
                   </div>
                   {filteredDevices.length === 0 && (
-                    <p className="text-sm text-slate-500 text-center py-4">No devices match your search</p>
+                    <p className="text-sm text-muted-foreground text-center py-4">No devices match your search</p>
                   )}
                   </>
                     );
@@ -4178,12 +4185,12 @@ function ContractEditorPageContent() {
               )}
             </div>
             {!assignModalLoading && (
-              <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
+              <div className="flex justify-end gap-3 px-6 py-4 border-t border-border bg-muted">
                 <button
                   type="button"
                   onClick={() => setShowAssignSiteModal(false)}
                   disabled={assignModalSubmitting}
-                  className="px-5 py-2.5 rounded-xl border border-slate-200 bg-white font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  className="px-5 py-2.5 rounded-xl border border-border bg-card font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
                 >
                   {fullContractDetails?.devices && fullContractDetails.devices.length > 0 ? 'Cancel' : 'Close'}
                 </button>
@@ -4222,22 +4229,22 @@ function ContractEditorPageContent() {
           }}
         >
           <div
-            className="bg-white w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
+            className="bg-card w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
               <div className="flex items-center gap-3">
                 <FileSpreadsheet size={24} className="text-blue-600" />
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Export Contracts</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <h3 className="text-lg font-bold text-foreground">Export Contracts</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Select contracts to export to Excel (based on current filter: {activeFilter}{searchTerm ? ` · "${searchTerm}"` : ''})
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsExportContractModalOpen(false)}
-                className="p-1.5 bg-white rounded-full hover:bg-slate-100 transition-colors"
+                className="p-1.5 bg-card rounded-full hover:bg-muted transition-colors"
               >
                 <X size={18} />
               </button>
@@ -4248,21 +4255,21 @@ function ContractEditorPageContent() {
 
               <div className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[180px]">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Search</label>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Search</label>
                   <div className="relative">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
                       value={exportModalSearch}
                       onChange={(e) => setExportModalSearch(e.target.value)}
                       placeholder="Search contract..."
-                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                      className="w-full rounded-lg border border-border bg-card py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                     />
                     {exportModalSearch && (
                       <button
                         type="button"
                         onClick={() => setExportModalSearch('')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 flex h-4 w-4 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-red-50 hover:text-red-600"
                         title="Clear"
                       >
                         <X size={12} />
@@ -4271,12 +4278,12 @@ function ContractEditorPageContent() {
                   </div>
                 </div>
                 <div className="w-full sm:w-[250px]">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Site</label>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Site</label>
                   <div className="relative">
                     <select
                       value={exportModalSiteFilter}
                       onChange={(e) => setExportModalSiteFilter(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                      className="w-full rounded-lg border border-border bg-card py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                     >
                       <option value="">All sites</option>
                       {exportModalSiteOptions.filter(Boolean).map((s) => (
@@ -4287,7 +4294,7 @@ function ContractEditorPageContent() {
                       <button
                         type="button"
                         onClick={() => setExportModalSiteFilter('')}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-red-50 hover:text-red-600"
                         title="Clear"
                       >
                         <X size={14} />
@@ -4296,12 +4303,12 @@ function ContractEditorPageContent() {
                   </div>
                 </div>
                 <div className="w-full sm:w-[250px]">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 mb-1">Location</label>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Location</label>
                   <div className="relative">
                     <select
                       value={exportModalLocationFilter}
                       onChange={(e) => setExportModalLocationFilter(e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                      className="w-full rounded-lg border border-border bg-card py-2 pl-3 pr-8 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                     >
                       <option value="">All locations</option>
                       {exportModalLocationOptions.filter(Boolean).map((loc) => (
@@ -4312,7 +4319,7 @@ function ContractEditorPageContent() {
                       <button
                         type="button"
                         onClick={() => setExportModalLocationFilter('')}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-red-50 hover:text-red-600"
                         title="Clear"
                       >
                         <X size={14} />
@@ -4322,56 +4329,56 @@ function ContractEditorPageContent() {
                 </div>
               </div>
 
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="border border-border rounded-lg overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm min-w-full">
-                    <thead className="bg-slate-100 sticky top-0">
+                    <thead className="bg-muted sticky top-0">
                       <tr>
                         <th className="px-3 py-2.5 text-left w-10">
                           <input
                             type="checkbox"
                             checked={exportModalAllPageSelected}
                             onChange={(e) => toggleExportContractPage(e.target.checked)}
-                            className="rounded border-slate-300"
+                            className="rounded border-border"
                           />
                         </th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Contract Name</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Site</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Location</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">SOF</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">Start Date</th>
-                        <th className="px-3 py-2.5 text-left font-semibold text-slate-700">End Date</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Contract Name</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Site</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Location</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">SOF</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Start Date</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">End Date</th>
                       </tr>
                     </thead>
                     <tbody>
                       {exportModalPageItems.map((c) => (
-                        <tr key={c.id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <tr key={c.id} className="border-t border-border hover:bg-muted">
                           <td className="px-3 py-2">
                             <input
                               type="checkbox"
                               checked={exportContractSelected.has(c.id)}
                               onChange={() => toggleExportContract(c.id)}
-                              className="rounded border-slate-300"
+                              className="rounded border-border"
                             />
                           </td>
-                          <td className="px-3 py-2 font-medium text-slate-800">{c.name}</td>
-                          <td className="px-3 py-2 text-slate-600">{c.contractSiteName?.trim() ? c.contractSiteName : '—'}</td>
-                          <td className="px-3 py-2 text-slate-600">
+                          <td className="px-3 py-2 font-medium text-foreground">{c.name}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{c.contractSiteName?.trim() ? c.contractSiteName : '—'}</td>
+                          <td className="px-3 py-2 text-muted-foreground">
                             {c.contractSiteLocation?.trim() ? c.contractSiteLocation : '—'}
                           </td>
-                          <td className="px-3 py-2 text-slate-600 whitespace-nowrap">
+                          <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                             {c.sofName && String(c.sofName).trim() ? c.sofName : '—'}
                           </td>
-                          <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateForExport(c.startDate)}</td>
-                          <td className="px-3 py-2 whitespace-nowrap text-slate-600">{formatDateForExport(c.endDate)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDateForExport(c.startDate)}</td>
+                          <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatDateForExport(c.endDate)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               </div>
-              <div className="flex items-center justify-between gap-3 flex-wrap text-sm text-slate-600">
-                <span className="text-sm text-slate-600">
+              <div className="flex items-center justify-between gap-3 flex-wrap text-sm text-muted-foreground">
+                <span className="text-sm text-muted-foreground">
                   {exportModalSelectedCount} of {exportModalTotal} selected
                 </span>
                 <div className="flex items-center gap-2">
@@ -4379,31 +4386,31 @@ function ContractEditorPageContent() {
                     type="button"
                     onClick={() => setExportModalPage((p) => Math.max(1, p - 1))}
                     disabled={exportModalCurrentPage <= 1}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ChevronLeft size={16} /> Previous page
                   </button>
-                  <span className="text-sm text-slate-600">Page {exportModalCurrentPage} / {exportModalTotalPages}</span>
+                  <span className="text-sm text-muted-foreground">Page {exportModalCurrentPage} / {exportModalTotalPages}</span>
                   <button
                     type="button"
                     onClick={() => setExportModalPage((p) => Math.min(exportModalTotalPages, p + 1))}
                     disabled={exportModalCurrentPage >= exportModalTotalPages}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next page <ChevronRight size={16} />
                   </button>
                 </div>
               </div>
               {exportModalTotal === 0 && (
-                <p className="text-sm text-slate-500 text-center py-6">No contracts match the current filter. Change filter or search and try again.</p>
+                <p className="text-sm text-muted-foreground text-center py-6">No contracts match the current filter. Change filter or search and try again.</p>
               )}
             </div>
 
-            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-slate-50">
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-muted">
               <button
                 onClick={() => setIsExportContractModalOpen(false)}
                 disabled={isExportingContracts}
-                className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-60"
+                className="px-6 py-2 text-sm font-semibold text-muted-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors disabled:opacity-60"
               >
                 Cancel
               </button>
@@ -4442,15 +4449,15 @@ function ContractEditorPageContent() {
           }}
         >
           <div
-            className="bg-white w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
+            className="bg-card w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-green-50 to-emerald-50">
               <div className="flex items-center gap-3">
                 <FileSpreadsheet size={24} className="text-green-600" />
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Import Contracts from Excel/CSV</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <h3 className="text-lg font-bold text-foreground">Import Contracts from Excel/CSV</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Upload a file to create multiple contracts (Contract Name, SOF, Site, Location, dates, SLA, etc.)
                   </p>
                 </div>
@@ -4461,14 +4468,14 @@ function ContractEditorPageContent() {
                   setImportedContracts([]);
                   setImportContractErrors([]);
                 }}
-                className="p-1.5 bg-white rounded-full hover:bg-slate-100 transition-colors"
+                className="p-1.5 bg-card rounded-full hover:bg-muted transition-colors"
               >
                 <X size={18} />
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-              <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-green-400 transition-colors">
+              <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-green-400 transition-colors">
                 <input
                   ref={importContractFileRef}
                   type="file"
@@ -4485,10 +4492,10 @@ function ContractEditorPageContent() {
                     <Download size={32} className="text-green-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-700">
+                    <p className="text-sm font-semibold text-muted-foreground">
                       {isImportingContract ? 'Parsing file...' : 'Click to upload Excel/CSV file'}
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Supports .xlsx, .xls, and .csv — Required: Contract Name, SOF, Site, Start Date, SLA Term
                     </p>
                   </div>
@@ -4538,26 +4545,26 @@ function ContractEditorPageContent() {
 
               {importedContracts.length > 0 && (
                 <div>
-                  <h4 className="text-xs font-bold text-slate-700 mb-2">
+                  <h4 className="text-xs font-bold text-muted-foreground mb-2">
                     Preview ({importedContracts.length} contract(s) ready to import):
                   </h4>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="border border-border rounded-lg overflow-hidden">
                     <div className="max-h-64 overflow-x-auto overflow-y-auto">
                       <table className="w-full text-xs min-w-full">
-                        <thead className="bg-slate-100 sticky top-0">
+                        <thead className="bg-muted sticky top-0">
                           <tr>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Contract Name</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">SOF</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Site</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Start</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">End</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">SLA</th>
-                            <th className="px-2 py-2 text-left font-semibold text-slate-700">Devices</th>
+                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Contract Name</th>
+                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground">SOF</th>
+                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Site</th>
+                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Start</th>
+                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground">End</th>
+                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground">SLA</th>
+                            <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Devices</th>
                           </tr>
                         </thead>
                         <tbody>
                           {importedContracts.map((row, idx) => (
-                            <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
+                            <tr key={idx} className="border-t border-border hover:bg-muted">
                               <td className="px-2 py-2 min-w-[160px]">{row.contract_name || '—'}</td>
                               <td className="px-2 py-2 whitespace-nowrap">{row.sof_name || '—'}</td>
                               <td className="px-2 py-2 min-w-[120px]">{row.siteName || '—'} {row.location ? `(${row.location})` : ''}</td>
@@ -4577,14 +4584,14 @@ function ContractEditorPageContent() {
               )}
             </div>
 
-            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-slate-50">
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-muted">
               <button
                 onClick={() => {
                   setIsImportContractModalOpen(false);
                   setImportedContracts([]);
                   setImportContractErrors([]);
                 }}
-                className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                className="px-6 py-2 text-sm font-semibold text-muted-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
@@ -4592,7 +4599,7 @@ function ContractEditorPageContent() {
                 type="button"
                 onClick={() => handleBulkCreateContracts(true)}
                 disabled={importedContracts.length === 0 || isImportingContract}
-                className={`px-6 py-2 text-sm font-bold rounded-lg transition-all border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200 ${
+                className={`px-6 py-2 text-sm font-bold rounded-lg transition-all border border-border bg-muted text-muted-foreground hover:bg-muted ${
                   importedContracts.length === 0 || isImportingContract
                     ? 'cursor-not-allowed opacity-60'
                     : ''
@@ -4620,34 +4627,34 @@ function ContractEditorPageContent() {
       {/* Renew Contract Modal */}
       {showRenewModal && renewContractTarget && (
         <Modal onClose={() => { setShowRenewModal(false); setRenewContractTarget(null); }}>
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden">
+          <div className="bg-card w-full max-w-md rounded-2xl shadow-xl overflow-hidden">
             <div className="p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
                   <RefreshCw className="h-6 w-6 text-emerald-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Renew Contract</h3>
-                  <p className="text-sm text-slate-500">Create a new contract based on this one</p>
+                  <h3 className="text-lg font-bold text-foreground">Renew Contract</h3>
+                  <p className="text-sm text-muted-foreground">Create a new contract based on this one</p>
                 </div>
               </div>
-              <div className="mb-5 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <p className="text-xs font-medium text-slate-500 mb-1">Contract</p>
-                <p className="font-semibold text-slate-800 truncate">{renewContractTarget.name}</p>
-                <p className="text-xs text-slate-500 mt-1">
+              <div className="mb-5 p-4 bg-muted rounded-xl border border-border">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Contract</p>
+                <p className="font-semibold text-foreground truncate">{renewContractTarget.name}</p>
+                <p className="text-xs text-muted-foreground mt-1">
                   ID: {contractRowApiId(renewContractTarget)} · {renewContractTarget.partner}
                 </p>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Ends: {renewContractTarget.formattedEndDate || renewContractTarget.endDate}
                 </p>
               </div>
-              <p className="text-sm text-slate-600 mb-5">
+              <p className="text-sm text-muted-foreground mb-5">
                 The system will open the renewal form and pre-fill it with data from this contract. You can then update SOF, dates, and other details.
               </p>
               <div className="flex gap-3 justify-end">
                 <button
                   onClick={() => { setShowRenewModal(false); setRenewContractTarget(null); }}
-                  className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors"
+                  className="px-4 py-2.5 text-sm font-medium text-muted-foreground bg-muted rounded-xl hover:bg-muted transition-colors"
                 >
                   Cancel
                 </button>
@@ -4667,25 +4674,25 @@ function ContractEditorPageContent() {
       {/* Terminate Contract Modal */}
       {showTerminateModal && terminateContractTarget && (
         <Modal onClose={closeTerminateContractModal}>
-          <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden">
+          <div className="bg-card w-full max-w-lg rounded-2xl shadow-xl overflow-hidden">
             <div className="p-6">
               <div className="flex items-center gap-3 mb-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
                   <Ban className="h-6 w-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Terminate Contract</h3>
-                  <p className="text-sm text-slate-500">Status will change from official to terminated</p>
+                  <h3 className="text-lg font-bold text-foreground">Terminate Contract</h3>
+                  <p className="text-sm text-muted-foreground">Status will change from official to terminated</p>
                 </div>
               </div>
-              <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-                <p className="text-xs font-medium text-slate-500 mb-1">Contract</p>
-                <p className="font-semibold text-slate-800 truncate">{terminateContractTarget.name}</p>
-                <p className="text-xs text-slate-500 mt-1">
+              <div className="mb-4 p-4 bg-muted rounded-xl border border-border">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Contract</p>
+                <p className="font-semibold text-foreground truncate">{terminateContractTarget.name}</p>
+                <p className="text-xs text-muted-foreground mt-1">
                   ID: {contractRowApiId(terminateContractTarget)} · {terminateContractTarget.partner}
                 </p>
               </div>
-              <label className="block text-sm font-medium text-slate-700 mb-2" htmlFor="terminate-reason">
+              <label className="block text-sm font-medium text-muted-foreground mb-2" htmlFor="terminate-reason">
                 Reason for termination 
               </label>
               <textarea
@@ -4693,13 +4700,13 @@ function ContractEditorPageContent() {
                 value={terminationReasonInput}
                 onChange={(e) => setTerminationReasonInput(e.target.value)}
                 placeholder="Please provide the reason..."
-                className="w-full min-h-[120px] rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-400"
+                className="w-full min-h-[120px] rounded-xl border border-border px-3 py-2 text-sm text-muted-foreground focus:outline-none focus:ring-2 focus:ring-red-200 focus:border-red-400"
               />
               <div className="flex gap-3 justify-end mt-6">
                 <button
                   onClick={closeTerminateContractModal}
                   disabled={isSubmittingTerminate}
-                  className="px-4 py-2.5 text-sm font-medium text-slate-700 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors disabled:opacity-60"
+                  className="px-4 py-2.5 text-sm font-medium text-muted-foreground bg-muted rounded-xl hover:bg-muted transition-colors disabled:opacity-60"
                 >
                   Cancel
                 </button>
@@ -4757,7 +4764,7 @@ export default function ContractEditorPage() {
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="text-sm text-gray-600">กำลังโหลด...</span>
+          <span className="text-sm text-muted-foreground">กำลังโหลด...</span>
         </div>
       </div>
     }>

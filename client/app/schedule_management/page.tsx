@@ -19,11 +19,13 @@ import {
   List,
   Users,
   Clock3,
+  RotateCcw,
 } from 'lucide-react';
 import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
 import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { useAlertModal } from '@/components/ui/useAlertModal';
 import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, syncContractsFromReferSof, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
@@ -58,6 +60,7 @@ interface CalendarEvent {
   // Extended fields for full task data
   taskType?: 'PM' | 'MA';
   contractId?: number;
+  sofName?: string;
   replacementDeviceId?: number;
   Sid?: string;
   Sname?: string;
@@ -268,6 +271,84 @@ export default function ScheduleManagement() {
   );
 }
 
+/** Site label for table filter — matches Task column (location - site name). */
+function tableTaskSiteLabel(ev: Pick<CalendarEvent, 'title' | 'Sname' | 'location'>): string {
+  const sname = (ev.Sname || '').trim();
+  const loc = (ev.location || '').trim();
+  if (loc && sname) return `${loc} - ${sname}`;
+  if (sname) return sname;
+  if (loc) return loc;
+  return (ev.title || '').trim() || '—';
+}
+
+const TABLE_MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+function parseTableTaskStartEnd(ev: Pick<CalendarEvent, 'startDate' | 'endDate'>) {
+  const start = ev.startDate ? new Date(ev.startDate) : null;
+  if (!start || Number.isNaN(start.getTime())) return null;
+  const endRaw = ev.endDate ? new Date(ev.endDate) : start;
+  const end = endRaw && !Number.isNaN(endRaw.getTime()) ? endRaw : start;
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+function tableTaskSofLabel(
+  ev: Pick<CalendarEvent, 'sofName' | 'contractId'>,
+  contracts: Array<{ contract_id: number; sof_name: string }> = []
+): string {
+  if (ev.sofName && String(ev.sofName).trim()) return String(ev.sofName).trim();
+  if (ev.contractId) {
+    const c = contracts.find((x) => x.contract_id === ev.contractId);
+    if (c?.sof_name && String(c.sof_name).trim()) return String(c.sof_name).trim();
+  }
+  return '';
+}
+
+function taskMatchesTableDateFilter(
+  ev: Pick<CalendarEvent, 'startDate' | 'endDate'>,
+  year: string,
+  month: string
+): boolean {
+  const range = parseTableTaskStartEnd(ev);
+  if (!range) return false;
+  const { start, end } = range;
+
+  const y = year ? parseInt(year, 10) : null;
+  const m = month ? parseInt(month, 10) - 1 : null;
+
+  if (y != null && !Number.isNaN(y)) {
+    const ys = new Date(y, 0, 1);
+    const ye = new Date(y, 11, 31, 23, 59, 59, 999);
+    if (end < ys || start > ye) return false;
+  }
+
+  if (m != null && !Number.isNaN(m)) {
+    if (y != null && !Number.isNaN(y)) {
+      const ms = new Date(y, m, 1);
+      const me = new Date(y, m + 1, 0, 23, 59, 59, 999);
+      if (end < ms || start > me) return false;
+    } else {
+      let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+      const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
+      let found = false;
+      while (cur <= endMonth) {
+        if (cur.getMonth() === m) {
+          found = true;
+          break;
+        }
+        cur.setMonth(cur.getMonth() + 1);
+      }
+      if (!found) return false;
+    }
+  }
+
+  return true;
+}
+
 function ScheduleManagementContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -276,14 +357,17 @@ function ScheduleManagementContent() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [draggedEvent, setDraggedEvent] = useState<CalendarEvent | null>(null);
+  const draggedEventRef = useRef<CalendarEvent | null>(null);
   const [dragOverDay, setDragOverDay] = useState<number | null>(null);
   const [dragStartDay, setDragStartDay] = useState<number | null>(null);
+  const [isDragOverTrash, setIsDragOverTrash] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<CalendarEvent | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
+  const { showConfirm, alertModal } = useAlertModal();
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
   const [moveReason, setMoveReason] = useState('');
   const [pendingMove, setPendingMove] = useState<{
@@ -381,6 +465,12 @@ function ScheduleManagementContent() {
   const [calendarViewMode, setCalendarViewMode] = useState<'calendar' | 'table'>('calendar');
   const TABLE_PAGE_SIZE = 15;
   const [tablePage, setTablePage] = useState(1);
+  const [tableFilterYear, setTableFilterYear] = useState(() => String(new Date().getFullYear()));
+  const [tableFilterMonth, setTableFilterMonth] = useState(() => String(new Date().getMonth() + 1));
+  const [tableFilterSof, setTableFilterSof] = useState('');
+  const [tableFilterSite, setTableFilterSite] = useState('');
+  const [tableSelectedIds, setTableSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   const mapTaskToEvent = (task: any): CalendarEvent => {
     const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
@@ -437,6 +527,7 @@ function ScheduleManagementContent() {
       engineer: engineerNames,
       taskType,
       contractId: task.contractId || task.contract_id || undefined,
+      ...(task.sofName && String(task.sofName).trim() ? { sofName: String(task.sofName).trim() } : {}),
       replacementDeviceId: task.replacementDeviceId || task.replacement_device_id || undefined,
       Sid: task.siteId ? String(task.siteId) : task.Sid,
       Sname: siteName,
@@ -705,6 +796,13 @@ function ScheduleManagementContent() {
   const currentYear = currentDate.getFullYear();
 
   useEffect(() => {
+    setTableFilterYear(String(currentYear));
+    setTableFilterMonth(String(currentMonth + 1));
+    setTablePage(1);
+    setTableSelectedIds(new Set());
+  }, [currentYear, currentMonth]);
+
+  useEffect(() => {
     loadHolidays(currentYear);
   }, [currentYear]);
 
@@ -858,15 +956,116 @@ function ScheduleManagementContent() {
     });
   }, [filteredCalendarEvents, currentYear, currentMonth]);
 
-  const totalTablePages = Math.max(1, Math.ceil(tasksInCurrentMonth.length / TABLE_PAGE_SIZE));
-  const paginatedTableTasks = useMemo(
-    () => tasksInCurrentMonth.slice((tablePage - 1) * TABLE_PAGE_SIZE, tablePage * TABLE_PAGE_SIZE),
-    [tasksInCurrentMonth, tablePage]
+  const tableFilterYearOptions = useMemo(() => {
+    const years = new Set<number>();
+    for (const ev of filteredCalendarEvents) {
+      const range = parseTableTaskStartEnd(ev);
+      if (!range) continue;
+      years.add(range.start.getFullYear());
+      years.add(range.end.getFullYear());
+    }
+    return Array.from(years).sort((a, b) => b - a);
+  }, [filteredCalendarEvents]);
+
+  const tableFilterSofOptions = useMemo(() => {
+    const labels = new Set<string>();
+    for (const ev of filteredCalendarEvents) {
+      const sof = tableTaskSofLabel(ev, availableContracts);
+      if (sof) labels.add(sof);
+    }
+    return Array.from(labels).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [filteredCalendarEvents, availableContracts]);
+
+  const tableFilterSiteOptions = useMemo(() => {
+    const labels = new Set<string>();
+    for (const ev of filteredCalendarEvents) {
+      const label = tableTaskSiteLabel(ev);
+      if (label && label !== '—') labels.add(label);
+    }
+    return Array.from(labels).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+  }, [filteredCalendarEvents]);
+
+  const tableTasksFiltered = useMemo(() => {
+    return filteredCalendarEvents
+      .filter((ev) => {
+        if (!taskMatchesTableDateFilter(ev, tableFilterYear, tableFilterMonth)) {
+          return false;
+        }
+        if (tableFilterSite && tableTaskSiteLabel(ev) !== tableFilterSite) return false;
+        if (tableFilterSof && tableTaskSofLabel(ev, availableContracts) !== tableFilterSof) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const da = a.startDate ? new Date(a.startDate).getTime() : 0;
+        const db = b.startDate ? new Date(b.startDate).getTime() : 0;
+        return da - db;
+      });
+  }, [
+    filteredCalendarEvents,
+    availableContracts,
+    tableFilterYear,
+    tableFilterMonth,
+    tableFilterSof,
+    tableFilterSite,
+  ]);
+
+  const resetTableBulkFilters = () => {
+    setTableFilterYear(String(currentYear));
+    setTableFilterMonth(String(currentMonth + 1));
+    setTableFilterSof('');
+    setTableFilterSite('');
+    setTablePage(1);
+    setTableSelectedIds(new Set());
+  };
+
+  const tableSelectClass =
+    'px-3 py-2 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer shadow-sm transition-colors';
+
+  const tableBulkFiltersActive = Boolean(
+    tableFilterSof ||
+      tableFilterSite ||
+      tableFilterYear !== String(currentYear) ||
+      tableFilterMonth !== String(currentMonth + 1)
   );
+
+  const totalTablePages = Math.max(1, Math.ceil(tableTasksFiltered.length / TABLE_PAGE_SIZE));
+  const paginatedTableTasks = useMemo(
+    () => tableTasksFiltered.slice((tablePage - 1) * TABLE_PAGE_SIZE, tablePage * TABLE_PAGE_SIZE),
+    [tableTasksFiltered, tablePage]
+  );
+
+  const tablePageAllSelected =
+    paginatedTableTasks.length > 0 &&
+    paginatedTableTasks.every((ev) => tableSelectedIds.has(String(ev.id)));
 
   useEffect(() => {
     setTablePage((p) => (p > totalTablePages ? totalTablePages : p < 1 ? 1 : p));
   }, [totalTablePages]);
+
+  useEffect(() => {
+    setTablePage(1);
+  }, [
+    tableFilterYear,
+    tableFilterMonth,
+    tableFilterSof,
+    tableFilterSite,
+    selectedTaskTypeFilter,
+    selectedStatusFilter,
+    selectedEngineerFilter,
+  ]);
+
+  useEffect(() => {
+    setTableSelectedIds((prev) => {
+      const visible = new Set(tableTasksFiltered.map((ev) => String(ev.id)));
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (visible.has(id)) next.add(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [tableTasksFiltered]);
 
   const filteredEngineersForFilter = availableEngineers.filter((eng) => {
     const q = engineerFilterInput.toLowerCase();
@@ -1010,11 +1209,49 @@ function ScheduleManagementContent() {
   };
 
   /* ================= Drag ================= */
+  const beginTaskDrag = (event: CalendarEvent) => {
+    if (event.status === 'done') return;
+    draggedEventRef.current = event;
+    setDraggedEvent(event);
+  };
+
   const handleDragOver = (e: React.DragEvent, day: number | null) => {
     e.preventDefault();
+    setIsDragOverTrash(false);
     if (day !== null && draggedEvent) {
       setDragOverDay(day);
     }
+  };
+
+  const handleTrashDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setIsDragOverTrash(true);
+    setDragOverDay(null);
+  };
+
+  const handleTrashDragLeave = (e: React.DragEvent) => {
+    const related = e.relatedTarget as Node | null;
+    if (!e.currentTarget.contains(related)) {
+      setIsDragOverTrash(false);
+    }
+  };
+
+  const handleTrashDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOverTrash(false);
+    const event = draggedEventRef.current;
+    if (!event || event.status === 'done') {
+      handleDragEnd();
+      return;
+    }
+    const taskId = String(event.id);
+    draggedEventRef.current = null;
+    setDraggedEvent(null);
+    setDragOverDay(null);
+    setDragStartDay(null);
+    await handleDeleteTask(taskId);
   };
 
   const handleDrop = async (e: React.DragEvent, day: number | null) => {
@@ -1161,9 +1398,11 @@ function ScheduleManagementContent() {
   };
 
   const handleDragEnd = () => {
+    draggedEventRef.current = null;
     setDraggedEvent(null);
     setDragOverDay(null);
     setDragStartDay(null);
+    setIsDragOverTrash(false);
   };
 
   /* ================= Modal ================= */
@@ -1266,16 +1505,26 @@ function ScheduleManagementContent() {
     }
   };
 
+  const deleteTaskById = async (taskId: string) => {
+    const res = await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
+    const json = await responseJsonOrThrow<{ success: boolean; message?: string }>(
+      res,
+      'Delete task failed: server returned non-JSON (check API URL).'
+    );
+    if (!json.success) throw new Error(json.message || 'Delete task failed');
+  };
+
   // Handle delete task from detail modal
   const handleDeleteTask = async (taskId: string) => {
     try {
-      const res = await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
-      const json = await responseJsonOrThrow<{ success: boolean; message?: string }>(
-        res,
-        'Delete task failed: server returned non-JSON (check API URL).'
-      );
-      if (!json.success) throw new Error(json.message || 'Delete task failed');
+      await deleteTaskById(taskId);
       setCalendarEvents((prev) => prev.filter((e) => e.id !== taskId));
+      setTableSelectedIds((prev) => {
+        if (!prev.has(taskId)) return prev;
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
       setIsDetailModalOpen(false);
       setSelectedTask(null);
       toastSuccess('Delete task successfully');
@@ -1283,6 +1532,90 @@ function ScheduleManagementContent() {
       console.error('handleDeleteTask error', error);
       toastError(error?.message || 'Delete task failed');
     }
+  };
+
+  const toggleTableTaskSelection = (taskId: string) => {
+    setTableSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const toggleTablePageSelection = () => {
+    setTableSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (tablePageAllSelected) {
+        for (const ev of paginatedTableTasks) next.delete(String(ev.id));
+      } else {
+        for (const ev of paginatedTableTasks) next.add(String(ev.id));
+      }
+      return next;
+    });
+  };
+
+  const selectAllFilteredTableTasks = () => {
+    setTableSelectedIds(new Set(tableTasksFiltered.map((ev) => String(ev.id))));
+  };
+
+  const handleBulkDeleteSelected = () => {
+    const ids: string[] = Array.from(tableSelectedIds);
+    if (ids.length === 0) return;
+    const filterBits: string[] = [];
+    if (tableFilterYear) filterBits.push(`ปี ${tableFilterYear}`);
+    if (tableFilterMonth) {
+      const mi = parseInt(tableFilterMonth, 10);
+      filterBits.push(
+        `เดือน ${!Number.isNaN(mi) && mi >= 1 && mi <= 12 ? TABLE_MONTH_NAMES[mi - 1] : tableFilterMonth}`
+      );
+    }
+    if (tableFilterSof) filterBits.push(`SOF ${tableFilterSof}`);
+    if (tableFilterSite) filterBits.push(`Site ${tableFilterSite}`);
+    if (selectedTaskTypeFilter !== 'all') filterBits.push(selectedTaskTypeFilter);
+    const filterHint = filterBits.length > 0 ? ` (${filterBits.join(', ')})` : '';
+    showConfirm(
+      `Delete ${ids.length} selected plan(s)${filterHint}? This cannot be undone.`,
+      async () => {
+        setIsBulkDeleting(true);
+        let successCount = 0;
+        const failed: string[] = [];
+        for (const taskId of ids) {
+          try {
+            await deleteTaskById(taskId);
+            successCount += 1;
+          } catch (err: any) {
+            failed.push(taskId);
+            console.error('bulk delete task', taskId, err);
+          }
+        }
+        const deletedSet = new Set(ids.filter((id) => !failed.includes(id)));
+        setCalendarEvents((prev) => prev.filter((e) => !deletedSet.has(String(e.id))));
+        setTableSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of deletedSet) next.delete(id);
+          return next;
+        });
+        if (selectedTask && deletedSet.has(String(selectedTask.id))) {
+          setIsDetailModalOpen(false);
+          setSelectedTask(null);
+        }
+        setIsBulkDeleting(false);
+        if (successCount === ids.length) {
+          toastSuccess(`Deleted ${successCount} plan(s)`);
+        } else if (successCount > 0) {
+          toastError(`Deleted ${successCount}/${ids.length} plan(s). ${failed.length} failed.`);
+        } else {
+          toastError('Failed to delete selected plans');
+        }
+      },
+      {
+        title: 'Delete selected plans',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        dangerConfirm: true,
+      }
+    );
   };
 
   // Handle task click to open detail modal
@@ -2510,7 +2843,7 @@ function ScheduleManagementContent() {
         )}
         <div className="flex flex-col gap-4 mb-6">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+            <h1 className="page-heading">
               Schedule Management
             </h1>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
@@ -2536,17 +2869,17 @@ function ScheduleManagementContent() {
           {/* Filters: Engineer (multi), Type (PM/MA), Status (Done/Not done) */}
           <div className="flex flex-wrap items-center gap-3 justify-end">
             <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
-              <label htmlFor="engineer-filter-input" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              <label htmlFor="engineer-filter-input" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Engineer:
               </label>
               <div
                 id="engineer-filter"
-                className={`flex-1 sm:min-w-[200px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
+                className={`flex-1 sm:min-w-[200px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
                 onClick={() => document.getElementById('engineer-filter-input')?.focus()}
               >
                 {selectedEngineerFilter.length === 0 && !engineerFilterInput && (
-                  <span className="inline-flex items-center gap-2 text-slate-400">
-                    <Users size={18} className="shrink-0 text-slate-400" aria-hidden />
+                  <span className="inline-flex items-center gap-2 text-muted-foreground">
+                    <Users size={18} className="shrink-0 text-muted-foreground" aria-hidden />
                     All Engineers
                   </span>
                 )}
@@ -2591,15 +2924,15 @@ function ScheduleManagementContent() {
                     }
                   }}
                   placeholder=""
-                  className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-slate-700 placeholder:text-slate-400"
+                  className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-muted-foreground placeholder:text-muted-foreground"
                 />
               </div>
               {showEngineerFilterDropdown && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 min-w-[200px] max-h-48 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 min-w-[200px] max-h-48 overflow-auto rounded-xl border border-border bg-card shadow-lg py-1">
                   {availableEngineers.length === 0 ? (
-                    <div className="px-3 py-2 text-slate-500 text-sm">Loading engineers...</div>
+                    <div className="px-3 py-2 text-muted-foreground text-sm">Loading engineers...</div>
                   ) : filteredEngineersForFilter.length === 0 ? (
-                    <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
+                    <div className="px-3 py-2 text-muted-foreground text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
                   ) : (
                     filteredEngineersForFilter.map((eng) => {
                       const dn = engineerRosterLabel(eng);
@@ -2607,7 +2940,7 @@ function ScheduleManagementContent() {
                         <button
                           key={eng.id}
                           type="button"
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted"
                           onClick={() => addEngineerFilter(eng)}
                         >
                           <EngineerAvatar photoUrl={eng.photo} displayName={dn} size="md" />
@@ -2620,14 +2953,14 @@ function ScheduleManagementContent() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              <label htmlFor="task-type-filter-schedule" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              <label htmlFor="task-type-filter-schedule" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Type:
               </label>
               <select
                 id="task-type-filter-schedule"
                 value={selectedTaskTypeFilter}
                 onChange={(e) => setSelectedTaskTypeFilter(e.target.value as 'all' | 'PM' | 'MA')}
-                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
+                className="px-4 py-2 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
               >
                 <option value="all">All</option>
                 <option value="PM">PM</option>
@@ -2635,14 +2968,14 @@ function ScheduleManagementContent() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <label htmlFor="status-filter-schedule" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              <label htmlFor="status-filter-schedule" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Status:
               </label>
               <select
                 id="status-filter-schedule"
                 value={selectedStatusFilter}
                 onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'in-progress' | 'pending' | 'overdue')}
-                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
+                className="px-4 py-2 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
               >
                 <option value="all">All</option>
                 <option value="done">Done</option>
@@ -2665,7 +2998,7 @@ function ScheduleManagementContent() {
         />
 
         <div
-          className={`rounded-[2.5rem] bg-white p-6 shadow-sm ${
+          className={`rounded-[2.5rem] bg-card border border-border p-6 shadow-sm ${
             calendarViewMode === 'calendar'
               ? 'flex min-h-0 flex-1 flex-col xl:min-h-[calc(100dvh-8rem)]'
               : ''
@@ -2688,7 +3021,7 @@ function ScheduleManagementContent() {
               >
                 <ChevronLeft size={24} />
               </button>
-              <span className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+              <span className="page-heading">
                 {monthNames[currentMonth]}, {currentYear}
               </span>
               <button
@@ -2699,11 +3032,11 @@ function ScheduleManagementContent() {
               </button>
             </div>
             <div className="flex-shrink-0">
-              <div className="flex rounded-xl border border-slate-200 p-0.5 bg-slate-50">
+              <div className="flex rounded-xl border border-border p-0.5 bg-muted">
                 <button
                   type="button"
                   onClick={() => setCalendarViewMode('calendar')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'calendar' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'calendar' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-muted-foreground'}`}
                 >
                   <LayoutGrid size={16} />
                   Calendar
@@ -2711,7 +3044,7 @@ function ScheduleManagementContent() {
                 <button
                   type="button"
                   onClick={() => setCalendarViewMode('table')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'table' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-muted-foreground'}`}
                 >
                   <List size={16} />
                   Table
@@ -2721,27 +3054,166 @@ function ScheduleManagementContent() {
           </div>
 
           {calendarViewMode === 'table' ? (
-            <div className="rounded-xl border border-slate-200 overflow-hidden">
+            <div className="rounded-xl border border-border overflow-hidden">
+              <div className="border-b border-border px-4 py-3 sm:px-5">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="table-filter-year" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+                      Year:
+                    </label>
+                    <select
+                      id="table-filter-year"
+                      value={tableFilterYear}
+                      onChange={(e) => setTableFilterYear(e.target.value)}
+                      className={`${tableSelectClass} min-w-[5.5rem]`}
+                    >
+                      <option value="">All</option>
+                      {tableFilterYearOptions.map((y) => (
+                        <option key={y} value={String(y)}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="table-filter-month" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+                      Month:
+                    </label>
+                    <select
+                      id="table-filter-month"
+                      value={tableFilterMonth}
+                      onChange={(e) => setTableFilterMonth(e.target.value)}
+                      className={`${tableSelectClass} min-w-[7rem]`}
+                    >
+                      <option value="">All</option>
+                      {TABLE_MONTH_NAMES.map((name, idx) => (
+                        <option key={name} value={String(idx + 1)}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="table-filter-sof" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+                      SOF:
+                    </label>
+                    <select
+                      id="table-filter-sof"
+                      value={tableFilterSof}
+                      onChange={(e) => setTableFilterSof(e.target.value)}
+                      className={`${tableSelectClass} min-w-[8rem] max-w-[14rem]`}
+                    >
+                      <option value="">All</option>
+                      {tableFilterSofOptions.map((sof) => (
+                        <option key={sof} value={sof}>
+                          {sof}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex min-w-[10rem] flex-1 items-center gap-2">
+                    <label htmlFor="table-filter-site" className="shrink-0 text-sm font-medium text-muted-foreground whitespace-nowrap">
+                      Site:
+                    </label>
+                    <select
+                      id="table-filter-site"
+                      value={tableFilterSite}
+                      onChange={(e) => setTableFilterSite(e.target.value)}
+                      className={`${tableSelectClass} min-w-[10rem] max-w-md flex-1`}
+                    >
+                      <option value="">All sites</option>
+                      {tableFilterSiteOptions.map((label) => (
+                        <option key={label} value={label}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {tableBulkFiltersActive && (
+                    <button
+                      type="button"
+                      onClick={resetTableBulkFilters}
+                      className="inline-flex items-center gap-1 text-sm font-semibold text-muted-foreground transition-colors hover:text-muted-foreground"
+                    >
+                      <RotateCcw size={14} />
+                      Reset
+                    </button>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {tableTasksFiltered.length} plan(s) · {tableSelectedIds.size} selected
+                  </span>
+                  {tableTasksFiltered.length > 0 && tableSelectedIds.size < tableTasksFiltered.length && (
+                    <button
+                      type="button"
+                      onClick={selectAllFilteredTableTasks}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                    >
+                      Select all {tableTasksFiltered.length}
+                    </button>
+                  )}
+                  {tableSelectedIds.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setTableSelectedIds(new Set())}
+                      className="text-xs font-semibold text-muted-foreground hover:text-muted-foreground whitespace-nowrap"
+                    >
+                      Clear selection
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={tableSelectedIds.size === 0 || isBulkDeleting}
+                    onClick={handleBulkDeleteSelected}
+                    className={`ml-auto inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold text-white transition-colors whitespace-nowrap ${
+                      tableSelectedIds.size === 0 || isBulkDeleting
+                        ? 'cursor-not-allowed bg-slate-300'
+                        : 'bg-red-500 hover:bg-red-600'
+                    }`}
+                  >
+                    <Trash2 size={16} />
+                    {isBulkDeleting ? 'Deleting…' : `Delete selected (${tableSelectedIds.size})`}
+                  </button>
+                </div>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">
-                        <span className="block">Date</span>
-                        <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
+                    <tr className="bg-muted border-b border-border">
+                      <th className="w-10 py-3 px-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={tablePageAllSelected}
+                          onChange={toggleTablePageSelection}
+                          disabled={paginatedTableTasks.length === 0}
+                          className="rounded border-border"
+                          aria-label="Select all on this page"
+                          title="Select all on this page"
+                        />
                       </th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Status Date</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Responsible</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Status</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600 w-20"></th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">
+                        <span className="block">Date</span>
+                        <span className="block text-[10px] font-normal text-muted-foreground normal-case">mm/dd/yyyy</span>
+                      </th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground whitespace-nowrap">Status Date</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Task</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground whitespace-nowrap">SOF</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Type</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Responsible</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground w-20"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {tasksInCurrentMonth.length === 0 ? (
+                    {tableTasksFiltered.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400">No tasks in this month</td>
+                        <td colSpan={9} className="py-8 text-center text-muted-foreground">
+                          {filteredCalendarEvents.length === 0
+                            ? 'No tasks match the schedule filters above'
+                            : 'No tasks match these table filters'}
+                        </td>
                       </tr>
                     ) : (
                       paginatedTableTasks.map((ev) => {
@@ -2790,9 +3262,23 @@ function ScheduleManagementContent() {
                         return (
                           <tr
                             key={ev.id}
-                            className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
+                            draggable={!isDone}
+                            onDragStart={() => beginTaskDrag(ev)}
+                            onDragEnd={handleDragEnd}
+                            className={`border-b border-border hover:bg-muted/50 transition-colors ${!isDone ? 'cursor-grab active:cursor-grabbing' : ''} ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${tableSelectedIds.has(String(ev.id)) ? 'bg-blue-50/40' : ''}`}
                           >
-                            <td className="py-2.5 px-4 text-slate-600 whitespace-nowrap">
+                            <td className="py-2.5 px-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={tableSelectedIds.has(String(ev.id))}
+                                onChange={() => toggleTableTaskSelection(String(ev.id))}
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="rounded border-border"
+                                aria-label={`Select plan ${ev.title}`}
+                              />
+                            </td>
+                            <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
                               {ev.startDate === ev.endDate || !ev.endDate
                                 ? formatDateMonthDayYear(
                                     ev.startDate ||
@@ -2809,19 +3295,22 @@ function ScheduleManagementContent() {
                                       ? 'text-amber-800 font-medium'
                                       : incomingTone === 'overdue'
                                         ? 'text-red-700 font-medium'
-                                        : 'text-slate-400'
+                                        : 'text-muted-foreground'
                                 }
                               >
                                 {incomingText}
                               </span>
                             </td>
-                            <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
+                            <td className="py-2.5 px-4 font-medium text-foreground max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
+                            <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
+                              {tableTaskSofLabel(ev, availableContracts) || '—'}
+                            </td>
                             <td className="py-2.5 px-4">
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${isMA ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {ev.taskType || 'PM'}
                               </span>
                             </td>
-                            <td className="py-2.5 px-4 text-slate-600">{ev.engineer || '—'}</td>
+                            <td className="py-2.5 px-4 text-muted-foreground">{ev.engineer || '—'}</td>
                             <td className="py-2.5 px-4 align-top min-w-[9rem] max-w-[min(100%,240px)]">
                               <span
                                 className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
@@ -2831,7 +3320,7 @@ function ScheduleManagementContent() {
                                       ? 'bg-amber-100 text-amber-800'
                                       : isOverdue
                                         ? 'bg-red-100 text-red-700'
-                                        : 'bg-slate-100 text-slate-600'
+                                        : 'bg-muted text-muted-foreground'
                                 }`}
                               >
                                 {isInProcess && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
@@ -2859,28 +3348,31 @@ function ScheduleManagementContent() {
                   </tbody>
                 </table>
               </div>
-              {tasksInCurrentMonth.length > TABLE_PAGE_SIZE && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50">
-                  <p className="text-xs text-slate-500">
-                    Showing {(tablePage - 1) * TABLE_PAGE_SIZE + 1}–{Math.min(tablePage * TABLE_PAGE_SIZE, tasksInCurrentMonth.length)} of {tasksInCurrentMonth.length}
+              {tableTasksFiltered.length > TABLE_PAGE_SIZE && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {(tablePage - 1) * TABLE_PAGE_SIZE + 1}–{Math.min(tablePage * TABLE_PAGE_SIZE, tableTasksFiltered.length)} of {tableTasksFiltered.length}
+                    {filteredCalendarEvents.length !== tableTasksFiltered.length
+                      ? ` (from ${filteredCalendarEvents.length} in list)`
+                      : ''}
                   </p>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setTablePage((p) => Math.max(1, p - 1))}
                       disabled={tablePage <= 1}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Previous
                     </button>
-                    <span className="text-sm text-slate-600">
+                    <span className="text-sm text-muted-foreground">
                       Page {tablePage} of {totalTablePages}
                     </span>
                     <button
                       type="button"
                       onClick={() => setTablePage((p) => Math.min(totalTablePages, p + 1))}
                       disabled={tablePage >= totalTablePages}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Next
                     </button>
@@ -2889,13 +3381,13 @@ function ScheduleManagementContent() {
               )}
             </div>
           ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-gray-100 xl:min-h-[calc(100dvh-14rem)]">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-muted xl:min-h-[calc(100dvh-14rem)]">
             {/* Header row */}
             <div className="grid shrink-0 grid-cols-7 gap-px">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
                 <div
                   key={day}
-                  className={`bg-slate-50 p-3 text-center text-xs font-bold uppercase xl:py-4 ${index === 0 || index === 6
+                  className={`bg-muted p-3 text-center text-xs font-bold uppercase xl:py-4 ${index === 0 || index === 6
                       ? 'bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent'
                       : 'bg-gradient-to-r from-slate-500 to-slate-600 bg-clip-text text-transparent'
                     }`}
@@ -3003,7 +3495,7 @@ function ScheduleManagementContent() {
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => e.preventDefault()}
-                        className={`relative flex h-full min-h-0 flex-col overflow-hidden border-l border-t border-gray-50 p-2 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
+                        className={`relative flex h-full min-h-0 flex-col overflow-hidden border-l border-t border-border p-2 ${day === null ? 'bg-muted' : holidayForDay ? 'bg-red-100' : 'bg-card'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'border-2 border-blue-300 bg-blue-50'
                             : ''
@@ -3070,7 +3562,7 @@ function ScheduleManagementContent() {
                                     key={`${day}-${ev.id}-${eventIndex}`}
                                     data-task-id={String(ev.id)}
                                     draggable={!isDone}
-                                    onDragStart={() => !isDone && setDraggedEvent(ev)}
+                                    onDragStart={() => beginTaskDrag(ev)}
                                     onDragEnd={handleDragEnd}
                                     onClick={() => handleTaskClick(ev)}
                                     onMouseEnter={(e) => {
@@ -3093,7 +3585,7 @@ function ScheduleManagementContent() {
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                                     className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'} ${highlightTaskId === String(ev.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                                   >
-                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
+                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-card/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
                                     <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
@@ -3101,17 +3593,17 @@ function ScheduleManagementContent() {
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
                                       <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
-                                        <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                                        <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
                                           {ev.Eng_ids[0].photo ? (
                                             <img src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
                                           ) : (
-                                            <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                            <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
                                               {(ev.Eng_ids[0].name?.[0] || ev.Eng_ids[0].id?.[0] || '?').toUpperCase()}
                                             </span>
                                           )}
                                         </span>
                                         {ev.Eng_ids.length > 1 && (
-                                          <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                                          <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-muted-foreground leading-none">
                                             +{ev.Eng_ids.length - 1}
                                           </span>
                                         )}
@@ -3176,7 +3668,7 @@ function ScheduleManagementContent() {
                           right: '8px',
                         }}
                         draggable={!isDone}
-                        onDragStart={() => !isDone && setDraggedEvent(event)}
+                        onDragStart={() => beginTaskDrag(event)}
                         onDragEnd={handleDragEnd}
                         onClick={() => handleTaskClick(event)}
                         onMouseEnter={(e) => {
@@ -3199,7 +3691,7 @@ function ScheduleManagementContent() {
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                         className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20 ${highlightTaskId === String(event.id) ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`}
                       >
-                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
+                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-card/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
                         <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
@@ -3207,17 +3699,17 @@ function ScheduleManagementContent() {
                         </span>
                         {event.Eng_ids && event.Eng_ids.length > 0 && (
                           <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
-                            <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                            <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
                               {event.Eng_ids[0].photo ? (
                                 <img src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
                               ) : (
-                                <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
                                   {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
                                 </span>
                               )}
                             </span>
                             {event.Eng_ids.length > 1 && (
-                              <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                              <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-muted-foreground leading-none">
                                 +{event.Eng_ids.length - 1}
                               </span>
                             )}
@@ -3253,7 +3745,7 @@ function ScheduleManagementContent() {
       {/* Task Detail Tooltip */}
       {hoveredEvent && tooltipPosition && (
         <div
-          className="fixed z-[300] bg-white rounded-lg shadow-2xl border border-slate-200 p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
+          className="fixed z-[300] bg-card rounded-lg shadow-2xl border border-border p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,
@@ -3275,7 +3767,7 @@ function ScheduleManagementContent() {
                   hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
                   hoveredEvent.status === 'working' ? 'bg-amber-100 text-amber-800' :
                   hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
-                  'bg-gray-100 text-gray-700'
+                  'bg-muted text-muted-foreground'
                 }`}>
                   {hoveredEvent.status === 'working' && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                   {hoveredEvent.status === 'done' ? 'Done' :
@@ -3311,22 +3803,22 @@ function ScheduleManagementContent() {
 
             {hoveredEvent.location && (
               <div>
-                <p className="text-xs font-semibold text-slate-500 mb-0.5">Location</p>
-                <p className="text-sm font-bold text-slate-800">{hoveredEvent.location}</p>
+                <p className="text-xs font-semibold text-muted-foreground mb-0.5">Location</p>
+                <p className="text-sm font-bold text-foreground">{hoveredEvent.location}</p>
               </div>
             )}
             {/* Site Name */}
             <div>
-              <p className="text-xs font-semibold text-slate-500 mb-0.5">Site</p>
-              <p className="text-sm font-bold text-slate-800">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
+              <p className="text-xs font-semibold text-muted-foreground mb-0.5">Site</p>
+              <p className="text-sm font-bold text-foreground">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
             </div>
 
             {/* Dates */}
             <div className="grid grid-cols-2 gap-2">
               {hoveredEvent.startDate && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date</p>
-                  <p className="text-sm text-slate-700">
+                  <p className="text-xs font-semibold text-muted-foreground mb-0.5">Start Date</p>
+                  <p className="text-sm text-muted-foreground">
                     {new Date(hoveredEvent.startDate).toLocaleDateString('en-US', { 
                       year: 'numeric', 
                       month: 'short', 
@@ -3337,8 +3829,8 @@ function ScheduleManagementContent() {
               )}
               {hoveredEvent.endDate && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-0.5">End Date</p>
-                  <p className="text-sm text-slate-700">
+                  <p className="text-xs font-semibold text-muted-foreground mb-0.5">End Date</p>
+                  <p className="text-sm text-muted-foreground">
                     {new Date(hoveredEvent.endDate).toLocaleDateString('en-US', { 
                       year: 'numeric', 
                       month: 'short', 
@@ -3352,20 +3844,20 @@ function ScheduleManagementContent() {
             {/* Engineers */}
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
+                <p className="text-xs font-semibold text-muted-foreground mb-0.5">Engineers</p>
                 <div className="flex flex-col gap-1.5">
                   {hoveredEvent.Eng_ids.map((eng, idx) => (
                     <div key={eng.id || idx} className="flex items-center gap-2">
-                      <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100">
+                      <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-border bg-muted">
                         {eng.photo ? (
                           <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
+                          <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-muted-foreground">
                             {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}
                           </span>
                         )}
                       </span>
-                      <span className="text-xs text-slate-800">
+                      <span className="text-xs text-foreground">
                         {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
                       </span>
                     </div>
@@ -3388,31 +3880,31 @@ function ScheduleManagementContent() {
           }}
         >
           <div 
-            className="bg-white w-full max-w-sm rounded-2xl shadow-xl p-5 flex flex-col"
+            className="bg-card w-full max-w-sm rounded-2xl shadow-xl p-5 flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             <div className="flex items-center justify-center relative mb-4">
-              <h3 className="text-lg font-bold text-slate-800">Move Task</h3>
+              <h3 className="text-lg font-bold text-foreground">Move Task</h3>
               <button
                 onClick={cancelMoveTask}
-                className="absolute right-0 p-1 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors"
+                className="absolute right-0 p-1 bg-muted rounded-full hover:bg-muted transition-colors"
               >
-                <X size={16} className="text-slate-600" />
+                <X size={16} className="text-muted-foreground" />
               </button>
             </div>
             
             {/* Task Info */}
-            <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <p className="text-xs text-slate-600 mb-2 truncate">
+            <div className="mb-4 p-3 bg-muted rounded-lg border border-border">
+              <p className="text-xs text-muted-foreground mb-2 truncate">
                 <span className="font-medium">{pendingMove.event.title}</span>
               </p>
               <div className="flex items-center gap-2 text-xs flex-wrap">
-                <span className="text-slate-500 font-medium">From:</span>
-                <span className="text-slate-800 font-semibold bg-white px-2 py-1 rounded border border-slate-200">
+                <span className="text-muted-foreground font-medium">From:</span>
+                <span className="text-foreground font-semibold bg-card px-2 py-1 rounded border border-border">
                   {formatDateForDisplay(pendingMove.previousStartDate)}
                 </span>
-                <span className="text-slate-300">→</span>
+                <span className="text-muted-foreground/60">→</span>
                 <span className="text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-200">
                   {formatDateForDisplay(pendingMove.newStartDate)}
                 </span>
@@ -3421,7 +3913,7 @@ function ScheduleManagementContent() {
 
             {/* Reason Input */}
             <div className="mb-4">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
                 Reason <span className="text-red-500">*</span>
               </label>
               <textarea
@@ -3429,16 +3921,16 @@ function ScheduleManagementContent() {
                 onChange={(e) => setMoveReason(e.target.value)}
                 placeholder="Why are you moving this task?"
                 rows={3}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-400 outline-none resize-none transition-all"
+                className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-400 outline-none resize-none transition-all"
                 autoFocus
               />
             </div>
 
             {/* Actions */}
-            <div className="flex gap-2 justify-end pt-3 border-t border-slate-200">
+            <div className="flex gap-2 justify-end pt-3 border-t border-border">
               <button
                 onClick={cancelMoveTask}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                className="px-4 py-2 text-xs font-semibold text-muted-foreground bg-muted rounded-lg hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
@@ -3462,12 +3954,12 @@ function ScheduleManagementContent() {
       {isHolidayModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50" onClick={() => setIsHolidayModalOpen(false)}>
           <div
-            className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+            className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-card border border-border shadow-xl"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 p-4">
-              <h2 className="text-lg font-bold text-slate-800">Manage holidays</h2>
-              <button type="button" onClick={() => setIsHolidayModalOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500">
+            <div className="flex shrink-0 items-center justify-between border-b border-border p-4">
+              <h2 className="text-lg font-bold text-foreground">Manage holidays</h2>
+              <button type="button" onClick={() => setIsHolidayModalOpen(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
                 <X size={20} />
               </button>
             </div>
@@ -3488,14 +3980,14 @@ function ScheduleManagementContent() {
                   type="date"
                   value={newHolidayDate}
                   onChange={(e) => setNewHolidayDate(e.target.value)}
-                  className="w-full min-w-0 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500 sm:w-auto sm:min-w-[11rem] sm:flex-1"
+                  className="w-full min-w-0 rounded-xl border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500 sm:w-auto sm:min-w-[11rem] sm:flex-1"
                 />
                 <input
                   type="text"
                   placeholder="Holiday name"
                   value={newHolidayName}
                   onChange={(e) => setNewHolidayName(e.target.value)}
-                  className="w-full min-w-0 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500 sm:min-w-[12rem] sm:flex-1"
+                  className="w-full min-w-0 rounded-xl border border-border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-500 sm:min-w-[12rem] sm:flex-1"
                 />
                 <button
                   type="button"
@@ -3519,7 +4011,7 @@ function ScheduleManagementContent() {
                   Add
                 </button>
               </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="rounded-xl border border-border bg-muted/80 p-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <button
                   type="button"
                   disabled={importingHolidays}
@@ -3530,7 +4022,7 @@ function ScheduleManagementContent() {
                 >
                   {importingHolidays ? 'Importing...' : 'Import'}
                 </button>
-                <div className="text-xs leading-relaxed text-slate-600">
+                <div className="text-xs leading-relaxed text-muted-foreground">
                   Holidays are highlighted on the calendar.
                 </div>
 
@@ -3559,7 +4051,7 @@ function ScheduleManagementContent() {
                         toastError('Some official holidays could not be hidden');
                       }
                     }}
-                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-red-200 bg-white text-red-700 hover:bg-red-50 hover:border-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-red-200 bg-card text-red-700 hover:bg-red-50 hover:border-red-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label="Hide all official holidays"
                     title="Hide all official holidays"
                   >
@@ -3588,11 +4080,11 @@ function ScheduleManagementContent() {
                 </div>
               </div>
               <ul className="space-y-1.5">
-                {holidays.length === 0 && <li className="text-sm text-slate-400 py-2">No holidays yet. Add one above.</li>}
+                {holidays.length === 0 && <li className="text-sm text-muted-foreground py-2">No holidays yet. Add one above.</li>}
                 {holidays.map((h) => (
-                  <li key={h.id} className="flex items-center justify-between py-2 px-3 bg-slate-50 rounded-lg text-sm">
-                    <span className="font-medium text-slate-800">{h.date}</span>
-                    <span className="text-slate-600 flex-1 mx-2 truncate">{h.name}</span>
+                  <li key={h.id} className="flex items-center justify-between py-2 px-3 bg-muted rounded-lg text-sm">
+                    <span className="font-medium text-foreground">{h.date}</span>
+                    <span className="text-muted-foreground flex-1 mx-2 truncate">{h.name}</span>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full mr-1 ${h.source === 'official' ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
                       {h.source === 'official' ? 'Official' : 'Custom'}
                     </span>
@@ -3659,7 +4151,7 @@ function ScheduleManagementContent() {
           }}
         >
           <div
-            className="bg-white w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
+            className="bg-card w-full max-w-6xl max-h-[85vh] rounded-2xl shadow-xl flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -3667,8 +4159,8 @@ function ScheduleManagementContent() {
               <div className="flex items-center gap-3">
                 <FileSpreadsheet size={24} className="text-green-600" />
                 <div>
-                  <h3 className="text-lg font-bold text-slate-800">Import Plans from Excel/CSV</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <h3 className="text-lg font-bold text-foreground">Import Plans from Excel/CSV</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Upload a file to create multiple plans according to database schema
                   </p>
                  
@@ -3681,7 +4173,7 @@ function ScheduleManagementContent() {
                   setImportErrors([]);
                   setImportResultTab('ready');
                 }}
-                className="p-1.5 bg-white rounded-full hover:bg-slate-100 transition-colors"
+                className="p-1.5 bg-card rounded-full hover:bg-muted transition-colors"
               >
                 <X size={18} />
               </button>
@@ -3690,7 +4182,7 @@ function ScheduleManagementContent() {
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
               {/* File Upload */}
-              <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-green-400 transition-colors">
+              <div className="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-green-400 transition-colors">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -3708,10 +4200,10 @@ function ScheduleManagementContent() {
                     <Download size={32} className="text-green-600" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-700">
+                    <p className="text-sm font-semibold text-muted-foreground">
                       Click to upload Excel/CSV file
                     </p>
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       Supports .xlsx, .xls, and .csv formats
                     </p>
                   </div>
@@ -3768,20 +4260,20 @@ function ScheduleManagementContent() {
               {(importedTasks.length > 0 || importErrors.length > 0) && (
                 <div className="space-y-3">
                   {importedTasks.length > 0 && importErrors.length > 0 && (
-                    <p className="text-xs text-slate-600 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                    <p className="text-xs text-muted-foreground rounded-lg bg-muted border border-border px-3 py-2">
                       <strong className="text-emerald-700">{importedTasks.length}</strong> row(s) ready to import —{' '}
                       <strong className="text-amber-800">{importErrors.length}</strong> issue(s) to fix (other rows in
                       the file did not enter preview).
                     </p>
                   )}
-                  <div className="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200">
+                  <div className="flex flex-wrap gap-1 p-1 bg-muted rounded-xl border border-border">
                     <button
                       type="button"
                       onClick={() => setImportResultTab('ready')}
                       className={`flex-1 min-w-[140px] rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
                         importResultTab === 'ready'
-                          ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
-                          : 'text-slate-600 hover:text-slate-900'
+                          ? 'bg-card text-foreground shadow-sm ring-1 ring-border'
+                          : 'text-muted-foreground hover:text-foreground'
                       }`}
                     >
                       Ready to import ({importedTasks.length})
@@ -3792,10 +4284,10 @@ function ScheduleManagementContent() {
                       disabled={importErrors.length === 0}
                       className={`flex-1 min-w-[140px] rounded-lg px-3 py-2 text-xs font-bold transition-colors ${
                         importResultTab === 'issues'
-                          ? 'bg-white text-red-900 shadow-sm ring-1 ring-red-200'
+                          ? 'bg-card text-red-900 shadow-sm ring-1 ring-red-200'
                           : importErrors.length === 0
-                            ? 'text-slate-400 cursor-not-allowed'
-                            : 'text-slate-600 hover:text-red-900'
+                            ? 'text-muted-foreground cursor-not-allowed'
+                            : 'text-muted-foreground hover:text-red-900'
                       }`}
                     >
                       Issues ({importErrors.length})
@@ -3804,27 +4296,27 @@ function ScheduleManagementContent() {
 
                   {importResultTab === 'ready' && importedTasks.length > 0 && (
                     <div>
-                      <h4 className="text-xs font-bold text-slate-700 mb-2">
+                      <h4 className="text-xs font-bold text-muted-foreground mb-2">
                         Preview table — use Import below to create tasks
                       </h4>
-                      <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <div className="border border-border rounded-lg overflow-hidden">
                         <div className="max-h-[min(28rem,55vh)] overflow-x-auto overflow-y-auto">
                           <table className="w-full text-xs min-w-full">
-                            <thead className="bg-slate-100 sticky top-0">
+                            <thead className="bg-muted sticky top-0">
                               <tr>
-                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Site</th>
-                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Location</th>
-                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Plan Start</th>
-                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Plan End</th>
-                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Engineer</th>
-                                <th className="px-2 py-2 text-left font-semibold text-slate-700">SOF</th>
-                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Devices</th>
-                                <th className="px-2 py-2 text-left font-semibold text-slate-700">Coverage Scope</th>
+                                <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Site</th>
+                                <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Location</th>
+                                <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Plan Start</th>
+                                <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Plan End</th>
+                                <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Engineer</th>
+                                <th className="px-2 py-2 text-left font-semibold text-muted-foreground">SOF</th>
+                                <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Devices</th>
+                                <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Coverage Scope</th>
                               </tr>
                             </thead>
                             <tbody>
                               {importedTasks.map((task, idx) => (
-                                <tr key={idx} className="border-t border-slate-100 hover:bg-slate-50">
+                                <tr key={idx} className="border-t border-border hover:bg-muted">
                                   <td className="px-2 py-2 min-w-[200px]">{task.Sname || task.siteName || '—'}</td>
                                   <td className="px-2 py-2 min-w-[120px]">{task.location || '—'}</td>
                                   <td className="px-2 py-2 whitespace-nowrap">{formatDateMonthDayYear(task.startDate)}</td>
@@ -3851,7 +4343,7 @@ function ScheduleManagementContent() {
                                     ) : task.deviceIds?.length ? (
                                       <span className="font-semibold text-blue-600">{task.deviceIds.length}</span>
                                     ) : (
-                                      <span className="text-slate-400">{task.sofName ? '0' : '—'}</span>
+                                      <span className="text-muted-foreground">{task.sofName ? '0' : '—'}</span>
                                     )}
                                   </td>
                                   <td className="px-2 py-2 min-w-[150px]">{task.coverageScope || '—'}</td>
@@ -3875,7 +4367,7 @@ function ScheduleManagementContent() {
                       <div className="px-3 py-2 border-b border-red-200/80 bg-red-100/50">
                         <h4 className="text-xs font-bold text-red-900">Items to fix ({importErrors.length})</h4>
                       </div>
-                      <div className="max-h-[min(28rem,55vh)] overflow-x-auto overflow-y-auto border-t border-red-100/80 bg-white">
+                      <div className="max-h-[min(28rem,55vh)] overflow-x-auto overflow-y-auto border-t border-red-100/80 bg-card">
                         <table className="w-full text-xs min-w-[900px] border-collapse">
                           <thead className="bg-red-50/90 sticky top-0 z-10 shadow-sm">
                             <tr className="text-left text-[10px] font-bold uppercase tracking-wide text-red-900">
@@ -3894,31 +4386,31 @@ function ScheduleManagementContent() {
                             {importErrors.map((error, idx) => {
                               const { rowBadge, why, detail, hintChunks } = splitImportErrorLine(error);
                               return (
-                                <tr key={idx} className="border-b border-slate-100 align-top hover:bg-slate-50/80">
-                                  <td className="px-2 py-2 tabular-nums text-slate-500">{idx + 1}</td>
+                                <tr key={idx} className="border-b border-border align-top hover:bg-muted/80">
+                                  <td className="px-2 py-2 tabular-nums text-muted-foreground">{idx + 1}</td>
                                   <td className="px-2 py-2 whitespace-nowrap">
                                     <span className="inline-flex items-center rounded-md bg-red-700 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                                       {rowBadge}
                                     </span>
                                   </td>
-                                  <td className="px-2 py-2 text-slate-900 leading-relaxed font-medium whitespace-pre-line break-words">
+                                  <td className="px-2 py-2 text-foreground leading-relaxed font-medium whitespace-pre-line break-words">
                                     {why}
                                   </td>
-                                  <td className="px-2 py-2 min-w-[200px] max-w-md text-slate-700 leading-relaxed text-[11px] break-words">
+                                  <td className="px-2 py-2 min-w-[200px] max-w-md text-muted-foreground leading-relaxed text-[11px] break-words">
                                     {(() => {
                                       const shown = formatImportDetailColumn(detail);
                                       return shown ? (
                                         <span className="whitespace-pre-line">{shown}</span>
                                       ) : (
-                                        <span className="text-slate-400">—</span>
+                                        <span className="text-muted-foreground">—</span>
                                       );
                                     })()}
                                   </td>
-                                  <td className="px-2 py-2 text-slate-600">
+                                  <td className="px-2 py-2 text-muted-foreground">
                                     {hintChunks.length === 0 ? (
-                                      <span className="text-slate-400">—</span>
+                                      <span className="text-muted-foreground">—</span>
                                     ) : (
-                                      <ul className="list-disc pl-4 space-y-0.5 marker:text-slate-400">
+                                      <ul className="list-disc pl-4 space-y-0.5 marker:text-muted-foreground">
                                         {hintChunks.map((h, hi) => (
                                           <li key={hi} className="break-words text-[11px] leading-snug">
                                             {h}
@@ -3937,14 +4429,14 @@ function ScheduleManagementContent() {
                   )}
 
                   {importResultTab === 'issues' && importErrors.length === 0 && (
-                    <p className="text-sm text-slate-500 text-center py-6">No errors</p>
+                    <p className="text-sm text-muted-foreground text-center py-6">No errors</p>
                   )}
                 </div>
               )}
             </div>
 
             {/* Footer */}
-            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-slate-50">
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-muted">
               <button
                 onClick={() => {
                   setIsImportModalOpen(false);
@@ -3952,7 +4444,7 @@ function ScheduleManagementContent() {
                   setImportErrors([]);
                   setImportResultTab('ready');
                 }}
-                className="px-6 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+                className="px-6 py-2 text-sm font-semibold text-muted-foreground bg-card border border-border rounded-lg hover:bg-muted transition-colors"
               >
                 Cancel
               </button>
@@ -3971,6 +4463,34 @@ function ScheduleManagementContent() {
           </div>
         </div>
       )}
+
+      {draggedEvent && draggedEvent.status !== 'done' && (
+        <div
+          role="region"
+          aria-label="Drop here to delete plan"
+          onDragOver={handleTrashDragOver}
+          onDragLeave={handleTrashDragLeave}
+          onDrop={handleTrashDrop}
+          className={`fixed bottom-6 left-1/2 z-[150] flex -translate-x-1/2 items-center gap-3 rounded-2xl border-2 border-dashed px-6 py-4 shadow-lg transition-all ${
+            isDragOverTrash
+              ? 'scale-105 border-red-500 bg-red-100 text-red-800'
+              : 'border-red-300 bg-red-50/95 text-red-700'
+          }`}
+        >
+          <div
+            className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+              isDragOverTrash ? 'bg-red-500 text-white' : 'bg-red-200 text-red-700'
+            }`}
+          >
+            <Trash2 size={24} />
+          </div>
+          <div className="text-sm font-semibold">
+            {isDragOverTrash ? 'Drop here to delete plan' : 'Drag plan here to delete'}
+          </div>
+        </div>
+      )}
+
+      {alertModal}
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
     </SidebarLayout>

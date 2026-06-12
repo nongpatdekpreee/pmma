@@ -411,18 +411,18 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
     <>
       {alertModal}
       <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl max-h-[90vh] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="w-full max-w-4xl max-h-[90vh] bg-card rounded-3xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-50 to-indigo-50">
           <div>
-            <h2 className="text-xl font-extrabold text-slate-800">Task Details</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <h2 className="text-xl font-extrabold text-foreground">Task Details</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
               {task.taskType === 'MA' ? 'Maintenance Agreement' : 'Preventive Maintenance'}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 bg-white rounded-full hover:bg-slate-100 transition-colors shadow-sm"
+            className="p-2 bg-card rounded-full hover:bg-muted transition-colors shadow-sm"
           >
             <X size={20} />
           </button>
@@ -431,41 +431,41 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           {/* Basic Information */}
-          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-            <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+          <div className="bg-muted rounded-xl p-4 border border-border">
+            <h3 className="text-sm font-bold text-muted-foreground mb-3 flex items-center gap-2">
               <CheckCircle2 size={16} className="text-blue-500" />
               Basic Information
             </h3>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-500">Task Type</label>
-                <p className="text-sm font-medium text-slate-800 mt-1">
+                <label className="text-[10px] font-semibold uppercase text-muted-foreground">Task Type</label>
+                <p className="text-sm font-medium text-foreground mt-1">
                   {task.taskType === 'MA' ? 'Maintenance Agreement (MA)' : 'Preventive Maintenance (PM)'}
                 </p>
               </div>
               <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-500">Title</label>
-                <p className="text-sm font-medium text-slate-800 mt-1">{task.title || '—'}</p>
+                <label className="text-[10px] font-semibold uppercase text-muted-foreground">Title</label>
+                <p className="text-sm font-medium text-foreground mt-1">{task.title || '—'}</p>
               </div>
               <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-500">Site</label>
-                <p className="text-sm font-bold text-slate-800 mt-1">{task.Sname || '—'}</p>
+                <label className="text-[10px] font-semibold uppercase text-muted-foreground">Site</label>
+                <p className="text-sm font-bold text-foreground mt-1">{task.Sname || '—'}</p>
               </div>
               <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-500">Location</label>
-                <p className="text-sm font-bold text-slate-800 mt-1">{task.location || '—'}</p>
+                <label className="text-[10px] font-semibold uppercase text-muted-foreground">Location</label>
+                <p className="text-sm font-bold text-foreground mt-1">{task.location || '—'}</p>
               </div>
               <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-500">Start Date</label>
-                <p className="text-sm font-medium text-slate-800 mt-1">{task.startDate ? formatDate(task.startDate) : '—'}</p>
+                <label className="text-[10px] font-semibold uppercase text-muted-foreground">Start Date</label>
+                <p className="text-sm font-medium text-foreground mt-1">{task.startDate ? formatDate(task.startDate) : '—'}</p>
               </div>
               <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-500">End Date</label>
-                <p className="text-sm font-medium text-slate-800 mt-1">{task.endDate ? formatDate(task.endDate) : '—'}</p>
+                <label className="text-[10px] font-semibold uppercase text-muted-foreground">End Date</label>
+                <p className="text-sm font-medium text-foreground mt-1">{task.endDate ? formatDate(task.endDate) : '—'}</p>
               </div>
               {task.status === 'done' && (
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Report</label>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground">Report</label>
                   <p className={`text-sm font-bold mt-1 ${hasReport ? 'text-emerald-700' : 'text-rose-700'}`}>
                     {hasReport ? 'Reported' : 'Not reported'}
                   </p>
@@ -473,14 +473,14 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               )}
               {task.coverageScope != null && String(task.coverageScope).trim() !== '' && (
                 <div className="col-span-2">
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Coverage Scope</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">{task.coverageScope}</p>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground">Coverage Scope</label>
+                  <p className="text-sm font-medium text-foreground mt-1">{task.coverageScope}</p>
                 </div>
               )}
               {task.taskType === 'MA' && (
                 <div className="col-span-2">
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Assigned Service</label>
-                  <p className="text-sm font-medium text-slate-800 mt-1">
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground">Assigned Service</label>
+                  <p className="text-sm font-medium text-foreground mt-1">
                     {String(
                       task.assignedService ??
                         (task as { assigned_service?: string | null }).assigned_service ??
@@ -494,27 +494,27 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
 
           {/* Engineers — แสดงรูปและชื่อแนวตั้ง */}
           {(task.Eng_ids && task.Eng_ids.length > 0) || task.engineer ? (
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700 mb-3">Assigned Engineers</h3>
+            <div className="bg-muted rounded-xl p-4 border border-border">
+              <h3 className="text-sm font-bold text-muted-foreground mb-3">Assigned Engineers</h3>
               <div className="flex flex-col gap-1">
                 {task.Eng_ids?.map((eng) => (
                   <div key={eng.id} className="flex items-center gap-2">
-                    <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100">
+                    <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-border bg-muted">
                       {eng.photo ? (
                         <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
                       ) : (
-                        <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
+                        <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-muted-foreground">
                           {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}
                         </span>
                       )}
                     </span>
-                    <span className="text-sm font-medium text-slate-800">
+                    <span className="text-sm font-medium text-foreground">
                       {eng.name}{eng.lastName ? ' ' + eng.lastName : ''}
                     </span>
                   </div>
                 ))}
                 {!task.Eng_ids && task.engineer && (
-                  <div className="text-sm font-medium text-slate-800">
+                  <div className="text-sm font-medium text-foreground">
                     {task.engineer}
                   </div>
                 )}
@@ -524,17 +524,17 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
 
           {/* MA: Asset Binding (Contract & Client removed) */}
           {task.taskType === 'MA' && task.assetBinding && (
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700 mb-3">Asset Binding</h3>
-              <p className="text-sm font-medium text-slate-800 mt-1">{task.assetBinding}</p>
+            <div className="bg-muted rounded-xl p-4 border border-border">
+              <h3 className="text-sm font-bold text-muted-foreground mb-3">Asset Binding</h3>
+              <p className="text-sm font-medium text-foreground mt-1">{task.assetBinding}</p>
             </div>
           )}
 
           {/* Assets / MA: อุปกรณ์ที่เสีย → เปลี่ยนเป็น อุปกรณ์ที่เอาไปเปลี่ยน (แสดงครบทุกคู่) */}
           {(task.assets && task.assets.length > 0) || (task.taskType === 'MA' && task.replacementDeviceId) ? (
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+            <div className="bg-muted rounded-xl p-4 border border-border">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold text-slate-700">
+                <h3 className="text-sm font-bold text-muted-foreground">
                   {task.taskType === 'MA' ? `Devices (${totalAssets})` : `Selected Assets (${totalAssets})`}
                 </h3>
                 {task.assets && task.assets.length > 0 && (
@@ -558,27 +558,27 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                       const replacementDevice = repId != null ? replacementDevicesMap[String(repId)] : null;
                       return (
                         <div key={asset.id} className="flex flex-wrap items-center gap-2">
-                          <div className="px-2 py-1.5 bg-white rounded-md border border-slate-200 min-w-0 flex-1">
-                            <p className="text-[11px] font-medium text-slate-800 truncate">{getDeviceDisplayName(resolvedAsset.name)}</p>
-                            <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5">
+                          <div className="px-2 py-1.5 bg-card rounded-md border border-border min-w-0 flex-1">
+                            <p className="text-[11px] font-medium text-foreground truncate">{getDeviceDisplayName(resolvedAsset.name)}</p>
+                            <div className="flex gap-1.5 text-[9px] text-muted-foreground mt-0.5">
                               <span>{getDeviceTypeLabel(resolvedAsset)}</span>
                               {resolvedAsset.serialNumber && <span>| SN: {resolvedAsset.serialNumber}</span>}
                             </div>
                           </div>
                           {repId != null && (
                             <>
-                              <span className="text-[9px] font-semibold text-slate-500 shrink-0">Replace with</span>
+                              <span className="text-[9px] font-semibold text-muted-foreground shrink-0">Replace with</span>
                               <div className="px-2 py-1.5 bg-green-50 rounded-md border border-green-200 min-w-0 flex-1">
                                 {replacementDevice ? (
                                   <>
-                                    <p className="text-[11px] font-medium text-slate-800 truncate">{getDeviceDisplayName(replacementDevice.name)}</p>
-                                    <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5">
+                                    <p className="text-[11px] font-medium text-foreground truncate">{getDeviceDisplayName(replacementDevice.name)}</p>
+                                    <div className="flex gap-1.5 text-[9px] text-muted-foreground mt-0.5">
                                       <span>{getDeviceTypeLabel(replacementDevice)}</span>
                                       {replacementDevice.serialNumber && <span>| SN: {replacementDevice.serialNumber}</span>}
                                     </div>
                                   </>
                                 ) : (
-                                  <p className="text-[10px] text-slate-500">Device ID: {repId}</p>
+                                  <p className="text-[10px] text-muted-foreground">Device ID: {repId}</p>
                                 )}
                               </div>
                             </>
@@ -589,12 +589,12 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                     {/* กรณีมี replacement แต่ไม่มี assets (edge case) */}
                     {(!task.assets || task.assets.length === 0) && task.replacementDeviceId && (
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[9px] font-semibold text-slate-500">เปลี่ยนเป็น</span>
+                        <span className="text-[9px] font-semibold text-muted-foreground">เปลี่ยนเป็น</span>
                         <div className="px-2 py-1.5 bg-green-50 rounded-md border border-green-200">
                           {replacementDevicesMap[String(task.replacementDeviceId)] ? (
-                            <p className="text-[11px] font-medium text-slate-800">{replacementDevicesMap[String(task.replacementDeviceId)].name}</p>
+                            <p className="text-[11px] font-medium text-foreground">{replacementDevicesMap[String(task.replacementDeviceId)].name}</p>
                           ) : (
-                            <p className="text-[10px] text-slate-500">Device ID: {task.replacementDeviceId}</p>
+                            <p className="text-[10px] text-muted-foreground">Device ID: {task.replacementDeviceId}</p>
                           )}
                         </div>
                       </div>
@@ -607,9 +607,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                     {paginatedAssets.map((asset) => {
                       const resolvedAsset = getResolvedAsset(asset) || asset;
                       return (
-                      <div key={asset.id} className="px-2 py-1.5 bg-white rounded-md border border-slate-200">
-                        <p className="text-[11px] font-medium text-slate-800 truncate">{getDeviceDisplayName(resolvedAsset.name)}</p>
-                        <div className="flex gap-1.5 text-[9px] text-slate-500 mt-0.5 flex-wrap">
+                      <div key={asset.id} className="px-2 py-1.5 bg-card rounded-md border border-border">
+                        <p className="text-[11px] font-medium text-foreground truncate">{getDeviceDisplayName(resolvedAsset.name)}</p>
+                        <div className="flex gap-1.5 text-[9px] text-muted-foreground mt-0.5 flex-wrap">
                           <span>Type: {getDeviceTypeLabel(resolvedAsset)}</span>
                           {resolvedAsset.serialNumber && <span>| SN: {resolvedAsset.serialNumber}</span>}
                           {resolvedAsset.site && <span>| Site: {resolvedAsset.site}</span>}
@@ -620,8 +620,8 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 )}
               </div>
               {totalAssets > assetsPerPage && (
-                <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3">
-                  <p className="text-[11px] text-slate-500">
+                <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+                  <p className="text-[11px] text-muted-foreground">
                     Showing {(assetPage - 1) * assetsPerPage + 1}-{Math.min(assetPage * assetsPerPage, totalAssets)} of {totalAssets} devices
                   </p>
                   <div className="flex items-center gap-2">
@@ -629,18 +629,18 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                       type="button"
                       onClick={() => setAssetPage((prev) => Math.max(1, prev - 1))}
                       disabled={assetPage === 1}
-                      className="px-2.5 py-1 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Previous
                     </button>
-                    <span className="text-[11px] font-medium text-slate-600">
+                    <span className="text-[11px] font-medium text-muted-foreground">
                       Page {assetPage} / {totalAssetPages}
                     </span>
                     <button
                       type="button"
                       onClick={() => setAssetPage((prev) => Math.min(totalAssetPages, prev + 1))}
                       disabled={assetPage === totalAssetPages}
-                      className="px-2.5 py-1 text-xs rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-2.5 py-1 text-xs rounded-md border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Next
                     </button>
@@ -651,9 +651,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
           ) : null}
 
           {/* Coverage Scope - แสดง "—" เมื่อไม่มีค่าหรือเป็นแค่ "-" */}
-          <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-            <h3 className="text-sm font-bold text-slate-700 mb-3">Coverage Scope</h3>
-            <p className="text-sm text-slate-700 whitespace-pre-wrap">
+          <div className="bg-muted rounded-xl p-4 border border-border">
+            <h3 className="text-sm font-bold text-muted-foreground mb-3">Coverage Scope</h3>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
               {task.coverageScope && task.coverageScope.trim() && task.coverageScope.trim() !== '-'
                 ? task.coverageScope
                 : '—'}
@@ -661,16 +661,16 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
           </div>
 
           {task.taskType === 'MA' && ((task.rootCause && task.rootCause.trim()) || (task.resolution && task.resolution.trim())) && (
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700 mb-3">Issue Details</h3>
+            <div className="bg-muted rounded-xl p-4 border border-border">
+              <h3 className="text-sm font-bold text-muted-foreground mb-3">Issue Details</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Root Cause</label>
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap mt-1">{task.rootCause?.trim() || '—'}</p>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground">Root Cause</label>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">{task.rootCause?.trim() || '—'}</p>
                 </div>
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-500">Resolution</label>
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap mt-1">{task.resolution?.trim() || '—'}</p>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground">Resolution</label>
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">{task.resolution?.trim() || '—'}</p>
                 </div>
               </div>
             </div>
@@ -688,25 +688,25 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Downtime date</label>
-                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
+                  <p className="text-sm font-semibold text-foreground mt-1 tabular-nums">
                     {formatDateLocale(maDowntimeDisplay.downtimeDate, 'en-US') || '—'}
                   </p>
                 </div>
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Downtime time</label>
-                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
+                  <p className="text-sm font-semibold text-foreground mt-1 tabular-nums">
                     {formatTime12h(maDowntimeDisplay.downtimeTime, 'en-US') || '—'}
                   </p>
                 </div>
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Uptime date</label>
-                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
+                  <p className="text-sm font-semibold text-foreground mt-1 tabular-nums">
                     {formatDateLocale(maDowntimeDisplay.uptimeDate, 'en-US') || '—'}
                   </p>
                 </div>
                 <div>
                   <label className="text-[10px] font-semibold uppercase text-emerald-800/80">Uptime time</label>
-                  <p className="text-sm font-semibold text-slate-800 mt-1 tabular-nums">
+                  <p className="text-sm font-semibold text-foreground mt-1 tabular-nums">
                     {formatTime12h(maDowntimeDisplay.uptimeTime, 'en-US') || '—'}
                   </p>
                 </div>
@@ -729,9 +729,9 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               const repairPaths = parseRepairNoticePaths(task.photos);
               if (repairPaths.length === 0) return null;
               return (
-                <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                  <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-                    <Paperclip size={16} className="text-slate-500 shrink-0" aria-hidden />
+                <div className="bg-muted rounded-xl p-4 border border-border">
+                  <h3 className="text-sm font-bold text-muted-foreground mb-3 flex items-center gap-2">
+                    <Paperclip size={16} className="text-muted-foreground shrink-0" aria-hidden />
                     Remark
                   </h3>
                   <ul className="space-y-2">
@@ -796,19 +796,19 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
 
           {/* Travel Information */}
           {(task.travelMethod || task.travelCost) && (
-            <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700 mb-3">Travel Information</h3>
+            <div className="bg-muted rounded-xl p-4 border border-border">
+              <h3 className="text-sm font-bold text-muted-foreground mb-3">Travel Information</h3>
               <div className="grid grid-cols-2 gap-3">
                 {task.travelMethod && (
                   <div>
-                    <label className="text-[10px] font-semibold uppercase text-slate-500">Travel Method</label>
-                    <p className="text-sm font-medium text-slate-800 mt-1">{task.travelMethod}</p>
+                    <label className="text-[10px] font-semibold uppercase text-muted-foreground">Travel Method</label>
+                    <p className="text-sm font-medium text-foreground mt-1">{task.travelMethod}</p>
                   </div>
                 )}
                 {task.travelCost && (
                   <div>
-                    <label className="text-[10px] font-semibold uppercase text-slate-500">Travel Cost</label>
-                    <p className="text-sm font-medium text-slate-800 mt-1">
+                    <label className="text-[10px] font-semibold uppercase text-muted-foreground">Travel Cost</label>
+                    <p className="text-sm font-medium text-foreground mt-1">
                       {parseFloat(task.travelCost).toLocaleString('en-US')} THB
                     </p>
                   </div>
@@ -824,7 +824,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             }`}
           >
             <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
-              <h3 className="text-sm font-bold text-slate-700">Task Status</h3>
+              <h3 className="text-sm font-bold text-muted-foreground">Task Status</h3>
               {isStatusLockedDoneReported && (
                 <p className="text-xs font-medium text-emerald-800 bg-emerald-100/90 border border-emerald-200 rounded-lg px-2.5 py-1 max-w-[min(100%,20rem)]">
                   Status is locked because the task is already done and has a report.
@@ -839,7 +839,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
                   status === 'done'
                     ? 'bg-green-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-green-300'
+                    : 'bg-card text-muted-foreground border-2 border-border hover:border-green-300'
                 } ${isStatusLockedDoneReported ? 'cursor-not-allowed opacity-90' : ''}`}
               >
                 Done
@@ -851,7 +851,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
                   status === 'working'
                     ? 'bg-amber-500 text-white shadow-md'
-                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-amber-300'
+                    : 'bg-card text-muted-foreground border-2 border-border hover:border-amber-300'
                 } ${isStatusLockedDoneReported ? 'cursor-not-allowed opacity-75' : ''}`}
               >
                 <Clock3 size={18} className="shrink-0" strokeWidth={2.25} />
@@ -864,7 +864,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 className={`py-3 px-4 rounded-xl font-semibold text-sm transition-all ${
                   status === 'not-started' || status === 'stuck'
                     ? 'bg-gray-400 text-white shadow-md'
-                    : 'bg-white text-slate-600 border-2 border-slate-200 hover:border-gray-300'
+                    : 'bg-card text-muted-foreground border-2 border-border hover:border-border'
                 } ${isStatusLockedDoneReported ? 'cursor-not-allowed opacity-75' : ''}`}
               >
                 Pending
@@ -898,7 +898,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   }}
                   rows={3}
                   placeholder="For example: Waiting for spare parts, Coordinating with customer, Waiting for access..."
-                  className="w-full resize-y rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                  className="w-full resize-y rounded-lg border border-amber-200 bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-200"
                 />
               </div>
             )}
@@ -907,7 +907,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
         </div>
 
         {/* Footer */}
-        <div className="flex justify-between items-center gap-3 px-6 py-4 border-t bg-slate-50">
+        <div className="flex justify-between items-center gap-3 px-6 py-4 border-t bg-muted">
           <div className="flex gap-3">
             {onEdit && (
               <button
@@ -998,7 +998,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             )}
             <button
               onClick={onClose}
-              className="px-6 py-2.5 bg-slate-200 text-slate-700 rounded-xl font-semibold text-sm hover:bg-slate-300 transition-colors"
+              className="px-6 py-2.5 bg-muted text-muted-foreground rounded-xl font-semibold text-sm hover:bg-slate-300 transition-colors"
             >
               Cancel
             </button>
@@ -1009,7 +1009,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               title={isStatusLockedDoneReported ? 'สถานะล็อกแล้ว (Done + มีรายงาน)' : undefined}
               className={`px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors shadow-md ${
                 isStatusLockedDoneReported
-                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  ? 'bg-slate-300 text-muted-foreground cursor-not-allowed'
                   : 'bg-blue-500 text-white hover:bg-blue-600'
               }`}
             >

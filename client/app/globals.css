@@ -50,17 +50,17 @@
   --radius: 0.625rem;
   /* Slightly cool-tinted canvas; reads softer than flat white on long forms */
   --background: oklch(0.988 0.006 240);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.1 0.01 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.1 0.01 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.1 0.01 250);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.38 0.02 250);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -82,8 +82,8 @@
   --sidebar-ring: oklch(0.708 0 0);
   /* Top Sites widget + shared semantic accents (light) */
   --color-background-primary: oklch(1 0 0);
-  --color-text-primary: oklch(0.145 0 0);
-  --color-text-secondary: oklch(0.45 0.02 250);
+  --color-text-primary: oklch(0.1 0.01 250);
+  --color-text-secondary: oklch(0.35 0.02 250);
   --color-border-subtle: oklch(0.91 0.01 250);
   --color-surface-muted: oklch(0.97 0.008 250);
   --color-accent-devices: #378add;
@@ -91,18 +91,18 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
+  --background: oklch(0.16 0.01 250);
+  --foreground: oklch(0.99 0.005 250);
+  --card: oklch(0.21 0.015 250);
+  --card-foreground: oklch(0.99 0.005 250);
   --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
+  --popover-foreground: oklch(0.99 0.005 250);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
+  --muted-foreground: oklch(0.84 0.02 250);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
@@ -124,8 +124,8 @@
   --sidebar-ring: oklch(0.556 0 0);
   /* Top Sites widget (dark) */
   --color-background-primary: oklch(0.22 0.02 250);
-  --color-text-primary: oklch(0.97 0.01 250);
-  --color-text-secondary: oklch(0.72 0.02 250);
+  --color-text-primary: oklch(0.99 0.005 250);
+  --color-text-secondary: oklch(0.82 0.02 250);
   --color-border-subtle: oklch(1 0 0 / 14%);
   --color-surface-muted: oklch(0.28 0.02 250);
   --color-accent-devices: #378add;
@@ -135,7 +135,7 @@
 @layer base {
   /* ฐาน rem เล็กลงทั้งแอป (~12.8px จาก 16px) — ขนาดตัวอักษร, padding, gap ที่ใช้ rem จะเล็กตาม */
   html {
-    font-size: 100%;
+    font-size: 80%;
     /* ไม่ให้มือถือบางรุ่นปรับขนาดตัวอักษรเองแบบตัดการย่อ/ขยายจากผู้ใช้ — ให้สเกลตาม zoom ของเบราว์เซอร์ */
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
@@ -162,7 +162,260 @@
   }
   body {
     @apply bg-background text-foreground font-sans antialiased leading-relaxed;
+    font-weight: 500;
   }
+  .dark {
+    color-scheme: dark;
+  }
+}
+
+/* Full-app dark mode: unlayered — must beat Tailwind utility specificity */
+.dark .bg-white,
+.dark tbody.bg-white,
+.dark thead.bg-white,
+.dark tr.bg-white,
+.dark td.bg-white,
+.dark th.bg-white {
+  background-color: var(--card) !important;
+}
+
+.dark .bg-white\/90 {
+  background-color: color-mix(in oklch, var(--card) 90%, transparent) !important;
+}
+.dark .bg-white\/60 {
+  background-color: color-mix(in oklch, var(--card) 60%, transparent) !important;
+}
+.dark .bg-slate-50,
+.dark .bg-slate-100,
+.dark .bg-slate-200,
+.dark .bg-slate-300,
+.dark .bg-gray-50,
+.dark .bg-gray-100,
+.dark .bg-gray-200,
+.dark .bg-\[\#F5F7FB\],
+.dark .bg-\[\#F9FBFF\] {
+  background-color: var(--muted) !important;
+}
+
+.dark .bg-blue-50 { background-color: color-mix(in oklch, #378add 14%, var(--card)) !important; }
+.dark .bg-blue-100 { background-color: color-mix(in oklch, #378add 22%, var(--card)) !important; }
+.dark .bg-sky-50 { background-color: color-mix(in oklch, #0ea5e9 14%, var(--card)) !important; }
+.dark .bg-indigo-50,
+.dark .bg-indigo-100 { background-color: color-mix(in oklch, #6366f1 18%, var(--card)) !important; }
+.dark .bg-purple-50 { background-color: color-mix(in oklch, #a855f7 14%, var(--card)) !important; }
+.dark .bg-green-50,
+.dark .bg-green-100 { background-color: color-mix(in oklch, #22c55e 18%, var(--card)) !important; }
+.dark .bg-red-50,
+.dark .bg-red-100 { background-color: color-mix(in oklch, #ef4444 18%, var(--card)) !important; }
+.dark .bg-orange-50,
+.dark .bg-orange-100 { background-color: color-mix(in oklch, #f97316 18%, var(--card)) !important; }
+.dark .bg-yellow-50,
+.dark .bg-yellow-100 { background-color: color-mix(in oklch, #eab308 18%, var(--card)) !important; }
+.dark .bg-amber-50 { background-color: color-mix(in oklch, #f59e0b 14%, var(--card)) !important; }
+.dark .bg-emerald-50 { background-color: color-mix(in oklch, #10b981 14%, var(--card)) !important; }
+
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-950,
+.dark .text-gray-900,
+.dark .text-gray-800 {
+  color: var(--foreground) !important;
+}
+.dark .text-slate-700,
+.dark .text-slate-600,
+.dark .text-gray-700,
+.dark .text-gray-600,
+.dark .text-slate-500,
+.dark .text-slate-400,
+.dark .text-gray-500,
+.dark .text-gray-400,
+.dark .text-slate-300,
+.dark .text-gray-300 {
+  color: var(--muted-foreground) !important;
+}
+.dark .bg-slate-800,
+.dark .bg-slate-700 {
+  background-color: color-mix(in oklch, var(--primary) 85%, var(--card)) !important;
+}
+.dark .bg-slate-300 {
+  background-color: color-mix(in oklch, var(--muted-foreground) 35%, var(--muted)) !important;
+}
+.dark .hover\:bg-slate-700:hover {
+  background-color: color-mix(in oklch, var(--primary) 70%, var(--card)) !important;
+}
+.dark .bg-red-50\/30 {
+  background-color: color-mix(in oklch, #ef4444 12%, var(--card)) !important;
+}
+
+.dark .text-blue-600,
+.dark .text-blue-700 { color: oklch(0.74 0.14 250) !important; }
+.dark .text-blue-800 { color: oklch(0.78 0.1 250) !important; }
+.dark .text-indigo-500,
+.dark .text-indigo-600 { color: oklch(0.74 0.12 280) !important; }
+.dark .text-indigo-700 { color: oklch(0.76 0.1 280) !important; }
+.dark .text-green-700,
+.dark .text-green-800 { color: oklch(0.78 0.12 145) !important; }
+.dark .text-red-700,
+.dark .text-red-800 { color: oklch(0.76 0.14 25) !important; }
+.dark .text-orange-700,
+.dark .text-orange-800 { color: oklch(0.78 0.12 55) !important; }
+.dark .text-yellow-700,
+.dark .text-yellow-800 { color: oklch(0.82 0.12 95) !important; }
+.dark .text-amber-900 { color: oklch(0.82 0.1 75) !important; }
+.dark .text-sky-900 { color: oklch(0.78 0.1 230) !important; }
+
+.dark .border-slate-50,
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300,
+.dark .border-slate-400,
+.dark .border-slate-500,
+.dark .border-gray-50,
+.dark .border-gray-100,
+.dark .border-gray-200,
+.dark .border-gray-300,
+.dark .border-green-200,
+.dark .border-red-200,
+.dark .border-red-300,
+.dark .border-blue-200,
+.dark .border-yellow-200,
+.dark .border-amber-300,
+.dark .border-sky-300 {
+  border-color: var(--border) !important;
+}
+.dark .border-white {
+  border-color: var(--card) !important;
+}
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border) !important;
+}
+.dark .ring-slate-200,
+.dark .ring-slate-200\/40,
+.dark .ring-slate-200\/50,
+.dark .ring-slate-200\/60,
+.dark .ring-slate-200\/80,
+.dark .ring-sky-200\/60,
+.dark .ring-red-200\/60,
+.dark .ring-amber-200\/60 {
+  --tw-ring-color: var(--border) !important;
+}
+
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-100:hover,
+.dark .hover\:bg-white:hover,
+.dark .hover\:bg-gray-50:hover {
+  background-color: var(--muted) !important;
+}
+.dark .hover\:bg-slate-50\/50:hover {
+  background-color: color-mix(in oklch, var(--muted) 50%, transparent) !important;
+}
+.dark .hover\:bg-blue-50:hover { background-color: color-mix(in oklch, #378add 18%, var(--muted)) !important; }
+.dark .hover\:bg-purple-50:hover { background-color: color-mix(in oklch, #a855f7 18%, var(--muted)) !important; }
+.dark .hover\:bg-red-50:hover { background-color: color-mix(in oklch, #ef4444 18%, var(--muted)) !important; }
+.dark .hover\:text-slate-700:hover,
+.dark .hover\:text-slate-800:hover,
+.dark .hover\:text-slate-600:hover {
+  color: var(--foreground) !important;
+}
+.dark .hover\:border-blue-100:hover,
+.dark .hover\:border-blue-500:hover,
+.dark .hover\:border-slate-300:hover,
+.dark .hover\:border-slate-400:hover,
+.dark .hover\:border-red-400:hover,
+.dark .hover\:border-amber-400:hover,
+.dark .hover\:border-sky-400:hover {
+  border-color: color-mix(in oklch, #378add 45%, var(--border)) !important;
+}
+
+.dark [class*='bg-gradient-to-br'][class*='from-slate'],
+.dark [class*='bg-gradient-to-br'][class*='via-blue'],
+.dark [class*='bg-gradient-to-br'][class*='via-emerald'],
+.dark [class*='bg-gradient-to-br'][class*='via-sky'],
+.dark [class*='bg-gradient-to-br'][class*='to-slate'] {
+  background-image: linear-gradient(
+    to bottom right,
+    var(--background),
+    color-mix(in oklch, var(--muted) 45%, var(--background)),
+    var(--background)
+  ) !important;
+}
+.dark [class*='bg-gradient-to-r'][class*='from-slate'],
+.dark [class*='bg-gradient-to-r'][class*='from-blue'],
+.dark [class*='bg-gradient-to-r'][class*='via-white'],
+.dark [class*='bg-gradient-to-r'][class*='to-sky'] {
+  background-image: linear-gradient(
+    to right,
+    color-mix(in oklch, var(--muted) 55%, var(--card)),
+    var(--card)
+  ) !important;
+}
+.dark [class*='bg-clip-text'][class*='from-slate'],
+.dark [class*='bg-clip-text'][class*='from-black'],
+.dark [class*='bg-clip-text'][class*='via-gray'] {
+  color: var(--foreground) !important;
+  -webkit-text-fill-color: var(--foreground) !important;
+  background-image: none !important;
+}
+
+/* Page / section titles — gradient ที่อ่านได้ทั้ง light และ dark */
+.page-heading {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 800;
+  background-image: linear-gradient(
+    to right,
+    var(--foreground),
+    color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground)),
+    var(--foreground)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.dark thead.bg-gray-50,
+.dark thead.bg-slate-50 {
+  background-color: var(--muted) !important;
+}
+
+.dark input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+.dark select,
+.dark textarea {
+  background-color: var(--input) !important;
+  color: var(--foreground) !important;
+  border-color: var(--border);
+}
+.dark .placeholder\:text-slate-400::placeholder,
+.dark .placeholder\:text-gray-400::placeholder {
+  color: var(--muted-foreground) !important;
+}
+.dark select option {
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+.dark .shadow-sm,
+.dark .shadow-md,
+.dark .shadow-lg,
+.dark .shadow-xl,
+.dark .shadow-2xl {
+  --tw-shadow-color: rgb(0 0 0 / 0.45);
+}
+
+.dark .recharts-cartesian-grid line {
+  stroke: var(--border);
+}
+.dark .recharts-text {
+  fill: var(--muted-foreground);
+}
+.dark .recharts-default-tooltip {
+  background-color: var(--card) !important;
+  border-color: var(--border) !important;
+  color: var(--foreground) !important;
+}
+.dark .recharts-wrapper .recharts-surface {
+  background: transparent;
 }
 
 @keyframes fadeIn {
@@ -235,6 +488,10 @@
 
 .scrollbar-track-slate-100::-webkit-scrollbar-track {
   background: rgb(241 245 249);
+}
+
+.dark .scrollbar-track-slate-100::-webkit-scrollbar-track {
+  background: oklch(0.25 0 0);
 }
 
 /* React DatePicker Styles */
@@ -311,6 +568,35 @@
 
 .react-datepicker__navigation:hover *::before {
   border-color: rgb(59 130 246);
+}
+
+.dark .react-datepicker {
+  background-color: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+
+.dark .react-datepicker__header {
+  background-color: var(--muted);
+  border-bottom-color: var(--border);
+}
+
+.dark .react-datepicker__current-month,
+.dark .react-datepicker__day {
+  color: var(--foreground);
+}
+
+.dark .react-datepicker__day-name {
+  color: var(--muted-foreground);
+}
+
+.dark .react-datepicker__day:hover,
+.dark .react-datepicker__day--keyboard-selected {
+  background-color: color-mix(in oklch, var(--accent) 80%, transparent);
+}
+
+.dark .react-datepicker__navigation-icon::before {
+  border-color: var(--muted-foreground);
 }
 
 /* PM Report — sites registry list: thin scrollbar */

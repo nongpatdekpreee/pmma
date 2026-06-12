@@ -54,7 +54,7 @@ import {
 import type { SiteLocation, DeviceItem } from './types';
 
 const inputBase =
-  'w-full rounded-xl border border-slate-200/90 bg-white p-3 text-sm text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
+  'w-full rounded-xl border border-border/90 bg-card p-3 text-sm text-foreground shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-muted-foreground focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
 
 /** Sale contact — เหมือน Contract name (inputBase) + ที่ว่างปุ่มล้าง */
 const saleContactInputClass = `${inputBase} box-border pr-9`;
@@ -1759,19 +1759,19 @@ function AddContractPageContent() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Page Header */}
-          <div className="relative overflow-hidden rounded-2xl border border-slate-200/50 bg-gradient-to-br from-white via-sky-50/40 to-indigo-50/50 p-6 shadow-md shadow-slate-900/[0.04] ring-1 ring-white/80">
+          <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-white via-sky-50/40 to-indigo-50/50 p-6 shadow-md shadow-slate-900/[0.04] ring-1 ring-white/80">
             <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-sky-200/25 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-20 -left-10 h-40 w-40 rounded-full bg-violet-200/20 blur-3xl" />
             <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIwLjUiIG9wYWNpdHk9IjAuMDMiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-[0.35]" />
             <div className="relative flex items-center gap-4">
               <Link
                 href="/contract_editer"
-                className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200/60 bg-white/90 text-slate-600 shadow-sm shadow-slate-900/5 backdrop-blur-sm transition-all hover:border-sky-200 hover:bg-white hover:text-sky-700 hover:shadow-md"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-card/90 text-muted-foreground shadow-sm shadow-slate-900/5 backdrop-blur-sm transition-all hover:border-sky-200 hover:bg-card hover:text-sky-700 hover:shadow-md"
               >
                 <ArrowLeft size={20} />
               </Link>
               <div>
-                <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-800 sm:text-3xl">
+                <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                   {editContractId ? (
                     <Pencil size={28} className="shrink-0 text-sky-600" aria-hidden />
                   ) : (
@@ -1779,7 +1779,7 @@ function AddContractPageContent() {
                   )}
                   <span>{editContractId ? 'Edit Contract' : 'Add New Contract'}</span>
                 </h1>
-                <p className="mt-1 text-sm text-slate-600">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {editContractId ? 'Edit contract information' : 'Enter contract information completely'}
                 </p>
               </div>
@@ -1794,7 +1794,7 @@ function AddContractPageContent() {
               gradient="from-amber-50 to-orange-50"
             >
               {loadingOldContract ? (
-                <p className="text-sm text-slate-500">Loading old contract information...</p>
+                <p className="text-sm text-muted-foreground">Loading old contract information...</p>
               ) : (
                 <>
                   {oldContractSOF && (
@@ -1804,7 +1804,7 @@ function AddContractPageContent() {
                           type="text"
                           value={oldContractSOF}
                           readOnly
-                          className={`${inputBase} bg-slate-100 cursor-not-allowed`}
+                          className={`${inputBase} bg-muted cursor-not-allowed`}
                         />
                         <p className="mt-1 text-xs text-amber-600">SOF from old contract</p>
                       </FormField>
@@ -1834,7 +1834,7 @@ function AddContractPageContent() {
                             <button
                               type="button"
                               onClick={() => { setSelectedSOF(''); setSofName(''); }}
-                              className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
                               title="ล้าง"
                             >
                               <X size={14} />
@@ -1846,7 +1846,7 @@ function AddContractPageContent() {
                             <option key={sof} value={sof} />
                           ))}
                         </datalist>
-                        {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
+                        {referSOFLoading && <p className="mt-1 text-xs text-muted-foreground">Loading...</p>}
                         {selectedSOF.trim() && !referSOFList.includes(selectedSOF.trim()) && (
                           <p className="mt-1 text-xs text-amber-600">New SOF is not in the system (will be created)</p>
                         )}
@@ -1883,7 +1883,7 @@ function AddContractPageContent() {
                     <button
                       type="button"
                       onClick={() => setContractName('')}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
                       title="ล้าง"
                     >
                       <X size={14} />
@@ -1920,7 +1920,7 @@ function AddContractPageContent() {
                       <button
                         type="button"
                         onClick={() => { setSelectedSOF(''); setSofName(''); }}
-                        className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
                         title="ล้าง"
                       >
                         <X size={14} />
@@ -1932,7 +1932,7 @@ function AddContractPageContent() {
                       <option key={sof} value={sof} />
                     ))}
                   </datalist>
-                  {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
+                  {referSOFLoading && <p className="mt-1 text-xs text-muted-foreground">Loading...</p>}
                 </FormField>
               )}
               {!renewContractId && !editContractId && (
@@ -1963,7 +1963,7 @@ function AddContractPageContent() {
                       triggerSelectedClassName="font-mono"
                       panelFooter={
                         <div
-                          className="shrink-0 border-t border-slate-200 bg-slate-50/95 px-3 py-2.5 text-sm"
+                          className="shrink-0 border-t border-border bg-muted/95 px-3 py-2.5 text-sm"
                           onMouseDown={(e) => e.stopPropagation()}
                         >
                           <div className="flex items-start gap-2.5 rounded-lg hover:bg-sky-50/80">
@@ -1980,11 +1980,11 @@ function AddContractPageContent() {
                                   }
                                   setReferSofManualRowEnabled(true);
                                 }}
-                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-sky-600 focus:ring-sky-500"
                               />
                               <div className="min-w-0 flex-1">
-                                <span className="block font-medium text-slate-800">Type the new SOF</span>
-                                <span className="mt-0.5 block text-[11px] leading-snug text-slate-500">
+                                <span className="block font-medium text-foreground">Type the new SOF</span>
+                                <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
                                   Enter digits only (0–9), then Add or Enter.
                                 </span>
                               </div>
@@ -2019,10 +2019,10 @@ function AddContractPageContent() {
                               onClick={(e) => e.stopPropagation()}
                               placeholder="Digits only, e.g. 12345"
                               disabled={!referSofManualRowEnabled}
-                              className={`min-w-0 flex-1 rounded-lg border px-2.5 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${
+                              className={`min-w-0 flex-1 rounded-lg border px-2.5 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground ${
                                 referSofManualRowEnabled
-                                  ? 'border-slate-200 bg-white focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20'
-                                  : 'border-slate-200 bg-slate-100'
+                                  ? 'border-border bg-card focus:border-sky-400 focus:ring-1 focus:ring-sky-500/20'
+                                  : 'border-border bg-muted'
                               }`}
                             />
                             {referSofManualRowEnabled && (
@@ -2031,7 +2031,7 @@ function AddContractPageContent() {
                                 title="Close the manual SOF input"
                                 aria-label="Close the manual SOF input"
                                 onClick={dismissReferSofManualRow}
-                                className="flex h-9 w-9 shrink-0 items-center justify-center self-stretch rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 sm:h-[37px]"
+                                className="flex h-9 w-9 shrink-0 items-center justify-center self-stretch rounded-lg text-muted-foreground hover:bg-red-50 hover:text-red-600 sm:h-[37px]"
                               >
                                 <X size={16} strokeWidth={2.5} />
                               </button>
@@ -2052,7 +2052,7 @@ function AddContractPageContent() {
                         </div>
                       }
                     />
-                    {referSOFLoading && <p className="mt-1 text-xs text-slate-500">Loading...</p>}
+                    {referSOFLoading && <p className="mt-1 text-xs text-muted-foreground">Loading...</p>}
                   </FormField>
                 </>
               )}
@@ -2115,7 +2115,7 @@ function AddContractPageContent() {
                   </div>
                   {serviceDropdownOpen && (
                     <ul
-                      className="absolute z-[300] mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                      className="absolute z-[300] mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-border bg-card py-1 shadow-lg"
                       onMouseDown={(e) => e.preventDefault()}
                     >
                       {assignedServiceOptions
@@ -2125,7 +2125,7 @@ function AddContractPageContent() {
                           <li key={s}>
                             <button
                               type="button"
-                              className="w-full px-3 py-2 text-left text-sm hover:bg-slate-100 focus:bg-slate-100"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted"
                               onMouseDown={() => {
                                 setAssignedService(s);
                                 setServiceDropdownOpen(false);
@@ -2138,7 +2138,7 @@ function AddContractPageContent() {
                       {assignedServiceOptions.filter((s) =>
                         s.toLowerCase().includes(assignedService.trim().toLowerCase())
                       ).length === 0 && (
-                        <li className="px-3 py-2 text-sm text-slate-500">No have any Service</li>
+                        <li className="px-3 py-2 text-sm text-muted-foreground">No have any Service</li>
                       )}
                     </ul>
                   )}
@@ -2166,7 +2166,7 @@ function AddContractPageContent() {
                     <button
                       type="button"
                       onClick={() => setSlaTerm('')}
-                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
                       title="ล้าง"
                     >
                       <X size={14} />
@@ -2193,7 +2193,7 @@ function AddContractPageContent() {
                           <button
                             type="button"
                             onClick={() => updateSaleContactRow(row.id, { name: '' })}
-                            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
                             title="Clear"
                           >
                             <X size={14} />
@@ -2214,7 +2214,7 @@ function AddContractPageContent() {
                           <button
                             type="button"
                             onClick={() => updateSaleContactRow(row.id, { email: '' })}
-                            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
                             title="Clear"
                           >
                             <X size={14} />
@@ -2260,7 +2260,7 @@ function AddContractPageContent() {
                               onClick={() =>
                                 updateSaleContactRow(row.id, { tel: '', telExt: '' })
                               }
-                              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
                               title="Clear"
                             >
                               <X size={14} />
@@ -2268,7 +2268,7 @@ function AddContractPageContent() {
                           ) : null}
                         </div>
                         <span
-                          className="shrink-0 select-none text-base font-medium text-slate-400"
+                          className="shrink-0 select-none text-base font-medium text-muted-foreground"
                           aria-hidden
                         >
                           -
@@ -2311,7 +2311,7 @@ function AddContractPageContent() {
                             <button
                               type="button"
                               onClick={() => updateSaleContactRow(row.id, { telExt: '' })}
-                              className="absolute -right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600 sm:right-0"
+                              className="absolute -right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600 sm:right-0"
                               title="Clear extension"
                               aria-label="Clear extension"
                             >
@@ -2372,7 +2372,7 @@ function AddContractPageContent() {
                 label={
                   <>
                     Start Date{' '}
-                    <span className="text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                    <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground">
                       (mm/dd/yyyy)
                     </span>
                   </>
@@ -2394,7 +2394,7 @@ function AddContractPageContent() {
                 label={
                   <>
                     Contract Period{' '}
-                    <span className="text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                    <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground">
                       (months)
                     </span>
                   </>
@@ -2431,7 +2431,7 @@ function AddContractPageContent() {
                 label={
                   <>
                     End Date{' '}
-                    <span className="text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                    <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground">
                       (mm/dd/yyyy)
                     </span>
                   </>
@@ -2487,7 +2487,7 @@ function AddContractPageContent() {
             }
           >
             {!showSiteDeviceSection ? (
-              <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200/80 bg-white/50 py-10 text-center text-sm text-slate-500 shadow-inner shadow-slate-900/[0.02]">
+              <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border bg-card/50 py-10 text-center text-sm text-muted-foreground shadow-inner shadow-slate-900/[0.02]">
                 <span>
                   {isNewContractFlow
                     ? 'Select SOF'
@@ -2497,7 +2497,7 @@ function AddContractPageContent() {
             ) : (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Site and Device *
                   </span>
                   <div className="flex items-center gap-2">
@@ -2518,7 +2518,7 @@ function AddContractPageContent() {
                   </div>
                 </div>
                 {dataLoading && ( 
-                  <p className="text-sm text-slate-500">Loading site list...</p>
+                  <p className="text-sm text-muted-foreground">Loading site list...</p>
                 )}
                 {distinctSitesForView.length > 1 && (
                   <div
@@ -2529,7 +2529,7 @@ function AddContractPageContent() {
                     <div className="flex min-w-0 w-full flex-1 flex-col gap-1">
                       <span
                         id="contract-add-view-site-label"
-                        className="text-xs font-semibold uppercase tracking-wider text-slate-500"
+                        className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
                       >
                         View site
                       </span>
@@ -2687,7 +2687,7 @@ function AddContractPageContent() {
                     return (
                     <div
                       key={entry.id}
-                      className={`relative flex flex-col gap-4 rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 backdrop-blur-sm ${
+                      className={`relative flex flex-col gap-4 rounded-2xl border border-border bg-card/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-border backdrop-blur-sm ${
                         rowPickerOpen ? 'z-[220]' : ''
                       }`}
                     >
@@ -2695,7 +2695,7 @@ function AddContractPageContent() {
                         {uniqueSites.length > 0 ? (
                           <>
                             <div className="min-w-0 w-full max-w-full">
-                              <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                              <label className="mb-1 block text-[10px] font-semibold uppercase text-muted-foreground">
                                 Site 
                               </label>
                               {siteMultiMode ? (
@@ -2741,10 +2741,10 @@ function AddContractPageContent() {
                                   }}
                                   listMaxHeightClass="max-h-[14rem]"
                                   panelFooter={
-                                    <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                                    <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted px-3 py-2">
                                       <button
                                         type="button"
-                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                        className="rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted"
                                         onClick={() =>
                                           setSiteSidMultiDraft(filteredSitePickItems.map((i) => i.value))
                                         }
@@ -2794,7 +2794,7 @@ function AddContractPageContent() {
                               )}
                             </div>
                             <div className="min-w-0 w-full max-w-full">
-                              <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                              <label className="mb-1 block text-[10px] font-semibold uppercase text-muted-foreground">
                                 Location 
                               </label>
                               {locationMultiMode ? (
@@ -2846,10 +2846,10 @@ function AddContractPageContent() {
                                   }}
                                   listMaxHeightClass="max-h-[14rem]"
                                   panelFooter={
-                                    <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                                    <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted px-3 py-2">
                                       <button
                                         type="button"
-                                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                        className="rounded-lg border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted"
                                         onClick={() =>
                                           setLocationSlidMultiDraft(
                                             filteredLocationPickItems.map((i) => i.value)
@@ -2906,7 +2906,7 @@ function AddContractPageContent() {
                           </>
                         ) : (
                           <div className="min-w-0 w-full max-w-full sm:col-span-2">
-                            <label className="mb-1 block text-[10px] font-semibold uppercase text-slate-500">
+                            <label className="mb-1 block text-[10px] font-semibold uppercase text-muted-foreground">
                               Site
                             </label>
                             <ContractSimpleSearchListDropdown
@@ -2981,10 +2981,10 @@ function AddContractPageContent() {
                         return (
                         <div className="space-y-3">
                           <div className="flex flex-wrap items-center justify-between gap-4">
-                            <p className="text-xs font-semibold text-slate-600">
+                            <p className="text-xs font-semibold text-muted-foreground">
                               Selected <span className="text-blue-600">{total}</span> items
                               {truncated && !listExpanded && (
-                                <span className="ml-1 font-normal text-slate-500">
+                                <span className="ml-1 font-normal text-muted-foreground">
                                   (showing first { })
                                 </span>
                               )}
@@ -2998,37 +2998,37 @@ function AddContractPageContent() {
                               Remove all
                             </button>
                           </div>
-                          <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-white/50 shadow-inner shadow-slate-900/[0.02]">
+                          <div className="overflow-x-auto rounded-xl border border-border bg-card/50 shadow-inner shadow-slate-900/[0.02]">
                             <table className="w-full min-w-[280px] text-sm">
                               <thead>
-                                <tr className="border-b border-slate-200/80 bg-gradient-to-r from-slate-50/90 to-sky-50/30">
-                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">#</th>
-                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">Device</th>
-                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-slate-600">Role</th>
-                                  <th className="w-12 px-4 py-2.5 text-right text-xs font-semibold uppercase text-slate-600">Delete</th>
+                                <tr className="border-b border-border/80 bg-gradient-to-r from-slate-50/90 to-sky-50/30">
+                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-muted-foreground">#</th>
+                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-muted-foreground">Device</th>
+                                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase text-muted-foreground">Role</th>
+                                  <th className="w-12 px-4 py-2.5 text-right text-xs font-semibold uppercase text-muted-foreground">Delete</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {visibleDevices.map((d) => {
                                   const idx = entry.devices.findIndex((x) => x.id === d.id);
                                   return (
-                                  <tr key={d.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50">
-                                    <td className="px-4 py-2.5 text-slate-500">{idx + 1}</td>
-                                    <td className="px-4 py-2.5 font-medium text-slate-700">{d.label}</td>
+                                  <tr key={d.id} className="border-b border-border last:border-0 hover:bg-muted/50">
+                                    <td className="px-4 py-2.5 text-muted-foreground">{idx + 1}</td>
+                                    <td className="px-4 py-2.5 font-medium text-muted-foreground">{d.label}</td>
                                     <td className="px-4 py-2.5">
                                       {d.role ? (
                                         <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-600/20">
                                           {d.role}
                                         </span>
                                       ) : (
-                                        <span className="text-xs text-slate-400">—</span>
+                                        <span className="text-xs text-muted-foreground">—</span>
                                       )}
                                     </td>
                                     <td className="px-4 py-2.5 text-right">
                                       <button
                                         type="button"
                                         onClick={() => removeDeviceFromEntry(entry.id, d.id)}
-                                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 focus:outline-none"
+                                        className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 focus:outline-none"
                                         title="Delete"
                                       >
                                         <X size={16} />
@@ -3222,7 +3222,7 @@ function AddContractPageContent() {
                     <button
                       type="button"
                       onClick={() => setCoverageScope('')}
-                      className="absolute right-2 top-3 flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      className="absolute right-2 top-3 flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
                       title="ล้าง"
                     >
                       <X size={14} />
@@ -3243,10 +3243,10 @@ function AddContractPageContent() {
           </FormSection>
 
           {/* Actions — ชุดเดียว ท้ายฟอร์ม */}
-          <div className="flex flex-col-reverse gap-3 border-t border-slate-200/80 pt-6 sm:flex-row sm:justify-end">
+          <div className="flex flex-col-reverse gap-3 border-t border-border/80 pt-6 sm:flex-row sm:justify-end">
             <Link
               href="/contract_editer"
-              className="flex items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-6 py-3 font-semibold text-slate-700 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/40 transition-all hover:border-slate-300 hover:bg-slate-50/90 hover:shadow-md"
+              className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card/90 px-6 py-3 font-semibold text-muted-foreground shadow-sm shadow-slate-900/[0.04] ring-1 ring-border transition-all hover:border-border hover:bg-muted/90 hover:shadow-md"
             >
               <ArrowLeft size={18} />
               <span>Back</span>
@@ -3257,7 +3257,7 @@ function AddContractPageContent() {
                   type="button"
                   onClick={(e) => handleSubmit(e, true)}
                   disabled={saveLoading}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-slate-200/90 bg-slate-50/90 px-6 py-3 font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="flex items-center justify-center gap-2 rounded-xl border border-border/90 bg-muted/90 px-6 py-3 font-semibold text-muted-foreground shadow-sm transition-all hover:border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {saveLoadingMode === 'draft' ? (
                     <>
@@ -3304,7 +3304,7 @@ export default function AddContractPage() {
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
-          <span className="text-sm text-slate-600">กำลังโหลด...</span>
+          <span className="text-sm text-muted-foreground">กำลังโหลด...</span>
         </div>
       </div>
     }>

@@ -9,8 +9,8 @@ export default function MAChecklistReportRedirect() {
     router.replace('/pmchecklist_report?tab=ma');
   }, [router]);
   return (
-    <div className="flex items-center justify-center min-h-screen bg-slate-50">
-      <p className="text-slate-500">Redirecting to Report...</p>
+    <div className="flex items-center justify-center min-h-screen bg-muted">
+      <p className="text-muted-foreground">Redirecting to Report...</p>
     </div>
   );
 }

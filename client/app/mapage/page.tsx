@@ -73,10 +73,10 @@ export default function MAPage() {
  
           {/* Title Section */}
           <div>
-            <h1 className="text-3xl font-bold text-slate-800">
+            <h1 className="text-3xl font-bold text-foreground">
               Maintenance Agreement
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               Overview of MA contracts and SLA coverage
             </p>
           </div>
@@ -88,18 +88,18 @@ export default function MAPage() {
             <div className="col-span-2 space-y-6">
              
               {/* MA Contracts by Vendor */}
-              <div className="bg-white p-6 rounded-[2rem] border border-slate-100">
-                <h3 className="font-bold text-slate-700 mb-6">
+              <div className="bg-card p-6 rounded-[2rem] border border-border">
+                <h3 className="font-bold text-muted-foreground mb-6">
                   MA Contracts by Vendor
                 </h3>
                 <div className="h-64 w-full min-w-0 min-h-[16rem]">
                   {loading ? (
                     <div className="flex items-center justify-center h-full">
-                      <p className="text-slate-500">Loading...</p>
+                      <p className="text-muted-foreground">Loading...</p>
                     </div>
                   ) : vendorData.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
-                      <p className="text-slate-500">No vendor data available</p>
+                      <p className="text-muted-foreground">No vendor data available</p>
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
@@ -128,18 +128,18 @@ export default function MAPage() {
               </div>
  
               {/* MA Distribution by Site */}
-              <div className="bg-white p-6 rounded-[2rem] border border-slate-100">
-                <h3 className="font-bold text-slate-700 mb-6">
+              <div className="bg-card p-6 rounded-[2rem] border border-border">
+                <h3 className="font-bold text-muted-foreground mb-6">
                   MA Distribution by Vendor (Sites)
                 </h3>
                 <div className="h-64 w-full min-w-0 min-h-[16rem]">
                   {loading ? (
                     <div className="flex items-center justify-center h-full">
-                      <p className="text-slate-500">Loading...</p>
+                      <p className="text-muted-foreground">Loading...</p>
                     </div>
                   ) : vendorData.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
-                      <p className="text-slate-500">No vendor data available</p>
+                      <p className="text-muted-foreground">No vendor data available</p>
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>

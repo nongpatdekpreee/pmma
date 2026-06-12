@@ -14,13 +14,13 @@ export function EngineerAvatar({
   const initial = (displayName.replace(/\s/g, '')?.[0] || '?').toUpperCase();
   return (
     <span
-      className={`flex ${dim} shrink-0 rounded-full overflow-hidden border border-slate-200/80 bg-slate-100 items-center justify-center`}
+      className={`flex ${dim} shrink-0 rounded-full overflow-hidden border border-border bg-muted items-center justify-center`}
     >
       {photoUrl ? (
         <img src={photoUrl} alt={displayName} className="h-full w-full object-cover" />
       ) : (
         <span
-          className={`font-semibold text-slate-500 leading-none ${
+          className={`font-semibold text-muted-foreground leading-none ${
             size === 'lg' ? 'text-sm' : size === 'md' ? 'text-xs' : 'text-[10px]'
           }`}
         >

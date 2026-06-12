@@ -1,0 +1,399 @@
+/**
+ * Contract API backed by sites_location (contract_id === SLid).
+ * History: sites_location_sof_history (action_type mirrors legacy status_history).
+ */
+
+const { noSofWhere } = require('../config/deviceSof');
+
+const HIST_ACTION = {
+  RENEW: 'Renew',
+  TERMINATED: 'Terminated',
+  SOF_CHANGE: 'SOF Change',
+  UPDATE: 'Update',
+};
+
+const SL_LIST_SELECT = `
+  sl.SLid AS contract_id,
+  CONCAT(COALESCE(s.Name, ''), CASE WHEN l.Location2 IS NOT NULL AND TRIM(l.Location2) != '' THEN CONCAT(' - ', l.Location2) ELSE '' END) AS contract_name,
+  sl.start_date,
+  sl.end_date,
+  sl.created_at,
+  sl.SLid AS site_id,
+  sl.sla_term,
+  sl.sale_account,
+  sl.SOF AS sof_name,
+  sl.status,
+  s.Name AS contract_site_name,
+  IFNULL(l.Location2, '') AS contract_site_location,
+  s.Name AS site_name,
+  IFNULL(l.Location2, '') AS site_location,
+  (SELECT COUNT(*) FROM devices d WHERE d.SLid = sl.SLid) AS device_count,
+  1 AS devices_slid_aligned`;
+
+const RENEW_HIST_RENEW_WHERE = `(
+  h.action_type = 'Renew'
+  OR (h.action_type IS NULL AND h.old_sof IS NOT NULL AND h.SOF IS NOT NULL AND TRIM(h.SOF) != '')
+)`;
+
+/** app_db (7): ไม่มี changed_at — ใช้ created_at เป็นเวลา history */
+async function resolveHistoryTimestamp(dbOrConn) {
+  if (await columnExists(dbOrConn, 'sites_location_sof_history', 'changed_at')) {
+    return { column: 'changed_at' };
+  }
+  if (await columnExists(dbOrConn, 'sites_location_sof_history', 'created_at')) {
+    return { column: 'created_at' };
+  }
+  return { column: null };
+}
+
+function buildRenewHistSubqueries(tsColumn) {
+  const atExpr = tsColumn
+    ? `(SELECT h.${tsColumn} FROM sites_location_sof_history h
+    WHERE h.SLid = sl.SLid AND ${RENEW_HIST_RENEW_WHERE}
+    ORDER BY h.log_id DESC LIMIT 1)`
+    : 'NULL';
+  return `
+  (SELECT h.old_sof FROM sites_location_sof_history h
+    WHERE h.SLid = sl.SLid AND ${RENEW_HIST_RENEW_WHERE}
+    ORDER BY h.log_id DESC LIMIT 1) AS renew_hist_old_sof,
+  (SELECT h.SOF FROM sites_location_sof_history h
+    WHERE h.SLid = sl.SLid AND ${RENEW_HIST_RENEW_WHERE}
+    ORDER BY h.log_id DESC LIMIT 1) AS renew_hist_new_sof,
+  ${atExpr} AS renew_hist_at`;
+}
+
+const HISTORY_STATUS_SUBQUERY = `
+  (SELECT h.action_type FROM sites_location_sof_history h
+    WHERE h.SLid = sl.SLid ORDER BY h.log_id DESC LIMIT 1) AS history_status`;
+
+async function columnExists(dbOrConn, table, column) {
+  try {
+    const safeCol = String(column).replace(/[^a-zA-Z0-9_]/g, '');
+    const [cols] = await dbOrConn.execute(`SHOW COLUMNS FROM \`${table}\` LIKE '${safeCol}'`);
+    return Array.isArray(cols) && cols.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function historyOrderByClause(tsColumn, tableAlias = '') {
+  const p = tableAlias ? `${tableAlias}.` : '';
+  if (tsColumn) {
+    return `ORDER BY COALESCE(${p}${tsColumn}, ${p}log_id) DESC, ${p}log_id DESC`;
+  }
+  return `ORDER BY ${p}log_id DESC`;
+}
+
+function buildHistoryRowSelect(tsColumn, hasTerm = false) {
+  const changedCol =
+    tsColumn === 'changed_at'
+      ? 'changed_at'
+      : tsColumn === 'created_at'
+        ? 'created_at AS changed_at'
+        : 'NULL AS changed_at';
+  const base = `
+  log_id, SLid, action_type, ${changedCol}, old_sof,
+  SOF, contactname, start_date, end_date, sla_term, Assigned_Service,
+  pm_time_per_year, sale_account, tel_acc, email_acc, coverage_scope,
+  file_paths, image_paths, status, created_at, Sid, lid`;
+  return hasTerm ? `${base}, terminated_reason` : base;
+}
+
+async function ensureHistoryCompatColumns(conn) {
+  const pairs = [
+    ['old_sof', 'varchar(255) DEFAULT NULL'],
+    ['terminated_reason', 'text DEFAULT NULL'],
+  ];
+  for (const [col, def] of pairs) {
+    if (!(await columnExists(conn, 'sites_location_sof_history', col))) {
+      await conn.execute(`ALTER TABLE sites_location_sof_history ADD COLUMN \`${col}\` ${def}`);
+    }
+  }
+}
+
+async function fetchSiteLocationRow(conn, slid) {
+  const id = parseInt(slid, 10);
+  if (Number.isNaN(id)) return null;
+  const [rows] = await conn.execute(
+    `SELECT sl.*, s.Name AS site_name, IFNULL(l.Location2, '') AS site_location
+     FROM sites_location sl
+     LEFT JOIN sites s ON sl.Sid = s.Sid
+     LEFT JOIN location l ON sl.lid = l.lid
+     WHERE sl.SLid = ?`,
+    [id]
+  );
+  return rows[0] || null;
+}
+
+function mapSlRowToContractDetail(slRow) {
+  if (!slRow) return null;
+  const siteName = slRow.site_name != null ? String(slRow.site_name) : '';
+  const loc = slRow.site_location != null ? String(slRow.site_location) : '';
+  const contractName =
+    siteName && loc ? `${siteName} - ${loc}` : siteName || loc || `SLid ${slRow.SLid}`;
+  return {
+    contract_id: slRow.SLid,
+    contract_name: contractName,
+    start_date: slRow.start_date,
+    end_date: slRow.end_date,
+    site_id: slRow.SLid,
+    sla_term: slRow.sla_term,
+    sale_account: slRow.sale_account,
+    sof_name: slRow.SOF,
+    Assigned_Service: slRow.Assigned_Service,
+    site_name: siteName,
+    site_location: loc,
+    status: slRow.status,
+    tel_acc: slRow.tel_acc,
+    email_acc: slRow.email_acc,
+    coverage_scope: slRow.coverage_scope,
+    file_paths: slRow.file_paths,
+    image_paths: slRow.image_paths,
+    pm_time_per_year: slRow.pm_time_per_year,
+    created_at: slRow.created_at,
+  };
+}
+
+/**
+ * Snapshot current sites_location row into history (before UPDATE).
+ */
+async function insertSiteLocationHistory(conn, slid, actionType, meta = {}) {
+  await ensureHistoryCompatColumns(conn);
+  const slRow = await fetchSiteLocationRow(conn, slid);
+  if (!slRow) return null;
+
+  const hasHistoryCreatedAt = await columnExists(conn, 'sites_location_sof_history', 'created_at');
+  const hasChangedAt = await columnExists(conn, 'sites_location_sof_history', 'changed_at');
+  const hasOldSof = await columnExists(conn, 'sites_location_sof_history', 'old_sof');
+  const hasTerm = await columnExists(conn, 'sites_location_sof_history', 'terminated_reason');
+
+  const sofForHistory =
+    meta.newSof != null && String(meta.newSof).trim() !== ''
+      ? String(meta.newSof).trim()
+      : slRow.SOF;
+
+  const baseCols = ['action_type'];
+  if (hasChangedAt) baseCols.push('changed_at');
+  baseCols.push(
+    'SLid',
+    'Sid',
+    'lid',
+    'SOF',
+    'contactname',
+    'start_date',
+    'end_date',
+    'sla_term',
+    'Assigned_Service',
+    'pm_time_per_year',
+    'sale_account',
+    'tel_acc',
+    'email_acc',
+    'coverage_scope',
+    'file_paths',
+    'image_paths',
+    'status'
+  );
+  if (hasHistoryCreatedAt) baseCols.push('created_at');
+  const baseVals = [actionType];
+  if (hasChangedAt) baseVals.push(new Date());
+  baseVals.push(
+    slRow.SLid,
+    slRow.Sid,
+    slRow.lid,
+    sofForHistory,
+    slRow.contactname,
+    slRow.start_date,
+    slRow.end_date,
+    slRow.sla_term,
+    slRow.Assigned_Service,
+    slRow.pm_time_per_year,
+    slRow.sale_account,
+    slRow.tel_acc,
+    slRow.email_acc,
+    slRow.coverage_scope,
+    slRow.file_paths,
+    slRow.image_paths,
+    slRow.status
+  );
+  if (hasHistoryCreatedAt) baseVals.push(new Date());
+
+  if (hasOldSof && meta.oldSof != null) {
+    baseCols.push('old_sof');
+    baseVals.push(meta.oldSof);
+  }
+  if (hasTerm && meta.terminatedReason != null) {
+    baseCols.push('terminated_reason');
+    baseVals.push(meta.terminatedReason);
+  }
+
+  const placeholders = baseCols.map(() => '?').join(', ');
+  const [result] = await conn.execute(
+    `INSERT INTO sites_location_sof_history (${baseCols.join(', ')}) VALUES (${placeholders})`,
+    baseVals
+  );
+  return result.insertId;
+}
+
+async function assignDevicesToSlid(conn, slid, deviceIds) {
+  const ids = [...new Set((deviceIds || []).map((d) => parseInt(d, 10)).filter((n) => !Number.isNaN(n)))];
+  if (ids.length === 0) return;
+  const ph = ids.map(() => '?').join(', ');
+  await conn.execute(`UPDATE devices SET SLid = ? WHERE Did IN (${ph})`, [slid, ...ids]);
+}
+
+/** Device already on another official sites_location with SOF */
+async function findDevicesOnOtherContracts(conn, deviceIds, excludeSlid) {
+  const ids = [...new Set(deviceIds.map((d) => parseInt(d, 10)).filter((n) => !Number.isNaN(n)))];
+  if (ids.length === 0) return [];
+  const ph = ids.map(() => '?').join(', ');
+  const params = [...ids];
+  let excludeSql = '';
+  if (excludeSlid != null) {
+    const ex = parseInt(excludeSlid, 10);
+    if (!Number.isNaN(ex)) {
+      excludeSql = ' AND sl.SLid <> ?';
+      params.push(ex);
+    }
+  }
+  const [rows] = await conn.execute(
+    `SELECT DISTINCT d.Did AS device_id
+     FROM devices d
+     INNER JOIN sites_location sl ON d.SLid = sl.SLid
+     WHERE d.Did IN (${ph})
+       AND sl.status = 'official'
+       AND sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''
+       ${excludeSql}`,
+    params
+  );
+  return (rows || []).map((r) => r.device_id);
+}
+
+async function updateSiteLocationContract(conn, slid, fields) {
+  const sets = [];
+  const vals = [];
+  const map = {
+    SOF: fields.sof_name,
+    start_date: fields.start_date,
+    end_date: fields.end_date,
+    sla_term: fields.sla_term,
+    Assigned_Service: fields.assigned_service,
+    sale_account: fields.sale_account,
+    tel_acc: fields.tel_acc,
+    email_acc: fields.email_acc,
+    coverage_scope: fields.coverage_scope,
+    file_paths: fields.file_paths,
+    image_paths: fields.image_paths,
+    pm_time_per_year: fields.pm_time_per_year,
+    status: fields.status,
+  };
+  for (const [col, val] of Object.entries(map)) {
+    if (val !== undefined) {
+      sets.push(`${col} = ?`);
+      vals.push(val);
+    }
+  }
+  if (sets.length === 0) return;
+  vals.push(slid);
+  await conn.execute(`UPDATE sites_location SET ${sets.join(', ')} WHERE SLid = ?`, vals);
+}
+
+const HISTORY_ROW_SELECT = buildHistoryRowSelect('created_at');
+
+/** Contract fields from a sites_location_sof_history row (mirrors sites_location snapshot). */
+function mapHistoryRowToContractDetail(histRow, siteInfo = {}) {
+  if (!histRow) return null;
+  const siteName = siteInfo.site_name != null ? String(siteInfo.site_name) : '';
+  const loc = siteInfo.site_location != null ? String(siteInfo.site_location) : '';
+  const contractName =
+    siteName && loc ? `${siteName} - ${loc}` : siteName || loc || `SLid ${histRow.SLid}`;
+  const sofRaw =
+    histRow.SOF != null && String(histRow.SOF).trim() !== ''
+      ? String(histRow.SOF).trim()
+      : histRow.old_sof != null
+        ? String(histRow.old_sof).trim()
+        : '';
+  return {
+    contract_id: histRow.SLid,
+    contract_name: contractName,
+    start_date: histRow.start_date,
+    end_date: histRow.end_date,
+    site_id: histRow.SLid,
+    sla_term: histRow.sla_term,
+    sale_account: histRow.sale_account,
+    sof_name: sofRaw || null,
+    Assigned_Service: histRow.Assigned_Service,
+    site_name: siteName,
+    site_location: loc,
+    status: histRow.status,
+    tel_acc: histRow.tel_acc,
+    email_acc: histRow.email_acc,
+    coverage_scope: histRow.coverage_scope,
+    file_paths: histRow.file_paths,
+    image_paths: histRow.image_paths,
+    pm_time_per_year: histRow.pm_time_per_year,
+    created_at: histRow.created_at,
+  };
+}
+
+/** Map history row to legacy contract_history API shape */
+function mapHistoryRowToLegacy(row) {
+  return {
+    history_id: row.log_id,
+    contract_id: row.SLid,
+    old_contract_id: row.SLid,
+    old_sof: row.old_sof,
+    new_sof: row.SOF ?? null,
+    renewed_at: row.changed_at ?? row.created_at ?? null,
+    created_at: row.changed_at ?? row.created_at ?? null,
+    contract_snapshot: null,
+    status_history: row.action_type,
+    terminated_reason: row.terminated_reason ?? null,
+  };
+}
+
+const DEVICES_BY_SLID_SQL = `
+  SELECT d.Did, d.CI_Name, d.Asset_Number, d.serial, d.Asset_State, d.SLid,
+    d.SLid AS contract_SLid, sl.SLid AS contract_id,
+    s.Name AS SiteName, l.Location2 AS Location2,
+    d.Dtypeid, d.DeRoleid, dt.model AS type_name, dr.name AS roleName
+  FROM devices d
+  INNER JOIN sites_location sl ON d.SLid = sl.SLid
+  LEFT JOIN sites s ON sl.Sid = s.Sid
+  LEFT JOIN location l ON sl.lid = l.lid
+  LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+  LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+  WHERE d.SLid = ?
+  ORDER BY d.CI_Name ASC, d.Asset_Number ASC`;
+
+const AVAILABLE_DEVICES_BASE = `
+  SELECT d.Did, d.CI_Name, d.Asset_Number, d.serial, d.Asset_State, d.SLid,
+    d.Dtypeid, d.DeRoleid, s.Name AS SiteName, dt.model AS model, dt.model AS type, dr.name AS roleName
+  FROM devices d
+  LEFT JOIN sites_location sl ON d.SLid = sl.SLid
+  LEFT JOIN sites s ON sl.Sid = s.Sid
+  LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+  LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid`;
+
+module.exports = {
+  HIST_ACTION,
+  SL_LIST_SELECT,
+  buildRenewHistSubqueries,
+  resolveHistoryTimestamp,
+  HISTORY_STATUS_SUBQUERY,
+  buildHistoryRowSelect,
+  historyOrderByClause,
+  HISTORY_ROW_SELECT,
+  columnExists,
+  ensureHistoryCompatColumns,
+  fetchSiteLocationRow,
+  mapSlRowToContractDetail,
+  mapHistoryRowToContractDetail,
+  insertSiteLocationHistory,
+  assignDevicesToSlid,
+  findDevicesOnOtherContracts,
+  updateSiteLocationContract,
+  mapHistoryRowToLegacy,
+  DEVICES_BY_SLID_SQL,
+  AVAILABLE_DEVICES_BASE,
+  noSofWhere,
+};

@@ -94,19 +94,19 @@ const getSitesLocationWithContracts = async (req, res) => {
   try {
     let siteIds = [];
 
-    // ดึง SLid จาก contract_device ที่สัญญายังไม่หมดอายุ (JOIN contract เช็ค end_date)
+    // ดึง SLid จาก sites_location ที่เป็นสัญญา official และยังไม่หมดอายุ
     try {
-      const contractDeviceSql = `
-        SELECT DISTINCT cd.SLid
-        FROM contract_device cd
-        INNER JOIN contract c ON cd.contract_id = c.contract_id
-        WHERE cd.SLid IS NOT NULL
-          AND (c.end_date IS NULL OR c.end_date >= CURDATE())
+      const contractSlSql = `
+        SELECT DISTINCT sl.SLid
+        FROM sites_location sl
+        WHERE sl.status = 'official'
+          AND sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''
+          AND (sl.end_date IS NULL OR sl.end_date >= CURDATE())
       `;
-      const [contractDeviceRows] = await db.execute(contractDeviceSql);
-      siteIds = contractDeviceRows.map(row => row.SLid);
+      const [contractSlRows] = await db.execute(contractSlSql);
+      siteIds = contractSlRows.map((row) => row.SLid);
     } catch (err) {
-      console.log('contract_device/contract table may not exist or has no data:', err.message);
+      console.log('sites_location contract query failed:', err.message);
     }
 
     if (siteIds.length === 0) {

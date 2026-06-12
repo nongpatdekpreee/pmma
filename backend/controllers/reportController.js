@@ -156,11 +156,11 @@ const submitReport = async (req, res) => {
       }
     }
 
-    // PM/MA: ดึง sla_term จาก table contract (ผ่าน task.contract_id) เพื่อใช้เป็นเกณฑ์ Pass/Fail
+    // PM/MA: ดึง sla_term จาก sites_location (task.contract_id === SLid) เพื่อใช้เป็นเกณฑ์ Pass/Fail
     let slaThreshold = 70;
     try {
       const [rows] = await db.execute(
-        'SELECT c.sla_term FROM tasks t INNER JOIN contract c ON t.contract_id = c.contract_id WHERE t.id = ?',
+        'SELECT sl.sla_term FROM tasks t INNER JOIN sites_location sl ON t.contract_id = sl.SLid WHERE t.id = ?',
         [taskId]
       );
       const st = rows[0]?.sla_term;

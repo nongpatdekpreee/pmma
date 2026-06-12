@@ -28,7 +28,7 @@ export default function Page() {
           {/* ฝั่งซ้าย: Dashboard & Maintenance */}
           <div className="flex-[2] space-y-6">
             <div className="flex items-center justify-between">
-              <Link href="/" className="text-3xl font-bold text-slate-800">
+              <Link href="/" className="text-3xl font-bold text-foreground">
                 Dashboard
               </Link>
               <div>
@@ -43,7 +43,7 @@ export default function Page() {
                 return (
                   <article
                     key={card.label}
-                    className="flex flex-col items-center justify-between rounded-2xl bg-white px-6 py-5 shadow-md text-center"
+                    className="flex flex-col items-center justify-between rounded-2xl bg-card border border-border px-6 py-5 shadow-md text-center"
                   >
                     {/* ซ้าย: icon + text */}
                     <div className="flex items-center gap-4">
@@ -56,10 +56,10 @@ export default function Page() {
 
                       {/* TEXT */}
                       <div>
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                           {card.label}
                         </p>
-                        <div className="text-3xl font-semibold text-gray-900">
+                        <div className="text-3xl font-semibold text-foreground">
                           {card.value}
                         </div>
                       </div>

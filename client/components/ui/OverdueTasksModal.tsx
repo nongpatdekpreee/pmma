@@ -52,11 +52,11 @@ function SiteLocationFilters({
   return (
     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
       <div className="flex-1">
-        <div className="text-[11px] font-semibold text-slate-500 mb-1">Site</div>
+        <div className="text-[11px] font-semibold text-muted-foreground mb-1">Site</div>
         <select
           value={sid ?? ''}
           onChange={(e) => onChangeSid(e.target.value ? Number(e.target.value) : null)}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-slate-200"
+          className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm outline-none focus:ring-2 focus:ring-border"
         >
           <option value="">All sites</option>
           {sites.map((s) => (
@@ -67,12 +67,12 @@ function SiteLocationFilters({
         </select>
       </div>
       <div className="flex-1">
-        <div className="text-[11px] font-semibold text-slate-500 mb-1">Location</div>
+        <div className="text-[11px] font-semibold text-muted-foreground mb-1">Location</div>
         <select
           value={lid ?? ''}
           onChange={(e) => onChangeLid(e.target.value ? Number(e.target.value) : null)}
           disabled={sid == null}
-          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-slate-200 disabled:opacity-60 disabled:bg-slate-50 disabled:cursor-not-allowed"
+          className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground shadow-sm outline-none focus:ring-2 focus:ring-border disabled:opacity-60 disabled:bg-muted disabled:cursor-not-allowed"
         >
           <option value="">{sid == null ? 'Select site first' : 'All locations'}</option>
           {locations.map((l) => (
@@ -281,17 +281,17 @@ export function OverdueTasksModal({
   return (
     <div className="fixed inset-0 z-[20000] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+        className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center">
               <AlertTriangle className="text-red-600" size={20} />
             </div>
             <div className="min-w-0">
-              <div className="text-lg font-black text-slate-900 truncate">Overdue {taskTypeFilter} tasks</div>
-              <div className="text-xs text-slate-500">
+              <div className="text-lg font-black text-foreground truncate">Overdue {taskTypeFilter} tasks</div>
+              <div className="text-xs text-muted-foreground">
                 {loading ? 'Loading...' : `${filteredOverdueTasks.length.toLocaleString()} past due`}
                 {!loading && filteredOverdueTasks.length > 0 && (
                   <span className="ml-2">(page {page} of {totalPages})</span>
@@ -299,8 +299,8 @@ export function OverdueTasksModal({
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 transition-colors" aria-label="Close">
-            <X size={18} className="text-slate-600" />
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors" aria-label="Close">
+            <X size={18} className="text-muted-foreground" />
           </button>
         </div>
 
@@ -315,20 +315,20 @@ export function OverdueTasksModal({
           )}
 
           {loading && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               Loading tasks...
             </div>
           )}
 
           {!loading && !error && overdueTasks.length === 0 && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               No overdue tasks found.
             </div>
           )}
 
           {!loading && overdueTasks.length > 0 && (
             <>
-              <div className="max-h-[55vh] overflow-auto rounded-xl border border-slate-200">
+              <div className="max-h-[55vh] overflow-auto rounded-xl border border-border">
                 {paginatedTasks.map((t) => {
                 const rawDate = t.endDate || t.startDate;
                 const endLabel =
@@ -343,13 +343,13 @@ export function OverdueTasksModal({
                     key={t.id}
                     type="button"
                     onClick={() => onSelectTask(t.id)}
-                    className="w-full text-left px-4 py-3 border-b last:border-b-0 border-slate-200 hover:bg-slate-50 transition-colors flex items-start gap-4"
+                    className="w-full text-left px-4 py-3 border-b last:border-b-0 border-border hover:bg-muted transition-colors flex items-start gap-4"
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-800 truncate">{t.title || `(Task ${t.id})`}</div>
-                      <div className="mt-1 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+                      <div className="font-bold text-foreground truncate">{t.title || `(Task ${t.id})`}</div>
+                      <div className="mt-1 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
                         <span className="inline-flex items-center gap-1">
-                          <Calendar size={12} className="text-slate-400" />
+                          <Calendar size={12} className="text-muted-foreground" />
                           Due {endLabel}
                         </span>
                         {t.engineer && (
@@ -372,22 +372,22 @@ export function OverdueTasksModal({
                     type="button"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page <= 1}
-                    className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="p-2 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     aria-label="Previous page"
                   >
-                    <ChevronLeft size={18} className="text-slate-600" />
+                    <ChevronLeft size={18} className="text-muted-foreground" />
                   </button>
-                  <span className="text-sm text-slate-600 min-w-[100px] text-center">
+                  <span className="text-sm text-muted-foreground min-w-[100px] text-center">
                     {page} / {totalPages}
                   </span>
                   <button
                     type="button"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page >= totalPages}
-                    className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="p-2 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     aria-label="Next page"
                   >
-                    <ChevronRight size={18} className="text-slate-600" />
+                    <ChevronRight size={18} className="text-muted-foreground" />
                   </button>
                 </div>
               )}
@@ -395,7 +395,7 @@ export function OverdueTasksModal({
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
+        <div className="px-6 py-4 border-t border-border flex justify-end">
           <button
             type="button"
             onClick={onClose}
@@ -523,19 +523,19 @@ export function CompletedTasksModal({
   return (
     <div className="fixed inset-0 z-[20000] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+        className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
               <CheckCircle2 className="text-emerald-600" size={20} />
             </div>
             <div className="min-w-0">
-              <div className="text-lg font-black text-slate-900 truncate">
+              <div className="text-lg font-black text-foreground truncate">
                 Completed {taskTypeFilter} tasks
               </div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-muted-foreground">
                 {loading ? 'Loading...' : `${completedTasks.length.toLocaleString()} completed`}
                 {!loading && completedTasks.length > 0 && (
                   <span className="ml-2">(page {page} of {totalPages})</span>
@@ -543,8 +543,8 @@ export function CompletedTasksModal({
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 transition-colors" aria-label="Close">
-            <X size={18} className="text-slate-600" />
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors" aria-label="Close">
+            <X size={18} className="text-muted-foreground" />
           </button>
         </div>
 
@@ -559,20 +559,20 @@ export function CompletedTasksModal({
           )}
 
           {loading && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               Loading tasks...
             </div>
           )}
 
           {!loading && !error && completedTasks.length === 0 && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               No completed tasks found.
             </div>
           )}
 
           {!loading && completedTasks.length > 0 && (
             <>
-              <div className="max-h-[55vh] overflow-auto rounded-xl border border-slate-200">
+              <div className="max-h-[55vh] overflow-auto rounded-xl border border-border">
                 {paginatedTasks.map((t) => {
                 const rawDate = t.endDate || t.startDate;
                 const endLabel =
@@ -587,13 +587,13 @@ export function CompletedTasksModal({
                     key={t.id}
                     type="button"
                     onClick={() => onSelectTask(t.id)}
-                    className="w-full text-left px-4 py-3 border-b last:border-b-0 border-slate-200 hover:bg-slate-50 transition-colors flex items-start gap-4"
+                    className="w-full text-left px-4 py-3 border-b last:border-b-0 border-border hover:bg-muted transition-colors flex items-start gap-4"
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-800 truncate">{t.title || `(Task ${t.id})`}</div>
-                      <div className="mt-1 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+                      <div className="font-bold text-foreground truncate">{t.title || `(Task ${t.id})`}</div>
+                      <div className="mt-1 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
                         <span className="inline-flex items-center gap-1">
-                          <Calendar size={12} className="text-slate-400" />
+                          <Calendar size={12} className="text-muted-foreground" />
                           Done {endLabel}
                         </span>
                         {t.engineer && (
@@ -614,7 +614,7 @@ export function CompletedTasksModal({
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-200 flex relative items-center justify-between gap-4">
+        <div className="px-6 py-4 border-t border-border flex relative items-center justify-between gap-4">
           <div className="flex-1">
             {totalPages > 1 && (
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2">
@@ -622,22 +622,22 @@ export function CompletedTasksModal({
                   type="button"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1}
-                  className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="p-2 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   aria-label="Previous page"
                 >
-                  <ChevronLeft size={18} className="text-slate-600" />
+                  <ChevronLeft size={18} className="text-muted-foreground" />
                 </button>
-                <span className="text-sm text-slate-600 min-w-[100px] text-center">
+                <span className="text-sm text-muted-foreground min-w-[100px] text-center">
                   {page} / {totalPages}
                 </span>
                 <button
                   type="button"
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
-                  className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="p-2 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   aria-label="Next page"
                 >
-                  <ChevronRight size={18} className="text-slate-600" />
+                  <ChevronRight size={18} className="text-muted-foreground" />
                 </button>
               </div>
             )}
@@ -768,19 +768,19 @@ export function InprocessTasksModal({
   return (
     <div className="fixed inset-0 z-[20000] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+        className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-orange-50 border border-orange-100 flex items-center justify-center">
               <AlertTriangle className="text-orange-600" size={20} />
             </div>
             <div className="min-w-0">
-              <div className="text-lg font-black text-slate-900 truncate">
+              <div className="text-lg font-black text-foreground truncate">
                 In process {taskTypeFilter} tasks
               </div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-muted-foreground">
                 {loading ? 'Loading...' : `${inprocessTasks.length.toLocaleString()} in process`}
                 {!loading && inprocessTasks.length > 0 && (
                   <span className="ml-2">(page {page} of {totalPages})</span>
@@ -788,8 +788,8 @@ export function InprocessTasksModal({
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 transition-colors" aria-label="Close">
-            <X size={18} className="text-slate-600" />
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors" aria-label="Close">
+            <X size={18} className="text-muted-foreground" />
           </button>
         </div>
 
@@ -804,20 +804,20 @@ export function InprocessTasksModal({
           )}
 
           {loading && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               Loading tasks...
             </div>
           )}
 
           {!loading && !error && inprocessTasks.length === 0 && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               No in process tasks found.
             </div>
           )}
 
           {!loading && inprocessTasks.length > 0 && (
             <>
-              <div className="max-h-[55vh] overflow-auto rounded-xl border border-slate-200">
+              <div className="max-h-[55vh] overflow-auto rounded-xl border border-border">
                 {paginatedTasks.map((t) => {
                   const rawDate = t.endDate || t.startDate;
                   const endLabel =
@@ -832,13 +832,13 @@ export function InprocessTasksModal({
                       key={t.id}
                       type="button"
                       onClick={() => onSelectTask(t.id)}
-                      className="w-full text-left px-4 py-3 border-b last:border-b-0 border-slate-200 hover:bg-slate-50 transition-colors flex items-start gap-4"
+                      className="w-full text-left px-4 py-3 border-b last:border-b-0 border-border hover:bg-muted transition-colors flex items-start gap-4"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="font-bold text-slate-800 truncate">{t.title || `(Task ${t.id})`}</div>
-                        <div className="mt-1 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+                        <div className="font-bold text-foreground truncate">{t.title || `(Task ${t.id})`}</div>
+                        <div className="mt-1 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
                           <span className="inline-flex items-center gap-1">
-                            <Calendar size={12} className="text-slate-400" />
+                            <Calendar size={12} className="text-muted-foreground" />
                             Due {endLabel}
                           </span>
                           {t.engineer && (
@@ -861,22 +861,22 @@ export function InprocessTasksModal({
                     type="button"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page <= 1}
-                    className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="p-2 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     aria-label="Previous page"
                   >
-                    <ChevronLeft size={18} className="text-slate-600" />
+                    <ChevronLeft size={18} className="text-muted-foreground" />
                   </button>
-                  <span className="text-sm text-slate-600 min-w-[100px] text-center">
+                  <span className="text-sm text-muted-foreground min-w-[100px] text-center">
                     {page} / {totalPages}
                   </span>
                   <button
                     type="button"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page >= totalPages}
-                    className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="p-2 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     aria-label="Next page"
                   >
-                    <ChevronRight size={18} className="text-slate-600" />
+                    <ChevronRight size={18} className="text-muted-foreground" />
                   </button>
                 </div>
               )}
@@ -884,7 +884,7 @@ export function InprocessTasksModal({
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
+        <div className="px-6 py-4 border-t border-border flex justify-end">
           <button
             type="button"
             onClick={onClose}
@@ -1011,19 +1011,19 @@ export function PendingTasksModal({
   return (
     <div className="fixed inset-0 z-[20000] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
+        className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-xl bg-yellow-50 border border-yellow-100 flex items-center justify-center">
               <AlertTriangle className="text-yellow-700" size={20} />
             </div>
             <div className="min-w-0">
-              <div className="text-lg font-black text-slate-900 truncate">
+              <div className="text-lg font-black text-foreground truncate">
                 Pending {taskTypeFilter} tasks
               </div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-muted-foreground">
                 {loading ? 'Loading...' : `${pendingTasks.length.toLocaleString()} pending`}
                 {!loading && pendingTasks.length > 0 && (
                   <span className="ml-2">(page {page} of {totalPages})</span>
@@ -1031,8 +1031,8 @@ export function PendingTasksModal({
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-slate-100 transition-colors" aria-label="Close">
-            <X size={18} className="text-slate-600" />
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors" aria-label="Close">
+            <X size={18} className="text-muted-foreground" />
           </button>
         </div>
 
@@ -1047,20 +1047,20 @@ export function PendingTasksModal({
           )}
 
           {loading && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               Loading tasks...
             </div>
           )}
 
           {!loading && !error && pendingTasks.length === 0 && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               No pending tasks found.
             </div>
           )}
 
           {!loading && pendingTasks.length > 0 && (
             <>
-              <div className="max-h-[55vh] overflow-auto rounded-xl border border-slate-200">
+              <div className="max-h-[55vh] overflow-auto rounded-xl border border-border">
                 {paginatedTasks.map((t) => {
                   const rawDate = t.endDate || t.startDate;
                   const endLabel =
@@ -1075,13 +1075,13 @@ export function PendingTasksModal({
                       key={t.id}
                       type="button"
                       onClick={() => onSelectTask(t.id)}
-                      className="w-full text-left px-4 py-3 border-b last:border-b-0 border-slate-200 hover:bg-slate-50 transition-colors flex items-start gap-4"
+                      className="w-full text-left px-4 py-3 border-b last:border-b-0 border-border hover:bg-muted transition-colors flex items-start gap-4"
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="font-bold text-slate-800 truncate">{t.title || `(Task ${t.id})`}</div>
-                        <div className="mt-1 text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+                        <div className="font-bold text-foreground truncate">{t.title || `(Task ${t.id})`}</div>
+                        <div className="mt-1 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
                           <span className="inline-flex items-center gap-1">
-                            <Calendar size={12} className="text-slate-400" />
+                            <Calendar size={12} className="text-muted-foreground" />
                             Due {endLabel}
                           </span>
                           {t.engineer && (
@@ -1104,22 +1104,22 @@ export function PendingTasksModal({
                     type="button"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page <= 1}
-                    className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="p-2 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     aria-label="Previous page"
                   >
-                    <ChevronLeft size={18} className="text-slate-600" />
+                    <ChevronLeft size={18} className="text-muted-foreground" />
                   </button>
-                  <span className="text-sm text-slate-600 min-w-[100px] text-center">
+                  <span className="text-sm text-muted-foreground min-w-[100px] text-center">
                     {page} / {totalPages}
                   </span>
                   <button
                     type="button"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page >= totalPages}
-                    className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="p-2 rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     aria-label="Next page"
                   >
-                    <ChevronRight size={18} className="text-slate-600" />
+                    <ChevronRight size={18} className="text-muted-foreground" />
                   </button>
                 </div>
               )}
@@ -1127,7 +1127,7 @@ export function PendingTasksModal({
           )}
         </div>
 
-        <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
+        <div className="px-6 py-4 border-t border-border flex justify-end">
           <button
             type="button"
             onClick={onClose}

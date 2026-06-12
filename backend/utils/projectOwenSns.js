@@ -63,9 +63,8 @@ async function hasSnsDeviceByContractId(contractId) {
   const cid = parsePositiveDeviceId(contractId);
   if (!cid) return false;
   const [rows] = await db.execute(
-    `SELECT 1 FROM contract_device cd
-     INNER JOIN devices d ON d.Did = cd.device_id
-     WHERE cd.contract_id = ?
+    `SELECT 1 FROM devices d
+     WHERE d.SLid = ?
        AND UPPER(TRIM(d.Project_Owen)) = ?
      LIMIT 1`,
     [cid, PROJECT_OWEN_SNS]

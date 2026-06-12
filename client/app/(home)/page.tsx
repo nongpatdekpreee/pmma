@@ -62,7 +62,7 @@ function EngineerRosterAvatar({
   if (!url || broken) {
     return (
       <span
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600 shadow-sm ${borderClassName}`}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground shadow-sm ${borderClassName}`}
       >
         {initial}
       </span>
@@ -73,7 +73,7 @@ function EngineerRosterAvatar({
     <img
       src={url}
       alt=""
-      className={`h-8 w-8 shrink-0 rounded-full object-cover bg-slate-200 shadow-sm ${borderClassName}`}
+      className={`h-8 w-8 shrink-0 rounded-full object-cover bg-muted shadow-sm ${borderClassName}`}
       onError={() => setBroken(true)}
     />
   );
@@ -652,10 +652,10 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="flex flex-col gap-6 p-6 pt-4 md:mt-0 mt-16 min-w-0 bg-slate-50 min-h-screen">
+      <main className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-6 px-4 pb-6 pt-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 md:mt-0 mt-16">
         <div className="flex flex-col gap-4">
           <div className="flex flex-nowrap items-center justify-between gap-4 min-w-0 overflow-x-auto pb-1">
-            <Link href="/" className="text-3xl font-bold text-slate-800 shrink-0 truncate min-w-0">
+            <Link href="/" className="text-3xl font-bold text-foreground shrink-0 truncate min-w-0">
               Dashboard
             </Link>
             <div className="flex items-center gap-3 shrink-0">
@@ -664,23 +664,23 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => setPeriodDropdownOpen((v) => !v)}
-                    className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="flex items-center gap-2 bg-card px-4 py-2 rounded-xl border-0 shadow-sm text-sm font-medium text-muted-foreground hover:bg-muted"
                     aria-haspopup="listbox"
                     aria-expanded={periodDropdownOpen}
                   >
-                    <Calendar size={16} className="text-slate-400 shrink-0" />
-                    <span className="text-slate-500 hidden sm:inline">Period</span>
-                    <span className="font-semibold text-slate-800">{periodLabel}</span>
-                    <ChevronDown size={16} className="text-slate-400 shrink-0" />
+                    <Calendar size={16} className="text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground hidden sm:inline">Period</span>
+                    <span className="font-semibold text-foreground">{periodLabel}</span>
+                    <ChevronDown size={16} className="text-muted-foreground shrink-0" />
                   </button>
 
                   {periodDropdownOpen && periodMenuPos && createPortal(
                     <div
                       ref={periodMenuRef}
-                      className="fixed w-max max-w-[calc(100vw-24px)] rounded-xl bg-white shadow-lg border border-slate-100 p-1.5 z-[9999]"
+                      className="fixed w-max max-w-[calc(100vw-24px)] rounded-xl bg-card shadow-lg border border-border p-1.5 z-[9999]"
                       style={{ top: periodMenuPos.top, right: periodMenuPos.right }}
                     >
-                      <div className="px-2 py-0.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                      <div className="px-2 py-0.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wide">
                         Period
                       </div>
                       <div className="grid grid-cols-2 items-start gap-x-2 px-1">
@@ -696,17 +696,17 @@ export default function DashboardPage() {
                                 setSelectedEndMonth('all');
                                 setPeriodDropdownOpen(false);
                               }}
-                              className={`text-left px-2 py-1 rounded-md text-xs hover:bg-slate-50 ${
+                              className={`text-left px-2 py-1 rounded-md text-xs hover:bg-muted ${
                                 !selectedYear && timeFilter === label
-                                  ? 'bg-slate-50 font-semibold text-slate-800'
-                                  : 'text-slate-700'
+                                  ? 'bg-muted font-semibold text-foreground'
+                                  : 'text-muted-foreground'
                               }`}
                             >
                               {label}
                             </button>
                           ))}
                         </div>
-                        <div className="flex min-w-0 flex-col gap-0.5 border-l border-slate-100 pl-2">
+                        <div className="flex min-w-0 flex-col gap-0.5 border-l border-border pl-2">
                           {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
                             <button
                               key={label}
@@ -718,10 +718,10 @@ export default function DashboardPage() {
                                 setSelectedEndMonth('all');
                                 setPeriodDropdownOpen(false);
                               }}
-                              className={`text-left px-2 py-1 rounded-md text-xs hover:bg-slate-50 ${
+                              className={`text-left px-2 py-1 rounded-md text-xs hover:bg-muted ${
                                 !selectedYear && timeFilter === label
-                                  ? 'bg-slate-50 font-semibold text-slate-800'
-                                  : 'text-slate-700'
+                                  ? 'bg-muted font-semibold text-foreground'
+                                  : 'text-muted-foreground'
                               }`}
                             >
                               {label}
@@ -730,15 +730,15 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      <div className="my-0.5 h-px bg-slate-100" />
+                      <div className="my-0.5 h-px bg-muted" />
                       <div className="px-2 pb-1.5 pt-0">
-                      <div className="pb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                      <div className="pb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                         Custom
                       </div>
                       <div className="space-y-1">
                         <div className="flex flex-nowrap items-end gap-1.5">
                           <div className="shrink-0">
-                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-muted-foreground">
                               Year
                             </label>
                             <select
@@ -752,7 +752,7 @@ export default function DashboardPage() {
                                   setSelectedEndMonth('all');
                                 }
                               }}
-                              className="w-[5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] tabular-nums leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
+                              className="w-[5rem] shrink-0 rounded-md border border-border bg-card px-1 py-1 text-[11px] tabular-nums leading-tight text-muted-foreground outline-none focus:ring-1 focus:ring-blue-400"
                             >
                               {yearOptions.map((o) => (
                                 <option key={o.value || 'x'} value={o.value}>
@@ -762,7 +762,7 @@ export default function DashboardPage() {
                             </select>
                           </div>
                           <div className="shrink-0">
-                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-muted-foreground">
                               Start Month
                             </label>
                             <select
@@ -788,7 +788,7 @@ export default function DashboardPage() {
                                 }
                               }}
                               disabled={!selectedYear}
-                              className="w-[4.5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                              className="w-[4.5rem] shrink-0 rounded-md border border-border bg-card px-1 py-1 text-[11px] leading-tight text-muted-foreground outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
                             >
                               <option value="all">All</option>
                               {MONTH_LABELS.map((label, i) => (
@@ -799,7 +799,7 @@ export default function DashboardPage() {
                             </select>
                           </div>
                           <div className="shrink-0">
-                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                            <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-muted-foreground">
                               End Month
                             </label>
                             <select
@@ -813,7 +813,7 @@ export default function DashboardPage() {
                               }
                               onChange={(e) => setSelectedEndMonth(e.target.value)}
                               disabled={!selectedYear || selectedMonth === 'all'}
-                              className="w-[4.5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                              className="w-[4.5rem] shrink-0 rounded-md border border-border bg-card px-1 py-1 text-[11px] leading-tight text-muted-foreground outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
                             >
                               {selectedMonth === 'all' && (
                                 <option value="all">—</option>
@@ -840,7 +840,7 @@ export default function DashboardPage() {
                               setSelectedMonth('all');
                               setSelectedEndMonth('all');
                             }}
-                            className="px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                            className="px-2 py-1 rounded-lg text-[11px] font-semibold text-muted-foreground hover:bg-muted"
                           >
                             Clear
                           </button>
@@ -859,7 +859,7 @@ export default function DashboardPage() {
                   )}
                 </div>
                 {(rangeLabel || periodMetaLoading) && (
-                  <div className="bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-slate-600 whitespace-nowrap">
+                  <div className="bg-card px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-muted-foreground whitespace-nowrap">
                     {periodMetaLoading ? '…' : rangeLabel}
                   </div>
                 )}
@@ -872,7 +872,7 @@ export default function DashboardPage() {
           <div className="flex-[2] space-y-6 min-w-0">
           <div>
             <div className="flex justify-between items-center gap-2 mb-4 flex-wrap">
-              <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">Preventive Maintenance</h3>
+              <h3 className="font-bold text-muted-foreground uppercase tracking-wider text-sm">Preventive Maintenance</h3>
               <Link
                 href="/report#pm-sites-registry"
                 className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/90 px-3 py-1.5 text-xs text-blue-900 shadow-sm transition-colors hover:bg-blue-100/90 hover:border-blue-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-1"
@@ -886,11 +886,11 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-3">
               {loadingTasks ? (
-                <div className="text-sm text-slate-400 py-6 text-center">Loading…</div>
+                <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
               ) : tasksError ? (
                 <div className="text-sm text-red-600 py-6 text-center">Unable to load PM tasks</div>
               ) : pmCards.length === 0 ? (
-                <div className="text-sm text-slate-400 py-6 text-center">No PM tasks in this period</div>
+                <div className="text-sm text-muted-foreground py-6 text-center">No PM tasks in this period</div>
               ) : (
                 <>
                   <div className="space-y-3">
@@ -910,8 +910,8 @@ export default function DashboardPage() {
                     ))}
                   </div>
                   {pmCards.length > PM_CARDS_PAGE_SIZE && (
-                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
-                      <span className="text-xs text-slate-500">
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
+                      <span className="text-xs text-muted-foreground">
                         {(pmPage - 1) * PM_CARDS_PAGE_SIZE + 1}–
                         {Math.min(pmPage * PM_CARDS_PAGE_SIZE, pmCards.length)} of {pmCards.length}
                       </span>
@@ -920,18 +920,18 @@ export default function DashboardPage() {
                           type="button"
                           onClick={() => setPmCardsPage((p) => Math.max(1, p - 1))}
                           disabled={pmPage <= 1}
-                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <ChevronLeft size={16} />
                         </button>
-                        <span className="text-xs text-slate-600 px-1">
+                        <span className="text-xs text-muted-foreground px-1">
                           Page {pmPage}/{pmTotalPages}
                         </span>
                         <button
                           type="button"
                           onClick={() => setPmCardsPage((p) => Math.min(pmTotalPages, p + 1))}
                           disabled={pmPage >= pmTotalPages}
-                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <ChevronRight size={16} />
                         </button>
@@ -945,7 +945,7 @@ export default function DashboardPage() {
 
           <div>
             <div className="flex justify-between items-center mb-3">
-              <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm">
+              <h3 className="font-bold text-muted-foreground uppercase tracking-wider text-sm">
                 Top site contracts
               </h3>
             </div>
@@ -956,7 +956,7 @@ export default function DashboardPage() {
         <div className="flex-1 space-y-6 min-w-0">
           <div>
             <div className="flex justify-between items-center mb-4 gap-2 min-w-0">
-              <h3 className="font-bold text-slate-700 uppercase tracking-wider text-sm truncate">
+              <h3 className="font-bold text-muted-foreground uppercase tracking-wider text-sm truncate">
                 Incoming events
               </h3>
               <Link
@@ -967,13 +967,13 @@ export default function DashboardPage() {
               </Link>
             </div>
             {loadingTasks ? (
-              <div className="text-sm text-slate-400 py-6 text-center">Loading…</div>
+              <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
             ) : tasksError ? (
               <div className="text-sm text-red-600 py-6 text-center">Unable to load list</div>
             ) : nearestEvents.length === 0 ? (
-              <div className="text-sm text-slate-400 py-6 text-center">No events in this period</div>
+              <div className="text-sm text-muted-foreground py-6 text-center">No events in this period</div>
             ) : (
-              <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
+              <div className="bg-card p-5 rounded-[2rem] shadow-sm border border-border">
                 <div className="space-y-3">
                   {paginatedNearestEvents.map((ev) => (
                       <Link
@@ -1002,7 +1002,7 @@ export default function DashboardPage() {
                           setHoveredEvent(null);
                           setTooltipPosition(null);
                         }}
-                        className={`block rounded-2xl border border-gray-50 border-l-4 p-4 transition-colors ${
+                        className={`block rounded-2xl border border-border border-l-4 p-4 transition-colors ${
                           ev.taskType === 'MA'
                             ? 'border-l-red-400 bg-red-50/30 hover:bg-red-50/50'
                             : 'border-l-blue-400 bg-blue-50/30 hover:bg-blue-50/50'
@@ -1010,9 +1010,9 @@ export default function DashboardPage() {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
+                            <p className="text-sm font-bold text-muted-foreground leading-tight">{ev.title}</p>
                             <p
-                              className={`text-[10px] mt-1 ${ev.taskType === 'MA' ? 'text-red-600' : 'text-gray-500'}`}
+                              className={`text-[10px] mt-1 ${ev.taskType === 'MA' ? 'text-red-600' : 'text-muted-foreground'}`}
                             >
                               {ev.dateStr}
                             </p>
@@ -1046,8 +1046,8 @@ export default function DashboardPage() {
                     ))}
                   </div>
                   {nearestEvents.length > NEAREST_EVENTS_PAGE_SIZE && (
-                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
-                      <span className="text-xs text-slate-500">
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
+                      <span className="text-xs text-muted-foreground">
                         {(nearestPage - 1) * NEAREST_EVENTS_PAGE_SIZE + 1}–
                         {Math.min(nearestPage * NEAREST_EVENTS_PAGE_SIZE, nearestEvents.length)} of{' '}
                         {nearestEvents.length}
@@ -1057,18 +1057,18 @@ export default function DashboardPage() {
                           type="button"
                           onClick={() => setNearestEventsPage((p) => Math.max(1, p - 1))}
                           disabled={nearestPage <= 1}
-                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <ChevronLeft size={16} />
                         </button>
-                        <span className="text-xs text-slate-600 px-1">
+                        <span className="text-xs text-muted-foreground px-1">
                           Page {nearestPage}/{nearestTotalPages}
                         </span>
                         <button
                           type="button"
                           onClick={() => setNearestEventsPage((p) => Math.min(nearestTotalPages, p + 1))}
                           disabled={nearestPage >= nearestTotalPages}
-                          className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <ChevronRight size={16} />
                         </button>
@@ -1079,9 +1079,9 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-gray-50">
+          <div className="bg-card p-5 rounded-[2rem] shadow-sm border border-border">
             <div className="flex justify-between items-center mb-4 gap-2">
-              <h3 className="font-bold text-slate-700 flex items-center gap-2">
+              <h3 className="font-bold text-muted-foreground flex items-center gap-2">
                 <CircleAlert size={18} className="text-amber-500" />
                 Missing Events
               </h3>
@@ -1089,13 +1089,13 @@ export default function DashboardPage() {
                 View all
               </Link>
             </div>
-            <p className="text-[11px] text-slate-500 mb-3">Overdue tasks</p>
+            <p className="text-[11px] text-muted-foreground mb-3">Overdue tasks</p>
             {loadingTasks ? (
-              <div className="text-sm text-slate-400 py-6 text-center">Loading…</div>
+              <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
             ) : tasksError ? (
               <div className="text-sm text-red-600 py-6 text-center">Unable to load list</div>
             ) : missingEvents.length === 0 ? (
-              <div className="text-sm text-slate-400 py-6 text-center">No overdue tasks in this period</div>
+              <div className="text-sm text-muted-foreground py-6 text-center">No overdue tasks in this period</div>
             ) : (
               <>
                 <div className="space-y-3">
@@ -1126,11 +1126,11 @@ export default function DashboardPage() {
                         setHoveredEvent(null);
                         setTooltipPosition(null);
                       }}
-                      className="block rounded-2xl border border-gray-50 border-l-4 border-l-amber-400 p-4 bg-amber-50/30 hover:bg-amber-50/50 transition-colors"
+                      className="block rounded-2xl border border-border border-l-4 border-l-amber-400 p-4 bg-amber-50/30 hover:bg-amber-50/50 transition-colors"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-bold text-slate-700 leading-tight">{ev.title}</p>
+                          <p className="text-sm font-bold text-muted-foreground leading-tight">{ev.title}</p>
                           <p className="text-[10px] text-amber-600 mt-1">From {ev.dateStr}</p>
                           {ev.endDate &&
                             (() => {
@@ -1156,8 +1156,8 @@ export default function DashboardPage() {
                   ))}
                 </div>
                 {missingEvents.length > MISSING_EVENTS_PAGE_SIZE && (
-                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
-                    <span className="text-xs text-slate-500">
+                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
+                    <span className="text-xs text-muted-foreground">
                       {(missingPage - 1) * MISSING_EVENTS_PAGE_SIZE + 1}–
                       {Math.min(missingPage * MISSING_EVENTS_PAGE_SIZE, missingEvents.length)} of{' '}
                       {missingEvents.length}
@@ -1167,18 +1167,18 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => setMissingEventsPage((p) => Math.max(1, p - 1))}
                         disabled={missingPage <= 1}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <ChevronLeft size={16} />
                       </button>
-                      <span className="text-xs text-slate-600 px-1">
+                      <span className="text-xs text-muted-foreground px-1">
                         Page {missingPage}/{missingTotalPages}
                       </span>
                       <button
                         type="button"
                         onClick={() => setMissingEventsPage((p) => Math.min(missingTotalPages, p + 1))}
                         disabled={missingPage >= missingTotalPages}
-                        className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="p-1.5 rounded-lg border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <ChevronRight size={16} />
                       </button>
@@ -1190,11 +1190,11 @@ export default function DashboardPage() {
           </div>
         </div>
         </div>
-      </div>
+      </main>
 
       {hoveredEvent && tooltipPosition && (
         <div
-          className="fixed z-[300] bg-white rounded-lg shadow-2xl border border-slate-200 p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
+          className="fixed z-[300] bg-card rounded-lg shadow-2xl border border-border p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,
@@ -1222,7 +1222,7 @@ export default function DashboardPage() {
                         ? 'bg-orange-100 text-orange-700'
                         : hoveredEvent.status === 'stuck'
                           ? 'bg-red-100 text-red-700'
-                          : 'bg-gray-100 text-gray-700'
+                          : 'bg-muted text-muted-foreground'
                   }`}
                 >
                   {hoveredEvent.status === 'done'
@@ -1238,13 +1238,13 @@ export default function DashboardPage() {
 
             {hoveredEvent.location && (
               <div>
-                <p className="text-xs font-semibold text-slate-500 mb-0.5">Location</p>
-                <p className="text-sm font-bold text-slate-800">{hoveredEvent.location}</p>
+                <p className="text-xs font-semibold text-muted-foreground mb-0.5">Location</p>
+                <p className="text-sm font-bold text-foreground">{hoveredEvent.location}</p>
               </div>
             )}
             <div>
-              <p className="text-xs font-semibold text-slate-500 mb-0.5">Site</p>
-              <p className="text-sm font-bold text-slate-800">
+              <p className="text-xs font-semibold text-muted-foreground mb-0.5">Site</p>
+              <p className="text-sm font-bold text-foreground">
                 {hoveredEvent.siteName || hoveredEvent.title || '-'}
               </p>
             </div>
@@ -1252,8 +1252,8 @@ export default function DashboardPage() {
             <div className="grid grid-cols-2 gap-2">
               {hoveredEvent.startDate && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date (mm/dd/yyyy)</p>
-                  <p className="text-sm text-slate-700">
+                  <p className="text-xs font-semibold text-muted-foreground mb-0.5">Start Date (mm/dd/yyyy)</p>
+                  <p className="text-sm text-muted-foreground">
                     {new Date(hoveredEvent.startDate).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'short',
@@ -1264,8 +1264,8 @@ export default function DashboardPage() {
               )}
               {hoveredEvent.endDate && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-0.5">End Date</p>
-                  <p className="text-sm text-slate-700">
+                  <p className="text-xs font-semibold text-muted-foreground mb-0.5">End Date</p>
+                  <p className="text-sm text-muted-foreground">
                     {new Date(hoveredEvent.endDate).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'short',
@@ -1278,16 +1278,16 @@ export default function DashboardPage() {
 
             {hoveredEvent.engineers && hoveredEvent.engineers.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-slate-500 mb-1">Engineers</p>
+                <p className="text-xs font-semibold text-muted-foreground mb-1">Engineers</p>
                 <div className="flex flex-col gap-1.5">
                   {hoveredEvent.engineers.map((eng, idx) => (
                     <div key={eng.id || idx} className="flex items-center gap-2">
                       <EngineerRosterAvatar
                         eng={eng}
                         employeePhotoById={employeePhotoById}
-                        borderClassName="border border-slate-200"
+                        borderClassName="border border-border"
                       />
-                      <span className="text-xs font-medium text-slate-800">
+                      <span className="text-xs font-medium text-foreground">
                         {eng.name}
                         {eng.lastName ? ` ${eng.lastName}` : ''}
                       </span>

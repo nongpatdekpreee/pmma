@@ -116,28 +116,28 @@ const AddEmployeePage = () => {
           <button
             type="button"
             onClick={() => router.push("/employee")}
-            className="p-2.5 hover:bg-gray-100 rounded-xl transition-colors border border-gray-200"
+            className="p-2.5 hover:bg-muted rounded-xl transition-colors border border-border"
           >
-            <ArrowLeft size={22} className="text-gray-600" />
+            <ArrowLeft size={22} className="text-muted-foreground" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Add Employee</h1>
+            <h1 className="text-2xl font-bold text-foreground">Add Employee</h1>
             <p className="text-sm text-indigo-500">Add new employee</p>
           </div>
         </div>
 
-        <div className="rounded-2xl bg-white p-6 shadow-md min-w-0 overflow-hidden">
+        <div className="rounded-2xl bg-card border border-border p-6 shadow-md min-w-0 overflow-hidden">
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                 Profile Picture
               </label>
               <div className="flex items-center gap-4">
-                <label className="relative flex h-24 w-24 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-gray-200 bg-gray-50 hover:border-indigo-300 hover:bg-gray-100">
+                <label className="relative flex h-24 w-24 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                   {photo ? (
                     <img src={photo.startsWith("http") ? photo : apiUrl(photo)} alt="" className="h-full w-full object-cover" />
                   ) : (
-                    <span className="text-sm text-gray-400 select-none">{photoUploading ? "Uploading..." : "Select Image"}</span>
+                    <span className="text-sm text-muted-foreground select-none">{photoUploading ? "Uploading..." : "Select Image"}</span>
                   )}
                   <input
                     type="file"
@@ -177,7 +177,7 @@ const AddEmployeePage = () => {
                   </button>
                 )}
               </div>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Max {EMPLOYEE_PHOTO_MAX_SIZE_LABEL} · {EMPLOYEE_PHOTO_EXTENSIONS_LABEL}
               </p>
               <p className="mt-1 text-xs font-medium text-red-500">
@@ -185,7 +185,7 @@ const AddEmployeePage = () => {
               </p>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                 Name <span className="text-red-500">*</span>
               </label>
               <input
@@ -199,13 +199,13 @@ const AddEmployeePage = () => {
                 onBlur={() => setErrors((prev) => ({ ...prev, name: validateName(name) }))}
                 placeholder="First Name Last Name (letters only, min 10)"
                 minLength={10}
-                className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm outline-none focus:border-indigo-500 box-border ${errors.name ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm outline-none focus:border-indigo-500 box-border ${errors.name ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
               />
               {errors.name && <p className="mt-1 text-sm text-red-500">{errors.name}</p>}
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                 Email <span className="text-red-500">*</span>
               </label>
               <input
@@ -218,13 +218,13 @@ const AddEmployeePage = () => {
                 }}
                 onBlur={() => setErrors((prev) => ({ ...prev, gmail: validateGmail(gmail) }))}
                 placeholder="example@tcc-technology.com"
-                className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm outline-none focus:border-indigo-500 box-border ${errors.gmail ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm outline-none focus:border-indigo-500 box-border ${errors.gmail ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
               />
               {errors.gmail && <p className="mt-1 text-sm text-red-500">{errors.gmail}</p>}
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                 Phone <span className="text-red-500">*</span>
               </label>
               <div className="flex min-w-0 items-center gap-1 sm:gap-2">
@@ -254,10 +254,10 @@ const AddEmployeePage = () => {
                     onBlur={() => setErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(tel, telExt) }))}
                     placeholder="0xx-xxx-xxxx"
                     autoComplete="tel"
-                    className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${errors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                    className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${errors.tel ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                   />
                 </div>
-                <span className="shrink-0 select-none text-base font-medium text-gray-400" aria-hidden>
+                <span className="shrink-0 select-none text-base font-medium text-muted-foreground" aria-hidden>
                   -
                 </span>
                 <div className="relative w-[4.5rem] shrink-0 sm:w-24">
@@ -288,7 +288,7 @@ const AddEmployeePage = () => {
                     autoComplete="off"
                     aria-label="Extension (max 6 digits)"
                     title="Extension (max 6 digits)"
-                    className={`w-full rounded-xl border-2 px-2.5 py-3 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${errors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                    className={`w-full rounded-xl border-2 px-2.5 py-3 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${errors.tel ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                   />
                 </div>
               </div>
@@ -296,13 +296,13 @@ const AddEmployeePage = () => {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                 Position Type
               </label>
               <select
                 value={positionType}
                 onChange={(e) => setPositionType(e.target.value as "Technical" | "Management" | "Engineer")}
-                className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-3 text-sm outline-none focus:border-indigo-500"
+                className="w-full rounded-xl border-2 border-border bg-muted px-4 py-3 text-sm outline-none focus:border-indigo-500"
               >
                 <option value="Technical">Technical</option>
                 <option value="Management">Management</option>
@@ -311,13 +311,13 @@ const AddEmployeePage = () => {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
                 Employment Type
               </label>
               <select
                 value={employmentType}
                 onChange={(e) => setEmploymentType(e.target.value)}
-                className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-3 text-sm outline-none focus:border-indigo-500"
+                className="w-full rounded-xl border-2 border-border bg-muted px-4 py-3 text-sm outline-none focus:border-indigo-500"
               >
                 <option value="Full-Time">Full-Time</option>
                 <option value="Contract">Contract</option>
@@ -329,7 +329,7 @@ const AddEmployeePage = () => {
               <button
                 type="button"
                 onClick={() => router.push("/employee")}
-                className="rounded-xl border border-gray-200 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="rounded-xl border border-border bg-card px-5 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted"
               >
                 Cancel
               </button>

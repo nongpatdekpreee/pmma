@@ -947,22 +947,22 @@ function CalendarPageContent() {
           </div>
         )}
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+          <h1 className="page-heading">
             Calendar
           </h1>
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
-              <label htmlFor="engineer-filter-input-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              <label htmlFor="engineer-filter-input-calendar" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Engineer:
               </label>
               <div
                 id="engineer-filter-calendar"
-                className={`flex-1 sm:min-w-[160px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
+                className={`flex-1 sm:min-w-[160px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
                 onClick={() => document.getElementById('engineer-filter-input-calendar')?.focus()}
               >
                 {selectedEngineerFilter.length === 0 && !engineerFilterInput && (
-                  <span className="inline-flex items-center gap-2 text-slate-400">
-                    <Users size={18} className="shrink-0 text-slate-400" aria-hidden />
+                  <span className="inline-flex items-center gap-2 text-muted-foreground">
+                    <Users size={18} className="shrink-0 text-muted-foreground" aria-hidden />
                     All Engineers
                   </span>
                 )}
@@ -1007,15 +1007,15 @@ function CalendarPageContent() {
                     }
                   }}
                   placeholder=""
-                  className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-slate-700 placeholder:text-slate-400"
+                  className="flex-1 min-w-[80px] py-1 bg-transparent outline-none border-0 text-muted-foreground placeholder:text-muted-foreground"
                 />
               </div>
               {showEngineerFilterDropdown && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 min-w-[160px] max-h-48 overflow-auto rounded-xl border border-slate-200 bg-white shadow-lg py-1">
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 min-w-[160px] max-h-48 overflow-auto rounded-xl border border-border bg-card shadow-lg py-1">
                   {availableEngineers.length === 0 ? (
-                    <div className="px-3 py-2 text-slate-500 text-sm">Loading engineers...</div>
+                    <div className="px-3 py-2 text-muted-foreground text-sm">Loading engineers...</div>
                   ) : filteredEngineersForFilter.length === 0 ? (
-                    <div className="px-3 py-2 text-slate-500 text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
+                    <div className="px-3 py-2 text-muted-foreground text-sm">{engineerFilterInput ? 'No engineers found' : 'All selected'}</div>
                   ) : (
                     filteredEngineersForFilter.map((eng) => {
                       const dn = engineerRosterLabel(eng);
@@ -1023,7 +1023,7 @@ function CalendarPageContent() {
                         <button
                           key={eng.id}
                           type="button"
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted"
                           onClick={() => addEngineerFilter(eng)}
                         >
                           <EngineerAvatar photoUrl={eng.photo} displayName={dn} size="md" />
@@ -1036,14 +1036,14 @@ function CalendarPageContent() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              <label htmlFor="task-type-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              <label htmlFor="task-type-filter-calendar" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Type:
               </label>
               <select
                 id="task-type-filter-calendar"
                 value={selectedTaskTypeFilter}
                 onChange={(e) => setSelectedTaskTypeFilter(e.target.value as 'all' | 'PM' | 'MA')}
-                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
+                className="px-4 py-2 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
               >
                 <option value="all">All</option>
                 <option value="PM">PM</option>
@@ -1051,14 +1051,14 @@ function CalendarPageContent() {
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <label htmlFor="status-filter-calendar" className="text-sm font-medium text-slate-600 whitespace-nowrap">
+              <label htmlFor="status-filter-calendar" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Status:
               </label>
               <select
                 id="status-filter-calendar"
                 value={selectedStatusFilter}
                 onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'in-progress' | 'pending' | 'overdue')}
-                className="px-4 py-2 rounded-xl border-0 bg-white text-sm font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
+                className="px-4 py-2 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
               >
                 <option value="all">All</option>
                 <option value="done">Done</option>
@@ -1071,7 +1071,7 @@ function CalendarPageContent() {
         </div>
 
         <div
-          className={`rounded-[2.5rem] bg-white p-6 shadow-sm ${
+          className={`rounded-[2.5rem] bg-card border border-border p-6 shadow-sm ${
             calendarViewMode === 'calendar'
               ? 'flex min-h-0 flex-1 flex-col xl:min-h-[calc(100dvh-9rem)]'
               : ''
@@ -1087,7 +1087,7 @@ function CalendarPageContent() {
               >
                 <ChevronLeft size={24} />
               </button>
-              <span className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text">
+              <span className="page-heading">
                 {monthNames[currentMonth]}, {currentYear}
               </span>
               <button 
@@ -1098,11 +1098,11 @@ function CalendarPageContent() {
               </button>
             </div>
             <div className="flex justify-end">
-              <div className="flex rounded-xl border border-slate-200 p-0.5 bg-slate-50">
+              <div className="flex rounded-xl border border-border p-0.5 bg-muted">
                 <button
                   type="button"
                   onClick={() => setCalendarViewMode('calendar')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'calendar' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'calendar' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-muted-foreground'}`}
                 >
                   <LayoutGrid size={16} />
                   Calendar
@@ -1110,7 +1110,7 @@ function CalendarPageContent() {
                 <button
                   type="button"
                   onClick={() => setCalendarViewMode('table')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'table' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-muted-foreground'}`}
                 >
                   <List size={16} />
                   Table
@@ -1120,27 +1120,27 @@ function CalendarPageContent() {
           </div>
 
           {calendarViewMode === 'table' ? (
-            <div className="rounded-xl border border-slate-200 overflow-hidden">
+            <div className="rounded-xl border border-border overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200">
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">
+                    <tr className="bg-muted border-b border-border">
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">
                         <span className="block">Date</span>
-                        <span className="block text-[10px] font-normal text-slate-400 normal-case">mm/dd/yyyy</span>
+                        <span className="block text-[10px] font-normal text-muted-foreground normal-case">mm/dd/yyyy</span>
                       </th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600 whitespace-nowrap">Status Date</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Task</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Type</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Engineer</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600">Status</th>
-                      <th className="text-left py-3 px-4 font-semibold text-slate-600 w-20"></th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground whitespace-nowrap">Status Date</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Task</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Type</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Engineer</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground w-20"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {tasksInCurrentMonth.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400">No tasks in this month</td>
+                        <td colSpan={7} className="py-8 text-center text-muted-foreground">No tasks in this month</td>
                       </tr>
                     ) : (
                       paginatedTableTasks.map((ev) => {
@@ -1189,9 +1189,9 @@ function CalendarPageContent() {
                         return (
                           <tr
                             key={ev.id}
-                            className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
+                            className="border-b border-border hover:bg-muted/50 transition-colors"
                           >
-                            <td className="py-2.5 px-4 text-slate-600 whitespace-nowrap">
+                            <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
                               {ev.startDate === ev.endDate || !ev.endDate
                                 ? formatDateMonthDayYear(
                                     ev.startDate ||
@@ -1208,19 +1208,19 @@ function CalendarPageContent() {
                                       ? 'text-amber-800 font-medium'
                                       : incomingTone === 'overdue'
                                         ? 'text-red-700 font-medium'
-                                        : 'text-slate-400'
+                                        : 'text-muted-foreground'
                                 }
                               >
                                 {incomingText}
                               </span>
                             </td>
-                            <td className="py-2.5 px-4 font-medium text-slate-800 max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
+                            <td className="py-2.5 px-4 font-medium text-foreground max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
                             <td className="py-2.5 px-4">
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${isMA ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {ev.taskType || 'PM'}
                               </span>
                             </td>
-                            <td className="py-2.5 px-4 text-slate-600">{ev.engineer || '—'}</td>
+                            <td className="py-2.5 px-4 text-muted-foreground">{ev.engineer || '—'}</td>
                             <td className="py-2.5 px-4 align-top min-w-[9rem] max-w-[min(100%,240px)]">
                               <span
                                 className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
@@ -1230,7 +1230,7 @@ function CalendarPageContent() {
                                       ? 'bg-amber-100 text-amber-800'
                                       : isOverdue
                                         ? 'bg-red-100 text-red-700'
-                                        : 'bg-slate-100 text-slate-600'
+                                        : 'bg-muted text-muted-foreground'
                                 }`}
                                 title={isInProcess ? getCalendarInProcessReason(ev) : undefined}
                               >
@@ -1260,8 +1260,8 @@ function CalendarPageContent() {
                 </table>
               </div>
               {tasksInCurrentMonth.length > TABLE_PAGE_SIZE && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50">
-                  <p className="text-xs text-slate-500">
+                <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted">
+                  <p className="text-xs text-muted-foreground">
                     Showing {(tablePage - 1) * TABLE_PAGE_SIZE + 1}–{Math.min(tablePage * TABLE_PAGE_SIZE, tasksInCurrentMonth.length)} of {tasksInCurrentMonth.length}
                   </p>
                   <div className="flex items-center gap-2">
@@ -1269,18 +1269,18 @@ function CalendarPageContent() {
                       type="button"
                       onClick={() => setTablePage((p) => Math.max(1, p - 1))}
                       disabled={tablePage <= 1}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Previous
                     </button>
-                    <span className="text-sm text-slate-600">
+                    <span className="text-sm text-muted-foreground">
                       Page {tablePage} of {totalTablePages}
                     </span>
                     <button
                       type="button"
                       onClick={() => setTablePage((p) => Math.min(totalTablePages, p + 1))}
                       disabled={tablePage >= totalTablePages}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Next
                     </button>
@@ -1289,13 +1289,13 @@ function CalendarPageContent() {
               )}
             </div>
           ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-gray-100 xl:min-h-[calc(100dvh-14rem)]">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-muted xl:min-h-[calc(100dvh-14rem)]">
             {/* Calendar Grid header row */}
             <div className="grid shrink-0 grid-cols-7 gap-px">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
                 <div 
                   key={day} 
-                  className={`bg-slate-50 p-3 text-center text-xs font-bold uppercase xl:py-4 ${
+                  className={`bg-muted p-3 text-center text-xs font-bold uppercase xl:py-4 ${
                     index === 0 || index === 6 
                       ? 'bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent' 
                       : 'bg-gradient-to-r from-slate-500 to-slate-600 bg-clip-text text-transparent'
@@ -1403,7 +1403,7 @@ function CalendarPageContent() {
                         key={dayIndex}
                         onDrop={e => handleDrop(e, day)}
                         onDragOver={e => handleDragOver(e, day)}
-                        className={`relative flex h-full min-h-0 flex-col overflow-hidden border-l border-t border-gray-50 p-2 ${day === null ? 'bg-gray-100' : holidayForDay ? 'bg-red-100' : 'bg-white'
+                        className={`relative flex h-full min-h-0 flex-col overflow-hidden border-l border-t border-border p-2 ${day === null ? 'bg-muted' : holidayForDay ? 'bg-red-100' : 'bg-card'
                           } ${day !== null && dragOverDay === day && draggedEvent
                             ? 'border-2 border-blue-300 bg-blue-50'
                             : ''
@@ -1492,7 +1492,7 @@ function CalendarPageContent() {
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                                     className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
                                   >
-                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
+                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-card/60">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
                                     <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
@@ -1500,17 +1500,17 @@ function CalendarPageContent() {
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
                                       <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
-                                        <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                                        <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
                                           {ev.Eng_ids[0].photo ? (
                                             <img src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
                                           ) : (
-                                            <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                            <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
                                               {(ev.Eng_ids[0].name?.[0] || ev.Eng_ids[0].id?.[0] || '?').toUpperCase()}
                                             </span>
                                           )}
                                         </span>
                                         {ev.Eng_ids.length > 1 && (
-                                          <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                                          <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-muted-foreground leading-none">
                                             +{ev.Eng_ids.length - 1}
                                           </span>
                                         )}
@@ -1597,7 +1597,7 @@ function CalendarPageContent() {
                         onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
                         className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
                       >
-                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-white/60">
+                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-card/60">
                           {isMA ? 'MA' : 'PM'}
                         </span>
                         <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
@@ -1605,17 +1605,17 @@ function CalendarPageContent() {
                         </span>
                         {event.Eng_ids && event.Eng_ids.length > 0 && (
                           <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
-                            <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-slate-200 ring-1 ring-slate-300">
+                            <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
                               {event.Eng_ids[0].photo ? (
                                 <img src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
                               ) : (
-                                <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-slate-600">
+                                <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
                                   {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
                                 </span>
                               )}
                             </span>
                             {event.Eng_ids.length > 1 && (
-                              <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-slate-600 leading-none">
+                              <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-muted-foreground leading-none">
                                 +{event.Eng_ids.length - 1}
                               </span>
                             )}
@@ -1651,7 +1651,7 @@ function CalendarPageContent() {
       {/* Task Detail Tooltip - เหมือน schedule_management */}
       {hoveredEvent && tooltipPosition && (
         <div
-          className="fixed z-[300] bg-white rounded-lg shadow-2xl border border-slate-200 p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
+          className="fixed z-[300] bg-card rounded-lg shadow-2xl border border-border p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,
@@ -1673,7 +1673,7 @@ function CalendarPageContent() {
                   hoveredEvent.status === 'done' ? 'bg-green-100 text-green-700' :
                   hoveredEvent.status === 'working' ? 'bg-amber-100 text-amber-800' :
                   hoveredEvent.status === 'stuck' ? 'bg-red-100 text-red-700' :
-                  'bg-gray-100 text-gray-700'
+                  'bg-muted text-muted-foreground'
                 }`}>
                   {hoveredEvent.status === 'working' && <Clock3 size={12} className="shrink-0" strokeWidth={2.5} />}
                   {hoveredEvent.status === 'done' ? 'Done' :
@@ -1710,20 +1710,20 @@ function CalendarPageContent() {
             {/* Location ก่อน Site */}
             {hoveredEvent.location && (
               <div>
-                <p className="text-xs font-semibold text-slate-500 mb-0.5">Location</p>
-                <p className="text-sm font-bold text-slate-800">{hoveredEvent.location}</p>
+                <p className="text-xs font-semibold text-muted-foreground mb-0.5">Location</p>
+                <p className="text-sm font-bold text-foreground">{hoveredEvent.location}</p>
               </div>
             )}
             <div>
-              <p className="text-xs font-semibold text-slate-500 mb-0.5">Site</p>
-              <p className="text-sm font-bold text-slate-800">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
+              <p className="text-xs font-semibold text-muted-foreground mb-0.5">Site</p>
+              <p className="text-sm font-bold text-foreground">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               {hoveredEvent.startDate && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-0.5">Start Date (mm/dd/yyyy)</p>
-                  <p className="text-sm text-slate-700">
+                  <p className="text-xs font-semibold text-muted-foreground mb-0.5">Start Date (mm/dd/yyyy)</p>
+                  <p className="text-sm text-muted-foreground">
                     {new Date(hoveredEvent.startDate).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'short',
@@ -1734,8 +1734,8 @@ function CalendarPageContent() {
               )}
               {hoveredEvent.endDate && (
                 <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-0.5">End Date</p>
-                  <p className="text-sm text-slate-700">
+                  <p className="text-xs font-semibold text-muted-foreground mb-0.5">End Date</p>
+                  <p className="text-sm text-muted-foreground">
                     {new Date(hoveredEvent.endDate).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'short',
@@ -1748,20 +1748,20 @@ function CalendarPageContent() {
 
             {hoveredEvent.Eng_ids && hoveredEvent.Eng_ids.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-slate-500 mb-0.5">Engineers</p>
+                <p className="text-xs font-semibold text-muted-foreground mb-0.5">Engineers</p>
                 <div className="flex flex-col gap-1.5">
                   {hoveredEvent.Eng_ids.map((eng, idx) => (
                     <div key={eng.id || idx} className="flex items-center gap-2">
-                      <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-slate-200 bg-slate-100">
+                      <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-border bg-muted">
                         {eng.photo ? (
                           <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
+                          <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-muted-foreground">
                             {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}
                           </span>
                         )}
                       </span>
-                      <span className="text-xs text-slate-800">
+                      <span className="text-xs text-foreground">
                         {eng.name}{eng.lastName ? ` ${eng.lastName}` : ''}
                       </span>
                     </div>
@@ -1784,31 +1784,31 @@ function CalendarPageContent() {
           }}
         >
           <div 
-            className="bg-white w-full max-w-sm rounded-2xl shadow-xl p-5 flex flex-col"
+            className="bg-card w-full max-w-sm rounded-2xl shadow-xl p-5 flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
             <div className="flex items-center justify-center relative mb-4">
-              <h3 className="text-lg font-bold text-slate-800">Move Task</h3>
+              <h3 className="text-lg font-bold text-foreground">Move Task</h3>
               <button
                 onClick={cancelMoveTask}
-                className="absolute right-0 p-1 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors"
+                className="absolute right-0 p-1 bg-muted rounded-full hover:bg-muted transition-colors"
               >
-                <X size={16} className="text-slate-600" />
+                <X size={16} className="text-muted-foreground" />
               </button>
             </div>
             
             {/* Task Info */}
-            <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <p className="text-xs text-slate-600 mb-2 truncate">
+            <div className="mb-4 p-3 bg-muted rounded-lg border border-border">
+              <p className="text-xs text-muted-foreground mb-2 truncate">
                 <span className="font-medium">{pendingMove.event.title}</span>
               </p>
               <div className="flex items-center gap-2 text-xs flex-wrap">
-                <span className="text-slate-500 font-medium">From:</span>
-                <span className="text-slate-800 font-semibold bg-white px-2 py-1 rounded border border-slate-200">
+                <span className="text-muted-foreground font-medium">From:</span>
+                <span className="text-foreground font-semibold bg-card px-2 py-1 rounded border border-border">
                   {formatDateForDisplay(pendingMove.previousStartDate)}
                 </span>
-                <span className="text-slate-300">→</span>
+                <span className="text-muted-foreground/60">→</span>
                 <span className="text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-200">
                   {formatDateForDisplay(pendingMove.newStartDate)}
                 </span>
@@ -1817,7 +1817,7 @@ function CalendarPageContent() {
 
             {/* Reason Input */}
             <div className="mb-4">
-              <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+              <label className="block text-xs font-semibold text-muted-foreground mb-1.5">
                 Reason <span className="text-red-500">*</span>
               </label>
               <textarea
@@ -1825,16 +1825,16 @@ function CalendarPageContent() {
                 onChange={(e) => setMoveReason(e.target.value)}
                 placeholder="Why are you moving this task?"
                 rows={3}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-400 outline-none resize-none transition-all"
+                className="w-full px-3 py-2 bg-muted border border-border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-400 outline-none resize-none transition-all"
                 autoFocus
               />
             </div>
 
             {/* Actions */}
-            <div className="flex gap-2 justify-end pt-3 border-t border-slate-200">
+            <div className="flex gap-2 justify-end pt-3 border-t border-border">
               <button
                 onClick={cancelMoveTask}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+                className="px-4 py-2 text-xs font-semibold text-muted-foreground bg-muted rounded-lg hover:bg-muted transition-colors"
               >
                 Cancel
               </button>

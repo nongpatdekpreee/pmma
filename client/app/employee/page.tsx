@@ -613,13 +613,13 @@ const EmployeeManagement = () => {
     } else if (normalizedType.includes('part')) {
       return "bg-yellow-100 text-yellow-700";
     }
-    return "bg-gray-100 text-gray-700";
+    return "bg-muted text-muted-foreground";
   };
 
   const getPositionTypeColor = (type: string) =>
     type === "Management"
       ? "bg-purple-100 text-purple-700"
-      : "bg-gray-100 text-gray-700";
+      : "bg-muted text-muted-foreground";
 
   // Calculate summary statistics
   const summaryStats = useMemo(() => {
@@ -653,14 +653,14 @@ const EmployeeManagement = () => {
               return (
                 <article
                   key={card.label}
-                  className="flex flex-row items-center justify-between rounded-xl border border-slate-200/80 bg-white px-4 py-3 shadow-sm shadow-slate-900/[0.04]"
+                  className="flex flex-row items-center justify-between rounded-xl border border-border bg-card px-4 py-3 shadow-sm shadow-slate-900/[0.04]"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500">
                       <Icon className="h-5 w-5 text-blue-900" />
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                      <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {card.label}
                       </p>
                       <div className="text-2xl font-semibold tabular-nums">
@@ -680,11 +680,11 @@ const EmployeeManagement = () => {
           </section>
 
           {/* ================= Table Card ================= */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm shadow-slate-900/[0.04] sm:p-5">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border bg-card p-4 shadow-sm shadow-slate-900/[0.04] sm:p-5">
             {/* Header */}
             <div className="mb-4 flex min-w-0 flex-col gap-3 sm:mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <div className="min-w-0 shrink-0">
-                <h2 className="truncate text-base font-semibold text-gray-900 sm:text-lg">
+                <h2 className="truncate text-base font-semibold text-foreground sm:text-lg">
                   All Employees
                 </h2>
                 <p className="text-xs text-indigo-500 sm:text-sm">
@@ -693,8 +693,8 @@ const EmployeeManagement = () => {
               </div>
 
               <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:max-w-none sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-                <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full bg-gray-100 px-3 text-sm text-gray-500 sm:min-w-[220px] sm:flex-1 sm:max-w-md lg:max-w-lg">
-                  <Search size={18} className="shrink-0 text-gray-400" />
+                <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full bg-muted px-3 text-sm text-muted-foreground sm:min-w-[220px] sm:flex-1 sm:max-w-md lg:max-w-lg">
+                  <Search size={18} className="shrink-0 text-muted-foreground" />
                   <input
                     value={searchTerm}
                     onChange={(e) => {
@@ -702,7 +702,7 @@ const EmployeeManagement = () => {
                       setCurrentPage(1);
                     }}
                     placeholder="Search name, email, phone…"
-                    className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-gray-400"
+                    className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
                   />
                 </div>
                 <button
@@ -717,7 +717,7 @@ const EmployeeManagement = () => {
             </div>
 
             {/* Table */}
-            <div className="max-h-[min(70vh,calc(100vh-15rem))] min-h-[min(50vh,28rem)] min-w-0 flex-1 overflow-x-auto overflow-y-auto rounded-lg border border-slate-100 sm:max-h-[min(75vh,calc(100vh-13rem))]">
+            <div className="max-h-[min(70vh,calc(100vh-15rem))] min-h-[min(50vh,28rem)] min-w-0 flex-1 overflow-x-auto overflow-y-auto rounded-lg border border-border sm:max-h-[min(75vh,calc(100vh-13rem))]">
               {fetchError && (
                 <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
                   {fetchError}
@@ -725,11 +725,11 @@ const EmployeeManagement = () => {
               )}
               {loading ? (
                 <div className="flex items-center justify-center py-16">
-                  <div className="text-gray-400">Loading...</div>
+                  <div className="text-muted-foreground">Loading...</div>
                 </div>
               ) : (
                 <table className="min-w-[720px] w-full text-sm">
-                  <thead className="sticky top-0 z-[1] bg-gray-50 text-xs uppercase text-gray-500 shadow-sm">
+                  <thead className="sticky top-0 z-[1] bg-muted text-xs uppercase text-muted-foreground shadow-sm">
                     <tr>
                       <th className="w-12 px-3 py-2.5 text-center">Picture</th>
                       <th className="min-w-[140px] px-3 py-2.5 text-left">Name</th>
@@ -744,7 +744,7 @@ const EmployeeManagement = () => {
                   <tbody>
                     {paginatedEmployees.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
+                        <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                          No Employee found
                         </td>
                       </tr>
@@ -752,24 +752,24 @@ const EmployeeManagement = () => {
                       paginatedEmployees.map((emp) => (
                         <tr
                           key={emp.id}
-                          className="border-b border-slate-100 last:border-0 hover:bg-slate-50/80"
+                          className="border-b border-border last:border-0 hover:bg-muted/80"
                         >
                           <td className="px-3 py-2">
-                            <div className="mx-auto flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gray-100">
+                            <div className="mx-auto flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-muted">
                               {emp.photo ? (
                                 <img src={emp.photo.startsWith("http") ? emp.photo : apiUrl(emp.photo)} alt="" className="h-full w-full object-cover" />
                               ) : (
-                                <UserRoundCog className="h-4 w-4 text-gray-400" />
+                                <UserRoundCog className="h-4 w-4 text-muted-foreground" />
                               )}
                             </div>
                           </td>
-                          <td className="max-w-[220px] truncate px-3 py-2 font-medium text-gray-900" title={emp.name}>
+                          <td className="max-w-[220px] truncate px-3 py-2 font-medium text-foreground" title={emp.name}>
                             {emp.name ?? '-'}
                           </td>
-                          <td className="max-w-[240px] truncate px-3 py-2 text-gray-700" title={emp.gmail}>
+                          <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground" title={emp.gmail}>
                             {emp.gmail || '-'}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-gray-700">{formatEmployeeTelForDisplay(emp.tel) || '-'}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{formatEmployeeTelForDisplay(emp.tel) || '-'}</td>
                           <td className="px-3 py-2 text-center">
                             <span
                               className={`inline-block max-w-full truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium ${getPositionTypeColor(
@@ -792,7 +792,7 @@ const EmployeeManagement = () => {
                             <button
                               type="button"
                               onClick={() => openEditModal(emp)}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-muted"
                               title="Edit"
                             >
                               <Edit size={16} />
@@ -807,7 +807,7 @@ const EmployeeManagement = () => {
             </div>
 
             {/* Pagination */}
-            <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-gray-500">
+            <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
               <span>
                 Showing {startIndex + 1}-
                 {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} of{" "}
@@ -823,7 +823,7 @@ const EmployeeManagement = () => {
                       className={`h-8 w-8 rounded-lg ${
                         page === currentPage
                           ? "bg-indigo-500 text-white"
-                          : "border bg-white"
+                          : "border bg-card"
                       }`}
                     >
                       {page}
@@ -838,29 +838,29 @@ const EmployeeManagement = () => {
           {addModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-black/50" onClick={() => !addSaving && !importSaving && setAddModalOpen(false)} />
-              <div className={`relative flex w-full max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-white p-6 shadow-xl min-w-0 ${addModalTab === "import" ? "max-w-3xl" : "max-w-lg"}`}>
+              <div className={`relative flex w-full max-h-[90vh] flex-col overflow-hidden rounded-2xl bg-card border border-border p-6 shadow-xl min-w-0 ${addModalTab === "import" ? "max-w-3xl" : "max-w-lg"}`}>
                 <div className="mb-4 flex items-center justify-between flex-shrink-0">
-                  <h3 className="text-lg font-semibold text-gray-900">Add Employee</h3>
+                  <h3 className="text-lg font-semibold text-foreground">Add Employee</h3>
                   <button
                     type="button"
                     onClick={() => !addSaving && !importSaving && setAddModalOpen(false)}
-                    className="p-2 text-gray-400 hover:bg-gray-100 rounded-lg hover:text-gray-600"
+                    className="p-2 text-muted-foreground hover:bg-muted rounded-lg hover:text-muted-foreground"
                   >
                     <X size={20} />
                   </button>
                 </div>
-                <div className="flex gap-2 mb-4 border-b border-gray-200 flex-shrink-0">
+                <div className="flex gap-2 mb-4 border-b border-border flex-shrink-0">
                   <button
                     type="button"
                     onClick={() => setAddModalTab("form")}
-                    className={`px-4 py-2 text-sm font-medium rounded-t-lg ${addModalTab === "form" ? "bg-indigo-50 text-indigo-600 border-b-2 border-indigo-500" : "text-gray-500 hover:bg-gray-50"}`}
+                    className={`px-4 py-2 text-sm font-medium rounded-t-lg ${addModalTab === "form" ? "bg-indigo-50 text-indigo-600 border-b-2 border-indigo-500" : "text-muted-foreground hover:bg-muted"}`}
                   >
                     Add one
                   </button>
                   <button
                     type="button"
                     onClick={() => setAddModalTab("import")}
-                    className={`px-4 py-2 text-sm font-medium rounded-t-lg flex items-center gap-1.5 ${addModalTab === "import" ? "bg-indigo-50 text-indigo-600 border-b-2 border-indigo-500" : "text-gray-500 hover:bg-gray-50"}`}
+                    className={`px-4 py-2 text-sm font-medium rounded-t-lg flex items-center gap-1.5 ${addModalTab === "import" ? "bg-indigo-50 text-indigo-600 border-b-2 border-indigo-500" : "text-muted-foreground hover:bg-muted"}`}
                   >
                     <FileUp size={16} />
                     Import
@@ -869,13 +869,13 @@ const EmployeeManagement = () => {
                 {addModalTab === "form" && (
                 <form onSubmit={handleAddSubmit} className="space-y-4 overflow-y-auto overflow-x-hidden min-w-0 pr-8">
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Profile Picture</label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Profile Picture</label>
                     <div className="flex items-center gap-4">
-                      <label className="relative flex h-20 w-20 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-gray-200 bg-gray-50 hover:border-indigo-300 hover:bg-gray-100">
+                      <label className="relative flex h-20 w-20 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                         {addForm.photo ? (
                           <img src={addForm.photo.startsWith("http") ? addForm.photo : apiUrl(addForm.photo)} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <span className="text-xs text-gray-400 select-none">{addPhotoUploading ? "Uploading..." : "Select Image"}</span>
+                          <span className="text-xs text-muted-foreground select-none">{addPhotoUploading ? "Uploading..." : "Select Image"}</span>
                         )}
                         <input type="file" accept={EMPLOYEE_PHOTO_ACCEPT} className="sr-only" aria-label="Select profile picture" onChange={handleAddPhotoChange} disabled={addPhotoUploading} />
                       </label>
@@ -885,12 +885,12 @@ const EmployeeManagement = () => {
                         </button>
                       )}
                     </div>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-muted-foreground">
                           Max {EMPLOYEE_PHOTO_MAX_SIZE_LABEL} · {EMPLOYEE_PHOTO_EXTENSIONS_LABEL}
                         </p>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Name <span className="text-red-500">*</span></label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Name <span className="text-red-500">*</span></label>
                     <input
                       type="text"
                       value={addForm.name}
@@ -902,12 +902,12 @@ const EmployeeManagement = () => {
                       onBlur={() => setAddFormErrors((prev) => ({ ...prev, name: validateEmpName(addForm.name) }))}
                       placeholder="e.g. Mr. First Name Last Name (letters and period, min 10)"
                       minLength={10}
-                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${addFormErrors.name ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${addFormErrors.name ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                     />
                     {addFormErrors.name && <p className="mt-1 text-sm text-red-500">{addFormErrors.name}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Email <span className="text-red-500">*</span></label>
                     <input
                       type="email"
                       value={addForm.gmail}
@@ -918,12 +918,12 @@ const EmployeeManagement = () => {
                       }}
                       onBlur={() => setAddFormErrors((prev) => ({ ...prev, gmail: validateEmpGmail(addForm.gmail) }))}
                       placeholder="example@tcc-technology.com"
-                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${addFormErrors.gmail ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${addFormErrors.gmail ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                     />
                     {addFormErrors.gmail && <p className="mt-1 text-sm text-red-500">{addFormErrors.gmail}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Phone <span className="text-red-500">*</span></label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Phone <span className="text-red-500">*</span></label>
                     <div className="flex min-w-0 items-center gap-1 sm:gap-2">
                       <div className="relative min-w-0 flex-1">
                         <input
@@ -951,10 +951,10 @@ const EmployeeManagement = () => {
                           onBlur={() => setAddFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(addForm.tel, addForm.telExt) }))}
                           placeholder="0xx-xxx-xxxx"
                           autoComplete="tel"
-                          className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${addFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                          className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${addFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                         />
                       </div>
-                      <span className="shrink-0 select-none text-base font-medium text-gray-400" aria-hidden>
+                      <span className="shrink-0 select-none text-base font-medium text-muted-foreground" aria-hidden>
                         -
                       </span>
                       <div className="relative w-[4.5rem] shrink-0 sm:w-24">
@@ -985,18 +985,18 @@ const EmployeeManagement = () => {
                           autoComplete="off"
                           aria-label="Extension (max 6 digits)"
                           title="Extension (max 6 digits)"
-                          className={`w-full rounded-xl border-2 px-2.5 py-2.5 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${addFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                          className={`w-full rounded-xl border-2 px-2.5 py-2.5 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${addFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                         />
                       </div>
                     </div>
                     {addFormErrors.tel && <p className="mt-1 text-sm text-red-500">{addFormErrors.tel}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Position Type</label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Position Type</label>
                     <select
                       value={addForm.positionType}
                       onChange={(e) => setAddForm((f) => ({ ...f, positionType: e.target.value as "Technical" | "Management" | "Engineer" }))}
-                      className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
+                      className="w-full rounded-xl border-2 border-border bg-muted px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
                     >
                       <option value="Technical">Technical</option>
                       <option value="Management">Management</option>
@@ -1004,11 +1004,11 @@ const EmployeeManagement = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Employment Type</label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Employment Type</label>
                     <select
                       value={addForm.employmentType}
                       onChange={(e) => setAddForm((f) => ({ ...f, employmentType: e.target.value }))}
-                      className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
+                      className="w-full rounded-xl border-2 border-border bg-muted px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
                     >
                       <option value="Full-Time">Full-Time</option>
                       <option value="Contract">Contract</option>
@@ -1019,7 +1019,7 @@ const EmployeeManagement = () => {
                     <button
                       type="button"
                       onClick={() => !addSaving && setAddModalOpen(false)}
-                      className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                      className="rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
                     >
                       Cancel
                     </button>
@@ -1067,7 +1067,7 @@ const EmployeeManagement = () => {
                     </div>
 
                     {/* File Upload */}
-                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:border-indigo-400 transition-colors">
+                    <div className="border-2 border-dashed border-border rounded-xl p-4 text-center hover:border-indigo-400 transition-colors">
                       <input
                         type="file"
                         accept=".xlsx,.xls,.csv"
@@ -1085,21 +1085,21 @@ const EmployeeManagement = () => {
                           <Download size={24} className="text-indigo-600" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-slate-700">
+                          <p className="text-sm font-semibold text-muted-foreground">
                             Click to upload Excel/CSV file
                           </p>
-                          <p className="text-xs text-slate-500 mt-0.5">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             Supports .xlsx, .xls, and .csv formats
                           </p>
                         </div>
                       </label>
                     </div>
 
-                    {importParsing && <p className="text-xs text-gray-500">Parsing file...</p>}
-                    {importFile && !importParsing && <p className="text-xs text-gray-500 truncate w-full">File: {importFile.name}</p>}
+                    {importParsing && <p className="text-xs text-muted-foreground">Parsing file...</p>}
+                    {importFile && !importParsing && <p className="text-xs text-muted-foreground truncate w-full">File: {importFile.name}</p>}
                     {importRows.length > 0 && (
                       <>
-                        <p className="text-sm font-medium text-slate-700">Preview ({importRows.length} row{importRows.length !== 1 ? "s" : ""})</p>
+                        <p className="text-sm font-medium text-muted-foreground">Preview ({importRows.length} row{importRows.length !== 1 ? "s" : ""})</p>
                         {importValidation.errors.length > 0 && (
                           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
                             <p className="font-semibold mb-1">Invalid data:</p>
@@ -1110,25 +1110,25 @@ const EmployeeManagement = () => {
                             </ul>
                           </div>
                         )}
-                        <div className={`border border-slate-200 rounded-lg overflow-auto bg-white ${importRows.length <= 8 ? "min-h-0" : "max-h-[50vh]"} min-h-[140px]`}>
+                        <div className={`border border-border rounded-lg overflow-auto bg-card ${importRows.length <= 8 ? "min-h-0" : "max-h-[50vh]"} min-h-[140px]`}>
                           <table className="min-w-full text-xs border-collapse">
-                            <thead className="bg-slate-50 sticky top-0 z-10">
+                            <thead className="bg-muted sticky top-0 z-10">
                               <tr>
-                                <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Name</th>
-                                <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Email</th>
-                                <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Tel</th>
-                                <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Position</th>
-                                <th className="px-3 py-1.5 text-left border-b border-slate-200 font-semibold text-slate-700 whitespace-nowrap">Employment</th>
+                                <th className="px-3 py-1.5 text-left border-b border-border font-semibold text-muted-foreground whitespace-nowrap">Name</th>
+                                <th className="px-3 py-1.5 text-left border-b border-border font-semibold text-muted-foreground whitespace-nowrap">Email</th>
+                                <th className="px-3 py-1.5 text-left border-b border-border font-semibold text-muted-foreground whitespace-nowrap">Tel</th>
+                                <th className="px-3 py-1.5 text-left border-b border-border font-semibold text-muted-foreground whitespace-nowrap">Position</th>
+                                <th className="px-3 py-1.5 text-left border-b border-border font-semibold text-muted-foreground whitespace-nowrap">Employment</th>
                               </tr>
                             </thead>
                             <tbody>
                               {importRows.map((r, i) => (
-                                <tr key={i} className={`border-b border-slate-100 hover:bg-slate-50 ${importValidation.invalidRows.has(i) ? "bg-red-50" : ""}`}>
-                                  <td className="px-3 py-1.5 text-slate-800">{r.name || "—"}</td>
-                                  <td className="px-3 py-1.5 text-slate-800">{r.gmail || "—"}</td>
-                                  <td className="px-3 py-1.5 text-slate-800">{r.tel || "—"}</td>
-                                  <td className="px-3 py-1.5 text-slate-700">{r.positionType || "—"}</td>
-                                  <td className="px-3 py-1.5 text-slate-700">{r.employmentType || "—"}</td>
+                                <tr key={i} className={`border-b border-border hover:bg-muted ${importValidation.invalidRows.has(i) ? "bg-red-50" : ""}`}>
+                                  <td className="px-3 py-1.5 text-foreground">{r.name || "—"}</td>
+                                  <td className="px-3 py-1.5 text-foreground">{r.gmail || "—"}</td>
+                                  <td className="px-3 py-1.5 text-foreground">{r.tel || "—"}</td>
+                                  <td className="px-3 py-1.5 text-muted-foreground">{r.positionType || "—"}</td>
+                                  <td className="px-3 py-1.5 text-muted-foreground">{r.employmentType || "—"}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1138,7 +1138,7 @@ const EmployeeManagement = () => {
                           <button
                             type="button"
                             onClick={() => !importSaving && setAddModalOpen(false)}
-                            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                            className="rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
                           >
                             Cancel
                           </button>
@@ -1168,13 +1168,13 @@ const EmployeeManagement = () => {
           {editingEmployee && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-black/50" onClick={() => !editSaving && setEditingEmployee(null)} />
-              <div className="relative flex w-full max-w-lg max-h-[90vh] flex-col rounded-2xl bg-white shadow-xl">
-                <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-6 py-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Edit Employee</h3>
+              <div className="relative flex w-full max-w-lg max-h-[90vh] flex-col rounded-2xl bg-card border border-border shadow-xl">
+                <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-6 py-4">
+                  <h3 className="text-lg font-semibold text-foreground">Edit Employee</h3>
                   <button
                     type="button"
                     onClick={() => !editSaving && setEditingEmployee(null)}
-                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                    className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-muted-foreground"
                     aria-label="Close"
                   >
                     <X size={20} />
@@ -1183,13 +1183,13 @@ const EmployeeManagement = () => {
                 <form onSubmit={handleEditSubmit} className="flex min-h-0 flex-1 flex-col overflow-hidden">
                   <div className="flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-6 py-4 pr-8 min-w-0">
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Profile Picture</label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Profile Picture</label>
                     <div className="flex items-center gap-4">
-                      <label className="relative flex h-20 w-20 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-gray-200 bg-gray-50 hover:border-indigo-300 hover:bg-gray-100">
+                      <label className="relative flex h-20 w-20 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                         {editForm.photo ? (
                           <img src={editForm.photo.startsWith("http") ? editForm.photo : apiUrl(editForm.photo)} alt="" className="h-full w-full object-cover" />
                         ) : (
-                          <span className="text-xs text-gray-400 select-none">{editPhotoUploading ? "Uploading..." : "Select Image"}</span>
+                          <span className="text-xs text-muted-foreground select-none">{editPhotoUploading ? "Uploading..." : "Select Image"}</span>
                         )}
                         <input type="file" accept={EMPLOYEE_PHOTO_ACCEPT} className="sr-only" aria-label="Select Profile Picture" onChange={handleEditPhotoChange} disabled={editPhotoUploading} />
                       </label>
@@ -1199,12 +1199,12 @@ const EmployeeManagement = () => {
                         </button>
                       )}
                     </div>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-xs text-muted-foreground">
                           Max {EMPLOYEE_PHOTO_MAX_SIZE_LABEL} · {EMPLOYEE_PHOTO_EXTENSIONS_LABEL}
                         </p>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Name <span className="text-red-500">*</span></label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Name <span className="text-red-500">*</span></label>
                     <input
                       type="text"
                       value={editForm.name}
@@ -1216,12 +1216,12 @@ const EmployeeManagement = () => {
                       onBlur={() => setEditFormErrors((prev) => ({ ...prev, name: validateEmpName(editForm.name) }))}
                       placeholder="e.g. Mr. First Name Last Name (letters and period, min 10)"
                       minLength={10}
-                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${editFormErrors.name ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${editFormErrors.name ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                     />
                     {editFormErrors.name && <p className="mt-1 text-sm text-red-500">{editFormErrors.name}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Email <span className="text-red-500">*</span></label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Email <span className="text-red-500">*</span></label>
                     <input
                       type="email"
                       value={editForm.gmail}
@@ -1232,12 +1232,12 @@ const EmployeeManagement = () => {
                       }}
                       onBlur={() => setEditFormErrors((prev) => ({ ...prev, gmail: validateEmpGmail(editForm.gmail) }))}
                       placeholder="example@tcc-technology.com"
-                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${editFormErrors.gmail ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                      className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${editFormErrors.gmail ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                     />
                     {editFormErrors.gmail && <p className="mt-1 text-sm text-red-500">{editFormErrors.gmail}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Phone <span className="text-red-500">*</span></label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Phone <span className="text-red-500">*</span></label>
                     <div className="flex min-w-0 items-center gap-1 sm:gap-2">
                       <div className="relative min-w-0 flex-1">
                         <input
@@ -1265,10 +1265,10 @@ const EmployeeManagement = () => {
                           onBlur={() => setEditFormErrors((prev) => ({ ...prev, tel: validateEmployeePhoneInline(editForm.tel, editForm.telExt) }))}
                           placeholder="0xx-xxx-xxxx"
                           autoComplete="tel"
-                          className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${editFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                          className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${editFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                         />
                       </div>
-                      <span className="shrink-0 select-none text-base font-medium text-gray-400" aria-hidden>
+                      <span className="shrink-0 select-none text-base font-medium text-muted-foreground" aria-hidden>
                         -
                       </span>
                       <div className="relative w-[4.5rem] shrink-0 sm:w-24">
@@ -1299,18 +1299,18 @@ const EmployeeManagement = () => {
                           autoComplete="off"
                           aria-label="Extension (max 6 digits)"
                           title="Extension (max 6 digits)"
-                          className={`w-full rounded-xl border-2 px-2.5 py-2.5 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${editFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-gray-300 bg-gray-50"}`}
+                          className={`w-full rounded-xl border-2 px-2.5 py-2.5 text-left text-sm tabular-nums outline-none focus:border-indigo-500 box-border ${editFormErrors.tel ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
                         />
                       </div>
                     </div>
                     {editFormErrors.tel && <p className="mt-1 text-sm text-red-500">{editFormErrors.tel}</p>}
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Position Type</label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Position Type</label>
                     <select
                       value={editForm.positionType}
                       onChange={(e) => setEditForm((f) => ({ ...f, positionType: e.target.value as "Technical" | "Management" | "Engineer" }))}
-                      className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
+                      className="w-full rounded-xl border-2 border-border bg-muted px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
                     >
                       <option value="Technical">Technical</option>
                       <option value="Management">Management</option>
@@ -1318,11 +1318,11 @@ const EmployeeManagement = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="mb-1 block text-sm font-medium text-gray-700">Employment Type</label>
+                    <label className="mb-1 block text-sm font-medium text-muted-foreground">Employment Type</label>
                     <select
                       value={editForm.employmentType}
                       onChange={(e) => setEditForm((f) => ({ ...f, employmentType: e.target.value }))}
-                      className="w-full rounded-xl border-2 border-gray-300 bg-gray-50 px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
+                      className="w-full rounded-xl border-2 border-border bg-muted px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
                     >
                       <option value="Full-Time">Full-Time</option>
                       <option value="Contract">Contract</option>
@@ -1330,7 +1330,7 @@ const EmployeeManagement = () => {
                     </select>
                   </div>
                   </div>
-                  <div className="flex flex-shrink-0 justify-between border-t border-gray-100 px-6 py-4">
+                  <div className="flex flex-shrink-0 justify-between border-t border-border px-6 py-4">
                     <button
                       type="button"
                       onClick={handleDeleteEmployee}
@@ -1344,7 +1344,7 @@ const EmployeeManagement = () => {
                       <button
                         type="button"
                         onClick={() => !editSaving && !deleteLoading && setEditingEmployee(null)}
-                        className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        className="rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
                       >
                         Cancel
                       </button>

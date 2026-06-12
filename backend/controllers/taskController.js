@@ -731,8 +731,8 @@ const createTask = async (req, res) => {
     }
 
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
-       FROM tasks t LEFT JOIN contract c ON t.contract_id = c.contract_id WHERE t.id = ?`,
+      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
+       FROM tasks t LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid WHERE t.id = ?`,
       [finalTaskId]
     );
     const createdTask = mapTaskRow(rows[0]);
@@ -775,9 +775,9 @@ const createTask = async (req, res) => {
 const getTasks = async (_req, res) => {
   try {
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
+      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
        FROM tasks t
-       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
        ORDER BY t.start_date DESC, t.id DESC`
     );
     res.status(200).json({
@@ -800,9 +800,9 @@ const getTaskById = async (req, res) => {
   try {
     const { id } = req.params;
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
+      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
        FROM tasks t
-       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
        WHERE t.id = ?`,
       [id]
     );
@@ -1004,7 +1004,7 @@ const updateTask = async (req, res) => {
       }
     }
 
-    // Handle replacement device asset state changes and contract_device update
+    // Handle replacement device asset state changes and SLid assignment
     // MA: อัปเดต Asset_State และ SLid เฉพาะเมื่อ status = 'done' (กด Done ใน detail)
     const newStatus = status !== undefined ? (status || 'not-started') : existing[0].status;
     const newReplacementDeviceId = replacementDeviceId !== undefined ? replacementDeviceId : oldReplacementDeviceId;
@@ -1052,64 +1052,20 @@ const updateTask = async (req, res) => {
         // อุปกรณ์ที่เสียทุกตัวใน assets — ใช้ brokenAssetState ที่เลือกไว้ใน plan (default In Store)
         await applyMaBrokenAssetStatesOnDone(newAssets);
 
-        // Update contract_device: replace broken device with replacement device
-        const contractIdNum = safeParseInt(newContractId);
+        // Assign replacement device to contract SLid (contract_id === SLid)
+        const contractSlid = safeParseInt(newContractId);
         const replacementIdNum = typeof newReplacementDeviceId === 'number' ? newReplacementDeviceId : parseInt(String(newReplacementDeviceId), 10);
         const originalIdNum = typeof newOriginalDeviceId === 'number' ? newOriginalDeviceId : parseInt(String(newOriginalDeviceId), 10);
 
-        if (contractIdNum && !isNaN(originalIdNum) && !isNaN(replacementIdNum)) {
+        if (contractSlid && !isNaN(replacementIdNum)) {
           try {
-            // Check if the broken device exists in contract_device
-            const [existingContractDevice] = await db.execute(
-              'SELECT * FROM contract_device WHERE contract_id = ? AND device_id = ?',
-              [contractIdNum, originalIdNum]
+            const slidToUse = taskSiteId != null ? taskSiteId : contractSlid;
+            await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [slidToUse, replacementIdNum]);
+            console.log(
+              `Assigned replacement device ${replacementIdNum} to SLid ${slidToUse} (was broken device ${originalIdNum})`
             );
-
-            if (existingContractDevice.length > 0) {
-              // Get SLid of replacement device from Devices table
-              const [replacementDevice] = await db.execute(
-                'SELECT SLid FROM devices WHERE Did = ?',
-                [replacementIdNum]
-              );
-              const replacementSLid = replacementDevice.length > 0 ? replacementDevice[0].SLid : null;
-              
-              // Update: Delete old device and insert new device
-              await db.execute(
-                'DELETE FROM contract_device WHERE contract_id = ? AND device_id = ?',
-                [contractIdNum, originalIdNum]
-              );
-              
-              const [checkExisting] = await db.execute(
-                'SELECT * FROM contract_device WHERE contract_id = ? AND device_id = ?',
-                [contractIdNum, replacementIdNum]
-              );
-              
-              if (checkExisting.length === 0) {
-                const slidToUse = taskSiteId != null ? taskSiteId : replacementSLid;
-                if (slidToUse != null) {
-                  await db.execute(
-                    'INSERT INTO contract_device (contract_id, device_id, SLid) VALUES (?, ?, ?)',
-                    [contractIdNum, replacementIdNum, slidToUse]
-                  ).catch(() => db.execute(
-                    'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-                    [contractIdNum, replacementIdNum]
-                  ));
-                } else {
-                  await db.execute(
-                    'INSERT INTO contract_device (contract_id, device_id) VALUES (?, ?)',
-                    [contractIdNum, replacementIdNum]
-                  );
-                }
-                console.log(`Updated contract_device: Replaced device ${originalIdNum} with ${replacementIdNum} in contract ${contractIdNum}`);
-              } else {
-                console.log(`Device ${replacementIdNum} already exists in contract ${contractIdNum}, skipping insert`);
-              }
-            } else {
-              console.log(`Device ${originalIdNum} not found in contract_device for contract ${contractIdNum}, skipping update`);
-            }
           } catch (error) {
-            console.error('Error updating contract_device:', error);
-            // Continue even if contract_device update fails
+            console.error('Error assigning replacement device to SLid:', error);
           }
         }
       } catch (error) {
@@ -1278,9 +1234,9 @@ const getOverdueTasks = async (req, res) => {
       });
     }
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
+      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
        FROM tasks t
-       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.status = 'not-started' AND t.end_date < CURRENT_DATE AND t.task_type = ?
          AND (? IS NULL OR sl.Sid = ?)
@@ -1322,9 +1278,9 @@ const getCompletedTasks = async (req, res) => {
       });
     }
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
+      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
        FROM tasks t
-       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.status = 'done' AND t.task_type = ?
          AND (? IS NULL OR sl.Sid = ?)
@@ -1367,9 +1323,9 @@ const getInprocessTasks = async (req, res) => {
       });
     }
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
+      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
        FROM tasks t
-       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
        LEFT JOIN report r ON r.id = t.id
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.task_type = ?
@@ -1414,9 +1370,9 @@ const getPendingTasks = async (req, res) => {
       });
     }
     const [rows] = await db.execute(
-      `SELECT t.*, c.sla_term AS contract_sla_term, c.sof_name AS contract_sof_name
+      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
        FROM tasks t
-       LEFT JOIN contract c ON t.contract_id = c.contract_id
+       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.task_type = ?
          AND LOWER(t.status) NOT IN ('done', 'working')

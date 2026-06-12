@@ -17,7 +17,7 @@ export default function DateTime({ days = 15 }: DateRangeLabelProps) {
     });
 
   return (
-    <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm text-sm text-gray-500 font-medium cursor-pointer">
+    <div className="flex items-center gap-2 bg-card px-4 py-2 rounded-xl shadow-sm text-sm text-muted-foreground font-medium cursor-pointer">
       <span>
         {formatDate(startDate)} - {formatDate(today)}
       </span>

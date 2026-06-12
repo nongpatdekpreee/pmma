@@ -83,11 +83,11 @@ const getStatusColor = (status: AssetDevice["status"]) => {
     case "Active":
       return "bg-green-100 text-green-700";
     case "Inactive":
-      return "bg-gray-100 text-gray-700";
+      return "bg-muted text-muted-foreground";
     case "Maintenance":
       return "bg-yellow-100 text-yellow-700";
     default:
-      return "bg-gray-100 text-gray-700";
+      return "bg-muted text-muted-foreground";
   }
 };
 
@@ -301,13 +301,13 @@ const AssetSiteDatabase = () => {
       <main className="mx-auto w-full max-w-full space-y-6 px-4 md:px-6 lg:px-8 py-6 md:mt-0 mt-16">
         {/* ================= Summary Cards ================= */}
         <section className="grid gap-6 md:grid-cols-3">
-          <article className="flex flex-col items-center justify-between rounded-2xl bg-white px-6 py-5 shadow-md">
+          <article className="flex flex-col items-center justify-between rounded-2xl bg-card border border-border px-6 py-5 shadow-md">
             <div className="flex items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500">
                 <Server className="h-7 w-7 text-blue-900" />
               </div>
               <div>
-                <p className="text-xs uppercase text-gray-400">
+                <p className="text-xs uppercase text-muted-foreground">
                   TOTAL DEVICES
                 </p>
                 <div className="text-3xl font-semibold">
@@ -317,13 +317,13 @@ const AssetSiteDatabase = () => {
             </div>
           </article>
 
-          <article className="flex flex-col items-center justify-between rounded-2xl bg-white px-6 py-5 shadow-md">
+          <article className="flex flex-col items-center justify-between rounded-2xl bg-card border border-border px-6 py-5 shadow-md">
             <div className="flex items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500">
                 <Network className="h-7 w-7 text-blue-900" />
               </div>
               <div>
-                <p className="text-xs uppercase text-gray-400">
+                <p className="text-xs uppercase text-muted-foreground">
                   ACTIVE DEVICES
                 </p>
                 <div className="text-3xl font-semibold">  
@@ -336,13 +336,13 @@ const AssetSiteDatabase = () => {
             </span>
           </article>
 
-          <article className="flex flex-col items-center justify-between rounded-2xl bg-white px-6 py-5 shadow-md">
+          <article className="flex flex-col items-center justify-between rounded-2xl bg-card border border-border px-6 py-5 shadow-md">
             <div className="flex items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500">
                 <Calendar className="h-7 w-7 text-blue-900" />
               </div>
               <div>
-                <p className="text-xs uppercase text-gray-400">
+                <p className="text-xs uppercase text-muted-foreground">
                   UPCOMING PM
                 </p>
                 <div className="text-3xl font-semibold">
@@ -354,11 +354,11 @@ const AssetSiteDatabase = () => {
         </section>
 
         {/* ================= Table Card ================= */}
-        <div className="rounded-xl bg-white p-4 md:p-6 shadow-md overflow-hidden">
+        <div className="rounded-xl bg-card p-4 md:p-6 shadow-md overflow-hidden">
           {/* Header */}
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">
+              <h2 className="text-lg font-semibold text-foreground">
                 Asset & Site 
               </h2>
               <p className="text-sm text-indigo-500">
@@ -368,11 +368,11 @@ const AssetSiteDatabase = () => {
 
             <div className="flex flex-wrap items-center gap-3">
               {/* Search Bar */}
-              <div className="flex h-10 items-center gap-2 rounded-full bg-gray-100 px-4 text-sm text-gray-500">
+              <div className="flex h-10 items-center gap-2 rounded-full bg-muted px-4 text-sm text-muted-foreground">
                 {loading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Search className="h-4 w-4 text-slate-500" />
+                  <Search className="h-4 w-4 text-muted-foreground" />
                 )}
                 <input
                   type="text"
@@ -399,7 +399,7 @@ const AssetSiteDatabase = () => {
                   setFilterDeviceRole(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="h-10 rounded-full border bg-white px-4 text-sm shadow-sm"
+                className="h-10 rounded-full border bg-card px-4 text-sm shadow-sm"
                 disabled={loading}
               >
                 <option value="all">All Device Roles</option>
@@ -417,7 +417,7 @@ const AssetSiteDatabase = () => {
                   setFilterSite(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="h-10 rounded-full border bg-white px-4 text-sm shadow-sm"
+                className="h-10 rounded-full border bg-card px-4 text-sm shadow-sm"
                 disabled={loading}
               >
                 <option value="all">All Sites</option>
@@ -432,7 +432,7 @@ const AssetSiteDatabase = () => {
               {hasActiveFilters && (
                 <button
                   onClick={resetFilters}
-                  className="flex h-10 items-center gap-2 rounded-full border bg-white px-4 text-sm shadow-sm hover:bg-gray-50"
+                  className="flex h-10 items-center gap-2 rounded-full border bg-card px-4 text-sm shadow-sm hover:bg-muted"
                 >
                   <X className="h-4 w-4" />
                   Reset
@@ -444,10 +444,10 @@ const AssetSiteDatabase = () => {
           {/* Table */}
           <div className="overflow-x-auto w-full -mx-4 md:mx-0">
             <table className="w-full text-xs min-w-full">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-400">
+              <thead className="bg-muted text-xs uppercase text-muted-foreground">
                 <tr>
                   <th
-                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap w-[70px] md:w-[80px]"
+                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-muted whitespace-nowrap w-[70px] md:w-[80px]"
                     onClick={() => handleSort("deviceId")}
                   >
                     <div className="flex items-center justify-center gap-1">
@@ -458,7 +458,7 @@ const AssetSiteDatabase = () => {
                   <th className="px-2 md:px-3 py-3 text-center align-middle min-w-[150px] md:min-w-[200px]">Device Name</th>
                   <th className="px-2 md:px-3 py-3 text-center align-middle whitespace-nowrap w-[60px] md:w-[70px]">Role</th>
                   <th
-                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-gray-100 min-w-[120px] md:min-w-[180px]"
+                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-muted min-w-[120px] md:min-w-[180px]"
                     onClick={() => handleSort("site")}
                   >
                     <div className="flex items-center justify-center gap-1">
@@ -468,7 +468,7 @@ const AssetSiteDatabase = () => {
                   </th>
                   <th className="px-2 md:px-3 py-3 text-center align-middle whitespace-nowrap hidden lg:table-cell w-[80px] md:w-[100px]">Location</th>
                   <th
-                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap w-[90px] md:w-auto"
+                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-muted whitespace-nowrap w-[90px] md:w-auto"
                     onClick={() => handleSort("lastPM")}
                   >
                     <div className="flex items-center justify-center gap-1">
@@ -477,7 +477,7 @@ const AssetSiteDatabase = () => {
                     </div>
                   </th>
                   <th
-                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-gray-100 whitespace-nowrap w-[90px] md:w-auto"
+                    className="cursor-pointer px-2 md:px-3 py-3 text-center align-middle hover:bg-muted whitespace-nowrap w-[90px] md:w-auto"
                     onClick={() => handleSort("nextPM")}
                   >
                     <div className="flex items-center justify-center gap-1">
@@ -493,13 +493,13 @@ const AssetSiteDatabase = () => {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="px-2 md:px-3 py-4 text-center text-gray-500">
+                    <td colSpan={9} className="px-2 md:px-3 py-4 text-center text-muted-foreground">
                       Loading devices...
                     </td>
                   </tr>
                 ) : paginatedDevices.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-2 md:px-3 py-4 text-center text-gray-500">
+                    <td colSpan={9} className="px-2 md:px-3 py-4 text-center text-muted-foreground">
                       No devices found matching your criteria
                     </td>
                   </tr>
@@ -513,17 +513,17 @@ const AssetSiteDatabase = () => {
                     return (
                       <tr
                         key={device.deviceId}
-                        className="border-t hover:bg-gray-50 transition-colors"
+                        className="border-t hover:bg-muted transition-colors"
                       >
                         <td className="px-2 md:px-3 py-3 align-middle text-center font-medium text-indigo-600 whitespace-nowrap">
                           {device.deviceId}
                         </td>
                         <td className="px-2 md:px-3 py-3 align-middle">
                           <div className="flex items-center gap-2 min-w-0">
-                            <DeviceIcon className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                            <DeviceIcon className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                             <div className="min-w-0">
-                              <div className="font-medium text-slate-800 truncate">{device.deviceName?.split('/')[0]?.trim() || device.deviceName}</div>
-                              <div className="text-[11px] text-gray-500 truncate">{device.model} / {device.serialNumber}</div>
+                              <div className="font-medium text-foreground truncate">{device.deviceName?.split('/')[0]?.trim() || device.deviceName}</div>
+                              <div className="text-[11px] text-muted-foreground truncate">{device.model} / {device.serialNumber}</div>
                             </div>
                           </div>
                         </td>
@@ -534,18 +534,18 @@ const AssetSiteDatabase = () => {
                         </td>
                         <td className="px-2 md:px-3 py-3 align-middle">
                           <div className="flex items-center gap-2 min-w-0">
-                            <MapPin className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                            <MapPin className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                             <span className="line-clamp-2 break-words">{device.site}</span>
                           </div>
                         </td>
-                        <td className="px-2 md:px-3 py-3 align-middle text-gray-600 hidden lg:table-cell">
+                        <td className="px-2 md:px-3 py-3 align-middle text-muted-foreground hidden lg:table-cell">
                           <span className="line-clamp-2 break-words block">{device.location || 'N/A'}</span>
                         </td>
                         <td className="px-2 md:px-3 py-3 align-middle text-center whitespace-nowrap">
                           {device.lastPM ? (
-                            <span className="text-gray-700">{formatDate(device.lastPM)}</span>
+                            <span className="text-muted-foreground">{formatDate(device.lastPM)}</span>
                           ) : (
-                            <span className="text-gray-400">Never</span>
+                            <span className="text-muted-foreground">Never</span>
                           )}
                         </td>
                         <td className="px-2 md:px-3 py-3 align-middle text-center">
@@ -557,7 +557,7 @@ const AssetSiteDatabase = () => {
                                     ? "font-semibold text-red-600"
                                     : isPMDueSoon
                                     ? "font-semibold text-orange-600"
-                                    : "text-gray-700"
+                                    : "text-muted-foreground"
                                 }`}
                               >
                                 {formatDate(device.nextPM)}
@@ -569,7 +569,7 @@ const AssetSiteDatabase = () => {
                                       ? "text-red-500"
                                       : isPMDueSoon
                                       ? "text-orange-500"
-                                      : "text-gray-400"
+                                      : "text-muted-foreground"
                                   }`}
                                 >
                                   {isPMOverdue
@@ -581,7 +581,7 @@ const AssetSiteDatabase = () => {
                               )}
                             </div>
                           ) : (
-                            <span className="text-gray-400">Not scheduled</span>
+                            <span className="text-muted-foreground">Not scheduled</span>
                           )}
                         </td>
                         <td className="px-1 md:px-2 py-3 align-middle text-center">
@@ -613,8 +613,8 @@ const AssetSiteDatabase = () => {
 
           {/* Pagination — สไตล์เดียวกับหน้า contract_editer */}
           {totalItems > ITEMS_PER_PAGE && (
-            <div className="mt-4 -mx-4 md:-mx-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-slate-200 bg-slate-50 py-3 px-4 md:px-6">
-              <span className="text-sm text-slate-600">
+            <div className="mt-4 -mx-4 md:-mx-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t border-border bg-muted py-3 px-4 md:px-6">
+              <span className="text-sm text-muted-foreground">
                 Show {startIndex + 1}–{Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} from {totalItems} list
               </span>
               <div className="flex items-center gap-2">
@@ -622,18 +622,18 @@ const AssetSiteDatabase = () => {
                   type="button"
                   onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
                   disabled={currentPage <= 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronLeft size={16} /> Previous Page
                 </button>
-                <span className="text-sm text-slate-600">
+                <span className="text-sm text-muted-foreground">
                   Page {currentPage} / {totalPages}
                 </span>
                 <button
                   type="button"
                   onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
                   disabled={currentPage >= totalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-card border border-border text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next Page <ChevronRight size={16} />
                 </button>
@@ -655,15 +655,15 @@ const AssetSiteDatabase = () => {
             aria-labelledby="pm-history-title"
           >
             <div
-              className="w-full max-w-2xl rounded-2xl bg-white shadow-xl"
+              className="w-full max-w-2xl rounded-2xl bg-card border border-border shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between border-b px-6 py-4">
                 <div>
-                  <h3 id="pm-history-title" className="text-lg font-semibold text-gray-900">
+                  <h3 id="pm-history-title" className="text-lg font-semibold text-foreground">
                     PM History - {selectedDevice.deviceId}
                   </h3>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-muted-foreground">
                     {selectedDevice.deviceName} • {selectedDevice.site}
                   </p>
                 </div>
@@ -672,16 +672,16 @@ const AssetSiteDatabase = () => {
                     setShowPMHistory(false);
                     setSelectedDevice(null);
                   }}
-                  className="rounded-lg p-2 hover:bg-gray-100"
+                  className="rounded-lg p-2 hover:bg-muted"
                   aria-label="ปิด"
                 >
-                  <X className="h-5 w-5 text-gray-400" />
+                  <X className="h-5 w-5 text-muted-foreground" />
                 </button>
               </div>
 
               <div className="max-h-96 overflow-y-auto px-6 py-4">
                 {selectedDevice.pmHistory.length === 0 ? (
-                  <div className="py-8 text-center text-gray-500">
+                  <div className="py-8 text-center text-muted-foreground">
                     No PM history available for this device
                   </div>
                 ) : (
@@ -689,12 +689,12 @@ const AssetSiteDatabase = () => {
                     {selectedDevice.pmHistory.map((pm) => (
                       <div
                         key={pm.id}
-                        className="rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors"
+                        className="rounded-lg border border-border p-4 hover:bg-muted transition-colors"
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <div className="flex items-center gap-3">
-                              <span className="font-medium text-gray-900">
+                              <span className="font-medium text-foreground">
                                 {formatDate(pm.date)}
                               </span>
                               <span
@@ -711,11 +711,11 @@ const AssetSiteDatabase = () => {
                                 {pm.status}
                               </span>
                             </div>
-                            <p className="mt-1 text-sm text-gray-600">
+                            <p className="mt-1 text-sm text-muted-foreground">
                               Technician: {pm.technician}
                             </p>
                             {pm.notes && (
-                              <p className="mt-2 text-sm text-gray-500">
+                              <p className="mt-2 text-sm text-muted-foreground">
                                 {pm.notes}
                               </p>
                             )}
@@ -730,19 +730,19 @@ const AssetSiteDatabase = () => {
               <div className="border-t px-6 py-4">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <span className="text-gray-500">Device Role:</span>
+                    <span className="text-muted-foreground">Device Role:</span>
                     <span className="ml-2 font-medium">{selectedDevice.deviceRole}</span>
                   </div>
                   <div>
-                    <span className="text-gray-500">Vendor:</span>
+                    <span className="text-muted-foreground">Vendor:</span>
                     <span className="ml-2 font-medium">{selectedDevice.vendor}</span>
                   </div>
                   <div>
-                    <span className="text-gray-500">Model:</span>
+                    <span className="text-muted-foreground">Model:</span>
                     <span className="ml-2 font-medium">{selectedDevice.model}</span>
                   </div>
                   <div>
-                    <span className="text-gray-500">Serial Number:</span>
+                    <span className="text-muted-foreground">Serial Number:</span>
                     <span className="ml-2 font-medium">{selectedDevice.serialNumber}</span>
                   </div>
                 </div>

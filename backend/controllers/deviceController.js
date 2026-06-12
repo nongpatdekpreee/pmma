@@ -1337,8 +1337,8 @@ const getDevicesBySOFAndSite = async (req, res) => {
   }
 };
 
-// GET - ดึง Devices จาก contract_device ตาม contract_id และ SLid (Site+Location)
-// เช็คจาก Site+Location → SLid แล้วดึง devices ใน contract_device ที่ SLid ตรงกัน
+// GET - ดึง Devices ตาม contract_id (=== SLid) และ slid (Site+Location)
+// เครื่องผูกสัญญาผ่าน devices.SLid
 /**
  * GET ?contract_id=&refer_sof=
  * Distinct SLid + Location2 for devices on this contract whose Refer_SOF matches (same rules as by-sof-and-site).
@@ -1356,19 +1356,18 @@ const getImportLocation2HintsByContractAndSof = async (req, res) => {
     }
     const referSOFTrim = normalizeReferSofKey(referSOF) || '0';
     const sofMatch = sofMatchWhere('sl');
+    const slid = parseInt(contractId, 10);
     const [rows] = await db.execute(
-      `SELECT DISTINCT cd.SLid AS SLid,
+      `SELECT DISTINCT d.SLid AS SLid,
               TRIM(L.Location2) AS Location2
-       FROM contract_device cd
-       INNER JOIN devices d ON cd.device_id = d.Did
+       FROM devices d
        INNER JOIN sites_location sl ON d.SLid = sl.SLid
        LEFT JOIN location L ON sl.lid = L.lid
-       WHERE cd.contract_id = ?
-         AND cd.SLid IS NOT NULL
+       WHERE d.SLid = ?
          AND ${sofMatch}
          AND TRIM(COALESCE(L.Location2, '')) != ''
-       ORDER BY Location2 ASC, cd.SLid ASC`,
-      [parseInt(contractId, 10), referSOF, referSOFTrim]
+       ORDER BY Location2 ASC, d.SLid ASC`,
+      [slid, referSOF, referSOFTrim]
     );
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
@@ -1393,18 +1392,20 @@ const getDevicesByContractAndSite = async (req, res) => {
       });
     }
 
+    const contractSlid = parseInt(contractId, 10);
+    const siteSlid = parseInt(slid, 10);
+    const filterSlid = !Number.isNaN(siteSlid) ? siteSlid : contractSlid;
     const [rows] = await db.execute(
       `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${deviceSofSelect('sl')}, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
-       FROM contract_device cd
-       INNER JOIN devices d ON cd.device_id = d.Did
+       FROM devices d
        LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
        LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
        LEFT JOIN manufacturer m ON dt.Mid = m.Mid
        LEFT JOIN sites_location sl ON d.SLid = sl.SLid
        LEFT JOIN location L ON sl.lid = L.lid
-       WHERE cd.contract_id = ? AND (cd.SLid = ? OR (cd.SLid IS NULL AND d.SLid = ?))
+       WHERE d.SLid = ?
        ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
-      [parseInt(contractId, 10), parseInt(slid, 10), parseInt(slid, 10)]
+      [filterSlid]
     );
 
     res.status(200).json({ success: true, data: rows });
@@ -1450,7 +1451,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
     let sql, params;
     const noSofCondition = noSofWhere('sl', 'd');
     const sofSelect = deviceSofSelect('sl');
-    const notInContract = `d.Did NOT IN (SELECT device_id FROM contract_device WHERE device_id IS NOT NULL)`;
+    const notInContract = `(d.SLid IS NULL OR sl.SLid IS NULL OR sl.status = 'draft' OR ${noSofCondition})`;
     const inStore = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
     
     if (sid) {
@@ -1512,26 +1513,31 @@ const getDevicesBySiteNoSOF = async (req, res) => {
 };
 
 // GET - ดึง Devices ที่ยังไม่มี SOF และสถานะ In Store ภายใต้คลัง (sites.Name ตรง DEFAULT_IN_STORE_SITE_NAME)
-// รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญาอื่น (contract_device)
+// รองรับ contract_id (optional): ยกเว้น device ที่อยู่ในสัญญา official อื่น (devices.SLid)
 const getDevicesNoSofInStore = async (req, res) => {
   try {
     const contractId = req.query.contract_id;
     const noSofCondition = noSofWhere('sl', 'd');
     const sofSelect = deviceSofSelect('sl');
     const inStoreCondition = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
+    const onOtherContract = `(
+      sl.SLid IS NOT NULL
+      AND sl.status = 'official'
+      AND sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''
+    )`;
     let contractExclusionCondition = '';
     const params = [DEFAULT_IN_STORE_SITE_NAME];
     if (contractId) {
       const cid = parseInt(contractId, 10);
       if (!isNaN(cid)) {
         contractExclusionCondition = `
-          AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE contract_id != ? AND device_id IS NOT NULL)
+          AND NOT (${onOtherContract} AND sl.SLid != ?)
         `;
         params.push(cid);
       }
     } else {
       contractExclusionCondition = `
-        AND d.Did NOT IN (SELECT device_id FROM contract_device WHERE device_id IS NOT NULL)
+        AND NOT (${onOtherContract})
       `;
     }
     const sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername
@@ -1926,9 +1932,7 @@ const getDevicesWithPM = async (req, res) => {
 // yyyyyyydqw
      console.log('BBBB');
 
-    // Get devices that exist in contract_device table
-    // Note: Devices table uses SLid (not Sid) to reference Sites
-    // Use device_role.name instead of device_type.model
+    // Devices on official contracts (devices.SLid → sites_location)
     const devicesSql = `
       SELECT DISTINCT
         devices.Did,
@@ -1943,11 +1947,12 @@ const getDevicesWithPM = async (req, res) => {
         device_role.name AS DeviceRole,
         sites.Name AS SiteName,
         L.Location2 AS Province,
-        contract_device.contract_id
-      FROM contract_device
-      INNER JOIN devices ON contract_device.device_id = devices.Did
+        sl.SLid AS contract_id
+      FROM devices
+      INNER JOIN sites_location sl ON devices.SLid = sl.SLid
+        AND sl.status = 'official'
+        AND sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''
       LEFT JOIN device_role ON devices.DeRoleid = device_role.DeRoleid
-      LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
       LEFT JOIN sites ON sl.Sid = sites.Sid
       LEFT JOIN location L ON sl.lid = L.lid
       WHERE 1=1 
@@ -2100,11 +2105,12 @@ const getDevicesWithPM = async (req, res) => {
         device_role.name AS DeviceRole,
         sites.Name AS SiteName,
         L.Location2 AS Province,
-        contract_device.contract_id
-      FROM contract_device
-      INNER JOIN devices ON contract_device.device_id = devices.Did
+        sl.SLid AS contract_id
+      FROM devices
+      INNER JOIN sites_location sl ON devices.SLid = sl.SLid
+        AND sl.status = 'official'
+        AND sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''
       LEFT JOIN device_role ON devices.DeRoleid = device_role.DeRoleid
-      LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
       LEFT JOIN sites ON sl.Sid = sites.Sid
       LEFT JOIN location L ON sl.lid = L.lid
       WHERE 1=1 

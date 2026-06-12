@@ -203,8 +203,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
     );
   };
 
-  const inputBase = 'w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm';
-  const labelBase = 'block text-xs font-bold text-slate-700 mb-2 uppercase';
+  const inputBase = 'w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm';
+  const labelBase = 'block text-xs font-bold text-muted-foreground mb-2 uppercase';
 
   const activeEntry = siteEntries.find((e) => e.id === activeSiteEntryId);
   const activeEntryDevices = activeEntry?.devices ?? [];
@@ -296,11 +296,11 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white w-full max-w-xl max-h-[90vh] rounded-[2.5rem] p-8 relative shadow-2xl flex flex-col overflow-hidden">
+      <div className="bg-card w-full max-w-xl max-h-[90vh] rounded-[2.5rem] p-8 relative shadow-2xl flex flex-col overflow-hidden">
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-xl font-extrabold text-slate-800">Add Contract</h2>
-          <button onClick={onClose} className="p-2 bg-slate-100 rounded-full hover:bg-slate-200 transition-colors">
-            <X size={20} className="text-slate-600" />
+          <h2 className="text-xl font-extrabold text-foreground">Add Contract</h2>
+          <button onClick={onClose} className="p-2 bg-muted rounded-full hover:bg-muted transition-colors">
+            <X size={20} className="text-muted-foreground" />
           </button>
         </div>
 
@@ -355,7 +355,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                   </option>
                 ))}
               </select>
-              {referSOFLoading && <p className="text-sm text-slate-500 py-2">กำลังโหลด...</p>}
+              {referSOFLoading && <p className="text-sm text-muted-foreground py-2">กำลังโหลด...</p>}
             </div>
 
             <div>
@@ -397,7 +397,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                   type="date"
                   value={endDate}
                   readOnly
-                  className="w-full p-3 rounded-xl bg-slate-100 border border-slate-200 cursor-not-allowed text-sm"
+                  className="w-full p-3 rounded-xl bg-muted border border-border cursor-not-allowed text-sm"
                 />
               </div>
             </div>
@@ -416,16 +416,16 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                   เพิ่ม Site
                 </button>
               </div>
-              {dataLoading && <p className="text-sm text-slate-500 py-2">กำลังโหลดรายการ Site...</p>}
+              {dataLoading && <p className="text-sm text-muted-foreground py-2">กำลังโหลดรายการ Site...</p>}
               <div className="space-y-3">
                 {siteEntries.map((entry) => (
                   <div
                     key={entry.id}
-                    className="flex flex-col gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200"
+                    className="flex flex-col gap-2 p-3 bg-muted rounded-xl border border-border"
                   >
                     <div className="flex flex-wrap items-end gap-2">
                       <div className="flex-1 min-w-[180px]">
-                        <label className="text-[10px] font-semibold uppercase text-slate-500 mb-1 block">Site</label>
+                        <label className="text-[10px] font-semibold uppercase text-muted-foreground mb-1 block">Site</label>
                         <select
                           value={entry.siteId}
                           onChange={(e) => updateSiteEntry(entry.id, e.target.value)}
@@ -491,7 +491,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                               <button
                                 type="button"
                                 onClick={() => toggleSelectedDevicesExpanded(entry.id)}
-                                className="rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                                className="rounded-full border border-blue-200 bg-card px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
                               >
                                 +{moreCount} more
                               </button>
@@ -531,11 +531,11 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
 
  
         
-          <div className="flex  mt-8 pt-4 border-t border-slate-200">
+          <div className="flex  mt-8 pt-4 border-t border-border">
           <div className="flex ">
             <div className="flex items-center gap-2 flex-wrap">
-              <label className="flex items-center gap-2 px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-200 text-sm">
-                <Paperclip size={18} className="text-slate-600" />
+              <label className="flex items-center gap-2 px-3 py-2 bg-muted border border-border rounded-xl cursor-pointer hover:bg-muted text-sm">
+                <Paperclip size={18} className="text-muted-foreground" />
 
                 <input
                   type="file"
@@ -547,16 +547,16 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                   onChange={(e) => handleFileSelect(e, 'file')}
                 />
               </label>
-              {uploading && <span className="text-xs text-slate-500">กำลังอัปโหลด...</span>}
+              {uploading && <span className="text-xs text-muted-foreground">กำลังอัปโหลด...</span>}
             </div>
             {filePaths.length > 0 && (
               <ul className="mt-2 space-y-1">
                 {filePaths.map((p, i) => (
-                  <li key={p} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
+                  <li key={p} className="flex items-center justify-between text-sm bg-muted rounded-lg px-3 py-2">
                     <a href={apiUrl(p)} target="_blank" rel="noreferrer" className="text-blue-600 truncate max-w-[200px]">
                       {p.split('/').pop()}
                     </a>
-                    <button type="button" onClick={() => setFilePaths((prev) => prev.filter((_, j) => j !== i))} className="p-1 text-slate-400 hover:text-red-600" title="ลบ">
+                    <button type="button" onClick={() => setFilePaths((prev) => prev.filter((_, j) => j !== i))} className="p-1 text-muted-foreground hover:text-red-600" title="ลบ">
                       <X size={14} />
                     </button>
                   </li>
@@ -567,8 +567,8 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
 
     
             <div className="flex items-center gap-2 flex-wrap px-2">
-              <label className="flex items-center gap-2 px-3 py-2 bg-slate-100 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-200 text-sm">
-                <ImageIcon size={18} className="text-slate-600" />
+              <label className="flex items-center gap-2 px-3 py-2 bg-muted border border-border rounded-xl cursor-pointer hover:bg-muted text-sm">
+                <ImageIcon size={18} className="text-muted-foreground" />
 
                 <input
                   type="file"
@@ -584,12 +584,12 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
             {imagePaths.length > 0 && (
               <ul className="mt-2 space-y-1">
                 {imagePaths.map((p, i) => (
-                  <li key={p} className="flex items-center gap-2 text-sm bg-slate-50 rounded-lg px-3 py-2">
+                  <li key={p} className="flex items-center gap-2 text-sm bg-muted rounded-lg px-3 py-2">
                     <img src={apiUrl(p)} alt="" className="w-10 h-10 object-cover rounded" />
                     <a href={apiUrl(p)} target="_blank" rel="noreferrer" className="text-blue-600 truncate flex-1 min-w-0">
                       {p.split('/').pop()}
                     </a>
-                    <button type="button" onClick={() => setImagePaths((prev) => prev.filter((_, j) => j !== i))} className="p-1 text-slate-400 hover:text-red-600 shrink-0" title="ลบ">
+                    <button type="button" onClick={() => setImagePaths((prev) => prev.filter((_, j) => j !== i))} className="p-1 text-muted-foreground hover:text-red-600 shrink-0" title="ลบ">
                       <X size={14} />
                     </button>
                   </li>

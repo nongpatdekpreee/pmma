@@ -151,21 +151,21 @@ export function DeviceSelectModal({
 
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200/60 bg-white/95 shadow-2xl shadow-slate-900/20 ring-1 ring-white/60 backdrop-blur-md">
-        <div className="flex items-center justify-between border-b border-slate-200/70 bg-gradient-to-r from-white via-sky-50/30 to-indigo-50/25 px-6 py-4">
-          <h3 className="flex items-center gap-2 text-lg font-bold tracking-tight text-slate-800">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card/95 shadow-2xl shadow-slate-900/20 ring-1 ring-white/60 backdrop-blur-md">
+        <div className="flex items-center justify-between border-b border-border/70 bg-gradient-to-r from-white via-sky-50/30 to-indigo-50/25 px-6 py-4">
+          <h3 className="flex items-center gap-2 text-lg font-bold tracking-tight text-foreground">
             <span className="text-xl">📱</span>
             <span>{title}</span>
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-slate-200/80 bg-white/80 p-2 text-slate-600 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+            className="rounded-xl border border-border bg-card/80 p-2 text-muted-foreground shadow-sm transition-all hover:border-border hover:bg-muted hover:text-foreground"
           >
             <X size={18} />
           </button>
         </div>
-        <div className="flex items-center justify-between border-b border-slate-200/70 px-6 py-3 bg-gradient-to-r from-sky-50/50 via-white to-indigo-50/40">
+        <div className="flex items-center justify-between border-b border-border/70 px-6 py-3 bg-gradient-to-r from-sky-50/50 via-white to-indigo-50/40">
           <div className="flex items-center gap-2">
             {(() => {
               const allSelected = filteredDevices.length > 0 && filteredDevices.every((d) => selectedIds.includes(d.id));
@@ -189,7 +189,7 @@ export function DeviceSelectModal({
                       ? 'bg-gradient-to-r from-sky-600 to-cyan-700 text-white shadow-md shadow-sky-900/20 hover:from-sky-700 hover:to-cyan-800 hover:shadow-md'
                       : bluePartial
                         ? 'bg-gradient-to-r from-sky-500 to-cyan-600 text-white shadow-md shadow-sky-900/15 hover:from-sky-600 hover:to-cyan-700 hover:shadow-md'
-                        : 'border border-slate-200/80 bg-white/80 text-slate-700 hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50'
+                        : 'border border-border bg-card/80 text-muted-foreground hover:border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
                   }`}
                 >
                   <span>{allSelected ? '✓' : '✅'}</span>
@@ -200,7 +200,7 @@ export function DeviceSelectModal({
             <button
               type="button"
               onClick={onClearAll}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200/80 bg-white/80 px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50"
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card/80 px-4 py-2 text-xs font-semibold text-muted-foreground shadow-sm transition-all hover:border-border hover:bg-muted"
             >
               <span>🗑️</span>
               <span>Clear All</span>
@@ -210,22 +210,22 @@ export function DeviceSelectModal({
             // Count only selected items that are in filteredDevices
             const selectedFilteredCount = filteredDevices.filter((d) => selectedIds.includes(d.id)).length;
             return (
-              <span className="flex items-center justify-center gap-1.5 rounded-full border border-slate-200/60 bg-white/90 px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm ring-1 ring-slate-200/50">
+              <span className="flex items-center justify-center gap-1.5 rounded-full border border-border bg-card/90 px-4 py-2 text-xs font-semibold text-muted-foreground shadow-sm ring-1 ring-border">
                 <span className="text-sky-600">📋</span>
                 <span>{selectedFilteredCount} / {filteredDevices.length} items</span>
               </span>
             );
           })()}
         </div>
-        <div className="space-y-3 border-b border-slate-200/70 bg-slate-50/40 px-6 py-3">
+        <div className="space-y-3 border-b border-border/70 bg-muted/40 px-6 py-3">
           <div className="relative">
-            <Search size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               value={filter}
               onChange={(e) => onFilterChange(e.target.value)}
               placeholder="Search Device..."
-              className="w-full rounded-xl border border-slate-200/90 bg-white pl-10 pr-3 py-2 text-sm text-slate-800 shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-slate-400 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15"
+              className="w-full rounded-xl border border-border/90 bg-card pl-10 pr-3 py-2 text-sm text-foreground shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-muted-foreground focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15"
             />
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -234,10 +234,10 @@ export function DeviceSelectModal({
               <select
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value)}
-                className={`w-full rounded-xl border bg-white pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm ${
+                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm ${
                   selectedRole
                     ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80'
-                    : 'border-slate-200/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
+                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
                 }`}
               >
                 <option value="">All Role</option>
@@ -253,10 +253,10 @@ export function DeviceSelectModal({
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
-                className={`w-full rounded-xl border bg-white pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm ${
+                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm ${
                   selectedModel
                     ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80'
-                    : 'border-slate-200/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
+                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
                 }`}
               >
                 <option value="">All Model</option>
@@ -273,10 +273,10 @@ export function DeviceSelectModal({
                 value={selectedManufacturer}
                 onChange={(e) => setSelectedManufacturer(e.target.value)}
                 disabled={loadingManufacturers}
-                className={`w-full rounded-xl border bg-white pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${
                   selectedManufacturer
                     ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80'
-                    : 'border-slate-200/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
+                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
                 }`}
               >
                 <option value="">All Manufacturer</option>
@@ -295,7 +295,7 @@ export function DeviceSelectModal({
         </div>
         <div className="flex-1 space-y-2 overflow-y-auto bg-gradient-to-b from-white to-slate-50/30 px-6 py-4">
           {filteredDevices.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-400">
+            <p className="py-8 text-center text-sm text-muted-foreground">
               {filter ? 'No devices found matching the search' : 'No devices'}
             </p>
           ) : (
@@ -307,11 +307,11 @@ export function DeviceSelectModal({
                   className={`flex cursor-pointer items-center justify-between rounded-xl border p-4 shadow-sm transition-all ${
                     isSelected
                       ? 'border-sky-400 bg-sky-50/40 shadow-md ring-2 ring-sky-200/70'
-                      : 'border-slate-200/80 bg-white/90 hover:border-sky-300 hover:bg-sky-50/25 hover:shadow-md'
+                      : 'border-border bg-card/90 hover:border-sky-300 hover:bg-sky-50/25 hover:shadow-md'
                   }`}
                 >
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-slate-800">{d.name}</p>
+                    <p className="text-sm font-semibold text-foreground">{d.name}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       {/* Model/Serial badge */}
                       {d.serialNumber && 
@@ -335,7 +335,7 @@ export function DeviceSelectModal({
                       {d.role && (() => {
                         const roleLower = d.role.toLowerCase();
                         let emoji = '⚙️'; // default
-                        let className = 'bg-slate-50 text-slate-700 ring-slate-600/20';
+                        let className = 'bg-muted text-muted-foreground ring-slate-600/20';
                         
                         if (roleLower.includes('router')) {
                           emoji = '🌐';
@@ -408,11 +408,11 @@ export function DeviceSelectModal({
             })
           )}
         </div>
-        <div className="flex items-center justify-end gap-3 border-t border-slate-200/70 bg-gradient-to-r from-slate-50/80 via-white to-sky-50/30 px-6 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-border/70 bg-gradient-to-r from-slate-50/80 via-white to-sky-50/30 px-6 py-4">
           <button
             type="button"
             onClick={onClose}
-            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white px-6 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-all hover:bg-slate-50"
+            className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-2.5 text-sm font-medium text-muted-foreground shadow-sm transition-all hover:bg-muted"
           >
             <span>❌</span>
             <span>Close</span>

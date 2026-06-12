@@ -42,14 +42,14 @@ function noSofWhere(slAlias = 'sl_sof', deviceAlias = 'd') {
   )`;
 }
 
-/** SOF ที่มี device ยังไม่อยู่ใน contract_device */
+/** SOF ที่มี device ยังไม่ official บน sites_location */
 const PENDING_REFER_SOF_SQL = `
   SELECT DISTINCT sl.SOF AS refer_sof
   FROM devices d
   INNER JOIN sites_location sl ON d.SLid = sl.SLid
   WHERE ${sofIsValidWhere('sl')}
     AND d.SLid IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM contract_device cd WHERE cd.device_id = d.Did)
+    AND (sl.status IS NULL OR sl.status = 'draft' OR sl.start_date IS NULL)
   ORDER BY sl.SOF ASC
 `;
 
@@ -59,22 +59,18 @@ const DEVICES_FOR_REFER_SOF_SQL = `
   INNER JOIN sites_location sl ON d.SLid = sl.SLid
   WHERE ${sofMatchWhere('sl')}
     AND d.SLid IS NOT NULL
-    AND NOT EXISTS (SELECT 1 FROM contract_device cd WHERE cd.device_id = d.Did)
   ORDER BY d.SLid, d.Did
 `;
 
-/** dropdown Add Contract: SOF ที่ยังไม่มี device ใดใน contract_device สำหรับ SOF นั้น */
+/** dropdown Add Contract: SOF ที่ยังไม่มี sites_location official สำหรับ SOF นั้น */
 const REFER_SOF_DROPDOWN_SQL = `
   SELECT DISTINCT sl.SOF AS refer_sof
   FROM devices d
   INNER JOIN sites_location sl ON d.SLid = sl.SLid
   WHERE ${sofIsValidWhere('sl')}
     AND NOT EXISTS (
-      SELECT 1
-      FROM contract_device cd
-      INNER JOIN devices d2 ON d2.Did = cd.device_id
-      INNER JOIN sites_location sl2 ON d2.SLid = sl2.SLid
-      WHERE sl2.SOF = sl.SOF
+      SELECT 1 FROM sites_location sl2
+      WHERE sl2.SOF = sl.SOF AND sl2.status = 'official'
     )
   ORDER BY sl.SOF ASC
 `;

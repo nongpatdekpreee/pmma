@@ -101,11 +101,11 @@ export function ContractTable({ rows }: ContractTableProps) {
 // console.log("totalPages:", totalPages);
 
   return (
-    <div className="rounded-2xl bg-white p-6 shadow-md">
+    <div className="rounded-2xl bg-card p-6 shadow-md border border-border">
       {/* header */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-gray-900">
+          <h2 className="text-base font-semibold text-foreground">
             All Contract
           </h2>
           <button className="mt-1 text-xs font-medium text-indigo-500">
@@ -115,25 +115,25 @@ export function ContractTable({ rows }: ContractTableProps) {
 
         <div className="flex flex-wrap items-center gap-3">
           {/* search */}
-          <div className="flex h-9 items-center rounded-full bg-[#F5F7FB] px-3 text-xs text-gray-500">
-            <Search size={14} className="mr-1 text-gray-400 flex-shrink-0" />
+          <div className="flex h-9 items-center rounded-full bg-muted px-3 text-xs text-muted-foreground">
+            <Search size={14} className="mr-1 text-muted-foreground flex-shrink-0" />
             <input
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
               placeholder="Search"
-              className="w-32 bg-transparent text-xs text-gray-700 outline-none placeholder:text-gray-400 md:w-40"
+              className="w-32 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground md:w-40"
             />
           </div>
 
           {/* sort */}
-          <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 shadow-sm">
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground shadow-sm">
             <span>Sort by :</span>
             <select
               value={sortOrder}
               onChange={(e) =>
                 setSortOrder(e.target.value as "newest" | "oldest")
               }
-              className="bg-transparent text-xs text-gray-700 outline-none"
+              className="bg-transparent text-xs text-foreground outline-none"
             >
               <option value="newest">Newest</option>
               <option value="oldest">Oldest</option>
@@ -143,9 +143,9 @@ export function ContractTable({ rows }: ContractTableProps) {
       </div>
 
       {/* table */}
-      <div className="overflow-x-auto border border-gray-100">
+      <div className="overflow-x-auto border border-border">
         <table className="min-w-full text-xs">
-          <thead className="bg-gray-50 text-[11px] font-medium uppercase tracking-wide text-gray-400">
+          <thead className="bg-muted text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-6 py-3 text-left">Asset Name</th>
               <th className="px-6 py-3 text-left">Site</th>
@@ -156,11 +156,11 @@ export function ContractTable({ rows }: ContractTableProps) {
             </tr>
           </thead>
 
-          <tbody className="bg-white text-[13px]">
+          <tbody className="bg-card text-[13px]">
             {paginatedRows.map((row, index) => (
               <tr
                 key={`${row.assetName}-${index}`}
-                className={index % 2 === 0 ? "bg-white" : "bg-[#F9FBFF]"}
+                className={index % 2 === 0 ? "bg-card" : "bg-muted/40"}
               >
                 <td className="px-6 py-3">{row.assetName}</td>
                 <td className="px-6 py-3">{row.site}</td>
@@ -181,7 +181,7 @@ export function ContractTable({ rows }: ContractTableProps) {
       </div>
 
       {/* pagination */}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-[11px] text-gray-400">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-[11px] text-muted-foreground">
         <span>
           Showing data {startIndex + 1} to{" "}
           {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} of {totalItems} contract
@@ -195,7 +195,7 @@ export function ContractTable({ rows }: ContractTableProps) {
               className={`flex h-7 w-7 items-center justify-center rounded-lg text-xs transition ${
                 page === currentPage
                   ? "bg-indigo-500 text-white"
-                  : "bg-white text-gray-500 shadow-sm hover:bg-gray-100"
+                  : "bg-card text-muted-foreground shadow-sm hover:bg-muted"
               }`}
             >
               {page}

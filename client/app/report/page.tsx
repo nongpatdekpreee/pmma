@@ -251,7 +251,7 @@ function formatLocationLabelEn(s: string): string {
 const VENDOR_COLORS = ['#60a5fa', '#f87171', '#fbbf24', '#34d399', '#a78bfa', '#f472b6', '#2dd4bf', '#fb923c', '#38bdf8', '#a3e635'];
 
 function RankBadge({ rank }: { rank: number }) {
-  const colors = rank === 1 ? 'bg-red-100 text-red-600 border-red-200' : rank === 2 ? 'bg-orange-100 text-orange-600 border-orange-200' : rank === 3 ? 'bg-amber-100 text-amber-600 border-amber-200' : 'bg-slate-100 text-slate-500 border-slate-200';
+  const colors = rank === 1 ? 'bg-red-100 text-red-600 border-red-200' : rank === 2 ? 'bg-orange-100 text-orange-600 border-orange-200' : rank === 3 ? 'bg-amber-100 text-amber-600 border-amber-200' : 'bg-muted text-muted-foreground border-border';
   return (
     <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold border ${colors}`}>
       {rank}
@@ -262,7 +262,7 @@ function RankBadge({ rank }: { rank: number }) {
 function ProgressBar({ value, max, color = 'bg-slate-300' }: { value: number; max: number; color?: string }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
-    <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
       <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -1272,15 +1272,16 @@ export default function ReportPage() {
     <SidebarLayout>
       <DashboardHeader />
 
-      <div className="flex flex-col p-6 pt-0 gap-6 bg-slate-50 min-h-screen">
+      <main className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-4 pb-6 sm:px-6 lg:px-8 xl:px-10 2xl:px-12">
+        <div className="flex flex-col gap-6">
         {/* Header */}
         <div className="flex flex-col gap-4">
           <div className="flex flex-nowrap items-center justify-between gap-4 min-w-0 overflow-x-auto pb-1">
             <div className="min-w-0 shrink-0">
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-black via-gray-800 to-black text-transparent bg-clip-text truncate">
+              <h1 className="page-heading truncate">
                 Report Dashboard
               </h1>
-              <p className="text-sm text-slate-400 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 {reportType === 'ma' ? 'MA: Most repaired equipment, Top MA vendors' : 'PM: Preventive maintenance overview, Top PM vendors'}
               </p>
             </div>
@@ -1291,23 +1292,23 @@ export default function ReportPage() {
                 <button
                   type="button"
                   onClick={() => setPeriodDropdownOpen((v) => !v)}
-                  className="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="flex items-center gap-2 bg-card px-4 py-2 rounded-xl border-0 shadow-sm text-sm font-medium text-muted-foreground hover:bg-muted"
                   aria-haspopup="listbox"
                   aria-expanded={periodDropdownOpen}
                 >
-                  <Calendar size={16} className="text-slate-400" />
-                  <span className="text-slate-500">Period</span>
-                  <span className="font-semibold text-slate-800">{periodLabel}</span>
-                  <ChevronDown size={16} className="text-slate-400" />
+                  <Calendar size={16} className="text-muted-foreground" />
+                  <span className="text-muted-foreground">Period</span>
+                  <span className="font-semibold text-foreground">{periodLabel}</span>
+                  <ChevronDown size={16} className="text-muted-foreground" />
                 </button>
 
                 {periodDropdownOpen && periodMenuPos && createPortal(
                   <div
                     ref={periodMenuRef}
-                    className="fixed w-max max-w-[calc(100vw-24px)] rounded-xl bg-white shadow-lg border border-slate-100 p-1.5 z-[9999]"
+                    className="fixed w-max max-w-[calc(100vw-24px)] rounded-xl bg-card shadow-lg border border-border p-1.5 z-[9999]"
                     style={{ top: periodMenuPos.top, right: periodMenuPos.right }}
                   >
-                    <div className="px-2 py-0.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                    <div className="px-2 py-0.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wide">
                       Period
                     </div>
                     <div className="grid grid-cols-2 items-start gap-x-2 px-1">
@@ -1323,15 +1324,15 @@ export default function ReportPage() {
                               setSelectedEndMonth('all');
                               setPeriodDropdownOpen(false);
                             }}
-                            className={`text-left px-2 py-1 rounded-md text-xs hover:bg-slate-50 ${
-                              !selectedYear && timeFilter === label ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'
+                            className={`text-left px-2 py-1 rounded-md text-xs hover:bg-muted ${
+                              !selectedYear && timeFilter === label ? 'bg-muted font-semibold text-foreground' : 'text-muted-foreground'
                             }`}
                           >
                             {label}
                           </button>
                         ))}
                       </div>
-                      <div className="flex min-w-0 flex-col gap-0.5 border-l border-slate-100 pl-2">
+                      <div className="flex min-w-0 flex-col gap-0.5 border-l border-border pl-2">
                         {['1 Year', '2 Years', '3 Years', '4 Years', '5 Years'].map((label) => (
                           <button
                             key={label}
@@ -1343,8 +1344,8 @@ export default function ReportPage() {
                               setSelectedEndMonth('all');
                               setPeriodDropdownOpen(false);
                             }}
-                            className={`text-left px-2 py-1 rounded-md text-xs hover:bg-slate-50 ${
-                              !selectedYear && timeFilter === label ? 'bg-slate-50 font-semibold text-slate-800' : 'text-slate-700'
+                            className={`text-left px-2 py-1 rounded-md text-xs hover:bg-muted ${
+                              !selectedYear && timeFilter === label ? 'bg-muted font-semibold text-foreground' : 'text-muted-foreground'
                             }`}
                           >
                             {label}
@@ -1353,15 +1354,15 @@ export default function ReportPage() {
                       </div>
                     </div>
 
-                    <div className="my-0.5 h-px bg-slate-100" />
+                    <div className="my-0.5 h-px bg-muted" />
                     <div className="px-2 pb-1.5 pt-0">
-                    <div className="pb-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    <div className="pb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                       Custom
                     </div>
                     <div className="space-y-1">
                       <div className="flex flex-nowrap items-end gap-1.5">
                         <div className="shrink-0">
-                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-muted-foreground">
                             Year
                           </label>
                           <select
@@ -1375,7 +1376,7 @@ export default function ReportPage() {
                                 setSelectedEndMonth('all');
                               }
                             }}
-                            className="w-[5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] tabular-nums leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400"
+                            className="w-[5rem] shrink-0 rounded-md border border-border bg-card px-1 py-1 text-[11px] tabular-nums leading-tight text-muted-foreground outline-none focus:ring-1 focus:ring-blue-400"
                           >
                             {yearOptions.map((o) => (
                               <option key={o.value || 'x'} value={o.value}>
@@ -1385,7 +1386,7 @@ export default function ReportPage() {
                           </select>
                         </div>
                         <div className="shrink-0">
-                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-muted-foreground">
                             Start Month
                           </label>
                           <select
@@ -1411,7 +1412,7 @@ export default function ReportPage() {
                               }
                             }}
                             disabled={!selectedYear}
-                            className="w-[4.5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                            className="w-[4.5rem] shrink-0 rounded-md border border-border bg-card px-1 py-1 text-[11px] leading-tight text-muted-foreground outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
                           >
                             <option value="all">All</option>
                             {MONTH_LABELS.map((label, i) => (
@@ -1422,7 +1423,7 @@ export default function ReportPage() {
                           </select>
                         </div>
                         <div className="shrink-0">
-                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-slate-500">
+                          <label className="mb-1.5 block text-[10px] font-semibold leading-tight text-muted-foreground">
                             End Month
                           </label>
                           <select
@@ -1436,7 +1437,7 @@ export default function ReportPage() {
                             }
                             onChange={(e) => setSelectedEndMonth(e.target.value)}
                             disabled={!selectedYear || selectedMonth === 'all'}
-                            className="w-[4.5rem] shrink-0 rounded-md border border-slate-200 bg-white px-1 py-1 text-[11px] leading-tight text-slate-700 outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
+                            className="w-[4.5rem] shrink-0 rounded-md border border-border bg-card px-1 py-1 text-[11px] leading-tight text-muted-foreground outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-60"
                           >
                             {selectedMonth === 'all' && (
                               <option value="all">—</option>
@@ -1463,7 +1464,7 @@ export default function ReportPage() {
                             setSelectedMonth('all');
                             setSelectedEndMonth('all');
                           }}
-                          className="px-2 py-1 rounded-lg text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                          className="px-2 py-1 rounded-lg text-[11px] font-semibold text-muted-foreground hover:bg-muted"
                         >
                           Clear
                         </button>
@@ -1482,7 +1483,7 @@ export default function ReportPage() {
                 )}
               </div>
               {rangeLabel && (
-                <div className="bg-white px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-slate-600">
+                <div className="bg-card px-4 py-2 rounded-xl border-0 shadow-sm text-sm text-muted-foreground">
                   {rangeLabel}
                 </div>
               )}
@@ -1500,11 +1501,11 @@ export default function ReportPage() {
         {isMa && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-blue-50/70 border border-blue-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2 text-sm">
+            <h3 className="font-bold text-muted-foreground mb-4 flex items-center gap-2 text-sm">
               <TrendingUp size={16} className="text-blue-500" />
               Overview
             </h3>
-            <ul className="space-y-2.5 text-sm text-slate-600">
+            <ul className="space-y-2.5 text-sm text-muted-foreground">
               <li className="flex items-start gap-2">
                 <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" />
                 <span>
@@ -1527,45 +1528,45 @@ export default function ReportPage() {
           </div>
 
           <div className="bg-amber-50/70 border border-amber-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-slate-700 mb-1 flex items-center gap-2 text-sm">
+            <h3 className="font-bold text-muted-foreground mb-1 flex items-center gap-2 text-sm">
               <AlertTriangle size={16} className="text-amber-500" />
               Watch List
             </h3>
             <p className="text-xs text-amber-800/80 mb-3">
               Models with the highest MA repair frequency (aggregated by model, all sites).
             </p>
-            <ul className="space-y-2.5 text-sm text-slate-600">
+            <ul className="space-y-2.5 text-sm text-muted-foreground">
               {maWatchListByModel.map((row) => (
                 <li key={row.model} className="flex items-start gap-2">
                   <ChevronRight size={14} className="text-amber-500 mt-0.5 shrink-0" />
                   <span>
                     <strong className="text-amber-700">{row.model}</strong>
-                    <span className="text-slate-600"> — {row.total} MA times</span>
+                    <span className="text-muted-foreground"> — {row.total} MA times</span>
                     {(row.inprocess > 0 || row.pending > 0) && (
                       <span className="text-orange-500"> (Inprocess {row.inprocess}, Pending {row.pending})</span>
                     )}
                   </span>
                 </li>
               ))}
-              {maWatchListByModel.length === 0 && <li className="text-slate-400">No data available</li>}
+              {maWatchListByModel.length === 0 && <li className="text-muted-foreground">No data available</li>}
             </ul>
           </div>
         </div>
         )}
 
           {/* MA / PM Tab */}
-          <div className="flex gap-1 p-1.5 bg-white rounded-2xl border border-slate-200 shadow-sm w-fit">
+          <div className="flex gap-1 p-1.5 bg-card rounded-2xl border border-border shadow-sm w-fit">
             <button
               type="button"
               onClick={() => setReportType('ma')}
-              className={`px-6 py-2.5 rounded-xl font-bold transition-all text-sm ${reportType === 'ma' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}
+              className={`px-6 py-2.5 rounded-xl font-bold transition-all text-sm ${reportType === 'ma' ? 'bg-emerald-500 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
             >
               MA Report
             </button>
             <button
               type="button"
               onClick={() => setReportType('pm')}
-              className={`px-6 py-2.5 rounded-xl font-bold transition-all text-sm ${reportType === 'pm' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}
+              className={`px-6 py-2.5 rounded-xl font-bold transition-all text-sm ${reportType === 'pm' ? 'bg-blue-500 text-white shadow-sm' : 'text-muted-foreground hover:bg-muted'}`}
             >
               PM Report
             </button>
@@ -1573,7 +1574,7 @@ export default function ReportPage() {
         </div>
 
         {(loading || error) && (
-          <div className="rounded-[2rem] border border-slate-200 bg-white px-6 py-4 text-sm text-slate-500 shadow-sm">
+          <div className="rounded-[2rem] border border-border bg-card px-6 py-4 text-sm text-muted-foreground shadow-sm">
             {loading ? 'Loading data...' : error}
           </div>
         )}
@@ -1585,7 +1586,7 @@ export default function ReportPage() {
               type="button"
               onClick={() => scrollSummaryCarousel(0)}
               disabled={summaryAtScrollStart}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-700 shadow-md shadow-blue-900/10 ring-2 ring-blue-200/70 transition-all hover:bg-blue-100 hover:border-blue-600 hover:text-blue-900 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-sm disabled:ring-0 disabled:opacity-50"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-700 shadow-md shadow-blue-900/10 ring-2 ring-blue-200/70 transition-all hover:bg-blue-100 hover:border-blue-600 hover:text-blue-900 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:shadow-sm disabled:ring-0 disabled:opacity-50"
               title="Scroll left — drag the row to scroll"
               aria-label="Scroll summary cards left"
             >
@@ -1710,7 +1711,7 @@ export default function ReportPage() {
               type="button"
               onClick={() => scrollSummaryCarousel(1)}
               disabled={summaryAtScrollEnd}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-700 shadow-md shadow-blue-900/10 ring-2 ring-blue-200/70 transition-all hover:bg-blue-100 hover:border-blue-600 hover:text-blue-900 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-sm disabled:ring-0 disabled:opacity-50"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-blue-500 bg-blue-50 text-blue-700 shadow-md shadow-blue-900/10 ring-2 ring-blue-200/70 transition-all hover:bg-blue-100 hover:border-blue-600 hover:text-blue-900 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:shadow-sm disabled:ring-0 disabled:opacity-50"
               title="Scroll right — drag the row to scroll"
               aria-label="Scroll summary cards right"
             >
@@ -1758,22 +1759,22 @@ export default function ReportPage() {
 
         {/* Row 2: Monthly Trend + Pie (~70% / ~30% on large screens) */}
         <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-6">
-          <div className="min-w-0 overflow-hidden bg-white p-6 rounded-[2rem] shadow-sm">
+          <div className="min-w-0 overflow-hidden bg-card p-6 rounded-[2rem] shadow-sm">
             <div className="flex items-center justify-between mb-3 min-w-0">
               <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                <h3 className="font-bold text-slate-600 text-lg flex items-center gap-2 shrink-0">
-                  <BarChart3 size={18} className="text-slate-400" />
+                <h3 className="font-bold text-muted-foreground text-lg flex items-center gap-2 shrink-0">
+                  <BarChart3 size={18} className="text-muted-foreground" />
                   Monthly {taskLabel} Trend
                 </h3>
                 {(!isMa || (isMa && maTrendView === 'summary')) && (
-                  <div className="flex items-center gap-0.5 rounded-full bg-slate-100 p-1 text-[11px] font-semibold text-slate-600 shrink-0">
+                  <div className="flex items-center gap-0.5 rounded-full bg-muted p-1 text-[11px] font-semibold text-muted-foreground shrink-0">
                     <button
                       type="button"
                       onClick={() => setMonthlyTrendChartKind('line')}
                       className={`rounded-full px-2.5 py-1 transition-all ${
                         monthlyTrendChartKind === 'line'
-                          ? 'bg-white text-slate-800 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
+                          ? 'bg-card text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-muted-foreground'
                       }`}
                     >
                       Line
@@ -1783,8 +1784,8 @@ export default function ReportPage() {
                       onClick={() => setMonthlyTrendChartKind('bar')}
                       className={`rounded-full px-2.5 py-1 transition-all ${
                         monthlyTrendChartKind === 'bar'
-                          ? 'bg-white text-slate-800 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700'
+                          ? 'bg-card text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-muted-foreground'
                       }`}
                     >
                       Bar
@@ -1792,12 +1793,12 @@ export default function ReportPage() {
                   </div>
                 )}
                 {isMa && (topModelTrendData || topModelTrendByRoleData) && (
-                  <div className="flex items-center gap-1 bg-slate-100 rounded-full p-1 text-[11px] text-slate-600">
+                  <div className="flex items-center gap-1 bg-muted rounded-full p-1 text-[11px] text-muted-foreground">
                     <button
                       type="button"
                       onClick={() => setMaTrendView('summary')}
                       className={`px-3 py-1 rounded-full font-semibold transition-all ${
-                        maTrendView === 'summary' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-500'
+                        maTrendView === 'summary' ? 'bg-card shadow-sm text-muted-foreground' : 'text-muted-foreground'
                       }`}
                     >
                       Summary
@@ -1806,7 +1807,7 @@ export default function ReportPage() {
                       type="button"
                       onClick={() => setMaTrendView('top-model')}
                       className={`px-3 py-1 rounded-full font-semibold transition-all ${
-                        maTrendView === 'top-model' ? 'bg-white shadow-sm text-slate-700' : 'text-slate-500'
+                        maTrendView === 'top-model' ? 'bg-card shadow-sm text-muted-foreground' : 'text-muted-foreground'
                       }`}
                     >
                       Top model trend
@@ -1814,7 +1815,7 @@ export default function ReportPage() {
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500 min-w-0">
+              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground min-w-0">
                 {isMa ? (
                   maTrendView === 'summary' ? (
                     <>
@@ -1881,9 +1882,9 @@ export default function ReportPage() {
                 <div className="flex items-center gap-3 flex-wrap min-w-0">
                   {/* Cascaded Site filter: select Sid then lid */}
                   <div className="flex items-center gap-2 min-w-0 shrink-0">
-                    <label className="text-slate-500 shrink-0">Site:</label>
+                    <label className="text-muted-foreground shrink-0">Site:</label>
                     <select
-                      className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[160px]"
+                      className="border border-border rounded-full px-2 py-1 text-xs text-muted-foreground bg-card focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[160px]"
                       value={maTrendSidFilter}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -1901,7 +1902,7 @@ export default function ReportPage() {
                       ))}
                     </select>
                     <select
-                      className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[140px]"
+                      className="border border-border rounded-full px-2 py-1 text-xs text-muted-foreground bg-card focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[140px]"
                       value={maTrendLidFilter}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -1928,9 +1929,9 @@ export default function ReportPage() {
                     </select>
 
                     <div className="flex items-center gap-2 min-w-0 shrink-0">
-                    <label className="text-slate-500 shrink-0">Role:</label>
+                    <label className="text-muted-foreground shrink-0">Role:</label>
                     <select
-                      className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[120px]"
+                      className="border border-border rounded-full px-2 py-1 text-xs text-muted-foreground bg-card focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[120px]"
                       value={maTrendRoleFilterId != null ? String(maTrendRoleFilterId) : ''}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -1948,9 +1949,9 @@ export default function ReportPage() {
 
                   {/* Model filter (before Site) */}
                   <div className="flex items-center gap-2 min-w-0 shrink-0">
-                    <label className="text-slate-500 shrink-0">Model:</label>
+                    <label className="text-muted-foreground shrink-0">Model:</label>
                     <select
-                      className="border border-slate-200 rounded-full px-2 py-1 text-xs text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[160px]"
+                      className="border border-border rounded-full px-2 py-1 text-xs text-muted-foreground bg-card focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-inset min-w-0 max-w-[160px]"
                       value={maTrendModelFilter ?? ''}
                       onChange={(e) => {
                         const v = e.target.value || null;
@@ -2080,9 +2081,9 @@ export default function ReportPage() {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm min-w-0">
-            <h3 className="font-bold text-slate-600 text-lg mb-4 flex items-center gap-2">
-              <Shield size={18} className="text-slate-400" />
+          <div className="bg-card p-6 rounded-[2rem] shadow-sm min-w-0">
+            <h3 className="font-bold text-muted-foreground text-lg mb-4 flex items-center gap-2">
+              <Shield size={18} className="text-muted-foreground" />
               {taskLabel} Result Breakdown
             </h3>
             <div className="h-64 sm:h-72 w-full min-w-0 min-h-[16rem]">
@@ -2118,9 +2119,9 @@ export default function ReportPage() {
                 const total = pieData.reduce((s, x) => s + x.value, 0);
                 const pct = total > 0 ? Math.round((d.value / total) * 100) : 0;
                 return (
-                  <div key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                  <div key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
                     <span className="w-3 h-3 rounded-full shrink-0" style={{ background: (reportType === 'pm' ? PIE_COLOR_PM : PIE_COLOR_BY_NAME)[d.name] ?? '#a5b4c4' }} />
-                    <span><strong className="text-slate-700">{d.name}</strong>: {d.value} ({pct}%)</span>
+                    <span><strong className="text-muted-foreground">{d.name}</strong>: {d.value} ({pct}%)</span>
                   </div>
                 );
               })}
@@ -2129,7 +2130,7 @@ export default function ReportPage() {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-1 bg-white p-1 rounded-xl w-fit shadow-sm">
+        <div className="flex items-center gap-1 bg-card p-1 rounded-xl w-fit shadow-sm">
           {([
             { key: 'vendor' as const, label: `Top ${taskLabel} Vendors`, icon: Building2 },
             { key: 'equipment' as const, label: equipmentLabel, icon: Server },
@@ -2141,7 +2142,7 @@ export default function ReportPage() {
               className={`px-5 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 text-sm ${
                 activeTab === key
                   ? 'bg-slate-800 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+                  : 'text-muted-foreground hover:text-muted-foreground hover:bg-muted'
               }`}
             >
               <Icon size={15} />
@@ -2153,9 +2154,9 @@ export default function ReportPage() {
         {/* Vendor Tab */}
         {activeTab === 'vendor' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm min-w-0">
-              <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
-                <BarChart3 size={18} className="text-slate-400" />
+            <div className="bg-card p-6 rounded-[2rem] shadow-sm min-w-0">
+              <h3 className="font-bold text-muted-foreground text-lg mb-5 flex items-center gap-2">
+                <BarChart3 size={18} className="text-muted-foreground" />
                 {isMa ? 'MA' : 'PM'} Tasks by Vendor
               </h3>
               <div className="w-full min-w-0" style={{ height: vendorBarChartHeight }}>
@@ -2188,22 +2189,22 @@ export default function ReportPage() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm">
-              <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
+            <div className="bg-card p-6 rounded-[2rem] shadow-sm">
+              <h3 className="font-bold text-muted-foreground text-lg mb-5 flex items-center gap-2">
                 <Trophy size={18} className="text-amber-500" />
                 Vendor Ranking
               </h3>
               <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-2">
                 {vendorRanking.map((v, i) => (
-                  <div key={v.vendor} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/70 hover:bg-slate-50 transition-colors">
+                  <div key={v.vendor} className="flex items-center gap-3 p-3 rounded-xl bg-muted/70 hover:bg-muted transition-colors">
                     <RankBadge rank={i + 1} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-semibold text-sm text-slate-700 truncate">{v.vendor}</span>
-                        <span className="text-sm font-bold text-slate-600">{v.total} <span className="text-xs font-normal text-slate-400">tasks</span></span>
+                        <span className="font-semibold text-sm text-muted-foreground truncate">{v.vendor}</span>
+                        <span className="text-sm font-bold text-muted-foreground">{v.total} <span className="text-xs font-normal text-muted-foreground">tasks</span></span>
                       </div>
                       <ProgressBar value={v.total} max={maxVendorTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-blue-300'} />
-                      <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
+                      <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground">
                         <span className="text-emerald-600">Complete {v.done}</span>
                         <span>{v.completionRate}%</span>
                         {isMa ? (
@@ -2223,7 +2224,7 @@ export default function ReportPage() {
                     </div>
                   </div>
                 ))}
-                {vendorRanking.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No data available</p>}
+                {vendorRanking.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No data available</p>}
               </div>
             </div>
           </div>
@@ -2231,40 +2232,40 @@ export default function ReportPage() {
 
         {/* Equipment Tab */}
         {activeTab === 'equipment' && (
-          <div className="bg-white p-6 rounded-[2rem] shadow-sm">
-            <h3 className={`font-bold text-slate-600 text-lg flex items-center gap-2 ${isMa ? 'mb-5' : 'mb-1'}`}>
-              <Server size={18} className="text-slate-400" />
+          <div className="bg-card p-6 rounded-[2rem] shadow-sm">
+            <h3 className={`font-bold text-muted-foreground text-lg flex items-center gap-2 ${isMa ? 'mb-5' : 'mb-1'}`}>
+              <Server size={18} className="text-muted-foreground" />
               {equipmentLabel} (Top 15)
             </h3>
             {!isMa && (
-              <p className="text-xs text-slate-500 mb-5 leading-relaxed">
-                <span className="text-slate-600 font-medium">Inventory-based ranking:</span> count of devices per model with status{' '}
-                <span className="font-semibold text-slate-700">In Use</span> (not tied to PM tasks in the selected period).
+              <p className="text-xs text-muted-foreground mb-5 leading-relaxed">
+                <span className="text-muted-foreground font-medium">Inventory-based ranking:</span> count of devices per model with status{' '}
+                <span className="font-semibold text-muted-foreground">In Use</span> (not tied to PM tasks in the selected period).
                 <br />
-                <span className="text-slate-600 font-medium">Site column:</span> shows the location with the most devices for that model first.
-                If the model appears at several sites, the text reads <span className="font-medium text-slate-700">· N more locations</span> — N is the number of <em>other</em> sites (not device count).
+                <span className="text-muted-foreground font-medium">Site column:</span> shows the location with the most devices for that model first.
+                If the model appears at several sites, the text reads <span className="font-medium text-muted-foreground">· N more locations</span> — N is the number of <em>other</em> sites (not device count).
               </p>
             )}
             <div className="overflow-x-auto">
               <table className={`w-full ${isMa ? 'min-w-[900px]' : 'min-w-[640px]'}`}>
                 <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Rank</th>
-                    <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[180px]">
+                  <tr className="border-b border-border">
+                    <th className="text-center py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider w-14 align-middle">Rank</th>
+                    <th className="text-center py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider align-middle min-w-[180px]">
                       <div className="relative flex justify-center" ref={modelDropdownRef}>
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setModelDropdownOpen((o) => !o); }}
-                          className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
+                          className="flex items-center gap-0.5 cursor-pointer hover:bg-muted rounded px-1 -mx-1 py-0.5"
                         >
-                          Model <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${modelDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
+                          Model <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground inline transition-transform ${modelDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
                         </button>
                         {modelDropdownOpen && (
-                          <div className="absolute left-0 top-full mt-1 z-10 min-w-[140px] max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                          <div className="absolute left-0 top-full mt-1 z-10 min-w-[140px] max-h-60 overflow-y-auto bg-card border border-border rounded-lg shadow-lg py-1">
                             <button
                               type="button"
                               onClick={() => { setEquipmentModelFilter(null); setModelDropdownOpen(false); }}
-                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentModelFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted ${!equipmentModelFilter ? 'bg-muted text-muted-foreground font-medium' : 'text-muted-foreground'}`}
                             >
                               All
                             </button>
@@ -2273,7 +2274,7 @@ export default function ReportPage() {
                                 key={model}
                                 type="button"
                                 onClick={() => { setEquipmentModelFilter(model); setModelDropdownOpen(false); }}
-                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 truncate ${equipmentModelFilter === model ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted truncate ${equipmentModelFilter === model ? 'bg-muted text-muted-foreground font-medium' : 'text-muted-foreground'}`}
                               >
                                 {model}
                               </button>
@@ -2284,21 +2285,21 @@ export default function ReportPage() {
                     </th>
                     {isMa && (
                       <>
-                        <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[90px]">
+                        <th className="text-center py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider align-middle min-w-[90px]">
                           <div className="relative flex justify-center" ref={roleDropdownRef}>
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); setRoleDropdownOpen((o) => !o); }}
-                              className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
+                              className="flex items-center gap-0.5 cursor-pointer hover:bg-muted rounded px-1 -mx-1 py-0.5"
                             >
-                              Role <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${roleDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
+                              Role <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground inline transition-transform ${roleDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
                             </button>
                             {roleDropdownOpen && (
-                              <div className="absolute left-0 top-full mt-1 z-10 min-w-[120px] bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                              <div className="absolute left-0 top-full mt-1 z-10 min-w-[120px] bg-card border border-border rounded-lg shadow-lg py-1">
                                 <button
                                   type="button"
                                   onClick={() => { setEquipmentRoleFilter(null); setRoleDropdownOpen(false); }}
-                                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentRoleFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted ${!equipmentRoleFilter ? 'bg-muted text-muted-foreground font-medium' : 'text-muted-foreground'}`}
                                 >
                                   All
                                 </button>
@@ -2307,7 +2308,7 @@ export default function ReportPage() {
                                     key={role}
                                     type="button"
                                     onClick={() => { setEquipmentRoleFilter(role); setRoleDropdownOpen(false); }}
-                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 capitalize ${equipmentRoleFilter === role ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted capitalize ${equipmentRoleFilter === role ? 'bg-muted text-muted-foreground font-medium' : 'text-muted-foreground'}`}
                                   >
                                     {role}
                                   </button>
@@ -2317,26 +2318,26 @@ export default function ReportPage() {
                           </div>
                         </th>
                         <th
-                          className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:bg-slate-50 min-w-[160px] align-middle"
+                          className="text-center py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer select-none hover:bg-muted min-w-[160px] align-middle"
                           onClick={() => setEquipmentOrderBy(equipmentOrderBy === 'vendor' ? 'total' : 'vendor')}
                         >
                           Vendor
                         </th>
-                        <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider align-middle min-w-[220px]">
+                        <th className="text-center py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider align-middle min-w-[220px]">
                           <div className="relative flex justify-center" ref={siteDropdownRef}>
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); setSiteDropdownOpen((o) => !o); }}
-                              className="flex items-center gap-0.5 cursor-pointer hover:bg-slate-50 rounded px-1 -mx-1 py-0.5"
+                              className="flex items-center gap-0.5 cursor-pointer hover:bg-muted rounded px-1 -mx-1 py-0.5"
                             >
-                              Site <ChevronDown className={`w-3.5 h-3.5 text-slate-400 inline transition-transform ${siteDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
+                              Site <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground inline transition-transform ${siteDropdownOpen ? 'rotate-180' : ''}`} strokeWidth={2.5} />
                             </button>
                             {siteDropdownOpen && (
-                              <div className="absolute left-0 top-full mt-1 z-10 min-w-[140px] max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                              <div className="absolute left-0 top-full mt-1 z-10 min-w-[140px] max-h-60 overflow-y-auto bg-card border border-border rounded-lg shadow-lg py-1">
                                 <button
                                   type="button"
                                   onClick={() => { setEquipmentSiteFilter(null); setSiteDropdownOpen(false); }}
-                                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 ${!equipmentSiteFilter ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted ${!equipmentSiteFilter ? 'bg-muted text-muted-foreground font-medium' : 'text-muted-foreground'}`}
                                 >
                                   All
                                 </button>
@@ -2345,7 +2346,7 @@ export default function ReportPage() {
                                     key={site}
                                     type="button"
                                     onClick={() => { setEquipmentSiteFilter(site); setSiteDropdownOpen(false); }}
-                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 truncate ${equipmentSiteFilter === site ? 'bg-slate-100 text-slate-700 font-medium' : 'text-slate-600'}`}
+                                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-muted truncate ${equipmentSiteFilter === site ? 'bg-muted text-muted-foreground font-medium' : 'text-muted-foreground'}`}
                                   >
                                     {site}
                                   </button>
@@ -2357,13 +2358,13 @@ export default function ReportPage() {
                       </>
                     )}
                     {!isMa && (
-                      <th className="text-center py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider min-w-[160px] align-middle">
+                      <th className="text-center py-3 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[160px] align-middle">
                         <span className="normal-case tracking-normal">Primary site</span>
-                        <span className="block font-normal text-[10px] text-slate-400 normal-case tracking-normal mt-0.5">(highest count first)</span>
+                        <span className="block font-normal text-[10px] text-muted-foreground normal-case tracking-normal mt-0.5">(highest count first)</span>
                       </th>
                     )}
                     <th
-                      className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider cursor-pointer select-none hover:bg-slate-50 w-16 align-middle"
+                      className="text-center py-3 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer select-none hover:bg-muted w-16 align-middle"
                       onClick={() => setEquipmentOrderBy('total')}
                     >
                       {isMa ? `Total ${taskLabel}` : (
@@ -2372,23 +2373,23 @@ export default function ReportPage() {
                     </th>
                     {isMa && (
                       <>
-                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-10 align-middle">Complete</th>
-                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-14 align-middle">Inprocess</th>
-                        <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-12 align-middle">Pending</th>
+                        <th className="text-center py-3 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider w-10 align-middle">Complete</th>
+                        <th className="text-center py-3 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider w-14 align-middle">Inprocess</th>
+                        <th className="text-center py-3 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider w-12 align-middle">Pending</th>
                       </>
                     )}
-                    <th className="text-center py-3 px-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-28 align-middle">Ratio</th>
+                    <th className="text-center py-3 px-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider w-28 align-middle">Ratio</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredEquipmentRanking.slice(0, 15).map((e, i) => (
-                    <tr key={`${String(e.deviceId)}-${i}`} className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors ${i < 3 ? 'bg-red-50/30' : ''}`}>
+                    <tr key={`${String(e.deviceId)}-${i}`} className={`border-b border-border hover:bg-muted/60 transition-colors ${i < 3 ? 'bg-red-50/30' : ''}`}>
                       <td className="py-3 px-3 w-14 text-center"><RankBadge rank={i + 1} /></td>
                       <td
                         className={
                           isMa
-                            ? 'py-3 px-3 text-center text-sm text-slate-400 whitespace-nowrap'
-                            : 'py-3 px-3 text-center text-sm text-slate-600 max-w-[220px] break-words [overflow-wrap:anywhere]'
+                            ? 'py-3 px-3 text-center text-sm text-muted-foreground whitespace-nowrap'
+                            : 'py-3 px-3 text-center text-sm text-muted-foreground max-w-[220px] break-words [overflow-wrap:anywhere]'
                         }
                         title={equipmentRowModelLabel(e) || undefined}
                       >
@@ -2397,27 +2398,27 @@ export default function ReportPage() {
                       {isMa && (
                         <>
                           <td className="py-3 px-3 text-center">
-                            <span className="text-sm text-slate-600 capitalize">{e.role ?? '-'}</span>
+                            <span className="text-sm text-muted-foreground capitalize">{e.role ?? '-'}</span>
                           </td>
                           <td className="py-3 px-3 text-center">
-                            <span className="text-sm text-slate-500 bg-slate-50 px-2 py-0.5 rounded-md">{e.vendor || '-'}</span>
+                            <span className="text-sm text-muted-foreground bg-muted px-2 py-0.5 rounded-md">{e.vendor || '-'}</span>
                           </td>
-                          <td className="py-3 px-3 text-sm text-slate-400 text-center" title={e.site || undefined}>{e.site || '-'}</td>
+                          <td className="py-3 px-3 text-sm text-muted-foreground text-center" title={e.site || undefined}>{e.site || '-'}</td>
                         </>
                       )}
                       {!isMa && (
-                        <td className="py-3 px-3 text-center text-xs text-slate-500 max-w-[200px] break-words [overflow-wrap:anywhere]" title={e.site || undefined}>
+                        <td className="py-3 px-3 text-center text-xs text-muted-foreground max-w-[200px] break-words [overflow-wrap:anywhere]" title={e.site || undefined}>
                           {e.site || '—'}
                         </td>
                       )}
                       <td className="py-3 px-2 text-center w-16">
-                        <span className="text-sm font-bold text-slate-600 bg-blue-50 px-1.5 py-0.5 rounded-lg">
+                        <span className="text-sm font-bold text-muted-foreground bg-blue-50 px-1.5 py-0.5 rounded-lg">
                           {e.total ?? 0}
                         </span>
                       </td>
                       {isMa && (
                         <>
-                          <td className="py-3 px-2 text-center text-sm font-medium text-slate-500 w-10">{e.done}</td>
+                          <td className="py-3 px-2 text-center text-sm font-medium text-muted-foreground w-10">{e.done}</td>
                           <td className="py-3 px-2 text-center text-sm font-medium text-orange-500 w-14">{e.inprocess}</td>
                           <td className="py-3 px-2 text-center text-sm font-medium text-yellow-600 w-12">{e.pending}</td>
                         </>
@@ -2433,7 +2434,7 @@ export default function ReportPage() {
                   ))}
                   {filteredEquipmentRanking.length === 0 && (
                     <tr>
-                      <td colSpan={isMa ? 10 : 5} className="text-center py-8 text-sm text-slate-400">
+                      <td colSpan={isMa ? 10 : 5} className="text-center py-8 text-sm text-muted-foreground">
                         No data available
                       </td>
                     </tr>
@@ -2447,9 +2448,9 @@ export default function ReportPage() {
         {/* Site tab — MA only (hidden for PM: many tied site ranks) */}
         {activeTab === 'site' && isMa && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm min-w-0">
-              <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
-                <BarChart3 size={18} className="text-slate-400" />
+            <div className="bg-card p-6 rounded-[2rem] shadow-sm min-w-0">
+              <h3 className="font-bold text-muted-foreground text-lg mb-5 flex items-center gap-2">
+                <BarChart3 size={18} className="text-muted-foreground" />
                 {taskLabel} Tasks by Site
               </h3>
               <div className="w-full min-w-0" style={{ height: siteBarChartHeight }}>
@@ -2482,24 +2483,24 @@ export default function ReportPage() {
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-[2rem] shadow-sm">
-              <h3 className="font-bold text-slate-600 text-lg mb-5 flex items-center gap-2">
+            <div className="bg-card p-6 rounded-[2rem] shadow-sm">
+              <h3 className="font-bold text-muted-foreground text-lg mb-5 flex items-center gap-2">
                 <Trophy size={18} className="text-amber-500" />
                 Site Ranking
               </h3>
               <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-2">
                 {siteRanking.map((s, i) => (
-                  <div key={s.site} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/70 hover:bg-slate-50 transition-colors">
+                  <div key={s.site} className="flex items-center gap-3 p-3 rounded-xl bg-muted/70 hover:bg-muted transition-colors">
                     <RankBadge rank={i + 1} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2 mb-1">
-                        <span className="font-semibold text-sm text-slate-700 leading-snug whitespace-normal break-words max-w-[85%]">
+                        <span className="font-semibold text-sm text-muted-foreground leading-snug whitespace-normal break-words max-w-[85%]">
                           {s.site}
                         </span>
-                        <span className="text-sm font-bold text-slate-600">{s.total} <span className="text-xs font-normal text-slate-400">tasks</span></span>
+                        <span className="text-sm font-bold text-muted-foreground">{s.total} <span className="text-xs font-normal text-muted-foreground">tasks</span></span>
                       </div>
                       <ProgressBar value={s.total} max={maxSiteTotal} color={i === 0 ? 'bg-red-400' : i === 1 ? 'bg-amber-400' : i === 2 ? 'bg-yellow-400' : 'bg-teal-300'} />
-                      <div className="flex gap-3 mt-1.5 text-xs text-slate-400">
+                      <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground">
                         <span className="text-emerald-600">Complete {s.done}</span>
                         <span>{s.completionRate}%</span>
                         {isMa ? (
@@ -2518,7 +2519,7 @@ export default function ReportPage() {
                     </div>
                   </div>
                 ))}
-                {siteRanking.length === 0 && <p className="text-sm text-slate-400 text-center py-8">No data available</p>}
+                {siteRanking.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">No data available</p>}
               </div>
             </div>
           </div>
@@ -2527,19 +2528,19 @@ export default function ReportPage() {
         {reportType === 'pm' && (
           <section
             id="pm-sites-registry"
-            className="w-full scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
+            className="w-full scroll-mt-24 rounded-[2rem] border border-border bg-card p-4 shadow-sm sm:p-5"
             aria-labelledby="pm-sites-registry-heading"
           >
             <h2
               id="pm-sites-registry-heading"
-              className="mb-1 font-bold text-slate-600 text-base sm:text-lg flex items-center gap-2"
+              className="mb-1 font-bold text-muted-foreground text-base sm:text-lg flex items-center gap-2"
             >
               <Building2 size={18} className="text-blue-500 shrink-0" aria-hidden />
               Sites & locations
             </h2>
-            <p className="mb-2 text-[11px] leading-snug text-slate-500">
-              Registry totals from <span className="font-medium text-slate-600">sites</span> /{' '}
-              <span className="font-medium text-slate-600">sites_location</span>.
+            <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
+              Registry totals from <span className="font-medium text-muted-foreground">sites</span> /{' '}
+              <span className="font-medium text-muted-foreground">sites_location</span>.
             </p>
 
             <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -2586,7 +2587,7 @@ export default function ReportPage() {
             </div>
 
             <div className="mb-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="font-semibold text-slate-700 flex items-center gap-1.5 text-xs sm:text-sm">
+              <h3 className="font-semibold text-muted-foreground flex items-center gap-1.5 text-xs sm:text-sm">
                 <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" aria-hidden />
                 By organisation & locations
               </h3>
@@ -2602,23 +2603,23 @@ export default function ReportPage() {
 
             <div className="pm-registry-scroll max-h-[min(28rem,56vh)] space-y-2 overflow-y-auto pr-1">
               {sitesLocationGroupedBySite.length === 0 ? (
-                <p className="py-6 text-center text-xs text-slate-400">No rows loaded.</p>
+                <p className="py-6 text-center text-xs text-muted-foreground">No rows loaded.</p>
               ) : (
                 sitesLocationGroupedBySite.map((group, i) => (
                     <div
                       key={group.locations.map((l) => l.SLid).join('-')}
-                      className="overflow-hidden rounded-xl border border-slate-100 bg-slate-50/60"
+                      className="overflow-hidden rounded-xl border border-border bg-muted/60"
                     >
-                      <div className="flex items-start gap-1.5 border-b border-slate-100 bg-blue-50/25 p-2.5">
+                      <div className="flex items-start gap-1.5 border-b border-border bg-blue-50/25 p-2.5">
                         <RankBadge rank={i + 1} />
                         <div className="min-w-0 flex-1">
                           <p className="text-[9px] font-semibold uppercase tracking-wide text-blue-600/90">Site</p>
-                          <p className="font-semibold text-[12px] leading-tight text-slate-800 break-words">
+                          <p className="font-semibold text-[12px] leading-tight text-foreground break-words">
                             {group.siteName}
                           </p>
                         </div>
                       </div>
-                      <div className="min-w-0 bg-white p-2.5 sm:p-3">
+                      <div className="min-w-0 bg-card p-2.5 sm:p-3">
                         <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-wide text-sky-700/90">
                           Locations
                         </p>
@@ -2626,7 +2627,7 @@ export default function ReportPage() {
                           {group.locations.map((loc) => (
                             <li
                               key={loc.SLid}
-                              className="flex items-start gap-1.5 rounded border border-sky-100/80 bg-sky-50/35 px-2 py-1 text-[11px] leading-snug text-slate-700"
+                              className="flex items-start gap-1.5 rounded border border-sky-100/80 bg-sky-50/35 px-2 py-1 text-[11px] leading-snug text-muted-foreground"
                             >
                               <MapPin
                                 className="mt-0.5 h-3 w-3 shrink-0 text-sky-500"
@@ -2636,7 +2637,7 @@ export default function ReportPage() {
                               <span className="min-w-0" title={loc.label}>
                                 {formatLocationLabelEn(loc.label)}
                                 {loc.sof ? (
-                                  <span className="mt-0.5 block text-[10px] text-slate-500">SOF: {loc.sof}</span>
+                                  <span className="mt-0.5 block text-[10px] text-muted-foreground">SOF: {loc.sof}</span>
                                 ) : null}
                               </span>
                             </li>
@@ -2650,7 +2651,8 @@ export default function ReportPage() {
           </section>
         )}
 
-      </div>
+        </div>
+      </main>
 
       {/* MA Top-model advanced filter modal (Site & Model) */}
     </SidebarLayout>
