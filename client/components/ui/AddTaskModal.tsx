@@ -2545,7 +2545,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     Broken device & replacement <span className="text-red-500">*</span>
                   </label>
                   <p className="text-[10px] text-muted-foreground">
-                    Asset State จะอัปเดตในระบบเมื่อกด Done ใน task detail เท่านั้น
+                    Asset State will be updated in the system when Done is clicked in task detail only.
                   </p>
                 </div>
 

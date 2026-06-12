@@ -372,6 +372,36 @@ function buildContractForHistorySnapshot(base: Contract, row: ContractHistoryRow
   };
 }
 
+/** รายละเอียดประวัติ — ใช้ค่าจาก snapshot ก่อน ถ้าว่างค่อยใช้สัญญาปัจจุบันใน modal */
+function mergeHistoryDetailOntoBase(
+  base: FullContractDetails,
+  historyDetail: FullContractDetails,
+): FullContractDetails {
+  const pick = <K extends keyof FullContractDetails>(key: K): FullContractDetails[K] => {
+    const v = historyDetail[key];
+    if (v != null && v !== '') return v;
+    return base[key];
+  };
+  return {
+    ...base,
+    ...historyDetail,
+    contract_name: pick('contract_name'),
+    start_date: pick('start_date'),
+    end_date: pick('end_date'),
+    sla_term: historyDetail.sla_term != null ? historyDetail.sla_term : base.sla_term,
+    sale_account: pick('sale_account'),
+    email_acc: pick('email_acc'),
+    tel_acc: pick('tel_acc'),
+    Assigned_Service: pick('Assigned_Service'),
+    coverage_scope: pick('coverage_scope'),
+    pm_time_per_year:
+      historyDetail.pm_time_per_year != null ? historyDetail.pm_time_per_year : base.pm_time_per_year,
+    sof_name: pick('sof_name'),
+    history_id: historyDetail.history_id,
+    history_detail: true,
+  };
+}
+
 /** ช่วงก่อนวันสิ้นสุดที่ถือว่า "ใกล้หมดอายุ" / เปิด Renew ได้ (เดือนปฏิทิน — สอดคล้องกับคอลัมน์ Incoming) */
 const CONTRACT_EXPIRING_BEFORE_END_MONTHS = 3;
 
@@ -407,6 +437,11 @@ function resolveContractListStatus(
   const base = deriveStatus(endDate);
   if (markedNotRenewing && base === 'expired') return 'closed';
   return base;
+}
+
+/** Active / Expiring / Expired แสดงเฉพาะสัญญาที่บันทึก official แล้ว */
+function isOfficialContractRow(c: Contract): boolean {
+  return c.contractStatus === 'official';
 }
 
 /** Badge ในรายการสัญญา: ถ้าเลยวันสิ้นสุดแต่ประวัติล่าสุดเป็น Renew → แสดง Renew แทน Expired */
@@ -629,6 +664,8 @@ function ContractEditorPageContent() {
   const [loadingContractDetails, setLoadingContractDetails] = useState(false);
   /** แถว contract_history ที่ contract_id ตรงกับสัญญา (โหลดคู่กับ modal รายละเอียด) */
   const [detailModalHistoryRows, setDetailModalHistoryRows] = useState<ContractHistoryRow[]>([]);
+  /** สัญญาปัจจุบันใน modal — ใช้เติมฟิลด์เมื่อดู snapshot ประวัติ */
+  const liveDetailForModalRef = useRef<FullContractDetails | null>(null);
   const [currentEquipmentList, setCurrentEquipmentList] = useState<Equipment[]>([]);
   const [editingEquipmentIndex, setEditingEquipmentIndex] = useState<number | null>(null);
   const [equipmentForm, setEquipmentForm] = useState<Equipment>({
@@ -819,14 +856,17 @@ function ContractEditorPageContent() {
     } else if (activeFilter === 'Terminated') {
       if (contract.status !== 'closed') return false;
     } else if (activeFilter !== 'All') {
-      // แถว snapshot จาก contract_history แสดงเฉพาะมุมมอง All (Active/Expiring/Expired ใช้สถานะสัญญาปัจจุบัน)
+      // แถว snapshot จาก contract_history แสดงเฉพาะมุมมอง All (Active/Expiring/Expired ใช้สัญญา official เท่านั้น)
       if (contract.isHistorySnapshotRow) return false;
       const statusMap: Record<string, string> = {
         Active: 'active',
         Expiring: 'expiring',
         Expired: 'expired',
       };
-      if (contract.status !== statusMap[activeFilter]) return false;
+      const dateStatus = statusMap[activeFilter];
+      if (dateStatus && (!isOfficialContractRow(contract) || contract.status !== dateStatus)) {
+        return false;
+      }
     }
 
     // Filter ตามคำค้นหา
@@ -1153,6 +1193,7 @@ function ContractEditorPageContent() {
     setCurrentContract(null);
     setFullContractDetails(null);
     setDetailModalHistoryRows([]);
+    liveDetailForModalRef.current = null;
     setEditingEquipmentIndex(null);
     setSelectedDetailSiteSlid(null);
   };
@@ -1322,13 +1363,18 @@ function ContractEditorPageContent() {
   const viewContractDetails = async (contract: Contract) => {
     setCurrentContract(contract);
     setShowDetailModal(true);
-    setLoadingContractDetails(true);
-    setFullContractDetails(null);
-    setDetailModalHistoryRows([]);
 
     const hid = contract.historyId != null ? Number(contract.historyId) : NaN;
     const isHistoryRow =
       Boolean(contract.isHistorySnapshotRow) && Number.isFinite(hid) && hid > 0;
+    const switchingHistoryInModal = isHistoryRow && showDetailModal;
+
+    setLoadingContractDetails(true);
+    if (!switchingHistoryInModal) {
+      setFullContractDetails(null);
+      setDetailModalHistoryRows([]);
+      if (!isHistoryRow) liveDetailForModalRef.current = null;
+    }
     const url = isHistoryRow
       ? apiUrl(`/api/contracts/history/${hid}`)
       : apiUrl(`/api/contracts/${contractRowApiId(contract)}`);
@@ -1351,7 +1397,19 @@ function ContractEditorPageContent() {
 
       if (res.ok && json.data) {
         const rawDetail: FullContractDetails = json.data;
-        setFullContractDetails(rawDetail);
+        if (!isHistoryRow) {
+          liveDetailForModalRef.current = rawDetail;
+          setFullContractDetails(rawDetail);
+        } else {
+          const base =
+            liveDetailForModalRef.current ??
+            (fullContractDetails && !fullContractDetails.history_detail
+              ? fullContractDetails
+              : null);
+          setFullContractDetails(
+            base ? mergeHistoryDetailOntoBase(base, rawDetail) : rawDetail,
+          );
+        }
         setDetailModalHistoryRows(histRows);
         if (!isHistoryRow) {
           const apiStatus = json.data.status != null ? String(json.data.status).toLowerCase() : '';
@@ -2075,13 +2133,13 @@ function ContractEditorPageContent() {
           const onlyContracts = contracts.filter((c) => !c.isHistorySnapshotRow);
           const draft = onlyContracts.filter((c) => c.contractStatus === 'draft').length;
           const active = onlyContracts.filter(
-            (c) => c.status === 'active' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
+            (c) => isOfficialContractRow(c) && c.status === 'active'
           ).length;
           const expiring = onlyContracts.filter(
-            (c) => c.status === 'expiring' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
+            (c) => isOfficialContractRow(c) && c.status === 'expiring'
           ).length;
           const expired = onlyContracts.filter(
-            (c) => c.status === 'expired' && c.contractStatus !== 'draft' && c.contractStatus !== 'not_renewing'
+            (c) => isOfficialContractRow(c) && c.status === 'expired'
           ).length;
           const terminatedSnapshots = contracts.filter(
             (c) => c.isHistorySnapshotRow && c.historyStatus === 'Terminated'

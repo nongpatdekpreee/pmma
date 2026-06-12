@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { LucideIcon, UserCheck, UserRoundCog, Wrench, Search, UserPlus, X, FileUp, Edit, Trash2, Download } from "lucide-react";
-import { apiUrl, getEmployees, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
+import { getEmployees, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
 import {
   formatEmployeeTelForDisplay,
   formatTelLineForDb,
@@ -20,6 +20,7 @@ import {
   EMPLOYEE_PHOTO_MAX_SIZE_LABEL,
   employeePhotoExtensionErrorMessage,
   employeePhotoSizeErrorMessage,
+  employeePhotoSrc,
   isAllowedEmployeePhotoFile,
   isEmployeePhotoOverSize,
 } from "@/lib/employeePhoto";
@@ -757,7 +758,7 @@ const EmployeeManagement = () => {
                           <td className="px-3 py-2">
                             <div className="mx-auto flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-muted">
                               {emp.photo ? (
-                                <img src={emp.photo.startsWith("http") ? emp.photo : apiUrl(emp.photo)} alt="" className="h-full w-full object-cover" />
+                                <img src={employeePhotoSrc(emp.photo) ?? ''} alt="" className="h-full w-full object-cover" />
                               ) : (
                                 <UserRoundCog className="h-4 w-4 text-muted-foreground" />
                               )}
@@ -873,7 +874,7 @@ const EmployeeManagement = () => {
                     <div className="flex items-center gap-4">
                       <label className="relative flex h-20 w-20 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                         {addForm.photo ? (
-                          <img src={addForm.photo.startsWith("http") ? addForm.photo : apiUrl(addForm.photo)} alt="" className="h-full w-full object-cover" />
+                          <img src={employeePhotoSrc(addForm.photo) ?? ''} alt="" className="h-full w-full object-cover" />
                         ) : (
                           <span className="text-xs text-muted-foreground select-none">{addPhotoUploading ? "Uploading..." : "Select Image"}</span>
                         )}
@@ -1187,7 +1188,7 @@ const EmployeeManagement = () => {
                     <div className="flex items-center gap-4">
                       <label className="relative flex h-20 w-20 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                         {editForm.photo ? (
-                          <img src={editForm.photo.startsWith("http") ? editForm.photo : apiUrl(editForm.photo)} alt="" className="h-full w-full object-cover" />
+                          <img src={employeePhotoSrc(editForm.photo) ?? ''} alt="" className="h-full w-full object-cover" />
                         ) : (
                           <span className="text-xs text-muted-foreground select-none">{editPhotoUploading ? "Uploading..." : "Select Image"}</span>
                         )}

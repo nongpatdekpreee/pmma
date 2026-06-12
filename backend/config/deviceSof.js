@@ -108,6 +108,29 @@ async function syncSofRenameOnSiteLocations(dbOrConn, oldSof, newSof) {
   );
 }
 
+/** SLid อื่นที่ใช้ SOF เดียวกัน (รวม normalize เลขนำหน้า 0) */
+async function findSlidsWithMatchingSof(dbOrConn, sof, excludeSlid = null) {
+  const sofTrim = sof != null ? String(sof).trim() : '';
+  if (!sofTrim) return [];
+  const key = normalizeReferSofKey(sofTrim);
+  const params = [sofTrim, key];
+  let excludeSql = '';
+  if (excludeSlid != null) {
+    const ex = parseInt(excludeSlid, 10);
+    if (!Number.isNaN(ex)) {
+      excludeSql = ' AND SLid <> ?';
+      params.push(ex);
+    }
+  }
+  const [rows] = await dbOrConn.execute(
+    `SELECT SLid FROM sites_location
+     WHERE (SOF = ? OR TRIM(LEADING '0' FROM COALESCE(SOF, '')) = ?)${excludeSql}
+     ORDER BY SLid`,
+    params
+  );
+  return (rows || []).map((r) => r.SLid);
+}
+
 module.exports = {
   normalizeReferSofKey,
   deviceSofJoin,
@@ -121,4 +144,5 @@ module.exports = {
   applyReferSofToSiteLocation,
   syncSofOnSiteLocations,
   syncSofRenameOnSiteLocations,
+  findSlidsWithMatchingSof,
 };

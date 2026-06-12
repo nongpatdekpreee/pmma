@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: db:3306
--- Generation Time: Jun 11, 2026 at 10:49 AM
+-- Generation Time: Jun 12, 2026 at 05:43 AM
 -- Server version: 11.3.2-MariaDB-1:11.3.2+maria~ubu2204
 -- PHP Version: 8.3.26
 
@@ -20,62 +20,6 @@ SET time_zone = "+00:00";
 --
 -- Database: `app_db`
 --
-
--- --------------------------------------------------------
-
---
--- Table structure for table `contract`
---
-
-CREATE TABLE `contract` (
-  `contract_id` int(11) NOT NULL,
-  `contract_name` varchar(255) DEFAULT NULL,
-  `start_date` date DEFAULT NULL,
-  `end_date` date DEFAULT NULL,
-  `sof_name` varchar(255) DEFAULT NULL,
-  `sla_term` int(11) DEFAULT NULL,
-  `Assigned_Service` varchar(100) NOT NULL,
-  `pm_time_per_year` enum('1','2','3','4','5') NOT NULL DEFAULT '2',
-  `sale_account` text DEFAULT NULL,
-  `tel_acc` varchar(20) DEFAULT NULL,
-  `email_acc` text DEFAULT NULL,
-  `coverage_scope` text DEFAULT NULL,
-  `file_paths` text DEFAULT NULL COMMENT 'JSON array of file paths',
-  `image_paths` text DEFAULT NULL COMMENT 'JSON array of image paths',
-  `status` enum('draft','official','not_renewing') NOT NULL DEFAULT 'draft',
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `contract_device`
---
-
-CREATE TABLE `contract_device` (
-  `contract_id` int(11) NOT NULL,
-  `device_id` int(11) NOT NULL COMMENT 'FK -> devices(Did); NULL = draft site only',
-  `SLid` int(11) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `contract_history`
---
-
-CREATE TABLE `contract_history` (
-  `history_id` int(11) NOT NULL,
-  `contract_id` int(11) NOT NULL COMMENT 'FK -> contract(contract_id) - สัญญาใหม่',
-  `old_contract_id` int(11) DEFAULT NULL COMMENT 'FK -> contract(contract_id) - สัญญาเก่าที่ต่ออายุ',
-  `old_sof` varchar(255) DEFAULT NULL COMMENT 'SOF จากสัญญาเก่า',
-  `new_sof` varchar(255) DEFAULT NULL COMMENT 'SOF ของสัญญาใหม่',
-  `renewed_at` datetime DEFAULT current_timestamp() COMMENT 'วันที่ต่อสัญญา',
-  `created_at` timestamp NULL DEFAULT current_timestamp(),
-  `status_history` varchar(32) DEFAULT NULL COMMENT 'Renew | Terminated',
-  `terminated_reason` text DEFAULT NULL COMMENT 'Reason for termination/not renewing',
-  `contract_snapshot` longtext DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='ประวัติการต่อสัญญา';
 
 -- --------------------------------------------------------
 
@@ -1166,7 +1110,9 @@ CREATE TABLE `devices_history` (
   `Vendor` varchar(255) DEFAULT NULL,
   `Project_purchase` varchar(255) DEFAULT NULL,
   `Sid` int(11) DEFAULT NULL,
+  `SLid` int(11) DEFAULT NULL,
   `Location2` varchar(255) DEFAULT NULL,
+  `SOF` varchar(255) DEFAULT NULL,
   `PO_No` varchar(100) DEFAULT NULL,
   `Loan_Start` varchar(100) DEFAULT NULL,
   `Request_Date` varchar(100) DEFAULT NULL,
@@ -1181,6 +1127,9 @@ CREATE TABLE `devices_history` (
   `Received_date` date DEFAULT NULL,
   `Asset_Type` varchar(100) DEFAULT NULL,
   `Owner` varchar(255) DEFAULT NULL,
+  `change_source` varchar(64) DEFAULT NULL,
+  `change_context` text DEFAULT NULL,
+  `changed_fields_json` text DEFAULT NULL,
   `Description` varchar(255) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -1554,102 +1503,115 @@ CREATE TABLE `sites_location` (
   `Sid` int(11) NOT NULL,
   `lid` int(11) NOT NULL,
   `SOF` varchar(255) DEFAULT NULL,
-  `Period` varchar(255) DEFAULT NULL
+  `contactname` varchar(255) NOT NULL,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `sla_term` int(11) DEFAULT NULL,
+  `Assigned_Service` varchar(100) NOT NULL DEFAULT '',
+  `pm_time_per_year` enum('1','2','3','4','5') NOT NULL DEFAULT '2',
+  `sale_account` text DEFAULT NULL,
+  `tel_acc` varchar(20) DEFAULT NULL,
+  `email_acc` text DEFAULT NULL,
+  `coverage_scope` text DEFAULT NULL,
+  `file_paths` text DEFAULT NULL COMMENT 'JSON array of file paths',
+  `image_paths` text DEFAULT NULL COMMENT 'JSON array of image paths',
+  `status` enum('draft','official','not_renewing') NOT NULL DEFAULT 'draft',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Dumping data for table `sites_location`
 --
 
-INSERT INTO `sites_location` (`SLid`, `Sid`, `lid`, `SOF`, `Period`) VALUES
-(1, 1, 1, '8910018070', NULL),
-(2, 1, 2, '8910018428', NULL),
-(3, 1, 3, '8910018430', NULL),
-(4, 1, 4, '8910020609', NULL),
-(5, 1, 5, NULL, NULL),
-(6, 1, 6, NULL, NULL),
-(7, 1, 7, '8910020656', NULL),
-(8, 1, 8, '8910019823 (ปีที่1) , 8910020044 (ปีที่ 2)', NULL),
-(9, 2, 9, NULL, NULL),
-(10, 1, 10, '8910029184', NULL),
-(11, 3, 11, NULL, NULL),
-(12, 3, 12, NULL, NULL),
-(13, 3, 13, NULL, NULL),
-(14, 3, 14, NULL, NULL),
-(15, 3, 15, NULL, NULL),
-(16, 3, 16, NULL, NULL),
-(17, 3, 17, NULL, NULL),
-(18, 3, 18, NULL, NULL),
-(19, 3, 19, NULL, NULL),
-(20, 3, 20, NULL, NULL),
-(21, 3, 21, NULL, NULL),
-(22, 3, 22, NULL, NULL),
-(23, 3, 23, NULL, NULL),
-(24, 3, 24, NULL, NULL),
-(25, 3, 25, NULL, NULL),
-(26, 3, 26, NULL, NULL),
-(27, 3, 27, NULL, NULL),
-(28, 3, 28, NULL, NULL),
-(29, 3, 29, NULL, NULL),
-(30, 3, 30, NULL, NULL),
-(31, 3, 31, NULL, NULL),
-(32, 3, 32, NULL, NULL),
-(33, 3, 33, NULL, NULL),
-(34, 3, 34, NULL, NULL),
-(35, 3, 35, NULL, NULL),
-(36, 4, 36, '8910018074', NULL),
-(37, 5, 37, '8910018075', NULL),
-(38, 5, 38, '8910018075', NULL),
-(39, 5, 39, '8910018075', NULL),
-(40, 5, 40, '8910018075', NULL),
-(41, 5, 41, '8910020368', NULL),
-(42, 5, 42, '8910018075', NULL),
-(43, 6, 43, '8910018076', NULL),
-(44, 6, 44, '8910018076', NULL),
-(45, 6, 45, '8910018076', NULL),
-(46, 6, 46, '8910018076', NULL),
-(47, 6, 47, '8910018076', NULL),
-(48, 6, 48, '8910018076', NULL),
-(49, 6, 49, '8910018076', NULL),
-(50, 6, 50, '8910018076', NULL),
-(51, 6, 51, '8910018076', NULL),
-(52, 6, 52, '8910018076', NULL),
-(53, 6, 53, '8910018076', NULL),
-(54, 6, 54, '8910018076', NULL),
-(55, 6, 55, '8910018076', NULL),
-(56, 6, 56, '8910018076', NULL),
-(57, 6, 57, '8910018076', NULL),
-(58, 6, 58, '8910018076', NULL),
-(59, 6, 59, '8910018076', NULL),
-(60, 6, 60, '8910018076', NULL),
-(61, 6, 61, '8910018076', NULL),
-(62, 6, 62, '8910018076', NULL),
-(63, 7, 63, '8910018072', NULL),
-(64, 8, 64, '8910018078', NULL),
-(65, 9, 65, '8910018077', NULL),
-(66, 6, 66, 'Sangsom HQ', NULL),
-(67, 10, 67, '8910018071', NULL),
-(68, 11, 68, NULL, NULL),
-(69, 5, 69, '8910026922', NULL),
-(70, 12, 70, '8910032252', NULL),
-(71, 1, 71, '8910018429', NULL),
-(72, 6, 72, '8910018076', NULL),
-(73, 6, 73, '8910018076', NULL),
-(74, 6, 74, '8910018076', NULL),
-(75, 6, 75, '8910018076', NULL),
-(76, 6, 76, '8910018076', NULL),
-(77, 6, 77, '8910018076', NULL),
-(78, 6, 78, '8910018076', NULL),
-(79, 6, 79, '8910018076', NULL),
-(80, 9, 80, '8910018077', NULL),
-(81, 9, 81, '8910018077', NULL),
-(82, 13, 82, 'Thai Drink (Amata-Chonburi)', NULL),
-(83, 1, 7, '8910020656', NULL),
-(84, 14, 68, '8910029216', NULL),
-(85, 1, 11, '8910029873', NULL),
-(86, 1, 9, '8910029232', NULL),
-(87, 6, 83, '8910030693', NULL),
-(88, 1, 71, '8910018429', NULL);
+INSERT INTO `sites_location` (`SLid`, `Sid`, `lid`, `SOF`, `contactname`, `start_date`, `end_date`, `sla_term`, `Assigned_Service`, `pm_time_per_year`, `sale_account`, `tel_acc`, `email_acc`, `coverage_scope`, `file_paths`, `image_paths`, `status`, `created_at`) VALUES
+(1, 1, 1, '8910018070', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(2, 1, 2, '8910018428', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(3, 1, 3, '8910018430', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(4, 1, 4, '8910020609', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(5, 1, 5, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(6, 1, 6, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(7, 1, 7, '8910020656', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(8, 1, 8, '8910019823 (ปีที่1) , 8910020044 (ปีที่ 2)', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(9, 2, 9, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(10, 1, 10, '8910029184', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(11, 3, 11, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(12, 3, 12, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(13, 3, 13, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(14, 3, 14, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(15, 3, 15, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(16, 3, 16, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(17, 3, 17, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(18, 3, 18, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(19, 3, 19, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(20, 3, 20, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(21, 3, 21, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(22, 3, 22, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(23, 3, 23, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(24, 3, 24, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(25, 3, 25, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(26, 3, 26, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(27, 3, 27, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(28, 3, 28, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(29, 3, 29, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(30, 3, 30, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(31, 3, 31, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(32, 3, 32, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(33, 3, 33, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(34, 3, 34, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(35, 3, 35, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(36, 4, 36, '8910018074', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(37, 5, 37, '8910018075', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(38, 5, 38, '8910018075', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(39, 5, 39, '8910018075', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(40, 5, 40, '8910018075', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(41, 5, 41, '8910020368', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(42, 5, 42, '8910018075', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(43, 6, 43, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(44, 6, 44, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(45, 6, 45, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(46, 6, 46, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(47, 6, 47, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(48, 6, 48, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(49, 6, 49, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(50, 6, 50, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(51, 6, 51, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(52, 6, 52, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(53, 6, 53, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(54, 6, 54, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(55, 6, 55, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(56, 6, 56, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(57, 6, 57, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(58, 6, 58, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(59, 6, 59, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(60, 6, 60, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(61, 6, 61, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(62, 6, 62, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(63, 7, 63, '8910018072', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(64, 8, 64, '8910018078', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(65, 9, 65, '8910018077', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(66, 6, 66, 'Sangsom HQ', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(67, 10, 67, '8910018071', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(68, 11, 68, NULL, '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(69, 5, 69, '8910026922', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(70, 12, 70, '8910032252', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(71, 1, 71, '8910018429', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(72, 6, 72, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(73, 6, 73, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(74, 6, 74, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(75, 6, 75, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(76, 6, 76, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(77, 6, 77, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(78, 6, 78, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(79, 6, 79, '8910018076', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(80, 9, 80, '8910018077', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(81, 9, 81, '8910018077', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(82, 13, 82, 'Thai Drink (Amata-Chonburi)', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(83, 1, 7, '8910020656', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(84, 14, 68, '8910029216', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(85, 1, 11, '8910029873', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(86, 1, 9, '8910029232', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(87, 6, 83, '8910030693', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37'),
+(88, 1, 71, '8910018429', '', NULL, NULL, NULL, '', '2', NULL, NULL, NULL, NULL, NULL, NULL, 'draft', '2026-06-12 04:04:37');
 
 -- --------------------------------------------------------
 
@@ -1658,83 +1620,28 @@ INSERT INTO `sites_location` (`SLid`, `Sid`, `lid`, `SOF`, `Period`) VALUES
 --
 
 CREATE TABLE `sites_location_sof_history` (
-  `id` int(11) NOT NULL,
-  `SLid` int(11) NOT NULL,
+  `log_id` int(11) NOT NULL,
+  `action_type` varchar(10) DEFAULT NULL,
+  `changed_at` datetime DEFAULT current_timestamp(),
+  `SLid` int(11) DEFAULT NULL,
   `Sid` int(11) DEFAULT NULL,
   `lid` int(11) DEFAULT NULL,
-  `old_sof` varchar(255) DEFAULT NULL,
-  `new_sof` varchar(255) DEFAULT NULL,
-  `old_period` varchar(255) DEFAULT NULL,
-  `new_period` varchar(255) DEFAULT NULL,
-  `change_source` varchar(64) DEFAULT NULL,
-  `change_context` text DEFAULT NULL,
-  `changed_at` timestamp NOT NULL DEFAULT current_timestamp()
+  `SOF` varchar(255) DEFAULT NULL,
+  `contactname` varchar(255) DEFAULT NULL,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `sla_term` int(11) DEFAULT NULL,
+  `Assigned_Service` varchar(100) DEFAULT NULL,
+  `pm_time_per_year` enum('1','2','3','4','5') DEFAULT NULL,
+  `sale_account` text DEFAULT NULL,
+  `tel_acc` varchar(20) DEFAULT NULL,
+  `email_acc` text DEFAULT NULL,
+  `coverage_scope` text DEFAULT NULL,
+  `file_paths` text DEFAULT NULL COMMENT 'JSON array of file paths',
+  `image_paths` text DEFAULT NULL COMMENT 'JSON array of image paths',
+  `status` enum('draft','official','not_renewing') DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
---
--- Dumping data for table `sites_location_sof_history`
---
-
-INSERT INTO `sites_location_sof_history` (`id`, `SLid`, `Sid`, `lid`, `old_sof`, `new_sof`, `old_period`, `new_period`, `change_source`, `change_context`, `changed_at`) VALUES
-(1, 1, 1, 1, '', '8910018070', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":2,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"CWT (ASM Manage)\",\"providedSof\":null,\"providedNewSof\":\"8910018070\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(2, 2, 1, 2, '', '8910018428', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":3,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"Park Ventrues (ASM Manage)\",\"providedSof\":null,\"providedNewSof\":\"8910018428\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(3, 3, 1, 3, '', '8910018430', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":4,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"SKYLANE (ASM Manage)\",\"providedSof\":null,\"providedNewSof\":\"8910018430\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(4, 71, 1, 71, NULL, '8910018429', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":5,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"TBQ (ASM Manage)\",\"providedSof\":null,\"providedNewSof\":\"8910018429\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(5, 63, 7, 63, '', '8910018072', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":6,\"siteName\":\"Dhospaak Co., Ltd.\",\"location\":\"บริษัท ทศภาค จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018072\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(6, 36, 4, 36, '', '8910018074', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":7,\"siteName\":\"Thai Beverage Energy Co., Ltd\",\"location\":\"TBE บริษัทไทยเบฟเวอเรจ เอ็นเนอร์ยี่ จำกัด สาขากาญจนบุรี\",\"providedSof\":null,\"providedNewSof\":\"8910018074\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(7, 37, 5, 37, '', '8910018075', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":8,\"siteName\":\"Thai Beverage Logistic Company Limited\",\"location\":\"50-TBL Nakron Ratchasima DC\",\"providedSof\":null,\"providedNewSof\":\"8910018075\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(8, 38, 5, 38, '', '8910018075', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":9,\"siteName\":\"Thai Beverage Logistic Company Limited\",\"location\":\"51-TBL Surajthani DC\",\"providedSof\":null,\"providedNewSof\":\"8910018075\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(9, 39, 5, 39, '', '8910018075', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":10,\"siteName\":\"Thai Beverage Logistic Company Limited\",\"location\":\"52-TBL Chonburi DC\",\"providedSof\":null,\"providedNewSof\":\"8910018075\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(10, 40, 5, 40, '', '8910018075', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":11,\"siteName\":\"Thai Beverage Logistic Company Limited\",\"location\":\"54-TBL Truck Terminal - Bangban\",\"providedSof\":null,\"providedNewSof\":\"8910018075\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(11, 41, 5, 41, '', '8910020368', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":12,\"siteName\":\"Thai Beverage Logistic Company Limited\",\"location\":\"TBL Wangnoi\",\"providedSof\":null,\"providedNewSof\":\"8910020368\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(12, 42, 5, 42, '', '8910018075', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":13,\"siteName\":\"Thai Beverage Logistic Company Limited\",\"location\":\"TBL_RDC_Lampang\",\"providedSof\":null,\"providedNewSof\":\"8910018075\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(13, 43, 6, 43, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":14,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"East Water Building\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(14, 44, 6, 44, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":15,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"TCCT_Bangna\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(15, 45, 6, 45, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":16,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท เทพอรุโณทัย จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(16, 46, 6, 46, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":17,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท เบฟเทค จำกัด (เบียร์ทิพย์)\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(17, 47, 6, 47, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":18,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท เบฟเทค จำกัด (นวนคร)\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(18, 48, 6, 48, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":19,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท เบียร์ไทย (1991) จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(19, 49, 6, 49, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":20,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท เบียร์ทิพย์ บริวเวอรี่ (1991) จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(20, 50, 6, 50, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":21,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท เฟื่องฟูอนันต์ จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(21, 51, 6, 51, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":22,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท เอส.เอส.การสุรา จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(22, 52, 6, 52, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":23,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท แก่นขวัญ จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(23, 53, 6, 53, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":24,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท กาญจนสิงขร จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(24, 72, 6, 72, NULL, '8910018076', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":25,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท คอสมอส บริวเวอรี่ (ประเทศไทย) จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(25, 54, 6, 54, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":26,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท ธนภักดี จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(26, 55, 6, 55, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":27,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท นทีชัย จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(27, 56, 6, 56, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":28,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท มงคลสมัย จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(28, 73, 6, 73, NULL, '8910018076', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":29,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท ยูไนเต็ด ไวน์เนอรี่ฯ\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(29, 57, 6, 57, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":30,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท สีมาธุรกิจ จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(30, 74, 6, 74, NULL, '8910018076', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":31,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท สุราแสงโสม จำกัด (1) นครปฐม\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(31, 61, 6, 61, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":32,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท สุราแสงโสม จำกัด (2)\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(32, 59, 6, 59, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":33,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท สุรากระทิงแดง (1988) จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(33, 75, 6, 75, NULL, '8910018076', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":34,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท สุรากระทิงแดง จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(34, 76, 6, 76, NULL, '8910018076', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":35,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท สุราบางยี่ขัน จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(35, 62, 6, 62, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":36,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท สุราพิเศษทิพราช\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(36, 77, 6, 77, NULL, '8910018076', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":37,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท หลักชัยค้าสุรา จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(37, 78, 6, 78, NULL, '8910018076', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":38,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท อธิมาตร จำกัด\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(38, 79, 6, 79, NULL, '8910018076', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":39,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"อาคารแสงโสม\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(39, 58, 6, 58, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":40,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"อาคารแสงโสม พหลโยธิน\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(40, 60, 6, 60, '', '8910018076', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":41,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"อาคารแอลพีเอ็น\",\"providedSof\":null,\"providedNewSof\":\"8910018076\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(41, 80, 9, 80, NULL, '8910018077', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":42,\"siteName\":\"บริษัท โออิชิ เทรดดิ้ง จำกัด\",\"location\":\"บริษัท โออิชิ เทรดดิ้ง จำกัด (นวนคร)\",\"providedSof\":null,\"providedNewSof\":\"8910018077\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(42, 81, 9, 81, NULL, '8910018077', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":43,\"siteName\":\"บริษัท โออิชิ เทรดดิ้ง จำกัด\",\"location\":\"บริษัท โออิชิ เทรดดิ้ง จำกัด (วังม่วง)\",\"providedSof\":null,\"providedNewSof\":\"8910018077\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(43, 65, 9, 65, '', '8910018077', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":44,\"siteName\":\"บริษัท โออิชิ เทรดดิ้ง จำกัด\",\"location\":\"บริษัท โออิชิ เทรดดิ้ง จำกัด (อมตะนคร)\",\"providedSof\":null,\"providedNewSof\":\"8910018077\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(44, 64, 8, 64, '', '8910018078', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":45,\"siteName\":\"บริษัท โออิชิ ฟู้ด เซอร์วิส จำกัด\",\"location\":\"บริษัท โออิชิ ฟู้ด เซอร์วิส จำกัด (บ้านบึง)\",\"providedSof\":null,\"providedNewSof\":\"8910018078\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(45, 7, 1, 7, '', '8910020656', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":46,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"Victor Club (PV ชั้น8)\",\"providedSof\":null,\"providedNewSof\":\"8910020656\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(46, 8, 1, 8, '', '8910019823 (ปีที่1) , 8910020044 (ปีที่ 2)', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":47,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"ASSC (CW Tower ชั้น5)\",\"providedSof\":null,\"providedNewSof\":\"8910019823 (ปีที่1) , 8910020044 (ปีที่ 2)\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(47, 4, 1, 4, '', '8910020609', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":48,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"The ParQ QSA ชั้น 10\",\"providedSof\":null,\"providedNewSof\":\"8910020609\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(48, 69, 5, 69, '', '8910026922', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":49,\"siteName\":\"Thai Beverage Logistic Company Limited\",\"location\":\"TBL Pharapradaeng\",\"providedSof\":null,\"providedNewSof\":\"8910026922\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(49, 70, 12, 70, '', '8910032252', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":50,\"siteName\":\"บ้านบึงเวชกิจ (คลินิกศูนย์แพทย์พัฒนา) (1002981)\",\"location\":\"(บ้านบึงเวชกิจ)\",\"providedSof\":null,\"providedNewSof\":\"8910032252\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(50, 66, 6, 66, '', 'Sangsom HQ', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":51,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"Sangsom HQ\",\"providedSof\":null,\"providedNewSof\":\"Sangsom HQ\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(51, 82, 13, 82, NULL, 'Thai Drink (Amata-Chonburi)', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":52,\"siteName\":\"บริษัท เบฟเทค จำกัด\",\"location\":\"8910026480\",\"providedSof\":null,\"providedNewSof\":\"Thai Drink (Amata-Chonburi)\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(52, 10, 1, 10, '', '8910029184', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":53,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"FYI Center\",\"providedSof\":null,\"providedNewSof\":\"8910029184\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(53, 83, 1, 7, NULL, '8910020656', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":54,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"Victor Club (PV ชั้น8)\",\"providedSof\":null,\"providedNewSof\":\"8910020656\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(54, 67, 10, 67, '', '8910018071', '', '', 'import_sites_excel_new_sof_update', '{\"rowIndex\":55,\"siteName\":\"ซี เอ ซี\",\"location\":\"C-asean\",\"providedSof\":null,\"providedNewSof\":\"8910018071\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(55, 84, 14, 68, NULL, '8910029216', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":56,\"siteName\":\"แสงโสม จำกัด\",\"location\":\"Sangsom 4\",\"providedSof\":null,\"providedNewSof\":\"8910029216\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(56, 85, 1, 11, NULL, '8910029873', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":57,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"The ParQ Fl.14\",\"providedSof\":null,\"providedNewSof\":\"8910029873\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(57, 86, 1, 9, NULL, '8910029232', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":58,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"ASSC Phase 3\",\"providedSof\":null,\"providedNewSof\":\"8910029232\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(58, 87, 6, 83, NULL, '8910030693', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":59,\"siteName\":\"Thai Beverage Public Company Limited\",\"location\":\"บริษัท สุราแสงโสม จำกัด (2)กาญจนบุรี\",\"providedSof\":null,\"providedNewSof\":\"8910030693\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29'),
-(59, 88, 1, 71, NULL, '8910018429', NULL, NULL, 'import_sites_excel_new_sof_create', '{\"rowIndex\":60,\"siteName\":\"ASM Management Co.,Ltd.\",\"location\":\"TBQ (ASM Manage)\",\"providedSof\":null,\"providedNewSof\":\"8910018429\",\"providedPeriod\":null,\"providedNewPeriod\":null}', '2026-06-11 10:49:29');
 
 -- --------------------------------------------------------
 
@@ -1828,28 +1735,6 @@ INSERT INTO `user_profiles` (`profile_id`, `user_id`, `name`, `phone`, `gmail`, 
 --
 
 --
--- Indexes for table `contract`
---
-ALTER TABLE `contract`
-  ADD PRIMARY KEY (`contract_id`);
-
---
--- Indexes for table `contract_device`
---
-ALTER TABLE `contract_device`
-  ADD PRIMARY KEY (`contract_id`,`device_id`),
-  ADD KEY `fk_cd_device` (`device_id`),
-  ADD KEY `fk_contract_device_slid` (`SLid`);
-
---
--- Indexes for table `contract_history`
---
-ALTER TABLE `contract_history`
-  ADD PRIMARY KEY (`history_id`),
-  ADD KEY `idx_contract_id` (`contract_id`),
-  ADD KEY `idx_old_contract_id` (`old_contract_id`);
-
---
 -- Indexes for table `devices`
 --
 ALTER TABLE `devices`
@@ -1862,7 +1747,8 @@ ALTER TABLE `devices`
 -- Indexes for table `devices_history`
 --
 ALTER TABLE `devices_history`
-  ADD PRIMARY KEY (`log_id`);
+  ADD PRIMARY KEY (`log_id`),
+  ADD KEY `idx_devices_history_did_changed_at` (`Did`,`changed_at`);
 
 --
 -- Indexes for table `device_role`
@@ -1920,8 +1806,7 @@ ALTER TABLE `sites_location`
 -- Indexes for table `sites_location_sof_history`
 --
 ALTER TABLE `sites_location_sof_history`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `idx_sites_location_sof_history_slid_changed_at` (`SLid`,`changed_at`);
+  ADD PRIMARY KEY (`log_id`);
 
 --
 -- Indexes for table `tasks`
@@ -1945,18 +1830,6 @@ ALTER TABLE `user_profiles`
 --
 -- AUTO_INCREMENT for dumped tables
 --
-
---
--- AUTO_INCREMENT for table `contract`
---
-ALTER TABLE `contract`
-  MODIFY `contract_id` int(11) NOT NULL AUTO_INCREMENT;
-
---
--- AUTO_INCREMENT for table `contract_history`
---
-ALTER TABLE `contract_history`
-  MODIFY `history_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `devices`
@@ -2022,7 +1895,7 @@ ALTER TABLE `sites_location`
 -- AUTO_INCREMENT for table `sites_location_sof_history`
 --
 ALTER TABLE `sites_location_sof_history`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=60;
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `tasks`
@@ -2045,14 +1918,6 @@ ALTER TABLE `user_profiles`
 --
 -- Constraints for dumped tables
 --
-
---
--- Constraints for table `contract_device`
---
-ALTER TABLE `contract_device`
-  ADD CONSTRAINT `fk_cd_contract` FOREIGN KEY (`contract_id`) REFERENCES `contract` (`contract_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_cd_device` FOREIGN KEY (`device_id`) REFERENCES `devices` (`Did`) ON DELETE CASCADE,
-  ADD CONSTRAINT `fk_contract_device_slid` FOREIGN KEY (`SLid`) REFERENCES `sites_location` (`SLid`) ON DELETE SET NULL ON UPDATE CASCADE;
 
 --
 -- Constraints for table `devices`

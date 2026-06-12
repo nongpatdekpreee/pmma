@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, UserPlus, Trash2 } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
-import { apiUrl, createEmployee, uploadEmployeePhoto } from "@/lib/api";
+import { createEmployee, uploadEmployeePhoto } from "@/lib/api";
 import {
   formatTelLineForDb,
   formatTenDigitUsDisplay,
@@ -20,6 +20,7 @@ import {
   EMPLOYEE_PHOTO_MAX_SIZE_LABEL,
   employeePhotoExtensionErrorMessage,
   employeePhotoSizeErrorMessage,
+  employeePhotoSrc,
   isAllowedEmployeePhotoFile,
   isEmployeePhotoOverSize,
 } from "@/lib/employeePhoto";
@@ -135,7 +136,7 @@ const AddEmployeePage = () => {
               <div className="flex items-center gap-4">
                 <label className="relative flex h-24 w-24 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                   {photo ? (
-                    <img src={photo.startsWith("http") ? photo : apiUrl(photo)} alt="" className="h-full w-full object-cover" />
+                    <img src={employeePhotoSrc(photo) ?? ''} alt="" className="h-full w-full object-cover" />
                   ) : (
                     <span className="text-sm text-muted-foreground select-none">{photoUploading ? "Uploading..." : "Select Image"}</span>
                   )}

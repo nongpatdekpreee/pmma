@@ -87,6 +87,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./database.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      
     networks:
       - app-net
     healthcheck:

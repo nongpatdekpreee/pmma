@@ -10,6 +10,7 @@ const {
   sofMatchWhere,
   syncSofOnSiteLocations,
   syncSofRenameOnSiteLocations,
+  findSlidsWithMatchingSof,
 } = require('../config/deviceSof');
 const slc = require('../lib/siteLocationContract');
 
@@ -446,15 +447,18 @@ const getContractHistoryDetailByHistoryId = async (req, res) => {
     const siteInfo = slRow
       ? { site_name: slRow.site_name, site_location: slRow.site_location }
       : {};
+    const liveDetail = slRow ? slc.mapSlRowToContractDetail(slRow) : null;
     const snap = slc.mapHistoryRowToContractDetail(histRow, siteInfo);
+    const merged = slc.mergeHistoryDetailWithLive(snap, liveDetail);
     const [devicesRows] = await db.execute(slc.DEVICES_BY_SLID_SQL, [cid]);
 
     const contractBase = {
-      ...(snap || {}),
+      ...(merged || snap || liveDetail || {}),
       contract_id: cid,
       history_id: legacy.history_id,
       history_detail: true,
-      sof_name: snap?.sof_name ?? legacy.new_sof ?? legacy.old_sof ?? null,
+      sof_name:
+        snap?.sof_name ?? legacy.new_sof ?? legacy.old_sof ?? liveDetail?.sof_name ?? null,
       site_id: cid,
       site_name: snap?.site_name ?? slRow?.site_name ?? null,
       site_location: snap?.site_location ?? slRow?.site_location ?? null,
@@ -557,6 +561,44 @@ function hasOtherContractEdits(existing, body, { skipNotRenewingStatus = false }
     const cur = normStr(existing.status).toLowerCase();
     if (skipNotRenewingStatus && inc === 'not_renewing') return false;
     if (inc !== cur && inc !== 'not_renewing') return true;
+  }
+  return false;
+}
+
+/** เปลี่ยนเลข SOF ทุก sites_location ที่ใช้ oldSof เดียวกัน (รวม normalize เลขนำหน้า 0) */
+async function syncSofRenameToAllPeers(conn, oldSof, newSof) {
+  const oldTrim = oldSof != null ? String(oldSof).trim() : '';
+  const newTrim = newSof != null ? String(newSof).trim() : '';
+  if (!oldTrim || !newTrim || oldTrim === newTrim) return;
+  await syncSofRenameOnSiteLocations(conn, oldTrim, newTrim);
+}
+
+/** แพร่ฟิลด์สัญญาไปทุก sites_location ที่ SOF ตรงกัน (ยกเว้นแถวที่แก้) */
+async function propagateContractFieldsToSameSofPeers(
+  conn,
+  matchSof,
+  excludeSlid,
+  body,
+  contractStatus
+) {
+  const peerSlids = await findSlidsWithMatchingSof(conn, matchSof, excludeSlid);
+  for (const slid of peerSlids) {
+    await applyContractFieldsToSlid(conn, slid, body, contractStatus);
+  }
+}
+
+function shouldPropagateContractFields(
+  body,
+  existing,
+  { sofChangeHistory, otherEdits, isTransitionToNotRenewing }
+) {
+  if (sofChangeHistory) return true;
+  if (otherEdits) return true;
+  if (isTransitionToNotRenewing) return true;
+  if (body.status !== undefined) {
+    const inc = String(body.status).toLowerCase();
+    const cur = existing.status != null ? String(existing.status).toLowerCase() : '';
+    if (inc !== cur) return true;
   }
   return false;
 }
@@ -674,12 +716,31 @@ const createContract = async (req, res) => {
 
       await applyContractFieldsToSlid(conn, primarySlid, body, contractStatus);
 
+      if (sofValue && oldSof && oldSof !== sofValue) {
+        await syncSofRenameToAllPeers(conn, oldSof, sofValue);
+      }
+
       for (const p of pairs) {
         if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id, p.device_ids);
       }
 
-      if (contractStatus !== 'draft' && sofValue && oldSof && oldSof !== sofValue) {
-        await syncSofRenameOnSiteLocations(conn, oldSof, sofValue);
+      const effStatus = contractStatus;
+      if (
+        oldSof &&
+        shouldPropagateContractFields(body, existing, {
+          sofChangeHistory:
+            sofValue && oldSof !== sofValue ? { oldSof, newSof: sofValue } : null,
+          otherEdits: true,
+          isTransitionToNotRenewing: false,
+        })
+      ) {
+        await propagateContractFieldsToSameSofPeers(
+          conn,
+          oldSof,
+          primarySlid,
+          body,
+          effStatus
+        );
       }
     } else {
       const targetPairs = pairs.length ? pairs : [];
@@ -689,6 +750,11 @@ const createContract = async (req, res) => {
       }
 
       primarySlid = targetPairs[0].site_id;
+      const firstEx = await slc.fetchSiteLocationRow(conn, primarySlid);
+      const oldSofOnCreate =
+        firstEx?.SOF != null && String(firstEx.SOF).trim() !== ''
+          ? String(firstEx.SOF).trim()
+          : '';
       for (const p of targetPairs) {
         const ex = await slc.fetchSiteLocationRow(conn, p.site_id);
         if (!ex) continue;
@@ -696,7 +762,29 @@ const createContract = async (req, res) => {
         if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id, p.device_ids);
       }
 
-      if (contractStatus !== 'draft' && sofValue) {
+      if (sofValue && oldSofOnCreate && oldSofOnCreate !== sofValue) {
+        await syncSofRenameToAllPeers(conn, oldSofOnCreate, sofValue);
+      }
+
+      if (
+        oldSofOnCreate &&
+        shouldPropagateContractFields(body, firstEx, {
+          sofChangeHistory:
+            sofValue && oldSofOnCreate !== sofValue
+              ? { oldSof: oldSofOnCreate, newSof: sofValue }
+              : null,
+          otherEdits: true,
+          isTransitionToNotRenewing: false,
+        })
+      ) {
+        await propagateContractFieldsToSameSofPeers(
+          conn,
+          oldSofOnCreate,
+          primarySlid,
+          body,
+          contractStatus
+        );
+      } else if (contractStatus !== 'draft' && sofValue) {
         await syncSofOnSiteLocations(
           conn,
           sofValue,
@@ -746,6 +834,10 @@ const updateContract = async (req, res) => {
     }
 
     const body = req.body;
+    const oldSofForPeers =
+      existing.SOF != null && String(existing.SOF).trim() !== ''
+        ? String(existing.SOF).trim()
+        : '';
     const prevDbStatus = existing.status;
     const isTransitionToNotRenewing =
       body.status === 'not_renewing' &&
@@ -800,27 +892,43 @@ const updateContract = async (req, res) => {
         ? body.status
         : undefined;
 
-    await applyContractFieldsToSlid(conn, cid, body, contractStatus ?? prevDbStatus);
+    const effStatus = contractStatus ?? prevDbStatus;
+    await applyContractFieldsToSlid(conn, cid, body, effStatus);
+
+    if (
+      sofChangeHistory?.oldSof &&
+      sofChangeHistory?.newSof &&
+      sofChangeHistory.oldSof !== sofChangeHistory.newSof
+    ) {
+      await syncSofRenameToAllPeers(
+        conn,
+        sofChangeHistory.oldSof,
+        sofChangeHistory.newSof
+      );
+    }
+
+    if (
+      oldSofForPeers &&
+      shouldPropagateContractFields(body, existing, {
+        sofChangeHistory,
+        otherEdits,
+        isTransitionToNotRenewing,
+      })
+    ) {
+      await propagateContractFieldsToSameSofPeers(
+        conn,
+        oldSofForPeers,
+        cid,
+        body,
+        effStatus
+      );
+    }
 
     const pairs = parsePairsFromBody(body, contractStatus || prevDbStatus);
     if (body.site_device_pairs !== undefined && pairs.length > 0) {
       for (const p of pairs) {
         if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id ?? cid, p.device_ids);
       }
-    }
-
-    if (
-      sofChangeHistory &&
-      contractStatus !== 'draft' &&
-      sofChangeHistory.oldSof &&
-      sofChangeHistory.newSof &&
-      sofChangeHistory.oldSof !== sofChangeHistory.newSof
-    ) {
-      await syncSofRenameOnSiteLocations(
-        conn,
-        sofChangeHistory.oldSof,
-        sofChangeHistory.newSof
-      );
     }
 
     if (body.status !== undefined && isTransitionToNotRenewing) {

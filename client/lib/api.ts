@@ -20,6 +20,22 @@ export function apiUrl(path: string): string {
 }
 
 /**
+ * URL สำหรับไฟล์ static ใต้ backend `/uploads/...` (รูปพนักงาน, สัญญา ฯลฯ)
+ * — ไฟล์อยู่ที่ Express ไม่ใช่ Next; dev ใช้ rewrite `/uploads` ใน next.config
+ */
+export function uploadAssetUrl(path: string): string {
+  const raw = String(path ?? '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const p = raw.startsWith('/') ? raw : `/${raw}`;
+  if (API_BASE) return `${API_BASE}${p}`;
+  if (typeof window !== 'undefined') return p;
+  const target = (process.env.API_PROXY_TARGET || 'http://127.0.0.1:5000').replace(/\/$/, '');
+  if (process.env.NODE_ENV === 'development') return `${target}${p}`;
+  return p;
+}
+
+/**
  * Fetch ไปยัง API — ใส่ Accept: application/json เพื่อลดโอกาสที่ proxy ส่งหน้า HTML
  * และให้สอดคล้องกับ Content-Type JSON เมื่อส่ง body (ยกเว้น FormData)
  */
@@ -915,7 +931,19 @@ export async function uploadEmployeePhoto(file: File): Promise<{ success: boolea
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch(apiUrl('/api/employees/upload'), { method: 'POST', body: fd });
-  return res.json();
+  let data: { success?: boolean; path?: string; message?: string } = {};
+  try {
+    data = await res.json();
+  } catch {
+    data = {};
+  }
+  if (!res.ok) {
+    return {
+      success: false,
+      message: data.message || `Upload failed (${res.status})`,
+    };
+  }
+  return { success: Boolean(data.success), path: data.path, message: data.message };
 }
 
 /** GET /api/employees - ดึงข้อมูล Employees จาก user_profiles */

@@ -1,4 +1,4 @@
-import { apiUrl } from '@/lib/api';
+import { employeePhotoSrc } from '@/lib/employeePhoto';
 
 /** คีย์ที่อาจอยู่บน engineer object ใน tasks.engineers JSON */
 const TASK_ENGINEER_ID_KEYS = [
@@ -31,8 +31,7 @@ export type EngineerRosterItem = {
 
 function resolvePhoto(raw: unknown): string | null {
   if (raw == null || raw === '') return null;
-  const s = String(raw);
-  return s.startsWith('http') ? s : apiUrl(s);
+  return employeePhotoSrc(String(raw));
 }
 
 /**

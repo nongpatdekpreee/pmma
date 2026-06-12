@@ -1,5 +1,5 @@
 const db = require('../config/database');
-const { applyReferSofToSiteLocation } = require('../config/deviceSof');
+const { applyReferSofToSiteLocation, syncSofRenameOnSiteLocations } = require('../config/deviceSof');
 
 // POST - สร้าง Site ใหม่
 const createSite = async (req, res) => {
@@ -290,12 +290,18 @@ const updateSitesLocationSof = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please provide SOF' });
     }
 
-    const [rows] = await db.execute('SELECT SLid FROM sites_location WHERE SLid = ?', [slid]);
+    const [rows] = await db.execute('SELECT SLid, SOF FROM sites_location WHERE SLid = ?', [slid]);
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Site location not found' });
     }
 
-    await applyReferSofToSiteLocation(db, slid, sofValue);
+    const oldSof = rows[0].SOF != null ? String(rows[0].SOF).trim() : '';
+    const newSof = sofValue != null ? String(sofValue).trim() : '';
+    if (oldSof && newSof && oldSof !== newSof) {
+      await syncSofRenameOnSiteLocations(db, oldSof, newSof);
+    } else {
+      await applyReferSofToSiteLocation(db, slid, sofValue);
+    }
 
     const [updated] = await db.execute(
       `SELECT SL.SLid, SL.Sid, SL.lid, SL.SOF, SL.SOF AS Refer_SOF,

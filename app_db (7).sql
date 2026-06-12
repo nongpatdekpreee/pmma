@@ -1504,6 +1504,7 @@ CREATE TABLE `sites_location` (
   `start_date` date DEFAULT NULL,
   `end_date` date DEFAULT NULL,
   `sla_term` int(11) DEFAULT NULL,
+  `Assigned_Service` varchar(100) NOT NULL DEFAULT '',
   `pm_time_per_year` enum('1','2','3','4','5') NOT NULL DEFAULT '2',
   `sale_account` text DEFAULT NULL,
   `tel_acc` varchar(20) DEFAULT NULL,

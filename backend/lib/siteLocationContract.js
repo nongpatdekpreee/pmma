@@ -111,6 +111,13 @@ async function ensureHistoryCompatColumns(conn) {
   }
 }
 
+async function ensureSitesLocationAssignedService(conn) {
+  if (await columnExists(conn, 'sites_location', 'Assigned_Service')) return;
+  await conn.execute(
+    `ALTER TABLE sites_location ADD COLUMN Assigned_Service varchar(100) NOT NULL DEFAULT '' AFTER sla_term`
+  );
+}
+
 async function fetchSiteLocationRow(conn, slid) {
   const id = parseInt(slid, 10);
   if (Number.isNaN(id)) return null;
@@ -269,8 +276,10 @@ async function findDevicesOnOtherContracts(conn, deviceIds, excludeSlid) {
 }
 
 async function updateSiteLocationContract(conn, slid, fields) {
+  await ensureSitesLocationAssignedService(conn);
   const sets = [];
   const vals = [];
+  const hasAssignedService = await columnExists(conn, 'sites_location', 'Assigned_Service');
   const map = {
     SOF: fields.sof_name,
     start_date: fields.start_date,
@@ -287,6 +296,7 @@ async function updateSiteLocationContract(conn, slid, fields) {
     status: fields.status,
   };
   for (const [col, val] of Object.entries(map)) {
+    if (col === 'Assigned_Service' && !hasAssignedService) continue;
     if (val !== undefined) {
       sets.push(`${col} = ?`);
       vals.push(val);
@@ -298,6 +308,35 @@ async function updateSiteLocationContract(conn, slid, fields) {
 }
 
 const HISTORY_ROW_SELECT = buildHistoryRowSelect('created_at');
+
+/** เติมฟิลด์ที่ snapshot ประวัติว่างจากสัญญาปัจจุบัน (เช่น start_date / end_date) */
+function mergeHistoryDetailWithLive(snap, liveDetail) {
+  if (!snap) return liveDetail || null;
+  if (!liveDetail) return snap;
+  const pick = (key) => {
+    const v = snap[key];
+    if (v != null && v !== '') return v;
+    return liveDetail[key] ?? null;
+  };
+  return {
+    ...liveDetail,
+    ...snap,
+    contract_name: pick('contract_name'),
+    start_date: pick('start_date'),
+    end_date: pick('end_date'),
+    sla_term: snap.sla_term != null ? snap.sla_term : liveDetail.sla_term,
+    sale_account: pick('sale_account'),
+    tel_acc: pick('tel_acc'),
+    email_acc: pick('email_acc'),
+    coverage_scope: pick('coverage_scope'),
+    file_paths: pick('file_paths'),
+    image_paths: pick('image_paths'),
+    pm_time_per_year: snap.pm_time_per_year != null ? snap.pm_time_per_year : liveDetail.pm_time_per_year,
+    Assigned_Service: pick('Assigned_Service'),
+    sof_name: pick('sof_name'),
+    status: snap.status != null ? snap.status : liveDetail.status,
+  };
+}
 
 /** Contract fields from a sites_location_sof_history row (mirrors sites_location snapshot). */
 function mapHistoryRowToContractDetail(histRow, siteInfo = {}) {
@@ -385,9 +424,11 @@ module.exports = {
   HISTORY_ROW_SELECT,
   columnExists,
   ensureHistoryCompatColumns,
+  ensureSitesLocationAssignedService,
   fetchSiteLocationRow,
   mapSlRowToContractDetail,
   mapHistoryRowToContractDetail,
+  mergeHistoryDetailWithLive,
   insertSiteLocationHistory,
   assignDevicesToSlid,
   findDevicesOnOtherContracts,

@@ -1,3 +1,5 @@
+import { uploadAssetUrl } from '@/lib/api';
+
 export const EMPLOYEE_PHOTO_MAX_BYTES = 1000 * 1024;
 export const EMPLOYEE_PHOTO_MAX_SIZE_LABEL = "1000 KB";
 export const EMPLOYEE_PHOTO_EXTENSIONS_LABEL = "JPG, PNG";
@@ -28,4 +30,12 @@ export function isAllowedEmployeePhotoFile(file: File): boolean {
 
 export function employeePhotoExtensionErrorMessage(): string {
   return `Only ${EMPLOYEE_PHOTO_EXTENSIONS_LABEL} files are allowed.`;
+}
+
+/** แปลง path จาก DB (`/uploads/employees/...`) หรือ URL เต็ม ให้โหลดรูปได้ */
+export function employeePhotoSrc(photo: string | null | undefined): string | null {
+  if (photo == null || String(photo).trim() === '') return null;
+  const s = String(photo).trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  return uploadAssetUrl(s);
 }

@@ -15,11 +15,14 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  /** Dev: เรียก `/api` ที่ Next แล้วส่งต่อไป Express — ใช้เมื่อ NEXT_PUBLIC_API_URL ว่างหรือ same-origin */
+  /** Dev: เรียก `/api` และ `/uploads` ที่ Next แล้วส่งต่อไป Express */
   async rewrites() {
     if (process.env.NODE_ENV !== "development") return [];
     const target = (process.env.API_PROXY_TARGET || "http://127.0.0.1:5000").replace(/\/$/, "");
-    return [{ source: "/api/:path*", destination: `${target}/api/:path*` }];
+    return [
+      { source: "/api/:path*", destination: `${target}/api/:path*` },
+      { source: "/uploads/:path*", destination: `${target}/uploads/:path*` },
+    ];
   },
 };
 
