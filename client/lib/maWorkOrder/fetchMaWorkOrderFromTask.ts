@@ -8,16 +8,39 @@ export type MaWorkOrderDeviceMaps = {
   referSof?: string;
 };
 
+function resolveTaskSiteAndLocation(task: Record<string, unknown>): {
+  siteName: string;
+  location: string;
+} {
+  let siteName = String(task.Sname ?? task.siteName ?? task.site_name ?? '').trim();
+  let location = String(
+    task.location ?? task.Location2 ?? task.location2 ?? ''
+  ).trim();
+
+  if (!location && siteName.includes(' - ')) {
+    const parts = siteName.split(' - ');
+    const sitePart = parts[0]?.trim() || '';
+    const locationPart = parts.slice(1).join(' - ').trim();
+    if (locationPart) {
+      location = locationPart;
+      siteName = sitePart || siteName;
+    }
+  }
+
+  return { siteName, location };
+}
+
 function taskRecordToInput(task: Record<string, unknown>): MaWorkOrderTaskInput {
   const assets = Array.isArray(task.assets) ? task.assets : [];
   const contractId = task.contractId ?? task.contract_id;
   const topRep = task.replacementDeviceId ?? task.replacement_device_id;
+  const { siteName, location } = resolveTaskSiteAndLocation(task);
 
   return {
     id: task.id as string | number | undefined,
     taskType: 'MA',
-    Sname: String(task.Sname ?? task.siteName ?? task.Sname ?? ''),
-    location: String(task.location ?? ''),
+    Sname: siteName,
+    location,
     startDate: String(task.startDate ?? task.start_date ?? ''),
     endDate: String(task.endDate ?? task.end_date ?? ''),
     reporterName: String(task.reporterName ?? task.reporter_name ?? ''),
@@ -132,6 +155,24 @@ async function fetchDeviceMapsFromTask(
   return { resolvedDevices, resolvedReplacements, referSof };
 }
 
+let sitesLocationCache: Array<{ SLid?: number; Location2?: string }> | null = null;
+
+async function fetchLocationFromSiteId(siteId: unknown): Promise<string> {
+  if (siteId == null || !String(siteId).trim()) return '';
+  try {
+    if (!sitesLocationCache) {
+      const res = await fetch(apiUrl('/api/sites/locations'));
+      const json = await res.json();
+      if (!res.ok || !Array.isArray(json.data)) return '';
+      sitesLocationCache = json.data;
+    }
+    const row = sitesLocationCache?.find((r) => String(r.SLid) === String(siteId));
+    return row?.Location2 ? String(row.Location2).trim() : '';
+  } catch {
+    return '';
+  }
+}
+
 /** ดึงข้อมูลฟอร์มจาก task MA — ใช้ maps ที่มีอยู่แล้วจาก detail ได้เพื่อลด API */
 export async function fetchMaWorkOrderFromTask(
   task: Record<string, unknown>,
@@ -148,7 +189,13 @@ export async function fetchMaWorkOrderFromTask(
         }
       : await fetchDeviceMapsFromTask(task);
 
-  return mapTaskToMaWorkOrder(taskRecordToInput(task), {
+  const input = taskRecordToInput(task);
+  if (!input.location?.trim()) {
+    const fromSite = await fetchLocationFromSiteId(task.siteId ?? task.site_id);
+    if (fromSite) input.location = fromSite;
+  }
+
+  return mapTaskToMaWorkOrder(input, {
     referSof: maps.referSof,
     resolvedDevices: maps.resolvedDevices,
     resolvedReplacements: maps.resolvedReplacements,

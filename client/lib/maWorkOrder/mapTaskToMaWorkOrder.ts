@@ -160,7 +160,7 @@ export function mapTaskToMaWorkOrder(
     referSof: (context.referSof ?? '').trim(),
     assignedService: (task.assignedService ?? '').trim() || null,
 
-    problemLocation: (task.location ?? task.Sname ?? '').trim(),
+    problemLocation: (task.location || task.Sname || '').trim(),
     brokenHardware,
     assetOwner: mapAssetOwner(task.assetBinding),
     problemDescription,
