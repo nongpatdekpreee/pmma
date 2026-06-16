@@ -28,7 +28,7 @@ export default function Page() {
           {/* ฝั่งซ้าย: Dashboard & Maintenance */}
           <div className="flex-[2] space-y-6">
             <div className="flex items-center justify-between">
-              <Link href="/" className="text-3xl font-bold text-foreground">
+              <Link href="/" className="page-heading">
                 Dashboard
               </Link>
               <div>

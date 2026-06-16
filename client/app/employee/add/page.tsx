@@ -122,7 +122,7 @@ const AddEmployeePage = () => {
             <ArrowLeft size={22} className="text-muted-foreground" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Add Employee</h1>
+            <h1 className="page-heading">Add Employee</h1>
             <p className="text-sm text-indigo-500">Add new employee</p>
           </div>
         </div>

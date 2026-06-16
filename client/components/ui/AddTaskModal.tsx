@@ -204,6 +204,17 @@ interface ContractOption {
   sof_name?: string;
 }
 
+/** แสดงสัญญา: ชื่อ contract + เลข SOF */
+function formatContractDisplayLabel(c: ContractOption | undefined, idFallback = ''): string {
+  const sof = (c?.sof_name ?? '').trim();
+  const name = (c?.contract_name ?? '').trim();
+  if (name && sof) return `${name} - ${sof}`;
+  if (name) return name;
+  if (sof) return sof;
+  if (c?.contract_id != null) return `Contract #${c.contract_id}`;
+  return idFallback;
+}
+
 /* ================= available engineers ================= */
 // จะดึงข้อมูลจาก API ใน component แทน
 
@@ -421,7 +432,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   const fetchAllSites = async () => {
     try {
-      // ใช้ endpoint ที่กรองเฉพาะ sites ที่มี contract
+      // สัญญา draft + official ที่ยังไม่หมดอายุ (locations-with-contracts)
       const result = await getSitesLocationWithContracts();
       if (!result.success) {
         // ถ้าไม่มีข้อมูล contract ให้ return empty array แทนที่จะ throw error
@@ -543,12 +554,23 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     try {
       const contracts = await fetchContractsBySite(siteId);
       setContractOptions(contracts);
-      if (!preserveContractId) {
-        setSelectedContractIds([]);
-      } else {
+      if (preserveContractId) {
         const contractExists = contracts.some((c: ContractOption) => String(c.contract_id) === String(preserveContractId));
         if (contractExists) {
           setSelectedContractIds([String(preserveContractId)]);
+        } else {
+          setSelectedContractIds([]);
+        }
+      } else {
+        const exact = contracts.filter(
+          (c: ContractOption) =>
+            String(c.contract_id) === siteId ||
+            (c.site_id != null && String(c.site_id) === siteId)
+        );
+        if (exact.length > 0) {
+          setSelectedContractIds([String(exact[0].contract_id)]);
+        } else if (contracts.length === 1) {
+          setSelectedContractIds([String(contracts[0].contract_id)]);
         } else {
           setSelectedContractIds([]);
         }
@@ -1374,12 +1396,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setSid(siteId);
     const selected = siteOptions.find((s) => s.id === siteId);
     setSname(selected ? selected.label : '');
-    // เมื่อเปลี่ยน site ให้เคลียร์ contract และ devices
     setSelectedContractIds([]);
     setDevices([]);
     setSelectedDevices([]);
     setBrokenDevicePairs([]);
-    // โหลด contracts สำหรับ site นี้ (จะทำใน useEffect)
+    // โหลด + เลือก contract อัตโนมัติ (SLid = contract_id) ใน useEffect ตาม Sid
   };
 
   const handleClearSite = () => {
@@ -1408,21 +1429,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   };
 
   const contractTriggerText = useMemo(() => {
-    const sofOrFallback = (c: ContractOption | undefined, idFallback: string) => {
-      if (!c) return idFallback;
-      const sof = (c.sof_name ?? '').trim();
-      if (sof) return sof;
-      return c.contract_name?.trim() || `Contract #${c.contract_id}`;
-    };
     if (selectedContractIds.length === 0) return '';
-    if (selectedContractIds.length === 1) {
-      const c = contractOptions.find((x) => String(x.contract_id) === selectedContractIds[0]);
-      return sofOrFallback(c, selectedContractIds[0]);
-    }
     return selectedContractIds
       .map((id) => {
         const c = contractOptions.find((x) => String(x.contract_id) === id);
-        return sofOrFallback(c, id);
+        return formatContractDisplayLabel(c, id);
       })
       .join(', ');
   }, [selectedContractIds, contractOptions]);
@@ -1436,10 +1447,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   const getPmContractSofLabel = useCallback((contractIdStr: string) => {
     const c = contractOptions.find((x) => String(x.contract_id) === contractIdStr);
-    if (!c) return contractIdStr;
-    const sof = (c.sof_name ?? '').trim();
-    if (sof) return sof;
-    return c.contract_name?.trim() || `Contract #${c.contract_id}`;
+    return formatContractDisplayLabel(c, contractIdStr);
   }, [contractOptions]);
 
   // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices). ถ้ากรองตาม site แล้วไม่เจอ (เช่น fallback มาจากดึงแค่ตาม contract) ให้โชว์ทั้งหมดที่ผูกกับ contract นั้น
@@ -2088,8 +2096,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   {editingEvent
                     ? 'Select contract to specify SOF.'
                     : taskType === 'MA'
-                      ? 'Select one contract (SOF). Devices load from this contract only.'
-                      : 'Select one or more contracts (SOF). Devices load from all selected; save creates separate tasks per contract when assets belong to different contracts.'}
+                      ? 'Select contract and SOF  '
+                      : 'Select contract and SOF after selecting site'}
                 </p>
 
                 <div className="relative" ref={contractDropdownRef}>
@@ -2115,7 +2123,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                     onFilterChange={setContractSearch}
                     items={contractOptions.map((c) => ({
                       value: String(c.contract_id),
-                      label: `${c.contract_name || `Contract #${c.contract_id}`}${c.sof_name ? ` - ${c.sof_name}` : ''}`,
+                      label: formatContractDisplayLabel(c),
                     }))}
                     multiSelect={!editingEvent && taskType === 'PM'}
                     selectedValues={!editingEvent && taskType === 'PM' ? selectedContractIds : undefined}

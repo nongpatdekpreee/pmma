@@ -4,6 +4,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { LucideIcon, UserCheck, UserRoundCog, Wrench, Search, UserPlus, X, FileUp, Edit, Trash2, Download } from "lucide-react";
 import { getEmployees, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
+import { InlineCatLoader } from '@/components/ui/CatLoader';
 import {
   formatEmployeeTelForDisplay,
   formatTelLineForDb,
@@ -725,9 +726,7 @@ const EmployeeManagement = () => {
                 </div>
               )}
               {loading ? (
-                <div className="flex items-center justify-center py-16">
-                  <div className="text-muted-foreground">Loading...</div>
-                </div>
+                <InlineCatLoader label="Loading..." className="py-16" />
               ) : (
                 <table className="min-w-[720px] w-full text-sm">
                   <thead className="sticky top-0 z-[1] bg-muted text-xs uppercase text-muted-foreground shadow-sm">

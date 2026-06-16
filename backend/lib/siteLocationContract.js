@@ -12,9 +12,11 @@ const HIST_ACTION = {
   UPDATE: 'Update',
 };
 
+const SITE_LOCATION_NAME_EXPR = `CONCAT(COALESCE(s.Name, ''), CASE WHEN l.Location2 IS NOT NULL AND TRIM(l.Location2) != '' THEN CONCAT(' - ', l.Location2) ELSE '' END)`;
+
 const SL_LIST_SELECT = `
   sl.SLid AS contract_id,
-  CONCAT(COALESCE(s.Name, ''), CASE WHEN l.Location2 IS NOT NULL AND TRIM(l.Location2) != '' THEN CONCAT(' - ', l.Location2) ELSE '' END) AS contract_name,
+  COALESCE(NULLIF(TRIM(sl.contract_name), ''), ${SITE_LOCATION_NAME_EXPR}) AS contract_name,
   sl.start_date,
   sl.end_date,
   sl.created_at,
@@ -29,6 +31,31 @@ const SL_LIST_SELECT = `
   IFNULL(l.Location2, '') AS site_location,
   (SELECT COUNT(*) FROM devices d WHERE d.SLid = sl.SLid) AS device_count,
   1 AS devices_slid_aligned`;
+
+async function buildSlListSelect(conn) {
+  const col = await resolveContractNameDbColumn(conn, 'sites_location');
+  const nameExpr =
+    col === 'contract_name'
+      ? `COALESCE(NULLIF(TRIM(sl.contract_name), ''), ${SITE_LOCATION_NAME_EXPR})`
+      : `COALESCE(NULLIF(TRIM(sl.contactname), ''), ${SITE_LOCATION_NAME_EXPR})`;
+  return `
+  sl.SLid AS contract_id,
+  ${nameExpr} AS contract_name,
+  sl.start_date,
+  sl.end_date,
+  sl.created_at,
+  sl.SLid AS site_id,
+  sl.sla_term,
+  sl.sale_account,
+  sl.SOF AS sof_name,
+  sl.status,
+  s.Name AS contract_site_name,
+  IFNULL(l.Location2, '') AS contract_site_location,
+  s.Name AS site_name,
+  IFNULL(l.Location2, '') AS site_location,
+  (SELECT COUNT(*) FROM devices d WHERE d.SLid = sl.SLid) AS device_count,
+  1 AS devices_slid_aligned`;
+}
 
 const RENEW_HIST_RENEW_WHERE = `(
   h.action_type = 'Renew'
@@ -84,7 +111,7 @@ function historyOrderByClause(tsColumn, tableAlias = '') {
   return `ORDER BY ${p}log_id DESC`;
 }
 
-function buildHistoryRowSelect(tsColumn, hasTerm = false) {
+function buildHistoryRowSelect(tsColumn, hasTerm = false, contractNameField = 'contract_name') {
   const changedCol =
     tsColumn === 'changed_at'
       ? 'changed_at'
@@ -93,10 +120,27 @@ function buildHistoryRowSelect(tsColumn, hasTerm = false) {
         : 'NULL AS changed_at';
   const base = `
   log_id, SLid, action_type, ${changedCol}, old_sof,
-  SOF, contactname, start_date, end_date, sla_term, Assigned_Service,
+  SOF, ${contractNameField}, start_date, end_date, sla_term, Assigned_Service,
   pm_time_per_year, sale_account, tel_acc, email_acc, coverage_scope,
   file_paths, image_paths, status, created_at, Sid, lid`;
   return hasTerm ? `${base}, terminated_reason` : base;
+}
+
+async function resolveContractNameDbColumn(conn, table) {
+  if (await columnExists(conn, table, 'contract_name')) return 'contract_name';
+  if (await columnExists(conn, table, 'contactname')) return 'contactname';
+  return 'contract_name';
+}
+
+function storedContractNameFromRow(slRow) {
+  if (!slRow) return '';
+  if (slRow.contract_name != null && String(slRow.contract_name).trim() !== '') {
+    return String(slRow.contract_name).trim();
+  }
+  if (slRow.contactname != null && String(slRow.contactname).trim() !== '') {
+    return String(slRow.contactname).trim();
+  }
+  return '';
 }
 
 async function ensureHistoryCompatColumns(conn) {
@@ -118,6 +162,18 @@ async function ensureSitesLocationAssignedService(conn) {
   );
 }
 
+function resolveContractNameFromRow(slRow) {
+  if (!slRow) return '';
+  const stored = storedContractNameFromRow(slRow);
+  if (stored) return stored;
+  const siteName = slRow.site_name != null ? String(slRow.site_name) : '';
+  const loc = slRow.site_location != null ? String(slRow.site_location) : '';
+  if (siteName && loc) return `${siteName} - ${loc}`;
+  if (siteName) return siteName;
+  if (loc) return loc;
+  return slRow.SLid != null ? `SLid ${slRow.SLid}` : '';
+}
+
 async function fetchSiteLocationRow(conn, slid) {
   const id = parseInt(slid, 10);
   if (Number.isNaN(id)) return null;
@@ -136,11 +192,9 @@ function mapSlRowToContractDetail(slRow) {
   if (!slRow) return null;
   const siteName = slRow.site_name != null ? String(slRow.site_name) : '';
   const loc = slRow.site_location != null ? String(slRow.site_location) : '';
-  const contractName =
-    siteName && loc ? `${siteName} - ${loc}` : siteName || loc || `SLid ${slRow.SLid}`;
   return {
     contract_id: slRow.SLid,
-    contract_name: contractName,
+    contract_name: resolveContractNameFromRow(slRow),
     start_date: slRow.start_date,
     end_date: slRow.end_date,
     site_id: slRow.SLid,
@@ -173,6 +227,7 @@ async function insertSiteLocationHistory(conn, slid, actionType, meta = {}) {
   const hasChangedAt = await columnExists(conn, 'sites_location_sof_history', 'changed_at');
   const hasOldSof = await columnExists(conn, 'sites_location_sof_history', 'old_sof');
   const hasTerm = await columnExists(conn, 'sites_location_sof_history', 'terminated_reason');
+  const contractNameCol = await resolveContractNameDbColumn(conn, 'sites_location_sof_history');
 
   const sofForHistory =
     meta.newSof != null && String(meta.newSof).trim() !== ''
@@ -186,7 +241,7 @@ async function insertSiteLocationHistory(conn, slid, actionType, meta = {}) {
     'Sid',
     'lid',
     'SOF',
-    'contactname',
+    contractNameCol,
     'start_date',
     'end_date',
     'sla_term',
@@ -208,7 +263,7 @@ async function insertSiteLocationHistory(conn, slid, actionType, meta = {}) {
     slRow.Sid,
     slRow.lid,
     sofForHistory,
-    slRow.contactname,
+    storedContractNameFromRow(slRow) || null,
     slRow.start_date,
     slRow.end_date,
     slRow.sla_term,
@@ -277,11 +332,13 @@ async function findDevicesOnOtherContracts(conn, deviceIds, excludeSlid) {
 
 async function updateSiteLocationContract(conn, slid, fields) {
   await ensureSitesLocationAssignedService(conn);
+  const contractNameCol = await resolveContractNameDbColumn(conn, 'sites_location');
   const sets = [];
   const vals = [];
   const hasAssignedService = await columnExists(conn, 'sites_location', 'Assigned_Service');
   const map = {
     SOF: fields.sof_name,
+    [contractNameCol]: fields.contract_name,
     start_date: fields.start_date,
     end_date: fields.end_date,
     sla_term: fields.sla_term,
@@ -343,8 +400,13 @@ function mapHistoryRowToContractDetail(histRow, siteInfo = {}) {
   if (!histRow) return null;
   const siteName = siteInfo.site_name != null ? String(siteInfo.site_name) : '';
   const loc = siteInfo.site_location != null ? String(siteInfo.site_location) : '';
-  const contractName =
-    siteName && loc ? `${siteName} - ${loc}` : siteName || loc || `SLid ${histRow.SLid}`;
+  const contractName = resolveContractNameFromRow({
+    contract_name: histRow.contract_name ?? histRow.contactname,
+    contactname: histRow.contactname,
+    site_name: siteName,
+    site_location: loc,
+    SLid: histRow.SLid,
+  });
   const sofRaw =
     histRow.SOF != null && String(histRow.SOF).trim() !== ''
       ? String(histRow.SOF).trim()
@@ -416,15 +478,19 @@ const AVAILABLE_DEVICES_BASE = `
 module.exports = {
   HIST_ACTION,
   SL_LIST_SELECT,
+  buildSlListSelect,
   buildRenewHistSubqueries,
   resolveHistoryTimestamp,
   HISTORY_STATUS_SUBQUERY,
   buildHistoryRowSelect,
+  resolveContractNameDbColumn,
+  storedContractNameFromRow,
   historyOrderByClause,
   HISTORY_ROW_SELECT,
   columnExists,
   ensureHistoryCompatColumns,
   ensureSitesLocationAssignedService,
+  resolveContractNameFromRow,
   fetchSiteLocationRow,
   mapSlRowToContractDetail,
   mapHistoryRowToContractDetail,

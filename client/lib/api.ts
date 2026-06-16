@@ -212,7 +212,7 @@ export async function getSiteRegistryCounts(): Promise<{
   return res.json();
 }
 
-/** GET /api/sites/locations-with-contracts - สำหรับ dropdown Site เฉพาะที่มี contract (SLid, SiteName, Location2) */
+/** GET /api/sites/locations-with-contracts — dropdown Site สำหรับสร้างแพลน (draft + official) */
 export async function getSitesLocationWithContracts(): Promise<{ success: boolean; data: { SLid: number; SiteName: string; Location2?: string }[] }> {
   const res = await fetch(apiUrl('/api/sites/locations-with-contracts'));
   return jsonWithFallback(res, { success: false, data: [] });

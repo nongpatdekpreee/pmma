@@ -263,7 +263,7 @@ export default function CalendarPage() {
       <div className="flex-1 p-8 space-y-8 md:mt-0 mt-16">
         {/* Header & Chart Section */}
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+          <h1 className="page-heading">Dashboard</h1>
         </div>
 
         <div className="grid grid-cols-3 gap-6">

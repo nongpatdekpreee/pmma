@@ -755,19 +755,9 @@ function ScheduleManagementContent() {
           setAvailableEngineers(mapEmployeesToEngineerRoster(employeesResult.data) as Engineer[]);
         }
         
-        // Auto-provision contracts จาก Refer_SOF ที่มีใน devices แต่ยังไม่มี contract_device
+        // Auto-provision contracts จาก Refer_SOF (background — ไม่แสดง toast ตอนเปิดหน้า)
         try {
-          const syncResult = await syncContractsFromReferSof();
-          if (syncResult.success && syncResult.data) {
-            const { created = 0, linked = 0 } = syncResult.data;
-            if (created > 0 || linked > 0) {
-              toastSuccess(
-                linked > 0 && created === 0
-                  ? `Added devices to ${linked} existing contract(s) from Refer_SOF`
-                  : `Auto-created ${created} contract(s), linked ${linked} to existing from Refer_SOF`
-              );
-            }
-          }
+          await syncContractsFromReferSof();
         } catch (syncErr) {
           console.warn('Refer_SOF contract sync skipped:', syncErr);
         }

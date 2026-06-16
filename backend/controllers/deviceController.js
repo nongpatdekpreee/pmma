@@ -383,7 +383,7 @@ const getDevices = async (req, res) => {
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
                  devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, sl.SOF AS Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
+                 Refer_Ticket, devices.Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
                  FROM devices
                  JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
@@ -477,7 +477,7 @@ const getDevicesExcludeInStore = async (req, res) => {
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
                  devices.SLid, PO_No, Loan_Start, Request_Date, sites_location.SOF AS Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
+                 Refer_Ticket, devices.Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
                  FROM devices
                  JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
@@ -573,7 +573,7 @@ const getDevicesExcludeOutStore = async (req, res) => {
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
                  devices.SLid, PO_No, Loan_Start, Request_Date, sites_location.SOF AS Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
+                 Refer_Ticket, devices.Assigned_Service, Reason, devices.Dtypeid, 
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
                  FROM devices
                  JOIN device_type ON devices.Dtypeid = device_type.Dtypeid
@@ -636,7 +636,7 @@ const getDeviceById = async (req, res) => {
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
                  devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, sl.SOF AS Refer_SOF, 
-                 Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, devices.DeRoleid,
+                 Refer_Ticket, devices.Assigned_Service, Reason, devices.Dtypeid, devices.DeRoleid,
                  device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename,
                  dr.name as roleName
                  FROM devices
@@ -1000,7 +1000,7 @@ const updateDevice = async (req, res) => {
     const [updated] = await db.execute(
       `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor, 
        devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, ${deviceSofSelect('sl')}, 
-       Refer_Ticket, Assigned_Service, Reason, devices.Dtypeid, 
+       Refer_Ticket, devices.Assigned_Service, Reason, devices.Dtypeid, 
        device_type.model, manufacturer.name as manufacturername, sites.Name as Sitename 
        FROM devices
        LEFT JOIN device_type ON devices.Dtypeid = device_type.Dtypeid

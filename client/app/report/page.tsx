@@ -54,6 +54,7 @@ import {
   getDashboardPeriodBounds,
 } from '@/lib/dashboardPeriod';
 import { OverdueTasksModal,CompletedTasksModal,InprocessTasksModal,PendingTasksModal  } from '@/components/ui/OverdueTasksModal';
+import { InlineCatLoader } from '@/components/ui/CatLoader';
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['data']>;
 
@@ -1501,7 +1502,7 @@ export default function ReportPage() {
         {isMa && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-blue-50/70 border border-blue-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-muted-foreground mb-4 flex items-center gap-2 text-sm">
+            <h3 className="section-heading section-heading-plain mb-4 flex items-center gap-2">
               <TrendingUp size={16} className="text-blue-500" />
               Overview
             </h3>
@@ -1528,7 +1529,7 @@ export default function ReportPage() {
           </div>
 
           <div className="bg-amber-50/70 border border-amber-100 p-6 rounded-[2rem] shadow-sm">
-            <h3 className="font-bold text-muted-foreground mb-1 flex items-center gap-2 text-sm">
+            <h3 className="section-heading section-heading-plain mb-1 flex items-center gap-2">
               <AlertTriangle size={16} className="text-amber-500" />
               Watch List
             </h3>
@@ -1573,9 +1574,14 @@ export default function ReportPage() {
           </div>
         </div>
 
-        {(loading || error) && (
+        {loading && (
+          <div className="rounded-[2rem] border border-border bg-card shadow-sm">
+            <InlineCatLoader label="Loading data..." compact={false} className="py-8" />
+          </div>
+        )}
+        {!loading && error && (
           <div className="rounded-[2rem] border border-border bg-card px-6 py-4 text-sm text-muted-foreground shadow-sm">
-            {loading ? 'Loading data...' : error}
+            {error}
           </div>
         )}
 
@@ -1762,7 +1768,7 @@ export default function ReportPage() {
           <div className="min-w-0 overflow-hidden bg-card p-6 rounded-[2rem] shadow-sm">
             <div className="flex items-center justify-between mb-3 min-w-0">
               <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0 flex-1">
-                <h3 className="font-bold text-muted-foreground text-lg flex items-center gap-2 shrink-0">
+                <h3 className="section-heading-lg flex items-center gap-2 shrink-0">
                   <BarChart3 size={18} className="text-muted-foreground" />
                   Monthly {taskLabel} Trend
                 </h3>
@@ -2082,7 +2088,7 @@ export default function ReportPage() {
           </div>
 
           <div className="bg-card p-6 rounded-[2rem] shadow-sm min-w-0">
-            <h3 className="font-bold text-muted-foreground text-lg mb-4 flex items-center gap-2">
+            <h3 className="section-heading-lg mb-4 flex items-center gap-2">
               <Shield size={18} className="text-muted-foreground" />
               {taskLabel} Result Breakdown
             </h3>
@@ -2155,7 +2161,7 @@ export default function ReportPage() {
         {activeTab === 'vendor' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-card p-6 rounded-[2rem] shadow-sm min-w-0">
-              <h3 className="font-bold text-muted-foreground text-lg mb-5 flex items-center gap-2">
+              <h3 className="section-heading-lg mb-5 flex items-center gap-2">
                 <BarChart3 size={18} className="text-muted-foreground" />
                 {isMa ? 'MA' : 'PM'} Tasks by Vendor
               </h3>
@@ -2190,7 +2196,7 @@ export default function ReportPage() {
             </div>
 
             <div className="bg-card p-6 rounded-[2rem] shadow-sm">
-              <h3 className="font-bold text-muted-foreground text-lg mb-5 flex items-center gap-2">
+              <h3 className="section-heading-lg mb-5 flex items-center gap-2">
                 <Trophy size={18} className="text-amber-500" />
                 Vendor Ranking
               </h3>
@@ -2233,7 +2239,7 @@ export default function ReportPage() {
         {/* Equipment Tab */}
         {activeTab === 'equipment' && (
           <div className="bg-card p-6 rounded-[2rem] shadow-sm">
-            <h3 className={`font-bold text-muted-foreground text-lg flex items-center gap-2 ${isMa ? 'mb-5' : 'mb-1'}`}>
+            <h3 className={`section-heading-lg flex items-center gap-2 ${isMa ? 'mb-5' : 'mb-1'}`}>
               <Server size={18} className="text-muted-foreground" />
               {equipmentLabel} (Top 15)
             </h3>
@@ -2449,7 +2455,7 @@ export default function ReportPage() {
         {activeTab === 'site' && isMa && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-card p-6 rounded-[2rem] shadow-sm min-w-0">
-              <h3 className="font-bold text-muted-foreground text-lg mb-5 flex items-center gap-2">
+              <h3 className="section-heading-lg mb-5 flex items-center gap-2">
                 <BarChart3 size={18} className="text-muted-foreground" />
                 {taskLabel} Tasks by Site
               </h3>
@@ -2484,7 +2490,7 @@ export default function ReportPage() {
             </div>
 
             <div className="bg-card p-6 rounded-[2rem] shadow-sm">
-              <h3 className="font-bold text-muted-foreground text-lg mb-5 flex items-center gap-2">
+              <h3 className="section-heading-lg mb-5 flex items-center gap-2">
                 <Trophy size={18} className="text-amber-500" />
                 Site Ranking
               </h3>
@@ -2533,7 +2539,7 @@ export default function ReportPage() {
           >
             <h2
               id="pm-sites-registry-heading"
-              className="mb-1 font-bold text-muted-foreground text-base sm:text-lg flex items-center gap-2"
+              className="section-heading-lg-responsive mb-1 flex items-center gap-2"
             >
               <Building2 size={18} className="text-blue-500 shrink-0" aria-hidden />
               Sites & locations

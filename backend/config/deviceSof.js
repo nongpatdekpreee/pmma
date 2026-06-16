@@ -42,15 +42,34 @@ function noSofWhere(slAlias = 'sl_sof', deviceAlias = 'd') {
   )`;
 }
 
-/** SOF ที่มี device ยังไม่ official บน sites_location */
+/** sites_location ที่ยังไม่ official (draft / null เท่านั้น — ไม่ใช้ start_date IS NULL เพราะทำให้ sync ซ้ำทุกครั้ง) */
+function siteLocationPendingContractWhere(slAlias = 'sl') {
+  return `( ${slAlias}.status IS NULL OR LOWER(TRIM(COALESCE(${slAlias}.status, ''))) = 'draft' )`;
+}
+
+/** SOF ที่มี device บน sites_location ที่ยัง pending */
 const PENDING_REFER_SOF_SQL = `
   SELECT DISTINCT sl.SOF AS refer_sof
   FROM devices d
   INNER JOIN sites_location sl ON d.SLid = sl.SLid
   WHERE ${sofIsValidWhere('sl')}
     AND d.SLid IS NOT NULL
-    AND (sl.status IS NULL OR sl.status = 'draft' OR sl.start_date IS NULL)
+    AND ${siteLocationPendingContractWhere('sl')}
   ORDER BY sl.SOF ASC
+`;
+
+/** แถว sites_location ที่ต้อง sync ต่อ SLid (อัปเดตทุก SLid ไม่ใช่แค่ตัวแรกของ SOF) */
+const PENDING_SLID_CONTRACT_SYNC_SQL = `
+  SELECT sl.SLid,
+         sl.SOF AS refer_sof,
+         MAX(d.Assigned_Service) AS Assigned_Service
+  FROM devices d
+  INNER JOIN sites_location sl ON d.SLid = sl.SLid
+  WHERE ${sofIsValidWhere('sl')}
+    AND d.SLid IS NOT NULL
+    AND ${siteLocationPendingContractWhere('sl')}
+  GROUP BY sl.SLid, sl.SOF
+  ORDER BY sl.SOF ASC, sl.SLid ASC
 `;
 
 const DEVICES_FOR_REFER_SOF_SQL = `
@@ -138,7 +157,9 @@ module.exports = {
   sofIsValidWhere,
   sofMatchWhere,
   noSofWhere,
+  siteLocationPendingContractWhere,
   PENDING_REFER_SOF_SQL,
+  PENDING_SLID_CONTRACT_SYNC_SQL,
   DEVICES_FOR_REFER_SOF_SQL,
   REFER_SOF_DROPDOWN_SQL,
   applyReferSofToSiteLocation,

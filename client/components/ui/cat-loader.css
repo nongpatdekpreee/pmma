@@ -1,0 +1,140 @@
+/* From Uiverse.io by vinodjangid07 — scoped under .uiverse-cat-loader */
+.uiverse-cat-loader .loader {
+  width: fit-content;
+  height: fit-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.uiverse-cat-loader .wrapper {
+  width: fit-content;
+  height: fit-content;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.uiverse-cat-loader .catContainer {
+  width: 100%;
+  height: fit-content;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.uiverse-cat-loader .catbody {
+  width: 80px;
+  position: relative;
+  z-index: 2;
+  margin-bottom: -6px;
+}
+
+.uiverse-cat-loader .tail {
+  position: absolute;
+  width: 17px;
+  top: 42%;
+  left: calc(50% - 46px);
+  z-index: 3;
+  animation: uiverse-cat-tail 0.5s ease-in infinite alternate-reverse;
+  transform-origin: top center;
+}
+
+.uiverse-cat-loader .wall {
+  width: 300px;
+  max-width: 100%;
+}
+
+.uiverse-cat-loader .text {
+  display: flex;
+  flex-direction: column;
+  width: 50px;
+  position: absolute;
+  margin: 0 0 88px 118px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.uiverse-cat-loader .zzz {
+  color: var(--heading-foreground);
+  font-weight: 700;
+  font-size: 15px;
+  animation: uiverse-cat-zzz 2s linear infinite;
+}
+
+.uiverse-cat-loader .bigzzz {
+  color: var(--heading-foreground);
+  font-weight: 700;
+  font-size: 25px;
+  margin-left: 10px;
+  animation: uiverse-cat-zzz 2.3s linear infinite;
+}
+
+@keyframes uiverse-cat-tail {
+  0% {
+    transform: rotateZ(60deg);
+  }
+  50% {
+    transform: rotateZ(0deg);
+  }
+  100% {
+    transform: rotateZ(-20deg);
+  }
+}
+
+@keyframes uiverse-cat-zzz {
+  0% {
+    color: transparent;
+  }
+  50% {
+    color: var(--heading-foreground);
+  }
+  100% {
+    color: transparent;
+  }
+}
+
+.uiverse-cat-loader-label {
+  margin-top: 0.75rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.uiverse-cat-loader-page {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  background: var(--background);
+}
+
+.uiverse-cat-loader-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.uiverse-cat-loader--compact .wall {
+  width: 220px;
+}
+
+.uiverse-cat-loader--compact .catbody {
+  width: 60px;
+}
+
+.uiverse-cat-loader--compact .tail {
+  width: 14px;
+  left: calc(50% - 34px);
+}
+
+.uiverse-cat-loader--compact .text {
+  margin: 0 0 64px 86px;
+}

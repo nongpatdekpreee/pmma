@@ -6,8 +6,9 @@ const db = require('../config/database');
 const { DEFAULT_IN_STORE_SITE_NAME } = require('../config/inStoreSite');
 const {
   normalizeReferSofKey,
-  sofIsValidWhere,
   sofMatchWhere,
+  siteLocationPendingContractWhere,
+  PENDING_SLID_CONTRACT_SYNC_SQL,
   syncSofOnSiteLocations,
   syncSofRenameOnSiteLocations,
   findSlidsWithMatchingSof,
@@ -73,8 +74,10 @@ async function historySchemaFlags() {
   return { tsColumn: ts.column, hasTerm };
 }
 
-function historySelectSql(tsColumn, hasTerm) {
-  return slc.buildHistoryRowSelect(tsColumn, hasTerm);
+async function historySelectSql(tsColumn, hasTerm) {
+  const col = await slc.resolveContractNameDbColumn(db, 'sites_location_sof_history');
+  const nameField = col === 'contract_name' ? 'contract_name' : 'contactname AS contract_name';
+  return slc.buildHistoryRowSelect(tsColumn, hasTerm, nameField);
 }
 
 const uploadContractFile = async (req, res) => {
@@ -95,8 +98,9 @@ const getContractsBySite = async (req, res) => {
     const siteId = req.query.site_id;
     const expandSites = req.query.expand === 'sites';
     const { column: tsColumn } = await slc.resolveHistoryTimestamp(db);
+    const listSelect = await slc.buildSlListSelect(db);
     let sql = `
-      SELECT ${slc.SL_LIST_SELECT},
+      SELECT ${listSelect},
         ${slc.HISTORY_STATUS_SUBQUERY},
         ${slc.buildRenewHistSubqueries(tsColumn)}
       FROM sites_location sl
@@ -155,8 +159,9 @@ const getContractById = async (req, res) => {
     ];
 
     const { tsColumn, hasTerm } = await historySchemaFlags();
+    const histSelect = await historySelectSql(tsColumn, hasTerm);
     const [histRows] = await db.execute(
-      `SELECT ${historySelectSql(tsColumn, hasTerm)}
+      `SELECT ${histSelect}
        FROM sites_location_sof_history
        WHERE SLid = ?
        ${slc.historyOrderByClause(tsColumn)}`,
@@ -274,8 +279,9 @@ const getContractHistory = async (req, res) => {
       return res.status(400).json({ success: false, message: 'contract_id is not valid' });
     }
     const { tsColumn, hasTerm } = await historySchemaFlags();
+    const histSelect = await historySelectSql(tsColumn, hasTerm);
     const [rows] = await db.execute(
-      `SELECT ${historySelectSql(tsColumn, hasTerm)}
+      `SELECT ${histSelect}
        FROM sites_location_sof_history WHERE SLid = ?
        ${slc.historyOrderByClause(tsColumn)}`,
       [cid]
@@ -308,7 +314,8 @@ const postContractHistoryDisplayRows = async (req, res) => {
     ];
 
     const { tsColumn, hasTerm } = await historySchemaFlags();
-    const histCols = historySelectSql(tsColumn, hasTerm)
+    const histSelect = await historySelectSql(tsColumn, hasTerm);
+    const histCols = histSelect
       .split(',')
       .map((c) => `h.${c.trim()}`)
       .join(', ');
@@ -317,7 +324,7 @@ const postContractHistoryDisplayRows = async (req, res) => {
     if (contractIds.length > 0) {
       const ph = contractIds.map(() => '?').join(',');
       const [rowsMain] = await db.execute(
-        `SELECT ${historySelectSql(tsColumn, hasTerm)}
+        `SELECT ${histSelect}
          FROM sites_location_sof_history WHERE SLid IN (${ph})
          ${slc.historyOrderByClause(tsColumn)}`,
         contractIds
@@ -430,8 +437,9 @@ const getContractHistoryDetailByHistoryId = async (req, res) => {
     }
 
     const { tsColumn, hasTerm } = await historySchemaFlags();
+    const histSelect = await historySelectSql(tsColumn, hasTerm);
     const [rows] = await db.execute(
-      `SELECT ${historySelectSql(tsColumn, hasTerm)}
+      `SELECT ${histSelect}
        FROM sites_location_sof_history WHERE log_id = ?`,
       [hid]
     );
@@ -556,6 +564,11 @@ function hasOtherContractEdits(existing, body, { skipNotRenewingStatus = false }
     const cur = normStr(existing.pm_time_per_year) || '2';
     if (inc !== cur) return true;
   }
+  if (body.contract_name !== undefined) {
+    const inc = normStr(body.contract_name);
+    const cur = normStr(slc.resolveContractNameFromRow(existing));
+    if (inc !== cur) return true;
+  }
   if (body.status !== undefined) {
     const inc = normStr(body.status).toLowerCase();
     const cur = normStr(existing.status).toLowerCase();
@@ -583,7 +596,7 @@ async function propagateContractFieldsToSameSofPeers(
 ) {
   const peerSlids = await findSlidsWithMatchingSof(conn, matchSof, excludeSlid);
   for (const slid of peerSlids) {
-    await applyContractFieldsToSlid(conn, slid, body, contractStatus);
+    await applyContractFieldsToSlid(conn, slid, body, contractStatus, { persistContractName: false });
   }
 }
 
@@ -603,7 +616,8 @@ function shouldPropagateContractFields(
   return false;
 }
 
-async function applyContractFieldsToSlid(conn, slid, body, contractStatus) {
+async function applyContractFieldsToSlid(conn, slid, body, contractStatus, options = {}) {
+  const { persistContractName = true } = options;
   const sofValue =
     body.sof_id != null && body.sof_id !== ''
       ? String(body.sof_id).trim()
@@ -622,6 +636,14 @@ async function applyContractFieldsToSlid(conn, slid, body, contractStatus) {
 
   await slc.updateSiteLocationContract(conn, slid, {
     sof_name: sofValue,
+    ...(persistContractName && body.contract_name !== undefined
+      ? {
+          contract_name:
+            body.contract_name != null && String(body.contract_name).trim() !== ''
+              ? String(body.contract_name).trim()
+              : null,
+        }
+      : {}),
     start_date: body.start_date || null,
     end_date: body.end_date || null,
     sla_term: slaTermInt,
@@ -893,12 +915,14 @@ const updateContract = async (req, res) => {
         : undefined;
 
     const effStatus = contractStatus ?? prevDbStatus;
+    const syncSofRenameAll = body.sync_sof_rename_to_all_peers === true;
     await applyContractFieldsToSlid(conn, cid, body, effStatus);
 
     if (
       sofChangeHistory?.oldSof &&
       sofChangeHistory?.newSof &&
-      sofChangeHistory.oldSof !== sofChangeHistory.newSof
+      sofChangeHistory.oldSof !== sofChangeHistory.newSof &&
+      syncSofRenameAll
     ) {
       await syncSofRenameToAllPeers(
         conn,
@@ -907,10 +931,15 @@ const updateContract = async (req, res) => {
       );
     }
 
+    const peerBody =
+      sofChangeHistory && !syncSofRenameAll
+        ? { ...body, sof_name: undefined, sof_id: undefined }
+        : body;
+
     if (
       oldSofForPeers &&
-      shouldPropagateContractFields(body, existing, {
-        sofChangeHistory,
+      shouldPropagateContractFields(peerBody, existing, {
+        sofChangeHistory: syncSofRenameAll ? sofChangeHistory : null,
         otherEdits,
         isTransitionToNotRenewing,
       })
@@ -919,7 +948,7 @@ const updateContract = async (req, res) => {
         conn,
         oldSofForPeers,
         cid,
-        body,
+        peerBody,
         effStatus
       );
     }
@@ -1176,22 +1205,29 @@ const syncContractsFromReferSof = async (req, res) => {
 
   let conn;
   try {
-    let referSofs = [];
+    let pendingRows = [];
     if (singleSof) {
-      referSofs = [singleSof];
+      const key = normalizeReferSofKey(singleSof);
+      const [rows] = await db.execute(
+        `SELECT sl.SLid,
+                sl.SOF AS refer_sof,
+                MAX(d.Assigned_Service) AS Assigned_Service
+         FROM devices d
+         INNER JOIN sites_location sl ON d.SLid = sl.SLid
+         WHERE (${sofMatchWhere('sl')})
+           AND d.SLid IS NOT NULL
+           AND ${siteLocationPendingContractWhere('sl')}
+         GROUP BY sl.SLid, sl.SOF
+         ORDER BY sl.SLid ASC`,
+        [singleSof, key]
+      );
+      pendingRows = rows || [];
     } else {
-      const [rows] = await db.execute(`
-        SELECT DISTINCT sl.SOF AS refer_sof
-        FROM devices d
-        INNER JOIN sites_location sl ON d.SLid = sl.SLid
-        WHERE ${sofIsValidWhere('sl')}
-          AND (sl.status IS NULL OR sl.status = 'draft' OR sl.SOF IS NULL OR TRIM(sl.SOF) = '')
-        ORDER BY sl.SOF ASC
-      `);
-      referSofs = rows.map((r) => r.refer_sof).filter(Boolean);
+      const [rows] = await db.execute(PENDING_SLID_CONTRACT_SYNC_SQL);
+      pendingRows = rows || [];
     }
 
-    if (!referSofs.length) {
+    if (!pendingRows.length) {
       return res.status(200).json({
         success: true,
         message: 'No Refer_SOF pending contract provisioning',
@@ -1205,22 +1241,30 @@ const syncContractsFromReferSof = async (req, res) => {
     let linked = 0;
     let skipped = 0;
 
-    for (const referSof of referSofs) {
+    for (const row of pendingRows) {
+      const referSof = row.refer_sof;
+      const slid = row.SLid;
+      if (!referSof || slid == null) {
+        skipped += 1;
+        continue;
+      }
+
       try {
-        const key = normalizeReferSofKey(referSof);
         const [deviceRows] = await conn.execute(
-          `SELECT d.Did, d.SLid, d.Assigned_Service FROM devices d
-           INNER JOIN sites_location sl ON d.SLid = sl.SLid
-           WHERE (${sofMatchWhere('sl')}) AND d.SLid IS NOT NULL`,
-          [referSof, key]
+          'SELECT Did FROM devices WHERE SLid = ?',
+          [slid]
         );
         if (!deviceRows.length) {
-          results.push({ refer_sof: referSof, action: 'skipped', reason: 'no_eligible_devices' });
+          results.push({
+            refer_sof: referSof,
+            action: 'skipped',
+            contract_id: slid,
+            reason: 'no_eligible_devices',
+          });
           skipped += 1;
           continue;
         }
 
-        const slid = deviceRows[0].SLid;
         if (dryRun) {
           results.push({
             refer_sof: referSof,
@@ -1237,7 +1281,7 @@ const syncContractsFromReferSof = async (req, res) => {
           sof_name: referSof,
           start_date: startDate || null,
           end_date: endDate || null,
-          assigned_service: deviceRows[0].Assigned_Service || '',
+          assigned_service: row.Assigned_Service || '',
           status: 'official',
         });
         await conn.commit();
@@ -1256,7 +1300,7 @@ const syncContractsFromReferSof = async (req, res) => {
             /* ignore */
           }
         }
-        results.push({ refer_sof: referSof, action: 'error', error: err.message });
+        results.push({ refer_sof: referSof, action: 'error', contract_id: slid, error: err.message });
         skipped += 1;
       }
     }
@@ -1264,8 +1308,10 @@ const syncContractsFromReferSof = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: dryRun
-        ? `Dry run: ${referSofs.length} Refer_SOF(s) reviewed`
-        : `Updated ${linked} site location(s), skipped ${skipped}`,
+        ? `Dry run: ${pendingRows.length} site location(s) reviewed`
+        : linked > 0
+          ? `Updated ${linked} site location(s), skipped ${skipped}`
+          : 'No Refer_SOF pending contract provisioning',
       data: { created, linked, skipped, dry_run: dryRun, results },
     });
   } catch (error) {

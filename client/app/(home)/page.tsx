@@ -21,6 +21,7 @@ import {
   getDashboardPeriodBounds,
 } from '@/lib/dashboardPeriod';
 import { TopSitesWidget, type TopSitesHeatmapData } from '@/components/ui/TopSitesWidget';
+import { InlineCatLoader } from '@/components/ui/CatLoader';
 
 type EventEngineer = {
   /** Employee id — must match employees API for roster photo */
@@ -655,7 +656,7 @@ export default function DashboardPage() {
       <main className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-6 px-4 pb-6 pt-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 md:mt-0 mt-16">
         <div className="flex flex-col gap-4">
           <div className="flex flex-nowrap items-center justify-between gap-4 min-w-0 overflow-x-auto pb-1">
-            <Link href="/" className="text-3xl font-bold text-foreground shrink-0 truncate min-w-0">
+            <Link href="/" className="page-heading shrink-0 truncate min-w-0">
               Dashboard
             </Link>
             <div className="flex items-center gap-3 shrink-0">
@@ -872,7 +873,7 @@ export default function DashboardPage() {
           <div className="flex-[2] space-y-6 min-w-0">
           <div>
             <div className="flex justify-between items-center gap-2 mb-4 flex-wrap">
-              <h3 className="font-bold text-muted-foreground uppercase tracking-wider text-sm">Preventive Maintenance</h3>
+              <h3 className="section-heading">Preventive Maintenance</h3>
               <Link
                 href="/report#pm-sites-registry"
                 className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/90 px-3 py-1.5 text-xs text-blue-900 shadow-sm transition-colors hover:bg-blue-100/90 hover:border-blue-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-1"
@@ -886,7 +887,7 @@ export default function DashboardPage() {
             </div>
             <div className="space-y-3">
               {loadingTasks ? (
-                <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
+                <InlineCatLoader label="Loading…" />
               ) : tasksError ? (
                 <div className="text-sm text-red-600 py-6 text-center">Unable to load PM tasks</div>
               ) : pmCards.length === 0 ? (
@@ -945,7 +946,7 @@ export default function DashboardPage() {
 
           <div>
             <div className="flex justify-between items-center mb-3">
-              <h3 className="font-bold text-muted-foreground uppercase tracking-wider text-sm">
+              <h3 className="section-heading">
                 Top site contracts
               </h3>
             </div>
@@ -956,7 +957,7 @@ export default function DashboardPage() {
         <div className="flex-1 space-y-6 min-w-0">
           <div>
             <div className="flex justify-between items-center mb-4 gap-2 min-w-0">
-              <h3 className="font-bold text-muted-foreground uppercase tracking-wider text-sm truncate">
+              <h3 className="section-heading truncate">
                 Incoming events
               </h3>
               <Link
@@ -967,7 +968,7 @@ export default function DashboardPage() {
               </Link>
             </div>
             {loadingTasks ? (
-              <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
+              <InlineCatLoader label="Loading…" />
             ) : tasksError ? (
               <div className="text-sm text-red-600 py-6 text-center">Unable to load list</div>
             ) : nearestEvents.length === 0 ? (
@@ -1081,7 +1082,7 @@ export default function DashboardPage() {
 
           <div className="bg-card p-5 rounded-[2rem] shadow-sm border border-border">
             <div className="flex justify-between items-center mb-4 gap-2">
-              <h3 className="font-bold text-muted-foreground flex items-center gap-2">
+              <h3 className="section-heading section-heading-plain flex items-center gap-2">
                 <CircleAlert size={18} className="text-amber-500" />
                 Missing Events
               </h3>
@@ -1091,7 +1092,7 @@ export default function DashboardPage() {
             </div>
             <p className="text-[11px] text-muted-foreground mb-3">Overdue tasks</p>
             {loadingTasks ? (
-              <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
+              <InlineCatLoader label="Loading…" />
             ) : tasksError ? (
               <div className="text-sm text-red-600 py-6 text-center">Unable to load list</div>
             ) : missingEvents.length === 0 ? (

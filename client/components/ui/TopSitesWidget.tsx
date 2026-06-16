@@ -154,7 +154,7 @@ export function TopSitesWidget({
       }}
     >
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <h3 className="font-bold text-sm sm:text-base" style={{ color: 'var(--color-text-primary)' }}>
+        <h3 className="section-heading section-heading-plain text-sm sm:text-base">
           Top sites
         </h3>
         <div className="flex flex-wrap items-center gap-2">

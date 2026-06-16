@@ -18,6 +18,7 @@ import {
   deleteMaReport,
 } from '@/lib/api';
 import JSZip from 'jszip';
+import { PageCatLoader } from '@/components/ui/CatLoader';
 import {
   Plus,
   CheckCircle2,
@@ -2384,7 +2385,7 @@ function ReportPageContent() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-foreground tracking-tight">
+            <h1 className="page-heading tracking-tight">
               PM / MA Checklist Report
             </h1>
             <p className="text-sm text-muted-foreground mt-1.5">
@@ -3671,14 +3672,7 @@ function ReportPageContent() {
 
 export default function ReportPage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="text-sm text-muted-foreground">กำลังโหลด...</span>
-        </div>
-      </div>
-    }>
+    <Suspense fallback={<PageCatLoader />}>
       <ReportPageContent />
     </Suspense>
   );

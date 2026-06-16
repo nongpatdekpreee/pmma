@@ -94,13 +94,16 @@ const getSitesLocationWithContracts = async (req, res) => {
   try {
     let siteIds = [];
 
-    // ดึง SLid จาก sites_location ที่เป็นสัญญา official และยังไม่หมดอายุ
+    // ดึง SLid จาก sites_location ที่เป็นสัญญา draft หรือ official และยังไม่หมดอายุ
     try {
       const contractSlSql = `
         SELECT DISTINCT sl.SLid
         FROM sites_location sl
-        WHERE sl.status = 'official'
-          AND sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''
+        WHERE sl.status IN ('draft', 'official')
+          AND (
+            sl.status = 'draft'
+            OR TRIM(COALESCE(sl.SOF, '')) != ''
+          )
           AND (sl.end_date IS NULL OR sl.end_date >= CURDATE())
       `;
       const [contractSlRows] = await db.execute(contractSlSql);

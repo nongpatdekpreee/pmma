@@ -10,6 +10,7 @@ import { apiUrl, getSitesLocation, syncContractsFromReferSof } from '@/lib/api';
 import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearchListDropdown';
+import { PageCatLoader, InlineCatLoader } from '@/components/ui/CatLoader';
 import { 
   FileText, Calendar, Building2, MapPin, Hash,
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
@@ -823,18 +824,13 @@ function ContractEditorPageContent() {
         if (!cancelled) setContractsLoading(false);
       }
 
-      // Sync Refer_SOF หลังแสดงรายการ — ไม่บล็อก loading (รองรับ device ใหม่ของ SOF เดิม)
+      // Sync Refer_SOF หลังแสดงรายการ — background (ไม่ toast ทุกครั้งที่เปิดหน้า)
       if (cancelled) return;
       try {
         const syncResult = await syncContractsFromReferSof();
         if (cancelled || !syncResult.success || !syncResult.data) return;
         const { created = 0, linked = 0 } = syncResult.data;
         if (created > 0 || linked > 0) {
-          toastSuccess(
-            linked > 0 && created === 0
-              ? `Added devices to ${linked} existing contract(s) from Refer_SOF`
-              : `Auto-created ${created} contract(s), linked ${linked} to existing from Refer_SOF`
-          );
           await fetchAndSetContracts(isCancelled);
         }
       } catch (syncErr) {
@@ -2122,7 +2118,7 @@ function ContractEditorPageContent() {
       <div className="flex min-w-0 w-full max-w-full flex-col gap-6 p-4 pt-0 sm:p-6">
         {/* Hero Section */}
         <div>
-          <h1 className="text-3xl font-bold text-foreground">
+          <h1 className="page-heading">
             Maintenance Contract System
           </h1>
 
@@ -2287,9 +2283,7 @@ function ContractEditorPageContent() {
 
         {/* Loading / Error */}
         {contractsLoading && (
-          <div className="flex items-center justify-center py-20 text-muted-foreground">
-            <span className="animate-pulse">Loading contract list...</span>
-          </div>
+          <InlineCatLoader label="Loading contract list..." className="py-20" compact={false} />
         )}
         {!contractsLoading && contractsError && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800 text-sm">
@@ -3135,10 +3129,7 @@ function ContractEditorPageContent() {
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-8 bg-muted">
               {loadingContractDetails ? (
-                <div className="flex flex-col items-center justify-center py-20">
-                  <Loader2 className="w-8 h-8 text-muted-foreground animate-spin mb-3" />
-                  <div className="text-muted-foreground">Loading...</div>
-                </div>
+                <InlineCatLoader label="Loading..." />
               ) : fullContractDetails ? (
                 <div className="space-y-6">
 
@@ -4818,14 +4809,7 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
 
 export default function ContractEditorPage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          <span className="text-sm text-muted-foreground">กำลังโหลด...</span>
-        </div>
-      </div>
-    }>
+    <Suspense fallback={<PageCatLoader />}>
       <ContractEditorPageContent />
     </Suspense>
   );

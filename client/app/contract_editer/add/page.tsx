@@ -19,6 +19,7 @@ import {
   CircleX,
   Save,
 } from 'lucide-react';
+import { PageCatLoader } from '@/components/ui/CatLoader';
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -323,6 +324,10 @@ function AddContractPageContent() {
   const [assignedService, setAssignedService] = useState('');
   const [slaTerm, setSlaTerm] = useState('');
   const [selectedSOF, setSelectedSOF] = useState('');
+  /** SOF เดิมตอนโหลดแก้ไข — ใช้เทียบว่ามีการเปลี่ยน SOF หรือไม่ */
+  const [originalSofOnEdit, setOriginalSofOnEdit] = useState('');
+  /** ติ๊กเมื่อเปลี่ยน SOF: อัปเดตทุก sites_location ที่ใช้เลข SOF เดิม */
+  const [syncSofRenameToAllPeers, setSyncSofRenameToAllPeers] = useState(false);
   /** สร้างสัญญาใหม่: เลือกจาก dropdown ได้เพียง 1 Refer_SOF */
   const [sourceSofs, setSourceSofs] = useState<string[]>([]);
   const [sourceSofDropdownOpen, setSourceSofDropdownOpen] = useState(false);
@@ -689,9 +694,14 @@ function AddContractPageContent() {
         // เติมข้อมูลลง form
         if (contract.contract_name) setContractName(contract.contract_name);
         if (contract.sof_name) {
-          setSelectedSOF(contract.sof_name);
-          setSofName(contract.sof_name);
+          const sof = String(contract.sof_name).trim();
+          setSelectedSOF(sof);
+          setSofName(sof);
+          setOriginalSofOnEdit(sof);
+        } else {
+          setOriginalSofOnEdit('');
         }
+        setSyncSofRenameToAllPeers(false);
         if (contract.Assigned_Service) setAssignedService(contract.Assigned_Service);
         if (contract.sla_term != null) setSlaTerm(String(contract.sla_term));
         setSaleContacts(
@@ -1695,6 +1705,16 @@ function AddContractPageContent() {
         body.old_sof = oldContractSOF || null;
       }
 
+      if (editContractId) {
+        const sofChanged =
+          originalSofOnEdit.trim() !== '' &&
+          selectedSOF.trim() !== '' &&
+          selectedSOF.trim() !== originalSofOnEdit.trim();
+        if (sofChanged) {
+          body.sync_sof_rename_to_all_peers = syncSofRenameToAllPeers;
+        }
+      }
+
       // ถ้าเป็นการแก้ไข ใช้ PUT, ถ้าไม่ใช่ใช้ POST
       const url = editContractId 
         ? apiUrl(`/api/contracts/${editContractId}`)
@@ -1771,7 +1791,7 @@ function AddContractPageContent() {
                 <ArrowLeft size={20} />
               </Link>
               <div>
-                <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                <h1 className="page-heading flex items-center gap-2">
                   {editContractId ? (
                     <Pencil size={28} className="shrink-0 text-sky-600" aria-hidden />
                   ) : (
@@ -1835,7 +1855,7 @@ function AddContractPageContent() {
                               type="button"
                               onClick={() => { setSelectedSOF(''); setSofName(''); }}
                               className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
-                              title="ล้าง"
+                                title="Clear"
                             >
                               <X size={14} />
                             </button>
@@ -1884,7 +1904,7 @@ function AddContractPageContent() {
                       type="button"
                       onClick={() => setContractName('')}
                       className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
-                      title="ล้าง"
+                      title="Clear"
                     >
                       <X size={14} />
                     </button>
@@ -1921,7 +1941,7 @@ function AddContractPageContent() {
                         type="button"
                         onClick={() => { setSelectedSOF(''); setSofName(''); }}
                         className="absolute right-8 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
-                        title="ล้าง"
+                        title="Clear"
                       >
                         <X size={14} />
                       </button>
@@ -1933,6 +1953,25 @@ function AddContractPageContent() {
                     ))}
                   </datalist>
                   {referSOFLoading && <p className="mt-1 text-xs text-muted-foreground">Loading...</p>}
+                  {originalSofOnEdit &&
+                    selectedSOF.trim() !== '' &&
+                    selectedSOF.trim() !== originalSofOnEdit.trim() && (
+                      <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 rounded-md border border-amber-200/70 bg-amber-50/60 px-2 py-1 text-[10px] leading-snug text-amber-950">
+                        <input
+                          type="checkbox"
+                          className="h-3 w-3 shrink-0 rounded border-amber-300 text-sky-600 focus:ring-sky-500/20"
+                          checked={syncSofRenameToAllPeers}
+                          onChange={(e) => setSyncSofRenameToAllPeers(e.target.checked)}
+                        />
+                        <span>
+                          Change SOF for all locations that use{' '}
+                          <span className="font-mono font-semibold">{originalSofOnEdit}</span>
+                          {!syncSofRenameToAllPeers && (
+                            <span className="text-amber-800/80"> (Unchecked = only this contract)</span>
+                          )}
+                        </span>
+                      </label>
+                    )}
                 </FormField>
               )}
               {!renewContractId && !editContractId && (
@@ -3300,14 +3339,7 @@ function AddContractPageContent() {
 
 export default function AddContractPage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
-          <span className="text-sm text-muted-foreground">กำลังโหลด...</span>
-        </div>
-      </div>
-    }>
+    <Suspense fallback={<PageCatLoader />}>
       <AddContractPageContent />
     </Suspense>
   );

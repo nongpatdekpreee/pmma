@@ -6,7 +6,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-plus-jakarta), var(--font-noto-sans-thai), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -48,125 +48,176 @@
 
 :root {
   --radius: 0.625rem;
-  /* Slightly cool-tinted canvas; reads softer than flat white on long forms */
-  --background: oklch(0.988 0.006 240);
-  --foreground: oklch(0.1 0.01 250);
+  /* Body copy อ่อนกว่า — หัวข้อใช้ --heading-foreground */
+  --heading-foreground: oklch(0.28 0.07 248);
+  /* พื้นหลังขาว — เก็บ accent/ข้อความสดใส */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.40 0.045 248);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.1 0.01 250);
+  --card-foreground: oklch(0.36 0.05 248);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.1 0.01 250);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.36 0.05 248);
+  --primary: oklch(0.52 0.19 252);
+  --primary-foreground: oklch(0.99 0.005 250);
+  --secondary: oklch(0.98 0 0);
+  --secondary-foreground: oklch(0.36 0.05 248);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.38 0.02 250);
+  --muted-foreground: oklch(0.52 0.042 248);
   --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --accent-foreground: oklch(0.34 0.08 250);
+  --destructive: oklch(0.58 0.24 27);
+  --border: oklch(0.92 0 0);
+  --input: oklch(1 0 0);
+  --ring: oklch(0.58 0.16 252);
+  --chart-1: oklch(0.62 0.24 252);
+  --chart-2: oklch(0.62 0.16 168);
+  --chart-3: oklch(0.55 0.18 290);
+  --chart-4: oklch(0.78 0.17 85);
+  --chart-5: oklch(0.68 0.2 25);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.28 0.06 248);
+  --sidebar-primary: oklch(0.52 0.19 252);
+  --sidebar-primary-foreground: oklch(0.99 0.005 250);
   --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent-foreground: oklch(0.32 0.07 250);
+  --sidebar-border: oklch(0.92 0 0);
+  --sidebar-ring: oklch(0.58 0.16 252);
   /* Top Sites widget + shared semantic accents (light) */
   --color-background-primary: oklch(1 0 0);
-  --color-text-primary: oklch(0.1 0.01 250);
-  --color-text-secondary: oklch(0.35 0.02 250);
-  --color-border-subtle: oklch(0.91 0.01 250);
-  --color-surface-muted: oklch(0.97 0.008 250);
-  --color-accent-devices: #378add;
-  --color-accent-contracts: #7f77dd;
+  --color-text-primary: oklch(0.36 0.05 248);
+  --color-text-secondary: oklch(0.50 0.042 248);
+  --color-border-subtle: oklch(0.92 0 0);
+  --color-surface-muted: oklch(0.98 0 0);
+  --color-accent-devices: #3b82f6;
+  --color-accent-contracts: #8b5cf6;
 }
 
 .dark {
-  --background: oklch(0.16 0.01 250);
-  --foreground: oklch(0.99 0.005 250);
-  --card: oklch(0.21 0.015 250);
-  --card-foreground: oklch(0.99 0.005 250);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.99 0.005 250);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.84 0.02 250);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --heading-foreground: oklch(0.96 0.03 248);
+  --background: oklch(0.17 0.028 250);
+  --foreground: oklch(0.84 0.032 248);
+  --card: oklch(0.22 0.032 252);
+  --card-foreground: oklch(0.88 0.028 248);
+  --popover: oklch(0.22 0.032 252);
+  --popover-foreground: oklch(0.88 0.028 248);
+  --primary: oklch(0.68 0.17 252);
+  --primary-foreground: oklch(0.16 0.02 250);
+  --secondary: oklch(0.28 0.035 252);
+  --secondary-foreground: oklch(0.92 0.025 248);
+  --muted: oklch(0.28 0.035 252);
+  --muted-foreground: oklch(0.72 0.04 248);
+  --accent: oklch(0.30 0.045 260);
+  --accent-foreground: oklch(0.94 0.025 248);
+  --destructive: oklch(0.72 0.2 25);
+  --border: oklch(0.55 0.06 252 / 22%);
+  --input: oklch(0.55 0.06 252 / 28%);
+  --ring: oklch(0.62 0.16 252);
+  --chart-1: oklch(0.62 0.22 252);
+  --chart-2: oklch(0.72 0.16 168);
+  --chart-3: oklch(0.72 0.18 290);
+  --chart-4: oklch(0.78 0.16 85);
+  --chart-5: oklch(0.72 0.2 25);
+  --sidebar: oklch(0.20 0.03 252);
+  --sidebar-foreground: oklch(0.92 0.028 248);
+  --sidebar-primary: oklch(0.62 0.19 252);
+  --sidebar-primary-foreground: oklch(0.99 0.005 250);
+  --sidebar-accent: oklch(0.28 0.04 260);
+  --sidebar-accent-foreground: oklch(0.94 0.025 248);
+  --sidebar-border: oklch(0.55 0.06 252 / 22%);
+  --sidebar-ring: oklch(0.62 0.16 252);
   /* Top Sites widget (dark) */
-  --color-background-primary: oklch(0.22 0.02 250);
-  --color-text-primary: oklch(0.99 0.005 250);
-  --color-text-secondary: oklch(0.82 0.02 250);
-  --color-border-subtle: oklch(1 0 0 / 14%);
-  --color-surface-muted: oklch(0.28 0.02 250);
-  --color-accent-devices: #378add;
-  --color-accent-contracts: #7f77dd;
+  --color-background-primary: oklch(0.24 0.035 252);
+  --color-text-primary: oklch(0.90 0.028 248);
+  --color-text-secondary: oklch(0.74 0.038 248);
+  --color-border-subtle: oklch(0.55 0.06 252 / 22%);
+  --color-surface-muted: oklch(0.26 0.038 255);
+  --color-accent-devices: #60a5fa;
+  --color-accent-contracts: #a78bfa;
 }
 
 @layer base {
   /* ฐาน rem เล็กลงทั้งแอป (~12.8px จาก 16px) — ขนาดตัวอักษร, padding, gap ที่ใช้ rem จะเล็กตาม */
   html {
-    font-size: 80%;
+    font-size: 100%;
     /* ไม่ให้มือถือบางรุ่นปรับขนาดตัวอักษรเองแบบตัดการย่อ/ขยายจากผู้ใช้ — ให้สเกลตาม zoom ของเบราว์เซอร์ */
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
-  /* หัวข้อเชิงสัมพันธ์: ค่าเล็กลงหนึ่งระดับจากเดิม; ถ้าใส่ class ขนาดเอง (เช่น text-3xl) class นั้นชนะ */
+  /* หัวข้อเข้มกว่า body; ถ้าใส่ class ขนาดเอง (เช่น text-3xl) class นั้นชนะ */
   h1 {
     @apply text-xl font-semibold tracking-tight;
+    color: var(--heading-foreground);
   }
   h2 {
     @apply text-lg font-semibold tracking-tight;
+    color: var(--heading-foreground);
   }
   h3 {
     @apply text-base font-semibold;
+    color: color-mix(in oklch, var(--heading-foreground) 92%, var(--foreground));
   }
   h4 {
     @apply text-sm font-semibold;
+    color: color-mix(in oklch, var(--heading-foreground) 78%, var(--foreground));
   }
   h5,
   h6 {
     @apply text-sm font-medium;
+    color: var(--foreground);
   }
   * {
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground font-sans antialiased leading-relaxed;
+    @apply bg-background text-foreground font-sans antialiased;
+    font-weight: 400;
+    line-height: 1.65;
+    letter-spacing: 0.01em;
+    font-feature-settings: "kern" 1, "liga" 1;
+  }
+  strong,
+  b {
+    font-weight: 600;
+    color: color-mix(in oklch, var(--heading-foreground) 55%, var(--foreground));
+  }
+  label,
+  th {
+    color: color-mix(in oklch, var(--heading-foreground) 35%, var(--foreground));
     font-weight: 500;
+  }
+  td,
+  p,
+  li,
+  span {
+    font-weight: inherit;
   }
   .dark {
     color-scheme: dark;
   }
+}
+
+/* Light mode: ข้อความทั่วไปไม่เข้มเกิน — หัวข้อใหญ่ยังเข้มกว่า body */
+.text-slate-950,
+.text-gray-950,
+.text-slate-900,
+.text-gray-900 {
+  color: var(--heading-foreground) !important;
+}
+.text-slate-800,
+.text-gray-800 {
+  color: color-mix(in oklch, var(--heading-foreground) 88%, var(--foreground)) !important;
+}
+.text-slate-700,
+.text-gray-700,
+.text-slate-600,
+.text-gray-600 {
+  color: var(--foreground) !important;
+}
+.text-slate-500,
+.text-gray-500,
+.text-slate-400,
+.text-gray-400 {
+  color: var(--muted-foreground) !important;
 }
 
 /* Full-app dark mode: unlayered — must beat Tailwind utility specificity */
@@ -357,21 +408,54 @@
   background-image: none !important;
 }
 
-/* Page / section titles — gradient ที่อ่านได้ทั้ง light และ dark */
+/* Page title — สีเข้มเท่ากันทุกหน้า (ใช้ class นี้แทน text-3xl font-bold text-foreground) */
 .page-heading {
   font-size: 1.875rem;
   line-height: 2.25rem;
-  font-weight: 800;
-  background-image: linear-gradient(
-    to right,
-    var(--foreground),
-    color-mix(in oklch, var(--foreground) 88%, var(--muted-foreground)),
-    var(--foreground)
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--heading-foreground);
+}
+
+/* หัวข้อ section ใน Dashboard / card — เข้มเท่ากัน ขนาดเล็กกว่า page-heading */
+.section-heading {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--heading-foreground);
+}
+
+.section-heading-plain {
+  text-transform: none;
+  letter-spacing: -0.01em;
+}
+
+/* หัวข้อ card / chart (Report ฯลฯ) — text-lg เข้ม */
+.section-heading-lg {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--heading-foreground);
+  text-transform: none;
+}
+
+.section-heading-lg-responsive {
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--heading-foreground);
+  text-transform: none;
+}
+
+@media (min-width: 640px) {
+  .section-heading-lg-responsive {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+  }
 }
 
 .dark thead.bg-gray-50,
