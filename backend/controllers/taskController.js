@@ -631,7 +631,7 @@ const createTask = async (req, res) => {
       finalTaskId = await generateNextTaskId();
       const [retryExisting] = await db.execute(checkSql, [finalTaskId]);
       if (retryExisting.length > 0) {
-        throw new Error('ไม่สามารถสร้าง task id ที่ไม่ซ้ำได้ กรุณาลองใหม่อีกครั้ง');
+        throw new Error('Cannot create task id that does not exist, please try again');
       }
     }
 
@@ -952,7 +952,7 @@ const updateTask = async (req, res) => {
     if (dtPatch.uptimeTime !== undefined && utColU) {
       addUpdate(utColU, normalizeMysqlTime(dtPatch.uptimeTime));
     }
-    // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
+    // Task that is done cannot be changed
     if (existing[0].status !== 'done') {
       if (startDate !== undefined) addUpdate('start_date', startDate);
       if (endDate !== undefined) addUpdate('end_date', endDate);

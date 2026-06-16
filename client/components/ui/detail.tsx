@@ -1,6 +1,6 @@
 'use client';
 
-import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip, Clock3, Calendar } from 'lucide-react';
+import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip, Clock3, Calendar, MoreHorizontal } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
@@ -8,6 +8,12 @@ import { DEFAULT_IN_STORE_SITE_NAME } from '@/lib/inStoreSite';
 import { parseRescheduleNoteOrigin } from '@/lib/rescheduleNote';
 import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
 import { useAlertModal } from '@/components/ui/useAlertModal';
+import {
+  buildDeviceMapsFromDetail,
+  buildMaWorkOrderFilename,
+  downloadMaWorkOrderPdf,
+  fetchMaWorkOrderFromTask,
+} from '@/lib/maWorkOrder';
 import ExcelJS from 'exceljs';
 
 /** Reason for in process (notes เมื่อ status = working) */
@@ -150,6 +156,32 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   const [replacementDevicesMap, setReplacementDevicesMap] = useState<Record<string, Device>>({});
   const [assetPage, setAssetPage] = useState(1);
   const assetsPerPage = 5;
+  const [maWorkOrderDownloading, setMaWorkOrderDownloading] = useState(false);
+
+  const handleDownloadMaWorkOrder = async () => {
+    if (!task || task.taskType !== 'MA') return;
+    setMaWorkOrderDownloading(true);
+    try {
+      const taskRecord = task as unknown as Record<string, unknown>;
+      const assets = task.assets ?? [];
+      const prefetched =
+        assets.length > 0
+          ? buildDeviceMapsFromDetail(
+              assets,
+              assetDetailsMap,
+              replacementDevicesMap,
+              task.replacementDeviceId
+            )
+          : undefined;
+      const data = await fetchMaWorkOrderFromTask(taskRecord, prefetched);
+      await downloadMaWorkOrderPdf(data, buildMaWorkOrderFilename(taskRecord));
+    } catch (err) {
+      console.error('MA work order PDF download failed:', err);
+      showAlert('Cannot create PDF file, please try again', 'warning', 'Download failed');
+    } finally {
+      setMaWorkOrderDownloading(false);
+    }
+  };
 
   const maDowntimeDisplay = useMemo(() => getMaDowntimeDisplay(task), [task]);
 
@@ -907,115 +939,130 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
         </div>
 
         {/* Footer */}
-        <div className="flex justify-between items-center gap-3 px-6 py-4 border-t bg-muted">
-          <div className="flex gap-3">
-            {onEdit && (
-              <button
-                onClick={() => {
-                  if (task && onEdit) {
-                    // Ensure dates are in YYYY-MM-DD format for date inputs
-                    const formatDateForInput = (dateString?: string): string => {
-                      if (!dateString) return '';
-                      const date = new Date(dateString);
-                      if (isNaN(date.getTime())) return '';
-                      const year = date.getFullYear();
-                      const month = String(date.getMonth() + 1).padStart(2, '0');
-                      const day = String(date.getDate()).padStart(2, '0');
-                      return `${year}-${month}-${day}`;
-                    };
+        <div className="flex flex-wrap items-center justify-end gap-2 px-6 py-3 border-t bg-muted">
+          {(onEdit || onDelete || task.taskType === 'MA') && (
+            <details className="relative">
+              <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground hover:bg-muted [&::-webkit-details-marker]:hidden">
+                <MoreHorizontal size={14} />
+                Actions
+              </summary>
+              <div className="absolute bottom-full right-0 z-20 mb-1 min-w-[11rem] rounded-lg border border-border bg-card py-1 shadow-lg">
+                {onEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (task && onEdit) {
+                        const formatDateForInput = (dateString?: string): string => {
+                          if (!dateString) return '';
+                          const date = new Date(dateString);
+                          if (isNaN(date.getTime())) return '';
+                          const year = date.getFullYear();
+                          const month = String(date.getMonth() + 1).padStart(2, '0');
+                          const day = String(date.getDate()).padStart(2, '0');
+                          return `${year}-${month}-${day}`;
+                        };
 
-                    const taskToEdit = {
-                      ...task,
-                      startDate: formatDateForInput(task.startDate),
-                      endDate: formatDateForInput(task.endDate),
-                      // Ensure contractId is included (check multiple possible field names)
-                      contractId: task.contractId || (task as any).contract_id || undefined,
-                      // Ensure replacementDeviceId is included
-                      replacementDeviceId: task.replacementDeviceId || (task as any).replacement_device_id || undefined,
-                      // Ensure assets are included
-                      assets: task.assets || [],
-                      // Ensure SLA term is included for MA tasks
-                      vendorName: task.vendorName || (task as any).vendor_name || undefined,
-                      assignedService:
-                        task.assignedService ?? (task as any).assigned_service ?? undefined,
-                      // MA ใช้แค่ down_time_* — ไม่ส่ง duration เพื่อไม่ให้เป็นช่องเวลาที่สองในฐานข้อมูล
-                      ...(String(task.taskType || (task as any).task_type || '')
-                        .toUpperCase() !== 'MA'
-                        ? { duration: task.duration || undefined }
-                        : {}),
-                    };
-                    onEdit(taskToEdit);
-                  }
-                }}
-                className="px-6 py-2.5 bg-purple-500 text-white rounded-xl font-semibold text-sm hover:bg-purple-600 transition-colors shadow-md"
-              >
-                Edit
-              </button>
-            )}
-            {onDelete && task && (
-              <button
-                onClick={() => {
-                  if (!task || !onDelete) return;
-                  showConfirm(
-                    'Are you sure you want to delete this task?',
-                    () => onDelete(task.id),
-                    {
-                      title: 'Delete task',
-                      confirmText: 'Delete',
-                      cancelText: 'Cancel',
-                      dangerConfirm: true,
-                    }
-                  );
-                }}
-                className="px-6 py-2.5 bg-red-500 text-white rounded-xl font-semibold text-sm hover:bg-red-600 transition-colors shadow-md flex items-center gap-2"
-              >
-                <Trash2 size={16} />
-                Delete
-              </button>
-            )}
-          </div>
-          <div className="flex gap-3 ml-auto">
-            {reportLink && (
-              <Link
-                href={reportLink}
-                onClick={onClose}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-500 text-white rounded-xl font-semibold text-sm hover:bg-emerald-600 transition-colors shadow-md"
-              >
-                <FileText size={16} />
-                Report
-              </Link>
-            )}
-            {!reportLink && task.status === 'done' && createReportLink && (
-              <Link
-                href={createReportLink}
-                onClick={onClose}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-rose-500 text-white rounded-xl font-semibold text-sm hover:bg-rose-600 transition-colors shadow-md"
-                title="Task is done but report is not created yet"
-              >
-                <FileText size={16} />
-                Create Report
-              </Link>
-            )}
-            <button
+                        const taskToEdit = {
+                          ...task,
+                          startDate: formatDateForInput(task.startDate),
+                          endDate: formatDateForInput(task.endDate),
+                          contractId: task.contractId || (task as any).contract_id || undefined,
+                          replacementDeviceId:
+                            task.replacementDeviceId || (task as any).replacement_device_id || undefined,
+                          assets: task.assets || [],
+                          vendorName: task.vendorName || (task as any).vendor_name || undefined,
+                          assignedService:
+                            task.assignedService ?? (task as any).assigned_service ?? undefined,
+                          ...(String(task.taskType || (task as any).task_type || '')
+                            .toUpperCase() !== 'MA'
+                            ? { duration: task.duration || undefined }
+                            : {}),
+                        };
+                        onEdit(taskToEdit);
+                      }
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground hover:bg-muted"
+                  >
+                    Edit
+                  </button>
+                )}
+                {onDelete && task && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!task || !onDelete) return;
+                      showConfirm(
+                        'Are you sure you want to delete this task?',
+                        () => onDelete(task.id),
+                        {
+                          title: 'Delete task',
+                          confirmText: 'Delete',
+                          cancelText: 'Cancel',
+                          dangerConfirm: true,
+                        }
+                      );
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    Delete
+                  </button>
+                )}
+                {task.taskType === 'MA' && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadMaWorkOrder()}
+                    disabled={maWorkOrderDownloading}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                  >
+                    <Download size={14} />
+                    {maWorkOrderDownloading ? 'กำลังสร้าง PDF…' : 'ดาวน์โหลดใบแจ้งซ่อม'}
+                  </button>
+                )}
+              </div>
+            </details>
+          )}
+          {reportLink && (
+            <Link
+              href={reportLink}
               onClick={onClose}
-              className="px-6 py-2.5 bg-muted text-muted-foreground rounded-xl font-semibold text-sm hover:bg-slate-300 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-card px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
             >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isStatusLockedDoneReported}
-              title={isStatusLockedDoneReported ? 'สถานะล็อกแล้ว (Done + มีรายงาน)' : undefined}
-              className={`px-6 py-2.5 rounded-xl font-semibold text-sm transition-colors shadow-md ${
-                isStatusLockedDoneReported
-                  ? 'bg-slate-300 text-muted-foreground cursor-not-allowed'
-                  : 'bg-blue-500 text-white hover:bg-blue-600'
-              }`}
+              <FileText size={14} />
+              Report
+            </Link>
+          )}
+          {!reportLink && task.status === 'done' && createReportLink && (
+            <Link
+              href={createReportLink}
+              onClick={onClose}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-card px-3 py-2 text-xs font-medium text-rose-700 hover:bg-rose-50"
+              title="Task is done but report is not created yet"
             >
-              Save Changes
-            </button>
-          </div>
+              <FileText size={14} />
+              Create Report
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isStatusLockedDoneReported}
+            title={isStatusLockedDoneReported ? 'สถานะล็อกแล้ว (Done + มีรายงาน)' : undefined}
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
+              isStatusLockedDoneReported
+                ? 'bg-slate-300 text-muted-foreground cursor-not-allowed'
+                : 'bg-blue-500 text-white hover:bg-blue-600'
+            }`}
+          >
+            Save Changes
+          </button>
         </div>
       </div>
     </div>
