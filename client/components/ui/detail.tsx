@@ -1046,7 +1046,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
           >
             Cancel
           </button>

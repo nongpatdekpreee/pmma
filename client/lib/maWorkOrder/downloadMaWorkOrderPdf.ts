@@ -5,10 +5,14 @@ import html2canvas from 'html2canvas';
 import type { MaWorkOrderData } from './types';
 import {
   ensureMaWorkOrderFonts,
+  inlineExportFontFamily,
   inlineResolvedColorsForHtml2Canvas,
   loadMaWorkOrderExportCss,
   prepareHtml2CanvasClone,
   prepareIsolatedExportDocument,
+  prepareOriginalBadgesForPdfCapture,
+  prepareSectionBarsForPdfCapture,
+  waitForDocumentFonts,
 } from './sanitizeColorsForHtml2Canvas';
 
 async function waitForImages(container: HTMLElement): Promise<void> {
@@ -28,8 +32,11 @@ async function waitForImages(container: HTMLElement): Promise<void> {
   );
 }
 
-/** ขนาด A4 ที่ 96dpi — ให้ตรงกับ jsPDF ไม่บิดเบี้ยว */
+/** ขนาด A4 ที่ 96dpi */
 const A4_WIDTH_PX = 794;
+
+/** scale สูง + PNG — ตัวอักษรไทยคมชัด ไม่เพี้ยนจาก JPEG */
+const PDF_CAPTURE_SCALE = 3;
 
 function preparePagesForPdfCapture(pages: HTMLElement[]): number {
   let captureWidth = A4_WIDTH_PX;
@@ -56,7 +63,7 @@ function addCanvasToPdfPage(
     renderW = (canvas.width * renderH) / canvas.height;
   }
   const x = (pageW - renderW) / 2;
-  pdf.addImage(imgData, 'JPEG', x, 0, renderW, renderH);
+  pdf.addImage(imgData, 'PNG', x, 0, renderW, renderH);
 }
 
 /**
@@ -97,14 +104,7 @@ async function renderDocumentInIsolatedIframe(
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });
   await waitForImages(mount);
-
-  try {
-    await iframeWin.document.fonts.load('400 13px "Noto Sans Thai"');
-    await iframeWin.document.fonts.load('700 13px "Noto Sans Thai"');
-    await iframeWin.document.fonts.ready;
-  } catch {
-    /* ignore */
-  }
+  await waitForDocumentFonts(iframeWin);
 
   return {
     iframe,
@@ -145,6 +145,7 @@ export async function downloadMaWorkOrderPdf(
   const pageW = pdf.internal.pageSize.getWidth();
   const pageH = pdf.internal.pageSize.getHeight();
   const captureWidth = preparePagesForPdfCapture(pages as HTMLElement[]);
+  await waitForDocumentFonts(iframeWin);
   await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
   try {
@@ -153,9 +154,12 @@ export async function downloadMaWorkOrderPdf(
       const pageWidth = pageEl.offsetWidth || captureWidth;
       pageEl.style.backgroundColor = '#ffffff';
       inlineResolvedColorsForHtml2Canvas(iframeWin, pageEl);
+      inlineExportFontFamily(iframeWin, pageEl);
+      prepareSectionBarsForPdfCapture(pageEl);
+      prepareOriginalBadgesForPdfCapture(pageEl);
 
       const canvas = await html2canvas(pageEl, {
-        scale: 2,
+        scale: PDF_CAPTURE_SCALE,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
@@ -173,7 +177,7 @@ export async function downloadMaWorkOrderPdf(
           }
         },
       });
-      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+      const imgData = canvas.toDataURL('image/png');
       if (i > 0) pdf.addPage();
       addCanvasToPdfPage(pdf, canvas, imgData, pageW, pageH);
     }

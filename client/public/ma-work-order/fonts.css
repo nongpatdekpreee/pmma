@@ -1,0 +1,16 @@
+/* ฟอนต์ local สำหรับ PDF export — ไม่พึ่ง Google Fonts ตอน html2canvas clone */
+@font-face {
+  font-family: 'Noto Sans Thai';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/ma-work-order/fonts/NotoSansThai-Regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Noto Sans Thai';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('/ma-work-order/fonts/NotoSansThai-Bold.ttf') format('truetype');
+}

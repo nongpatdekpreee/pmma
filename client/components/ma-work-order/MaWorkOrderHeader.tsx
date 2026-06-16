@@ -18,6 +18,7 @@ export function MaWorkOrderHeader({ documentVersion }: { documentVersion?: strin
             width={88}
             height={52}
             draggable={false}
+            style={{ paddingTop: 14 }}
           />
         </div>
         <div>

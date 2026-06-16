@@ -112,7 +112,7 @@ async function fetchDeviceMapsFromTask(
         if (res.ok && json.data) {
           const d = json.data;
           resolvedDevices[String(id)] = {
-            id,
+            id: id as string | number | undefined,
             name: d.model || d.CI_Name || d.Asset_Number || String(asset.name ?? ''),
             model: d.model || String(asset.name ?? ''),
             serialNumber: d.serial || String(asset.serialNumber ?? ''),

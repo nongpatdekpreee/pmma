@@ -38,7 +38,7 @@ export function MaWorkOrderPage2({ data }: { data: MaWorkOrderData }) {
   return (
     <section className="ma-wo-page" aria-label="ใบแจ้งซ่อม หน้า 2">
       <MaWorkOrderHeader />
-
+<div style={{ marginTop: 30 }}>
       <MaWoSectionBar>
         ส่วนที่ 2 สำหรับเจ้าหน้าที่ของ บริษัท ที.ซี.ซี. เทคโนโลยี จำกัด
       </MaWoSectionBar>
@@ -50,14 +50,14 @@ export function MaWorkOrderPage2({ data }: { data: MaWorkOrderData }) {
         label="สามารถแก้ปัญหาอาการเสียสำเร็จ"
       >
         <div className="ma-wo-subsection">
-          
+
           <MaWoRadio
             checked={outcome === 'resolved_no_replace'}
             label="ไม่ต้องเปลี่ยนอุปกรณ์"
           />
           <MaWoRadio
             checked={outcome === 'resolved_with_replace'}
-              label="ต้องเปลี่ยนอุปกรณ์ใหม่ ดังนี้"
+            label="ต้องเปลี่ยนอุปกรณ์ใหม่ ดังนี้"
           >
             <div style={{ marginTop: 6 }}>
               {data.replacementHardware.map((row, i) => (
@@ -76,34 +76,36 @@ export function MaWorkOrderPage2({ data }: { data: MaWorkOrderData }) {
 
       <MaWoRadio
         checked={outcome === 'unresolved'}
-          label="ไม่สามารรถแก้ปัญหาอาการเสีย สาเหตุ"
+        label="ไม่สามารรถแก้ปัญหาอาการเสีย สาเหตุ"
       >
         <div className="ma-wo-subsection ma-wo-problem-lines">
           <MaWoRuledLine value={data.unresolvedReason} />
           <MaWoRuledLine />
         </div>
       </MaWoRadio>
+      </div>
 
-      <div style={{ marginTop: 14 }}>
+      <div style={{ marginTop: 30 }}>
         <MaWoSectionBar>
           ส่วนที่ 3 กรณีนำอุปกรณ์เก่ากลับเพื่อเข้าระบบ TCCTech สำหรับ PM ของ บริษัท ที.ซี.ซี.
           เทคโนโลยี จำกัด (MA service)
         </MaWoSectionBar>
       </div>
-
-      <MaWoFieldRow label="วันที่ติดตั้งอุปกรณ์">
-        <MaWoDottedValue value={data.installDate} />
-      </MaWoFieldRow>
-      <MaWoFieldRow label="วันที่นำอุปกรณ์เดิมกลับ">
-        <MaWoDottedValue value={data.returnDate} />
-      </MaWoFieldRow>
-      <MaWoFieldRow label="รับประกันอุปกรณ์ ตั้งแต่">
-        <MaWoDottedValue value={data.warrantyFrom} className="inline" minWidth={100} />
-        <span className="ma-wo-label">ถึง</span>
-        <MaWoDottedValue value={data.warrantyTo} className="inline" minWidth={100} />
-      </MaWoFieldRow>
-
-      <footer className="ma-wo-signatures">
+      <div style={{ marginTop: 14 }}>
+        <MaWoFieldRow label="วันที่ติดตั้งอุปกรณ์">
+          <MaWoDottedValue value={data.installDate} />
+        </MaWoFieldRow>
+        <MaWoFieldRow label="วันที่นำอุปกรณ์เดิมกลับ">
+          <MaWoDottedValue value={data.returnDate} />
+        </MaWoFieldRow>
+        <MaWoFieldRow label="รับประกันอุปกรณ์ ตั้งแต่">
+          <MaWoDottedValue value={data.warrantyFrom} className="inline" minWidth={100} />
+          <span className="ma-wo-label">ถึง</span>
+          <MaWoDottedValue value={data.warrantyTo} className="inline" minWidth={100} />
+        </MaWoFieldRow>
+      </div>
+      <div style={{ marginTop: 60 }}>
+      <footer className="ma-wo-signatures pt-10">
         <SignatureColumn
           blocks={[data.signatures.deliverer, data.signatures.documentAuditor]}
         />
@@ -111,6 +113,7 @@ export function MaWorkOrderPage2({ data }: { data: MaWorkOrderData }) {
           blocks={[data.signatures.customerReporter, data.signatures.approver]}
         />
       </footer>
+      </div>
     </section>
   );
 }

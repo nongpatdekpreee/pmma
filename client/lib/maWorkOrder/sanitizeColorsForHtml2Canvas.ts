@@ -13,6 +13,26 @@ const COLOR_PROPS = [
   'column-rule-color',
 ] as const;
 
+const MA_WO_FONT_FAMILY = '"Noto Sans Thai", "TH Sarabun New", "Sarabun", sans-serif';
+
+/** @font-face ฝังใน clone ทันที — ใช้ไฟล์ local ไม่รอ Google Fonts */
+export const MA_WORK_ORDER_FONT_FACE_CSS = `
+@font-face {
+  font-family: 'Noto Sans Thai';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('/ma-work-order/fonts/NotoSansThai-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Noto Sans Thai';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('/ma-work-order/fonts/NotoSansThai-Bold.ttf') format('truetype');
+}
+`;
+
 /** แปลงสี CSS รุ่นใหม่ (lab/oklch) เป็น rgb ที่ html2canvas อ่านได้ */
 function toCanvasSafeColor(win: Window, color: string): string | null {
   const trimmed = color.trim();
@@ -54,40 +74,128 @@ export function inlineResolvedColorsForHtml2Canvas(win: Window, root: HTMLElemen
   }
 }
 
-const NOTO_SANS_THAI_FONT_URL =
-  'https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap';
+/** บังคับ font-family ไทยก่อน capture — กัน html2canvas ใช้ฟอนต์ fallback ที่วรรณยุกต์เพี้ยน */
+export function inlineExportFontFamily(win: Window, root: HTMLElement): void {
+  const nodes: HTMLElement[] = [root];
+  root.querySelectorAll('*').forEach((el) => {
+    if (el instanceof HTMLElement) nodes.push(el);
+  });
+
+  for (const el of nodes) {
+    el.style.setProperty('font-family', MA_WO_FONT_FAMILY, 'important');
+  }
+}
+
+function injectFontAndExportStyles(doc: Document, exportCss: string): void {
+  if (!doc.querySelector('style[data-ma-wo-font-face]')) {
+    const fontStyle = doc.createElement('style');
+    fontStyle.setAttribute('data-ma-wo-font-face', '1');
+    fontStyle.textContent = MA_WORK_ORDER_FONT_FACE_CSS;
+    doc.head.appendChild(fontStyle);
+  }
+
+  if (!doc.querySelector('style[data-ma-wo-export]')) {
+    const style = doc.createElement('style');
+    style.setAttribute('data-ma-wo-export', '1');
+    style.textContent = exportCss;
+    doc.head.appendChild(style);
+  }
+}
 
 let exportCssCache: string | null = null;
 
+/** จัดข้อความแถบหัวข้อกลางแนวตั้งก่อน html2canvas */
+export function prepareSectionBarsForPdfCapture(root: HTMLElement): void {
+  root.querySelectorAll('.ma-wo-section-bar').forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.setProperty('display', 'flex', 'important');
+    node.style.setProperty('align-items', 'center', 'important');
+    node.style.setProperty('min-height', '32px', 'important');
+    node.style.setProperty('padding', '0 8px', 'important');
+    node.style.setProperty('box-sizing', 'border-box', 'important');
+
+    const text =
+      node.querySelector<HTMLElement>('.ma-wo-section-bar-text') ?? node;
+    text.style.setProperty('display', 'block', 'important');
+    text.style.setProperty('line-height', '12px', 'important');
+    text.style.setProperty('font-size', '12px', 'important');
+    text.style.setProperty('transform', 'translateY(-2px)', 'important');
+  });
+}
+
+/** จัดข้อความป้าย "ต้นฉบับ" กลางแนวตั้งก่อน html2canvas */
+export function prepareOriginalBadgesForPdfCapture(root: HTMLElement): void {
+  root.querySelectorAll('.ma-wo-original-badge').forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.setProperty('display', 'flex', 'important');
+    node.style.setProperty('align-items', 'center', 'important');
+    node.style.setProperty('justify-content', 'center', 'important');
+    node.style.setProperty('min-height', '24px', 'important');
+    node.style.setProperty('padding', '0 12px 6px', 'important');
+    node.style.setProperty('box-sizing', 'border-box', 'important');
+
+    const text =
+      node.querySelector<HTMLElement>('.ma-wo-original-badge-text') ?? node;
+    text.style.setProperty('display', 'block', 'important');
+    text.style.setProperty('font-size', '11px', 'important');
+    text.style.setProperty('line-height', '11px', 'important');
+    text.style.setProperty('transform', 'translateY(-2px)', 'important');
+  });
+}
+
 export async function loadMaWorkOrderExportCss(): Promise<string> {
   if (exportCssCache) return exportCssCache;
-  const res = await fetch('/ma-work-order/export.css');
-  if (!res.ok) throw new Error('Failed to load MA work order export styles');
-  exportCssCache = await res.text();
+  const [fontsRes, exportRes] = await Promise.all([
+    fetch('/ma-work-order/fonts.css'),
+    fetch('/ma-work-order/export.css'),
+  ]);
+  if (!exportRes.ok) throw new Error('Failed to load MA work order export styles');
+  const fontsCss = fontsRes.ok ? await fontsRes.text() : MA_WORK_ORDER_FONT_FACE_CSS;
+  exportCssCache = `${fontsCss}\n${await exportRes.text()}`;
   return exportCssCache;
 }
 
-/** โหลดฟอนต์ไทยก่อน capture — ให้ตำแหน่งตัวอักษรตรงกับ preview */
+/** รอให้ Noto Sans Thai โหลดครบก่อน html2canvas */
+export async function waitForDocumentFonts(
+  win: Window,
+  family = 'Noto Sans Thai'
+): Promise<void> {
+  const specs = [
+    '400 11px',
+    '400 12px',
+    '400 13px',
+    '400 14px',
+    '400 16px',
+    '700 11px',
+    '700 12px',
+    '700 13px',
+    '700 14px',
+    '700 16px',
+  ].map((s) => `${s} "${family}"`);
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      await Promise.all(specs.map((spec) => win.document.fonts.load(spec).catch(() => undefined)));
+      await win.document.fonts.ready;
+      if (specs.every((spec) => win.document.fonts.check(spec))) return;
+    } catch {
+      /* ignore */
+    }
+    await new Promise<void>((r) => setTimeout(r, 75));
+  }
+}
+
+/** โหลดฟอนต์ไทยก่อน export — ใช้ไฟล์ local */
 export async function ensureMaWorkOrderFonts(): Promise<void> {
-  if (!document.querySelector('link[data-ma-wo-export-font]')) {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = NOTO_SANS_THAI_FONT_URL;
-    link.setAttribute('data-ma-wo-export-font', '1');
-    document.head.appendChild(link);
-    await new Promise<void>((resolve) => {
-      link.addEventListener('load', () => resolve(), { once: true });
-      link.addEventListener('error', () => resolve(), { once: true });
-      setTimeout(resolve, 2500);
-    });
+  if (!document.querySelector('style[data-ma-wo-font-face]')) {
+    const style = document.createElement('style');
+    style.setAttribute('data-ma-wo-font-face', '1');
+    style.textContent = MA_WORK_ORDER_FONT_FACE_CSS;
+    document.head.appendChild(style);
   }
 
   try {
-    await Promise.all([
-      document.fonts.load('400 13px "Noto Sans Thai"'),
-      document.fonts.load('700 13px "Noto Sans Thai"'),
-    ]);
-    await document.fonts.ready;
+    await waitForDocumentFonts(window);
   } catch {
     /* ignore */
   }
@@ -99,23 +207,7 @@ export async function prepareIsolatedExportDocument(
   exportCss: string
 ): Promise<void> {
   doc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => node.remove());
-
-  const fontLink = doc.createElement('link');
-  fontLink.rel = 'stylesheet';
-  fontLink.href = NOTO_SANS_THAI_FONT_URL;
-  fontLink.setAttribute('data-ma-wo-export-font', '1');
-  doc.head.appendChild(fontLink);
-
-  await new Promise<void>((resolve) => {
-    fontLink.addEventListener('load', () => resolve(), { once: true });
-    fontLink.addEventListener('error', () => resolve(), { once: true });
-    setTimeout(resolve, 2500);
-  });
-
-  const style = doc.createElement('style');
-  style.setAttribute('data-ma-wo-export', '1');
-  style.textContent = exportCss;
-  doc.head.appendChild(style);
+  injectFontAndExportStyles(doc, exportCss);
 
   doc.documentElement.style.backgroundColor = '#ffffff';
   if (doc.body) {
@@ -123,34 +215,46 @@ export async function prepareIsolatedExportDocument(
     doc.body.style.padding = '0';
     doc.body.style.backgroundColor = '#ffffff';
     doc.body.style.color = '#1a1a1a';
+    doc.body.style.fontFamily = MA_WO_FONT_FAMILY;
   }
 }
 
-/** ลบ stylesheet ทั้งหมด (globals มี lab/oklch) แล้วใส่เฉพาะ export.css */
+/**
+ * เตรียม clone สำหรับ html2canvas — ไม่ลบ stylesheet (ฟอนต์จะหาย)
+ * ฝัง @font-face local + sanitize สี lab/oklch
+ */
 export function prepareHtml2CanvasClone(
   clonedDoc: Document,
   clonedEl: HTMLElement,
   exportCss: string
 ): void {
-  clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => node.remove());
+  clonedDoc.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
+    if (node instanceof HTMLLinkElement && UNSUPPORTED_COLOR.test(node.href || '')) {
+      node.remove();
+      return;
+    }
+    if (node instanceof HTMLStyleElement) {
+      const text = node.textContent || '';
+      if (UNSUPPORTED_COLOR.test(text) && !text.includes('.ma-wo-')) {
+        node.remove();
+      }
+    }
+  });
 
-  const fontLink = clonedDoc.createElement('link');
-  fontLink.rel = 'stylesheet';
-  fontLink.href = NOTO_SANS_THAI_FONT_URL;
-  fontLink.setAttribute('data-ma-wo-export-font', '1');
-  clonedDoc.head.appendChild(fontLink);
-
-  const style = clonedDoc.createElement('style');
-  style.setAttribute('data-ma-wo-export', '1');
-  style.textContent = exportCss;
-  clonedDoc.head.appendChild(style);
+  injectFontAndExportStyles(clonedDoc, exportCss);
 
   clonedDoc.documentElement.style.backgroundColor = '#ffffff';
   if (clonedDoc.body) {
     clonedDoc.body.style.backgroundColor = '#ffffff';
     clonedDoc.body.style.color = '#1a1a1a';
+    clonedDoc.body.style.fontFamily = MA_WO_FONT_FAMILY;
   }
 
   const win = clonedDoc.defaultView;
-  if (win) inlineResolvedColorsForHtml2Canvas(win, clonedEl);
+  if (win) {
+    inlineResolvedColorsForHtml2Canvas(win, clonedEl);
+    inlineExportFontFamily(win, clonedEl);
+    prepareSectionBarsForPdfCapture(clonedEl);
+    prepareOriginalBadgesForPdfCapture(clonedEl);
+  }
 }
