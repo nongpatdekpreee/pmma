@@ -1,8 +1,9 @@
 'use client';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard,
@@ -41,14 +42,14 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed, isMobileOpen, isHovered, setIsHovered, closeMobile } = useSidebar();
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   // เมื่อ collapsed และ hover ให้แสดง expanded
   const isExpanded = !isCollapsed || isHovered;
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     if (!logoutModalOpen) return;
@@ -198,9 +199,11 @@ export function Sidebar() {
               onClick={closeMobile}
             >
               <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-white-600 to-white-700 p-2 text-white shadow-md shadow-grey-500/20 group-hover:shadow-blue-500/40 transition-all flex-shrink-0 flex items-center justify-center">
-                <img
+                <Image
                   src="/date.svg"
                   alt="date"
+                  width={18}
+                  height={18}
                   className="h-[18px] w-[18px] object-contain"
                 />
               </div>

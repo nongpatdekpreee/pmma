@@ -5,10 +5,12 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getTasks, getPmReportedTaskIds, getContractById } from '@/lib/api';
+import { apiUrl, getTasks, getPmReportedTaskIds, type ApiTask } from '@/lib/api';
+import { apiTaskString } from '@/lib/apiTask';
+import { asRecord, readString } from '@/lib/unknownUtil';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
 import { PmReportWizard, type PmReportWizardHandle, type PmSavePhase } from '@/components/pm-report-wizard/PmReportWizard';
-import { computePmNo } from '@/lib/pmWorkOrder';
+import { computePmNo, type PmTaskForRound } from '@/lib/pmWorkOrder';
 import { 
   AlertCircle,
   FileText,
@@ -23,11 +25,68 @@ import {
   ChevronRight
 } from 'lucide-react';
 
-interface ChecklistItem {
-  id: string;
-  task: string;
-  status: 'pending' | 'pass' | 'warning' | 'fail';
-  notes?: string;
+type TaskSortOption = 'date-desc' | 'date-asc' | 'site' | 'engineer';
+
+function taskSofLabel(t: ApiTask): string {
+  return (apiTaskString(t, 'sofName', 'sof_name') ?? '').trim();
+}
+
+function taskIdNum(t: ApiTask): number {
+  const id = t.id;
+  const n = typeof id === 'number' ? id : parseInt(String(id ?? ''), 10);
+  return Number.isNaN(n) ? -1 : n;
+}
+
+function isDonePmTask(task: ApiTask): boolean {
+  const status = String(task.status ?? '').toLowerCase();
+  const type = String(task.taskType ?? task.task_type ?? '').toUpperCase();
+  return status === 'done' && type === 'PM';
+}
+
+function taskAssets(task: ApiTask): unknown[] {
+  return Array.isArray(task.assets) ? task.assets : [];
+}
+
+function getDeviceIdFromAsset(a: unknown): string {
+  if (a == null) return '';
+  if (typeof a === 'number') return String(a);
+  if (typeof a === 'string') return a.trim();
+  const rec = asRecord(a);
+  const id = rec.id ?? rec.Did ?? rec.did ?? rec.deviceId ?? rec.device_id ?? rec.ID;
+  return id != null ? String(id).trim() : '';
+}
+
+function deviceFromTaskAssetSnapshot(raw: unknown, didNum: number): Device {
+  const a = asRecord(raw);
+  return {
+    Did: didNum,
+    Asset_State: readString(a, 'Asset_State'),
+    CI_Name: readString(a, 'CI_Name') ?? readString(a, 'name') ?? '',
+    Asset_Number: readString(a, 'Asset_Number') ?? readString(a, 'assetNumber') ?? '',
+    serial: readString(a, 'serial') ?? readString(a, 'serialNumber') ?? '',
+    model: readString(a, 'model') ?? readString(a, 'type') ?? '',
+    Manufacturername: readString(a, 'Manufacturername'),
+    Sitename: readString(a, 'Sitename') ?? readString(a, 'sitename') ?? readString(a, 'siteName') ?? '',
+    Location2: readString(a, 'Location2') ?? readString(a, 'location2') ?? '',
+    PR_No: readString(a, 'PR_No'),
+    Vendor: readString(a, 'Vendor') ?? readString(a, 'vendor') ?? '',
+    Refer_SOF: readString(a, 'Refer_SOF') ?? readString(a, 'refer_sof') ?? '',
+    SLid: typeof a.SLid === 'number' ? a.SLid : undefined,
+  };
+}
+
+function toYmd(value: unknown): string {
+  if (value == null) return '';
+  const s = String(value).trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 interface Device {
@@ -64,26 +123,22 @@ function AddPMReportPageContent() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [loadingDevices, setLoadingDevices] = useState(false);
-  const [slaResult, setSlaResult] = useState<string>('');
   const [technicianName, setTechnicianName] = useState('');
   const [pmDate, setPmDate] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [savePhase, setSavePhase] = useState<PmSavePhase>(null);
   const [pdfPreparing, setPdfPreparing] = useState(false);
   const [hasDonePMTasks, setHasDonePMTasks] = useState(false);
-  const [donePMTasks, setDonePMTasks] = useState<any[]>([]);
+  const [donePMTasks, setDonePMTasks] = useState<ApiTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [checkingTasks, setCheckingTasks] = useState(true);
   const [reportedTaskIds, setReportedTaskIds] = useState<Set<number>>(new Set());
-  const [contractSlaMap, setContractSlaMap] = useState<Record<number, number>>({});
   const [searchTaskReport, setSearchTaskReport] = useState('');
-  const [sortTaskBy, setSortTaskBy] = useState<'date-desc' | 'date-asc' | 'site' | 'engineer'>('date-desc');
+  const [sortTaskBy, setSortTaskBy] = useState<TaskSortOption>('date-desc');
   const [sofFilter, setSofFilter] = useState<string>('');
   const [taskPage, setTaskPage] = useState(1);
 
   const TASKS_PER_PAGE = 3;
-
-  const taskSofLabel = useCallback((t: any) => String(t?.sofName ?? t?.sof_name ?? '').trim(), []);
 
   // ดึง task_id ที่มี report_id แล้ว เพื่อกรองออก (แสดงเฉพาะที่ยังไม่มี)
   useEffect(() => {
@@ -97,11 +152,7 @@ function AddPMReportPageContent() {
         ]);
         if (cancelled) return;
         if (tasksRes.success && tasksRes.data) {
-          const done = tasksRes.data.filter((task: any) => {
-            const status = String(task.status ?? '').toLowerCase();
-            const type = String(task.taskType ?? task.task_type ?? '').toUpperCase();
-            return status === 'done' && type === 'PM';
-          });
+          const done = tasksRes.data.filter(isDonePmTask);
           setHasDonePMTasks(done.length > 0);
           setDonePMTasks(done);
         }
@@ -125,7 +176,7 @@ function AddPMReportPageContent() {
 
   // แสดงเฉพาะ Task ที่ยังไม่มี report_id (task_id ไม่อยู่ใน table report)
   const availablePMTasks = useMemo(
-    () => donePMTasks.filter((t: any) => !reportedTaskIds.has(Number(t.id))),
+    () => donePMTasks.filter((t) => !reportedTaskIds.has(taskIdNum(t))),
     [donePMTasks, reportedTaskIds]
   );
 
@@ -141,32 +192,41 @@ function AddPMReportPageContent() {
       sofNamesForFilter: [...named].sort((a, b) => a.localeCompare(b)),
       sofFilterHasNoSof: noSof,
     };
-  }, [availablePMTasks, taskSofLabel]);
+  }, [availablePMTasks]);
 
   // ค้นหา + เรียง + แบ่งหน้า
   const taskSearchLower = searchTaskReport.trim().toLowerCase();
   const filteredAndSortedTasks = useMemo(() => {
     let list = availablePMTasks;
     if (sofFilter === '__none__') {
-      list = list.filter((t: any) => !taskSofLabel(t));
+      list = list.filter((t) => !taskSofLabel(t));
     } else if (sofFilter) {
-      list = list.filter((t: any) => taskSofLabel(t) === sofFilter);
+      list = list.filter((t) => taskSofLabel(t) === sofFilter);
     }
     if (taskSearchLower) {
-      list = list.filter((t: any) => {
-        const site = (t.siteName || t.site_name || '').toLowerCase();
-        const start = t.startDate ? new Date(t.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
-        const end = t.endDate ? new Date(t.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
+      list = list.filter((t) => {
+        const site = (apiTaskString(t, 'siteName', 'site_name') ?? '').toLowerCase();
+        const startRaw = apiTaskString(t, 'startDate', 'start_date');
+        const endRaw = apiTaskString(t, 'endDate', 'end_date');
+        const start = startRaw ? new Date(startRaw).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
+        const end = endRaw ? new Date(endRaw).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
         const engineers = formatTaskEngineersLine(t.engineers ?? t.Eng_ids).toLowerCase();
-        const devices = (t.assets || []).map((a: any) => (a.name || a.CI_Name || a.id || '').toString().toLowerCase()).join(' ');
+        const devices = taskAssets(t).map((a) => {
+          const rec = asRecord(a);
+          return (readString(rec, 'name') ?? readString(rec, 'CI_Name') ?? String(rec.id ?? '')).toLowerCase();
+        }).join(' ');
         const sof = taskSofLabel(t).toLowerCase();
         return [site, start, end, engineers, devices, sof].some(s => s.includes(taskSearchLower));
       });
     }
-    const sorted = [...list].sort((a: any, b: any) => {
-      if (sortTaskBy === 'date-desc') return (new Date(b.startDate || 0).getTime()) - (new Date(a.startDate || 0).getTime());
-      if (sortTaskBy === 'date-asc') return (new Date(a.startDate || 0).getTime()) - (new Date(b.startDate || 0).getTime());
-      if (sortTaskBy === 'site') return (a.siteName || a.site_name || '').localeCompare(b.siteName || b.site_name || '');
+    const sorted = [...list].sort((a, b) => {
+      const aStart = apiTaskString(a, 'startDate', 'start_date');
+      const bStart = apiTaskString(b, 'startDate', 'start_date');
+      if (sortTaskBy === 'date-desc') return (new Date(bStart || 0).getTime()) - (new Date(aStart || 0).getTime());
+      if (sortTaskBy === 'date-asc') return (new Date(aStart || 0).getTime()) - (new Date(bStart || 0).getTime());
+      if (sortTaskBy === 'site') {
+        return (apiTaskString(a, 'siteName', 'site_name') ?? '').localeCompare(apiTaskString(b, 'siteName', 'site_name') ?? '');
+      }
       if (sortTaskBy === 'engineer') {
         const aStr = formatTaskEngineersLine(a.engineers ?? a.Eng_ids);
         const bStr = formatTaskEngineersLine(b.engineers ?? b.Eng_ids);
@@ -175,7 +235,7 @@ function AddPMReportPageContent() {
       return 0;
     });
     return sorted;
-  }, [availablePMTasks, taskSearchLower, sortTaskBy, sofFilter, taskSofLabel]);
+  }, [availablePMTasks, taskSearchLower, sortTaskBy, sofFilter]);
 
   const totalTaskPages = Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE));
   const taskPageSafe = Math.min(Math.max(1, taskPage), totalTaskPages);
@@ -203,45 +263,19 @@ function AddPMReportPageContent() {
       appliedTaskIdFromUrlRef.current = true;
       return;
     }
-    const exists = availablePMTasks.some((t: any) => Number(t.id) === n);
+    const exists = availablePMTasks.some((t) => taskIdNum(t) === n);
     if (!exists) {
       appliedTaskIdFromUrlRef.current = true;
       return;
     }
     appliedTaskIdFromUrlRef.current = true;
     setSelectedTaskId(n);
-    const idx = filteredAndSortedTasks.findIndex((t: any) => Number(t.id) === n);
+    const idx = filteredAndSortedTasks.findIndex((t) => taskIdNum(t) === n);
     if (idx >= 0) {
       setTaskPage(Math.floor(idx / TASKS_PER_PAGE) + 1);
     }
     if (pathname) router.replace(pathname, { scroll: false });
   }, [checkingTasks, availablePMTasks, filteredAndSortedTasks, searchParams, router, pathname]);
-
-  // Fallback: เมื่อ Task มี contractId แต่ไม่มี slaTerm ให้ดึง sla_term จาก Contract
-  useEffect(() => {
-    const toFetch = donePMTasks
-      .filter((t: any) => t.contractId != null && (t.slaTerm == null || String(t.slaTerm).trim() === ''))
-      .map((t: any) => Number(t.contractId))
-      .filter((n: number) => !Number.isNaN(n));
-    const uniqueIds = [...new Set(toFetch)];
-    if (uniqueIds.length === 0) return;
-    const fetchAll = async () => {
-      const map: Record<number, number> = {};
-      await Promise.all(
-        uniqueIds.map(async (cid) => {
-          try {
-            const res = await getContractById(cid);
-            if (res.success && res.data?.sla_term != null) {
-              const n = typeof res.data.sla_term === 'number' ? res.data.sla_term : parseInt(String(res.data.sla_term), 10);
-              if (!Number.isNaN(n)) map[cid] = n;
-            }
-          } catch (_) {}
-        })
-      );
-      setContractSlaMap((prev: Record<number, number>) => ({ ...prev, ...map }));
-    };
-    fetchAll();
-  }, [donePMTasks]);
 
   // Fetch devices from API
   useEffect(() => {
@@ -262,45 +296,10 @@ function AddPMReportPageContent() {
     fetchDevices();
   }, []);
 
-  // Handle device selection change
-  const handleDeviceChange = (deviceId: string) => {
-    setSelectedDeviceId(deviceId);
-  };
-
-  // ดึง device ID จาก task.assets (รองรับหลายรูปแบบที่ API/DB อาจส่งมา)
-  const getDeviceIdFromAsset = (a: any): string => {
-    if (a == null) return '';
-    if (typeof a === 'number') return String(a);
-    if (typeof a === 'string') return a.trim();
-    const id =
-      a.id ?? a.Did ?? a.did ?? a.deviceId ?? a.device_id ?? (a as any).ID;
-    return id != null ? String(id).trim() : '';
-  };
-
-  /** รวมข้อมูลจาก task.assets เมื่อ device ไม่อยู่ใน GET /api/devices (เช่น limit 1000 + ORDER BY Did DESC ไม่ครอบคลุม Did เก่า) */
-  const deviceFromTaskAssetSnapshot = (raw: any, didNum: number): Device => {
-    const a = raw as Record<string, unknown>;
-    return {
-      Did: didNum,
-      Asset_State: a.Asset_State as string | undefined,
-      CI_Name: (a.CI_Name ?? a.name ?? '') as string | undefined,
-      Asset_Number: (a.Asset_Number ?? a.assetNumber ?? '') as string | undefined,
-      serial: (a.serial ?? a.serialNumber ?? '') as string | undefined,
-      model: (a.model ?? a.type ?? '') as string | undefined,
-      Manufacturername: a.Manufacturername as string | undefined,
-      Sitename: (a.Sitename ?? a.sitename ?? a.siteName ?? '') as string | undefined,
-      Location2: (a.Location2 ?? a.location2 ?? '') as string | undefined,
-      PR_No: a.PR_No as string | undefined,
-      Vendor: (a.Vendor ?? a.vendor ?? '') as string | undefined,
-      Refer_SOF: (a.Refer_SOF ?? a.refer_sof ?? '') as string | undefined,
-      SLid: a.SLid as number | undefined,
-    };
-  };
-
   // Device ที่เลือกได้มาจาก Task (assets + replacement) — ใช้ snapshot ใน task ถ้าไม่พบในรายการ devices ที่โหลดมา
   const allowedDevices = useMemo(() => {
     if (selectedTaskId == null) return [];
-    const task = availablePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    const task = availablePMTasks.find((t) => taskIdNum(t) === Number(selectedTaskId));
     if (!task) return [];
 
     const seen = new Set<string>();
@@ -313,7 +312,7 @@ function AddPMReportPageContent() {
       out.push(d);
     };
 
-    for (const raw of task.assets || []) {
+    for (const raw of taskAssets(task)) {
       const idStr = getDeviceIdFromAsset(raw);
       if (!idStr) continue;
       const fromPool = devices.find((d) => String(d.Did) === String(idStr));
@@ -326,14 +325,15 @@ function AddPMReportPageContent() {
       addOne(deviceFromTaskAssetSnapshot(raw, didNum));
     }
 
-    if (task.replacementDeviceId != null) {
-      const rid = String(task.replacementDeviceId);
+    const replacementId = task.replacementDeviceId ?? task.replacement_device_id;
+    if (replacementId != null) {
+      const rid = String(replacementId);
       if (!seen.has(rid)) {
         const fromPool = devices.find((d) => String(d.Did) === rid);
         if (fromPool) addOne(fromPool);
         else {
-          const n = Number(task.replacementDeviceId);
-          if (!Number.isNaN(n)) addOne({ Did: n } as Device);
+          const n = Number(replacementId);
+          if (!Number.isNaN(n)) addOne({ Did: n });
         }
       }
     }
@@ -343,7 +343,7 @@ function AddPMReportPageContent() {
 
   const selectedTask = useMemo(() => {
     if (selectedTaskId == null) return null;
-    return availablePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId)) ?? null;
+    return availablePMTasks.find((t) => taskIdNum(t) === Number(selectedTaskId)) ?? null;
   }, [availablePMTasks, selectedTaskId]);
 
   const selectedDevice = useMemo(() => {
@@ -354,13 +354,9 @@ function AddPMReportPageContent() {
   }, [devices, selectedDeviceId, allowedDevices]);
 
   const selectedTaskSiteName = useMemo(() => {
-    const t: any = selectedTask as any;
-    return (t?.siteName ?? t?.site_name ?? '').toString().trim();
+    if (!selectedTask) return '';
+    return (apiTaskString(selectedTask, 'siteName', 'site_name') ?? '').trim();
   }, [selectedTask]);
-
-  const selectedDeviceLocationName = useMemo(() => {
-    return (selectedDevice?.Location2 ?? '').toString().trim();
-  }, [selectedDevice]);
 
   const selectedSiteDisplayName = useMemo(() => {
     if (selectedTaskId == null) return '';
@@ -371,29 +367,8 @@ function AddPMReportPageContent() {
   /** PM No. = ครั้งที่ทำ PM ของ site ในปี (ไม่ใช่ลำดับ device/หน้า) */
   const selectedTaskPmNo = useMemo(() => {
     if (selectedTaskId == null) return '1';
-    return computePmNo(donePMTasks, selectedTaskId, pmDate);
+    return computePmNo(donePMTasks as PmTaskForRound[], selectedTaskId, pmDate);
   }, [donePMTasks, selectedTaskId, pmDate]);
-
-  const selectedLocationDisplayName = useMemo(() => {
-    if (selectedTaskId == null) return '';
-    const loc = selectedDeviceLocationName;
-    if (!loc) return '';
-    const site = selectedSiteDisplayName;
-    // กันค่าซ้ำ เช่น "Beer Thai Beer Thai"
-    if (site && site.toLowerCase().includes(loc.toLowerCase())) return '';
-    return loc;
-  }, [selectedTaskId, selectedDeviceLocationName, selectedSiteDisplayName]);
-
-  const selectedTaskSiteLocationLabel = useMemo(() => {
-    if (selectedTaskId == null) return '';
-    // ให้เป็น “อันเดียว” คือ site จาก task ที่เลือก (แล้วค่อยต่อ location ถ้ามี)
-    if (selectedTaskSiteName) {
-      return [selectedTaskSiteName, selectedLocationDisplayName].filter(Boolean).join(' ').trim();
-    }
-    // fallback: ถ้า task ไม่มี siteName ให้ใช้จาก device
-    const deviceSite = (selectedDevice?.Sitename ?? '').toString().trim();
-    return [deviceSite, selectedLocationDisplayName].filter(Boolean).join(' ').trim();
-  }, [selectedTaskId, selectedTaskSiteName, selectedLocationDisplayName, selectedDevice]);
 
   // เคลียร์ Device ที่เลือกถ้าไม่อยู่ในรายการที่อนุญาต (เมื่อเปลี่ยน Task)
   useEffect(() => {
@@ -413,46 +388,16 @@ function AddPMReportPageContent() {
     }
   }, [allowedDevices, selectedDeviceId]);
 
-  // sla_term จาก Contract (ผ่าน Task ที่เลือก) ใช้เป็นเกณฑ์ Pass/Fail
-  // Fallback: ถ้า Task ไม่มี slaTerm แต่มี contractId ให้ใช้จาก contractSlaMap
-  const slaThreshold = useMemo(() => {
-    const task = selectedTaskId != null ? availablePMTasks.find((t: any) => t.id === selectedTaskId) : null;
-    if (!task) return 70;
-    let st = task.slaTerm ?? task.sla_term;
-    if ((st == null || String(st).trim() === '') && task.contractId != null) {
-      st = contractSlaMap[Number(task.contractId)];
-    }
-    if (st == null || String(st).trim() === '') return 70;
-    const n = typeof st === 'number' ? st : parseInt(String(st).trim(), 10);
-    return Number.isNaN(n) ? 70 : n;
-  }, [availablePMTasks, selectedTaskId, contractSlaMap]);
-
-  // ใช้ local date เพื่อไม่ให้ timezone เลื่อนวัน (รับได้ทั้ง ISO และ YYYY-MM-DD)
-  const toYmd = (value: any): string => {
-    if (value == null) return '';
-    const s = String(value).trim();
-    if (!s) return '';
-    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (m) return m[1];
-    const d = new Date(s);
-    if (Number.isNaN(d.getTime())) return '';
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  };
-
-  // ใช้ข้อมูลจาก Task ที่เลือก pre-fill form
-  const applyTaskToForm = (task: any) => {
-    const taskId = Number(task.id);
-    setSelectedTaskId(Number.isNaN(taskId) ? null : taskId);
-    lastAppliedTaskSyncRef.current = `${task.id}:${task.updatedAt ?? task.updated_at ?? ''}`;
-    const firstAsset = task.assets && task.assets[0];
+  const applyTaskToForm = useCallback((task: ApiTask) => {
+    const taskId = taskIdNum(task);
+    setSelectedTaskId(taskId >= 0 ? taskId : null);
+    lastAppliedTaskSyncRef.current = `${String(task.id ?? '')}:${apiTaskString(task, 'updatedAt', 'updated_at') ?? ''}`;
+    const assets = taskAssets(task);
+    const firstAsset = assets[0];
     if (firstAsset) {
       const deviceId = getDeviceIdFromAsset(firstAsset);
       if (deviceId) setSelectedDeviceId(deviceId);
     }
-    // PM date: ใช้ "วันที่กด Done" (updatedAt) ก่อน แล้วค่อย fallback เป็น startDate
     const doneDate = toYmd(task.updatedAt ?? task.updated_at);
     if (doneDate) setPmDate(doneDate);
     else {
@@ -460,19 +405,18 @@ function AddPMReportPageContent() {
       if (start) setPmDate(start);
     }
     setTechnicianName(formatTaskEngineersLine(task.engineers ?? task.Eng_ids));
-  };
+  }, []);
 
   /** Pre-fill จาก task ที่เลือก — ไม่ re-run ทุกครั้งที่ donePMTasks ได้ array ใหม่ (กัน wizard กระพริบ) */
   useEffect(() => {
     if (selectedTaskId == null) return;
-    const task = donePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    const task = donePMTasks.find((t) => taskIdNum(t) === Number(selectedTaskId));
     if (!task) return;
-    const syncKey = `${task.id}:${task.updatedAt ?? task.updated_at ?? ''}`;
+    const syncKey = `${String(task.id ?? '')}:${apiTaskString(task, 'updatedAt', 'updated_at') ?? ''}`;
     if (lastAppliedTaskSyncRef.current === syncKey) return;
     lastAppliedTaskSyncRef.current = syncKey;
     applyTaskToForm(task);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync เฉพาะเมื่อ task id / updatedAt เปลี่ยน
-  }, [selectedTaskId, donePMTasks]);
+  }, [selectedTaskId, donePMTasks, applyTaskToForm]);
 
   const saveButtonLabel = saving
     ? savePhase === 'generating-pdf'
@@ -615,7 +559,7 @@ function AddPMReportPageContent() {
               </select>
               <select
                 value={sortTaskBy}
-                onChange={(e) => { setSortTaskBy(e.target.value as any); setTaskPage(1); }}
+                onChange={(e) => { setSortTaskBy(e.target.value as TaskSortOption); setTaskPage(1); }}
                 className="px-3 py-2 bg-muted border border-border rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
               >
                 <option value="date-desc">Newest first</option>
@@ -626,11 +570,17 @@ function AddPMReportPageContent() {
               Showing {filteredAndSortedTasks.length === 0 ? 0 : (taskPageSafe - 1) * TASKS_PER_PAGE + 1}-{Math.min(taskPageSafe * TASKS_PER_PAGE, filteredAndSortedTasks.length)} of {filteredAndSortedTasks.length} tasks
             </div>
             <div className="space-y-3">
-              {paginatedTasks.map((task) => (
+              {paginatedTasks.map((task) => {
+                const tid = taskIdNum(task);
+                const assetList = taskAssets(task);
+                const startRaw = apiTaskString(task, 'startDate', 'start_date');
+                const endRaw = apiTaskString(task, 'endDate', 'end_date');
+                const replacementId = task.replacementDeviceId ?? task.replacement_device_id;
+                return (
                 <div
-                  key={task.id}
+                  key={String(task.id ?? tid)}
                   className={`p-4 rounded-xl border-2 transition-all ${
-                    selectedTaskId === task.id
+                    selectedTaskId === tid
                       ? 'border-blue-500 bg-blue-50'
                       : 'border-border bg-muted hover:border-border'
                   }`}
@@ -639,7 +589,7 @@ function AddPMReportPageContent() {
                     <div className="flex flex-wrap gap-4 text-sm">
                       <span className="flex items-center gap-1.5 text-muted-foreground">
                         <MapPin size={16} className="text-muted-foreground" />
-                        {task.siteName || task.site_name || '-'}
+                        {apiTaskString(task, 'siteName', 'site_name') || '-'}
                       </span>
                       <span className="flex items-center gap-1.5 text-muted-foreground">
                         <FileText size={16} className="text-muted-foreground" />
@@ -652,23 +602,23 @@ function AddPMReportPageContent() {
                       </span>
                       <span className="flex items-center gap-1.5 text-muted-foreground">
                         <Calendar size={16} className="text-muted-foreground" />
-                        {task.startDate ? new Date(task.startDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
-                        {task.endDate && ` - ${new Date(task.endDate).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                        {startRaw ? new Date(startRaw).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
+                        {endRaw && ` - ${new Date(endRaw).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                       </span>
                       <span className="flex items-center gap-1.5 text-muted-foreground">
                         <User size={16} className="text-muted-foreground" />
                         {formatTaskEngineersLine(task.engineers ?? task.Eng_ids) || '—'}
                       </span>
-                      {task.assets?.length > 0 && (
+                      {assetList.length > 0 && (
                         <span className="text-muted-foreground">
-                          {task.assets.length === 1 ? 'Device' : 'Devices'}: {task.assets.length}
+                          {assetList.length === 1 ? 'Device' : 'Devices'}: {assetList.length}
                         </span>
                       )}
-                      {task.replacementDeviceId != null && (
+                      {replacementId != null && (
                         <span className="text-muted-foreground">
                           Replacement device: {(() => {
-                            const rep = devices.find((d) => d.Did === Number(task.replacementDeviceId));
-                            return rep ? (rep.CI_Name || rep.Asset_Number || rep.serial || `Device ${task.replacementDeviceId}`) : `Device ${task.replacementDeviceId}`;
+                            const rep = devices.find((d) => d.Did === Number(replacementId));
+                            return rep ? (rep.CI_Name || rep.Asset_Number || rep.serial || `Device ${replacementId}`) : `Device ${replacementId}`;
                           })()}
                         </span>
                       )}
@@ -677,16 +627,16 @@ function AddPMReportPageContent() {
                       type="button"
                       onClick={() => applyTaskToForm(task)}
                       className={`px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap ${
-                        selectedTaskId === task.id
+                        selectedTaskId === tid
                           ? 'bg-blue-500 text-white'
                           : 'bg-card border border-border text-muted-foreground hover:bg-muted'
                       }`}
                     >
-                      {selectedTaskId === task.id ? 'Using this data' : 'Use this task'}
+                      {selectedTaskId === tid ? 'Using this data' : 'Use this task'}
                     </button>
                   </div>
                 </div>
-              ))}
+              );})}
             </div>
             {totalTaskPages > 1 && (
               <div className="mt-4 flex items-center justify-center gap-2">

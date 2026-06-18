@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { LucideIcon, Server, Network, Shield, HardDrive, Zap, Radio, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, Filter, X, Calendar, MapPin, History, Loader2 } from "lucide-react";
+import { Server, Network, Shield, HardDrive, Zap, Radio, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Search, X, Calendar, MapPin, History, Loader2 } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { getDevicesWithPM } from "@/lib/api";
@@ -29,14 +29,6 @@ interface AssetDevice {
   nextPM: string | null;
   pmHistory: PMHistory[];
   status: "Active" | "Inactive" | "Maintenance";
-}
-
-/* ================= Summary Cards ================= */
-interface SummaryCard {
-  label: string;
-  value: string;
-  icon: LucideIcon;
-  growth?: string;
 }
 
 // Summary cards will be calculated from API data

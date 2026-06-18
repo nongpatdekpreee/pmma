@@ -18,11 +18,12 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import type { BarShapeProps } from 'recharts';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
+import { getErrorMessage } from '@/lib/unknownUtil';
 import {
   TrendingUp,
-  Download,
   Upload,
   Calendar,
   Wrench,
@@ -57,6 +58,10 @@ import { OverdueTasksModal,CompletedTasksModal,InprocessTasksModal,PendingTasksM
 import { InlineCatLoader } from '@/components/ui/CatLoader';
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getMaDashboard>>['data']>;
+type MonthlyMaRow = DashboardData['monthlyMA'][number];
+type MonthlyTrendChartRow = MonthlyMaRow & { complete: number };
+
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const EMPTY: DashboardData = {
   months: 6,
@@ -127,8 +132,7 @@ const MONTHLY_TREND_BAR_SEGMENTS_MA = [
 
 function monthlyTrendBundledBarShape(variant: 'pm' | 'ma') {
   const segments = variant === 'pm' ? MONTHLY_TREND_BAR_SEGMENTS_PM : MONTHLY_TREND_BAR_SEGMENTS_MA;
-  // Recharts BarShapeProps — keep loose so custom rects stay compatible across versions
-  return (props: any) => {
+  const MonthlyTrendBundledBar = (props: BarShapeProps) => {
     const x = Number(props.x);
     const y = Number(props.y);
     const width = Number(props.width);
@@ -171,6 +175,8 @@ function monthlyTrendBundledBarShape(variant: 'pm' | 'ma') {
       </g>
     );
   };
+  MonthlyTrendBundledBar.displayName = `MonthlyTrendBundledBar-${variant}`;
+  return MonthlyTrendBundledBar;
 }
 
 const MONTHLY_TREND_BAR_SHAPE_PM = monthlyTrendBundledBarShape('pm');
@@ -579,8 +585,6 @@ export default function ReportPage() {
     return list;
   }, []);
 
-  const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
   const dashboardParams = useMemo(() => {
     if (selectedYear && selectedYear !== '') {
       const year = parseInt(selectedYear, 10);
@@ -633,10 +637,10 @@ export default function ReportPage() {
             setError(res?.message || res?.error || 'Failed to load data');
           }
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!cancelled) {
           setData(EMPTY);
-          setError(e?.message || 'Failed to load data');
+          setError(getErrorMessage(e) || 'Failed to load data');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -664,13 +668,6 @@ export default function ReportPage() {
     const set = new Set(allow);
     return deviceRolesList.filter((r) => set.has(r.DeRoleid));
   }, [data?.availableFilters?.roleIds, deviceRolesList]);
-
-  const maTrendSiteOptions = useMemo(() => {
-    const allow = data?.availableFilters?.siteIds;
-    if (!Array.isArray(allow) || allow.length === 0) return sitesList;
-    const set = new Set(allow);
-    return sitesList.filter((s) => set.has(s.SLid));
-  }, [data?.availableFilters?.siteIds, sitesList]);
 
   // Distinct Site (Sid-level) options for cascaded filter — sites that have MA data in range
   const maTrendSidOptions = useMemo(() => {
@@ -756,7 +753,7 @@ export default function ReportPage() {
       return `Custom: ${y}`;
     }
     return timeFilter;
-  }, [selectedYear, selectedMonth, selectedEndMonth, timeFilter, MONTH_LABELS]);
+  }, [selectedYear, selectedMonth, selectedEndMonth, timeFilter]);
 
   /** ช่วงสำหรับกราฟรายเดือน — custom ใช้คำนวณจาก UI (range จาก API อาจไม่ใส่ end_month ครบ) */
   const trendRangeForCharts = useMemo(() => {
@@ -791,12 +788,12 @@ export default function ReportPage() {
       }));
     }
 
-    const byKey = new Map<string, any>();
+    const byKey = new Map<string, MonthlyMaRow>();
     for (const it of monthlyMA) {
       if (it?.monthKey) byKey.set(String(it.monthKey), it);
     }
 
-    const result: any[] = [];
+    const result: MonthlyTrendChartRow[] = [];
     const cur = new Date(sy, sm - 1, 1);
     const endExclusive = new Date(ey, em - 1, 1); // month start of endExclusive
     while (cur < endExclusive) {
@@ -833,7 +830,7 @@ export default function ReportPage() {
       cur.setMonth(cur.getMonth() + 1);
     }
     return result;
-  }, [monthlyMA, trendRangeForCharts?.start, trendRangeForCharts?.endExclusive, MONTH_LABELS]);
+  }, [monthlyMA, trendRangeForCharts?.start, trendRangeForCharts?.endExclusive]);
 
   // Top-model trend line (MA only) – single series when a role is selected
   const topModelTrendData = useMemo(() => {

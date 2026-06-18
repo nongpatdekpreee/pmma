@@ -41,15 +41,7 @@ export default function MAPage() {
           setVendorData(response.data);
           // Calculate totals
           const totalContractCount = response.data.reduce((sum, item) => sum + item.value, 0);
-          const uniqueSites = new Set<number>();
-          response.data.forEach(item => {
-            // siteCount is already aggregated per vendor, so we can sum them
-            // But to get unique sites, we'd need the API to return that
-            // For now, we'll use the sum as an approximation
-          });
           setTotalContracts(totalContractCount);
-          // For total sites, we'll need to calculate from the data
-          // Since we don't have unique site count, we'll use a sum approximation
           const totalSiteCount = response.data.reduce((sum, item) => sum + item.siteCount, 0);
           setTotalSites(totalSiteCount);
         }

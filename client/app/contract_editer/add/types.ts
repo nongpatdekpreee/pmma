@@ -15,5 +15,12 @@ export interface DeviceItem {
     roleName?: string | null;
     manufacturername?: string | null;
     SLid?: number | null;
+    contract_SLid?: number | null;
+}
+
+export interface ContractSiteRow {
+    SLid: number;
+    SiteName?: string | null;
+    Location2?: string | null;
 }
 

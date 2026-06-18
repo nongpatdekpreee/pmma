@@ -1,5 +1,3 @@
-import { Bell, ChevronDown, Search } from "lucide-react";
-
 export default function DashboardHeader() {
   return (
     <header className="flex shrink-0 items-center justify-end pt-5 pb-4 sm:pt-6 sm:pb-5 lg:pt-7 lg:pb-5">

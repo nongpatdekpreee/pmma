@@ -9,13 +9,16 @@ import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import { ChevronLeft, ChevronRight, X, FileCheck, FileX2, LayoutGrid, List, Users, Clock3 } from 'lucide-react';
 import { EngineerAvatar } from '@/components/ui/EngineerAvatar';
-import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react';
+import { Suspense, useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
+import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, getTasks, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
+import { getErrorMessage, readNumber, readString } from '@/lib/unknownUtil';
+import { type ApiTask, apiTaskString } from '@/lib/apiTask';
 
 interface Device {
   id: string;
@@ -118,7 +121,6 @@ function CalendarPageContent() {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [draggedEvent, setDraggedEvent] = useState<CalendarEvent | null>(null);
   const [dragOverDay, setDragOverDay] = useState<number | null>(null);
-  const [dragStartDay, setDragStartDay] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
@@ -168,19 +170,24 @@ function CalendarPageContent() {
     setSelectedStatusFilter(statusQuery as 'all' | 'done' | 'in-progress' | 'pending' | 'overdue');
   }, [statusQuery]);
 
-  const mapTaskToEvent = (task: any): CalendarEvent => {
-    const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
-    const end = task.endDate || task.end_date || start;
+  const mapTaskToEvent = useCallback((task: ApiTask): CalendarEvent => {
+    const start = apiTaskString(task, 'startDate', 'start_date') || new Date().toISOString().split('T')[0];
+    const end = apiTaskString(task, 'endDate', 'end_date') || start;
     const startDateObj = new Date(start);
     const endDateObj = new Date(end);
-    const engineers = task.engineers || task.Eng_ids || [];
+    const engineers = (Array.isArray(task.engineers) ? task.engineers : task.Eng_ids) || [];
     const engineerNames =
-      engineers.length > 0
-        ? engineers.map((e: Engineer) => (e.name || e.id) + (e.lastName ? ' ' + e.lastName : '')).join(', ')
+      Array.isArray(engineers) && engineers.length > 0
+        ? engineers
+            .map((e) => {
+              const eng = e as Engineer;
+              return (eng.name || eng.id) + (eng.lastName ? ' ' + eng.lastName : '');
+            })
+            .join(', ')
         : 'Unassigned';
-    const taskType = task.taskType || task.task_type || 'PM';
-    let siteName = task.siteName || task.site_name || task.Sname || '';
-    let location = task.location || task.Location2 || '';
+    const taskType = (apiTaskString(task, 'taskType', 'task_type') || 'PM') as 'PM' | 'MA';
+    let siteName = apiTaskString(task, 'siteName', 'site_name') || readString(task, 'Sname') || '';
+    let location = readString(task, 'location') ?? readString(task, 'Location2') ?? '';
     if (!location && siteName && siteName.includes(' - ')) {
       const parts = siteName.split(' - ');
       const sitePart = parts[0]?.trim() || '';
@@ -198,7 +205,7 @@ function CalendarPageContent() {
             ? `${location}`
             : siteName
               ? ` ${siteName}`
-              : `${task.vendorName || task.vendor_name || 'Maintenance Agreement'}`
+              : `${apiTaskString(task, 'vendorName', 'vendor_name') || 'Maintenance Agreement'}`
         : location && siteName
           ? `${location} - ${siteName}`
           : location
@@ -208,7 +215,7 @@ function CalendarPageContent() {
     return {
       id: String(task.id ?? task.taskId ?? task.task_id ?? Date.now()),
       title,
-      time: task.time || '09:00',
+      time: readString(task, 'time') || '09:00',
       color:
         task.priority === 'High'
           ? 'border-red-500'
@@ -221,69 +228,71 @@ function CalendarPageContent() {
       year: startDateObj.getFullYear(),
       engineer: engineerNames,
       taskType,
-      contractId: task.contractId || task.contract_id || undefined,
-      replacementDeviceId: task.replacementDeviceId || task.replacement_device_id || undefined,
-      Sid: task.siteId ? String(task.siteId) : task.Sid,
+      contractId: readNumber(task, 'contractId') ?? readNumber(task, 'contract_id'),
+      replacementDeviceId:
+        readNumber(task, 'replacementDeviceId') ?? readNumber(task, 'replacement_device_id'),
+      Sid: task.siteId ? String(task.siteId) : readString(task, 'Sid'),
       Sname: siteName,
       location,
-      Eng_ids: engineers,
+      Eng_ids: engineers as Engineer[],
       startDate: start,
       endDate: end,
-      ...(task.priority ? { priority: task.priority } : {}),
-      coverageScope: task.coverageScope,
-      assets: task.assets || [],
-      vendorName: task.vendorName || task.vendor_name,
-      vendorTel: task.vendorTel || task.vendor_tel,
-      reporterName: task.reporterName || task.reporter_name,
-      reporterTel: task.reporterTel || task.reporter_tel,
-      ticket: task.ticket,
-      rootCause: task.rootCause || task.root_cause,
-      resolution: task.resolution,
-      ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
-      duration: task.duration,
-      assetBinding: task.assetBinding || task.asset_binding,
-      travelMethod: task.travelMethod || task.travel_method,
-      travelCost: task.travelCost,
-      status: task.status || 'not-started',
-      actuallyWent: task.actuallyWent ?? task.actually_went ?? false,
-      photos: task.photos || [],
-      notes: task.notes || '',
-      rescheduleNote: task.rescheduleNote || task.reschedule_note || '',
+      ...(readString(task, 'priority') ? { priority: readString(task, 'priority') } : {}),
+      coverageScope: readString(task, 'coverageScope'),
+      assets: (Array.isArray(task.assets) ? task.assets : []) as Device[],
+      vendorName: apiTaskString(task, 'vendorName', 'vendor_name'),
+      vendorTel: apiTaskString(task, 'vendorTel', 'vendor_tel'),
+      reporterName: apiTaskString(task, 'reporterName', 'reporter_name'),
+      reporterTel: apiTaskString(task, 'reporterTel', 'reporter_tel'),
+      ticket: readString(task, 'ticket'),
+      rootCause: apiTaskString(task, 'rootCause', 'root_cause'),
+      resolution: readString(task, 'resolution'),
+      ...((apiTaskString(task, 'slaTerm', 'sla_term')
+        ? { slaTerm: apiTaskString(task, 'slaTerm', 'sla_term') }
+        : {}) as { slaTerm?: string }),
+      duration: readString(task, 'duration'),
+      assetBinding: apiTaskString(task, 'assetBinding', 'asset_binding'),
+      travelMethod: apiTaskString(task, 'travelMethod', 'travel_method'),
+      travelCost: readString(task, 'travelCost'),
+      status: (readString(task, 'status') || 'not-started') as CalendarEvent['status'],
+      actuallyWent: Boolean(task.actuallyWent ?? task.actually_went ?? false),
+      photos: (Array.isArray(task.photos) ? task.photos : []) as string[],
+      notes: readString(task, 'notes') || '',
+      rescheduleNote: apiTaskString(task, 'rescheduleNote', 'reschedule_note') || '',
       downtimeDate:
-        task.downtimeDate ??
-        task.downTimeStartDate ??
-        task.down_time_start_date,
+        apiTaskString(task, 'downtimeDate', 'downTimeStartDate') ??
+        readString(task, 'down_time_start_date'),
       downtimeTime:
-        task.downtimeTime ??
-        task.downTimeStartTime ??
-        task.down_time_start_time,
+        apiTaskString(task, 'downtimeTime', 'downTimeStartTime') ??
+        readString(task, 'down_time_start_time'),
       uptimeDate:
-        task.uptimeDate ?? task.downTimeEndDate ?? task.down_time_end_date,
+        apiTaskString(task, 'uptimeDate', 'downTimeEndDate') ?? readString(task, 'down_time_end_date'),
       uptimeTime:
-        task.uptimeTime ?? task.downTimeEndTime ?? task.down_time_end_time,
+        apiTaskString(task, 'uptimeTime', 'downTimeEndTime') ?? readString(task, 'down_time_end_time'),
       downtimeTotalHours:
-        task.downtimeTotalHours ?? task.down_time_total_hours ?? undefined,
+        readNumber(task, 'downtimeTotalHours') ?? readNumber(task, 'down_time_total_hours'),
       assignedService:
-        task.assignedService ?? task.assigned_service ?? null,
+        (readString(task, 'assignedService') ?? readString(task, 'assigned_service')) || null,
     };
-  };
+  }, []);
 
-  const loadTasksFromApi = async () => {
+  const loadTasksFromApi = useCallback(async () => {
     setIsLoading(true);
     setLoadError(null);
     try {
       const json = await getTasks();
       if (!json.success) throw new Error(json.message || 'Failed to load data');
-      setCalendarEvents((json.data || []).map(mapTaskToEvent));
-    } catch (error: any) {
+      const rows = Array.isArray(json.data) ? (json.data as ApiTask[]) : [];
+      setCalendarEvents(rows.map(mapTaskToEvent));
+    } catch (error: unknown) {
       console.error('loadTasksFromApi error', error);
-      setLoadError(error.message || 'Unable to load tasks');
+      setLoadError(getErrorMessage(error) || 'Unable to load tasks');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [mapTaskToEvent]);
 
-  const loadReportedTaskIds = async () => {
+  const loadReportedTaskIds = useCallback(async () => {
     try {
       const [pmRes, maRes] = await Promise.all([
         getPmReportedTaskIds(),
@@ -295,20 +304,19 @@ function CalendarPageContent() {
       if (maRes.success && Array.isArray(maRes.taskIds)) {
         setReportedMATaskIds(new Set(maRes.taskIds));
       }
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('loadReportedTaskIds error', e);
     }
-  };
+  }, []);
 
   // Load events from API on mount and when page is focused
   useEffect(() => {
-    loadTasksFromApi();
-    loadReportedTaskIds();
+    void loadTasksFromApi();
+    void loadReportedTaskIds();
 
-    // Reload events when page gains focus (when user navigates back)
     const handleFocus = () => {
-      loadTasksFromApi();
-      loadReportedTaskIds();
+      void loadTasksFromApi();
+      void loadReportedTaskIds();
     };
 
     window.addEventListener('focus', handleFocus);
@@ -316,7 +324,7 @@ function CalendarPageContent() {
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [loadTasksFromApi, loadReportedTaskIds]);
 
   // Load engineers for filter — รูปในงานใช้ roster Technical เดียวกับหน้า schedule_management
   useEffect(() => {
@@ -336,14 +344,14 @@ function CalendarPageContent() {
   const currentMonth = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
 
-  const loadHolidays = async (year = currentYear) => {
+  const loadHolidays = useCallback(async (year: number) => {
     const res = await getHolidays(year);
     if (res.success && res.data) setHolidays(res.data);
-  };
+  }, []);
 
   useEffect(() => {
-    loadHolidays(currentYear);
-  }, [currentYear]);
+    void loadHolidays(currentYear);
+  }, [currentYear, loadHolidays]);
 
   const getHolidayForDay = (day: number | null): HolidayItem | null => {
     if (day === null) return null;
@@ -687,7 +695,7 @@ function CalendarPageContent() {
   // Persist task dates to backend
   const persistTaskDates = async (taskId: string, startDate: string, endDate: string, reason?: string) => {
     try {
-      const body: any = { startDate, endDate };
+      const body: { startDate: string; endDate: string; rescheduleNote?: string } = { startDate, endDate };
       if (reason) {
         body.rescheduleNote = reason;
       }
@@ -701,12 +709,10 @@ function CalendarPageContent() {
         const detail = [json.message, json.error].filter((x) => x && String(x).trim()).join(' — ');
         throw new Error(detail || 'Update failed');
       }
-      // Reload tasks from API to ensure UI consistency
       await loadTasksFromApi();
       return json;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('persistTaskDates error', error);
-      // Reload tasks from API even on error to ensure UI consistency
       await loadTasksFromApi();
       throw error;
     }
@@ -720,9 +726,8 @@ function CalendarPageContent() {
 
   /* ================= Drag ================= */
   const handleDragStart = (e: React.DragEvent, event: CalendarEvent) => {
-    e.stopPropagation(); // Prevent opening modal when dragging
+    e.stopPropagation();
     setDraggedEvent(event);
-    setDragStartDay(event.startDay);
   };
 
   const handleDragOver = (e: React.DragEvent, day: number | null) => {
@@ -773,7 +778,6 @@ function CalendarPageContent() {
       // วันเดิม ไม่ย้าย ไม่ต้องถามเหตุผล
       setDraggedEvent(null);
       setDragOverDay(null);
-      setDragStartDay(null);
       return;
     }
 
@@ -792,7 +796,6 @@ function CalendarPageContent() {
     // Clear drag state
     setDraggedEvent(null);
     setDragOverDay(null);
-    setDragStartDay(null);
   };
 
   const confirmMoveTask = async () => {
@@ -863,16 +866,17 @@ function CalendarPageContent() {
   const handleDragEnd = () => {
     setDraggedEvent(null);
     setDragOverDay(null);
-    setDragStartDay(null);
   };
 
+  type TaskUpdateInput = Pick<CalendarEvent, 'id' | 'status'> & { notes?: string | null };
+
   // Handle task update from detail modal (for status updates only)
-  const handleTaskUpdate = async (updatedTask: any) => {
+  const handleTaskUpdate = async (updatedTask: TaskUpdateInput) => {
     const originalEvent = calendarEvents.find((e) => e.id === updatedTask.id);
     const originalStartDate = originalEvent?.startDate;
     const originalEndDate = originalEvent?.endDate;
 
-    const payload: any = {
+    const payload: { status?: CalendarEvent['status']; notes?: string | null } = {
       status: updatedTask.status,
     };
     if (updatedTask.notes !== undefined) {
@@ -904,7 +908,7 @@ function CalendarPageContent() {
       const base = {
         ...ev,
         status: updatedTask.status,
-        ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
+        ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes ?? undefined } : {}),
         startDate: originalStartDate || ev.startDate,
         endDate: originalEndDate || ev.endDate,
       };
@@ -1372,7 +1376,6 @@ function CalendarPageContent() {
                   hasMultiDayBarAbove,
                   multiDayRowsThisDay,
                   holidayForDay,
-                  nPills,
                   pillsStackPx,
                 };
               });
@@ -1395,7 +1398,6 @@ function CalendarPageContent() {
                       hasMultiDayBarAbove,
                       multiDayRowsThisDay,
                       holidayForDay,
-                      nPills,
                       pillsStackPx,
                     } = dayLayouts[dayIndex];
                     return (
@@ -1502,7 +1504,14 @@ function CalendarPageContent() {
                                       <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
                                         <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
                                           {ev.Eng_ids[0].photo ? (
-                                            <img src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                                            <Image
+                                              src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)}
+                                              alt=""
+                                              width={20}
+                                              height={20}
+                                              unoptimized
+                                              className="h-full w-full object-cover"
+                                            />
                                           ) : (
                                             <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
                                               {(ev.Eng_ids[0].name?.[0] || ev.Eng_ids[0].id?.[0] || '?').toUpperCase()}
@@ -1607,7 +1616,14 @@ function CalendarPageContent() {
                           <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
                             <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
                               {event.Eng_ids[0].photo ? (
-                                <img src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                                <Image
+                                  src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)}
+                                  alt=""
+                                  width={20}
+                                  height={20}
+                                  unoptimized
+                                  className="h-full w-full object-cover"
+                                />
                               ) : (
                                 <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
                                   {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
@@ -1754,7 +1770,14 @@ function CalendarPageContent() {
                     <div key={eng.id || idx} className="flex items-center gap-2">
                       <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-border bg-muted">
                         {eng.photo ? (
-                          <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
+                          <Image
+                            src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)}
+                            alt=""
+                            width={32}
+                            height={32}
+                            unoptimized
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
                           <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-muted-foreground">
                             {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}

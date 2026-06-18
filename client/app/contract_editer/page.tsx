@@ -1,26 +1,53 @@
 'use client';
 
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
 import { apiUrl, getSitesLocation, syncContractsFromReferSof } from '@/lib/api';
-import Link from 'next/link';
+import { asRecord, getErrorMessage, readString } from '@/lib/unknownUtil';
 import * as XLSX from 'xlsx';
 import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearchListDropdown';
 import { PageCatLoader, InlineCatLoader } from '@/components/ui/CatLoader';
 import { 
   FileText, Calendar, Building2, MapPin, Hash,
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
-  ImageIcon, History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban, Undo2
+  History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban, Undo2
 } from 'lucide-react';
 
 const EQUIPMENT_PAGE_SIZE = 5;
 const CONTRACT_CARD_PAGE_SIZE = 12;
 const CONTRACT_TABLE_PAGE_SIZE = 8;
 const EXPORT_MODAL_PAGE_SIZE = 25;
+
+type ExcelCell = string | number | boolean | Date | null | undefined;
+type ExcelRow = ExcelCell[];
+type ExcelSheet = ExcelRow[];
+
+interface ImportedSiteDevicePair {
+  site_id: number;
+  device_ids: number[];
+}
+
+interface ImportedContractRow {
+  contract_name?: string;
+  sof_name?: string;
+  siteName?: string;
+  location?: string;
+  start_date?: string;
+  end_date?: string;
+  sla_term?: string;
+  assigned_service?: string;
+  sale_account?: string;
+  email_acc?: string;
+  tel_acc?: string;
+  coverage_scope?: string;
+  device_ids?: string;
+  site_device_pairs?: ImportedSiteDevicePair[];
+  Sid?: number;
+}
 
 interface Equipment {
   name: string;
@@ -64,6 +91,12 @@ interface Contract {
   renewHistOldSof?: string | null;
   renewHistNewSof?: string | null;
   renewHistAt?: string | null;
+  /** SOF เดิมทุกค่าจากประวัติ (comma-separated) — ใช้ค้นหา */
+  histOldSofs?: string | null;
+  /** แถวรวมหลาย location ที่ SOF เดียวกัน (โหมด list ปกติ — ไม่ใช่ตอนค้นหา) */
+  isSofGroupRow?: boolean;
+  sofGroupMembers?: Contract[];
+  sofGroupSize?: number;
   /** แถวจาก contract_history (แสดงในตาราง/การ์ดเดียวกับ contract) */
   isHistorySnapshotRow?: boolean;
   /** contract_id จริงสำหรับเรียก API รายละเอียด/แก้ไข */
@@ -245,6 +278,7 @@ function mapApiRowToContract(c: {
   renew_hist_old_sof?: string | null;
   renew_hist_new_sof?: string | null;
   renew_hist_at?: string | Date | null;
+  hist_old_sofs?: string | null;
   created_at?: string | Date | null;
 }): Contract {
   const endDate = c.end_date || '';
@@ -307,6 +341,10 @@ function mapApiRowToContract(c: {
     renewHistAt:
       c.renew_hist_at != null && String(c.renew_hist_at).trim() !== ''
         ? String(c.renew_hist_at)
+        : null,
+    histOldSofs:
+      c.hist_old_sofs != null && String(c.hist_old_sofs).trim() !== ''
+        ? String(c.hist_old_sofs).trim()
         : null,
     createdAt:
       c.created_at != null && String(c.created_at).trim() !== ''
@@ -499,6 +537,60 @@ function renewHistoryColumnContent(
   return { sof, dateLine };
 }
 
+/** จับคู่เลข SOF แบบ normalize ศูนย์นำหน้า (0987 ↔ 987) */
+function normalizeSofSearchKey(sof: string): string {
+  const t = sof.trim();
+  if (!/^\d+$/.test(t)) return t.toLowerCase();
+  return t.replace(/^0+/, '') || '0';
+}
+
+function sofFieldMatchesSearch(sof: string | null | undefined, searchLower: string): boolean {
+  if (!sof) return false;
+  const s = sof.toLowerCase();
+  if (s.includes(searchLower)) return true;
+  if (/^\d+$/.test(searchLower)) {
+    return normalizeSofSearchKey(sof).includes(normalizeSofSearchKey(searchLower));
+  }
+  return false;
+}
+
+function contractSofFieldsMatchSearch(
+  contract: Pick<Contract, 'sofName' | 'renewHistOldSof' | 'renewHistNewSof' | 'histOldSofs'>,
+  searchLower: string,
+): boolean {
+  if (sofFieldMatchesSearch(contract.sofName, searchLower)) return true;
+  if (sofFieldMatchesSearch(contract.renewHistOldSof, searchLower)) return true;
+  if (sofFieldMatchesSearch(contract.renewHistNewSof, searchLower)) return true;
+  if (contract.histOldSofs) {
+    for (const part of contract.histOldSofs.split(',')) {
+      if (sofFieldMatchesSearch(part.trim(), searchLower)) return true;
+    }
+  }
+  return false;
+}
+
+/** ค้นหารายการสัญญา — รวม SOF ปัจจุบันและ SOF เดิม (ก่อน renew/rename) */
+function contractMatchesListSearch(contract: Contract, searchTerm: string): boolean {
+  const searchLower = searchTerm.trim().toLowerCase();
+  if (!searchLower) return true;
+  const apiId = contractRowApiId(contract).toLowerCase();
+  if (
+    contract.id.toLowerCase().includes(searchLower) ||
+    apiId.includes(searchLower) ||
+    (contract.historyId != null && `h-${contract.historyId}`.toLowerCase().includes(searchLower)) ||
+    contract.name.toLowerCase().includes(searchLower) ||
+    contract.partner.toLowerCase().includes(searchLower) ||
+    (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
+    (contract.siteLocation ?? '').toLowerCase().includes(searchLower) ||
+    (contract.contractSiteName ?? '').toLowerCase().includes(searchLower) ||
+    (contract.contractSiteLocation ?? '').toLowerCase().includes(searchLower) ||
+    (contract.siteId != null && String(contract.siteId).includes(searchLower))
+  ) {
+    return true;
+  }
+  return contractSofFieldsMatchSearch(contract, searchLower);
+}
+
 /** ปุ่ม Renew ในการ์ด/ตาราง: ใกล้หมดอายุ (ภายในก่อนสิ้นสุด N เดือน), หมดอายุ, หรือ not_renewing — ไม่ใช่ draft */
 function contractListShowsRenewAction(contract: Contract): boolean {
   if (contract.isHistorySnapshotRow) return false;
@@ -587,7 +679,285 @@ function sortMergedContractList(merged: Contract[]): Contract[] {
   });
 }
 
-function ContractListPageJump({
+const CONTRACT_STATUS_PRIORITY: Record<Contract['status'], number> = {
+  expired: 5,
+  expiring: 4,
+  active: 3,
+  closed: 2,
+};
+
+function contractSofGroupKey(c: Contract): string | null {
+  if (c.isHistorySnapshotRow) return null;
+  const sof = c.sofName != null ? String(c.sofName).trim() : '';
+  if (!sof) return null;
+  return normalizeSofSearchKey(sof);
+}
+
+function pickGroupListStatus(members: Contract[]): Contract['status'] {
+  return members.reduce((worst, m) => {
+    const wp = CONTRACT_STATUS_PRIORITY[worst] ?? 0;
+    const mp = CONTRACT_STATUS_PRIORITY[m.status] ?? 0;
+    return mp > wp ? m.status : worst;
+  }, members[0].status);
+}
+
+function pickGroupContractStatus(members: Contract[]): Contract['contractStatus'] {
+  if (members.some((m) => m.contractStatus === 'draft')) return 'draft';
+  if (members.some((m) => m.contractStatus === 'not_renewing')) return 'not_renewing';
+  return 'official';
+}
+
+function formatGroupedDateLabel(members: Contract[], field: 'formattedStartDate' | 'formattedEndDate'): string {
+  const labels = [...new Set(members.map((m) => m[field]).filter(Boolean))] as string[];
+  if (labels.length <= 1) return labels[0] ?? '—';
+  return `${labels[0]} … (+${labels.length - 1})`;
+}
+
+function contractListPrimaryMember(c: Contract): Contract {
+  if (c.isSofGroupRow && c.sofGroupMembers && c.sofGroupMembers.length > 0) {
+    return c.sofGroupMembers[0];
+  }
+  return c;
+}
+
+function contractListDisplaySiteName(c: Contract): string {
+  const m = contractListPrimaryMember(c);
+  return (m.contractSiteName ?? m.siteName ?? m.partner ?? '').trim() || '—';
+}
+
+function contractListDisplaySiteLocation(c: Contract): string {
+  const m = contractListPrimaryMember(c);
+  return (m.contractSiteLocation ?? m.siteLocation ?? '').trim() || '—';
+}
+
+function buildSofGroupRepresentative(members: Contract[]): Contract {
+  const sorted = [...members].sort((a, b) => contractRowSortTimestamp(b) - contractRowSortTimestamp(a));
+  const primary = sorted[0];
+  const groupKey = contractSofGroupKey(primary);
+  const groupStatus = pickGroupListStatus(sorted);
+  const groupContractStatus = pickGroupContractStatus(sorted);
+  const primarySiteName = (primary.contractSiteName ?? primary.siteName ?? '').trim();
+  const primarySiteLocation = (primary.contractSiteLocation ?? primary.siteLocation ?? '').trim();
+  return {
+    ...primary,
+    id: groupKey != null ? `sof-group-${groupKey}` : primary.id,
+    isSofGroupRow: true,
+    sofGroupMembers: sorted,
+    sofGroupSize: members.length,
+    contractSiteName: primarySiteName || undefined,
+    siteName: primarySiteName || undefined,
+    contractSiteLocation: primarySiteLocation || undefined,
+    siteLocation: primarySiteLocation || undefined,
+    status: groupStatus,
+    contractStatus: groupContractStatus,
+    formattedStartDate: formatGroupedDateLabel(sorted, 'formattedStartDate'),
+    formattedEndDate: formatGroupedDateLabel(sorted, 'formattedEndDate'),
+    deviceCount: sorted.reduce((sum, m) => sum + (m.deviceCount ?? 0), 0),
+    devicesSlidAligned: sorted.every((m) => m.devicesSlidAligned),
+  };
+}
+
+/** รวมแถวที่ SOF เดียวกันเป็นหนึ่งรายการ — ใช้เมื่อไม่ได้ค้นหา */
+function groupContractsBySof(rows: Contract[]): Contract[] {
+  const historyRows: Contract[] = [];
+  const ungrouped: Contract[] = [];
+  const bySof = new Map<string, Contract[]>();
+
+  for (const row of rows) {
+    const key = contractSofGroupKey(row);
+    if (key == null) {
+      if (row.isHistorySnapshotRow) historyRows.push(row);
+      else ungrouped.push(row);
+      continue;
+    }
+    const bucket = bySof.get(key) ?? [];
+    bucket.push(row);
+    bySof.set(key, bucket);
+  }
+
+  const grouped: Contract[] = [];
+  for (const members of bySof.values()) {
+    grouped.push(members.length === 1 ? members[0] : buildSofGroupRepresentative(members));
+  }
+
+  return sortMergedContractList([...grouped, ...ungrouped, ...historyRows]);
+}
+
+function formatContractPeerSiteLabel(c: Contract): string {
+  const name = (c.contractSiteName ?? c.siteName ?? '').trim();
+  const loc = (c.contractSiteLocation ?? c.siteLocation ?? '').trim();
+  if (name) return loc ? `${name} – ${loc}` : name;
+  if (loc) return loc;
+  const sid = c.siteId ?? contractRowApiId(c);
+  return sid ? `Location ${sid}` : '—';
+}
+
+function formatDetailSofPeerPickLabel(c: Contract): string {
+  const count = c.deviceCount ?? 0;
+  return `${formatContractPeerSiteLabel(c)} (${count})`;
+}
+
+function DetailModalViewSiteDropdown({
+  peers,
+  currentContract,
+  open,
+  filter,
+  onToggle,
+  onFilterChange,
+  onPick,
+}: {
+  peers: Contract[];
+  currentContract: Contract | null;
+  open: boolean;
+  filter: string;
+  onToggle: () => void;
+  onFilterChange: (value: string) => void;
+  onPick: (peerId: string) => void;
+}) {
+  if (peers.length <= 1) return null;
+  const items = peers.map((p) => ({
+    value: p.id,
+    label: formatDetailSofPeerPickLabel(p),
+  }));
+  const selectedId = currentContract?.id ?? '';
+  const displayText = currentContract ? formatDetailSofPeerPickLabel(currentContract) : '';
+
+  return (
+    <div
+      className={`flex w-full min-w-0 flex-wrap items-end gap-2 ${
+        open ? 'relative z-[200]' : ''
+      }`}
+    >
+      <div className="flex min-w-0 w-full flex-1 flex-col gap-1">
+        <span
+          id="contract-detail-view-site-label"
+          className="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          View site
+        </span>
+        <ContractSimpleSearchListDropdown
+          rootId="contract-detail-sof-peer-dropdown"
+          portalPanel
+          className="w-full"
+          open={open}
+          onToggle={onToggle}
+          displayText={displayText}
+          emptyPlaceholder="Select site..."
+          panelTitle="Select from the list (view by site)"
+          filter={filter}
+          onFilterChange={onFilterChange}
+          items={items}
+          selectedValue={selectedId}
+          onPick={(value) => onPick(value)}
+          searchPlaceholder="Search site..."
+          emptyText="No sites match"
+        />
+      </div>
+    </div>
+  );
+}
+
+function DetailModalSiteLocationCard({
+  siteName,
+  locationName,
+}: {
+  siteName: string;
+  locationName: string;
+}) {
+  return (
+    <div className="relative flex flex-col gap-4 rounded-2xl border border-border bg-card/70 p-3 shadow-sm shadow-slate-900/[0.04] ring-1 ring-border backdrop-blur-sm">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:items-end sm:gap-3">
+        <div className="min-w-0 w-full max-w-full">
+          <label className="mb-1 block text-[10px] font-semibold uppercase text-muted-foreground">
+            Site
+          </label>
+          <div className="min-h-[2.5rem] rounded-xl border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+            {siteName || '—'}
+          </div>
+        </div>
+        <div className="min-w-0 w-full max-w-full">
+          <label className="mb-1 block text-[10px] font-semibold uppercase text-muted-foreground">
+            Location
+          </label>
+          <div className="min-h-[2.5rem] rounded-xl border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+            {locationName || '—'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** สัญญา/location อื่นที่ใช้เลข SOF เดียวกัน — ใช้สลับใน modal รายละเอียด */
+function resolveSofPeerContracts(contract: Contract, allContracts: Contract[]): Contract[] {
+  if (contract.isHistorySnapshotRow) return [contract];
+  if (contract.isSofGroupRow && contract.sofGroupMembers && contract.sofGroupMembers.length > 0) {
+    return contract.sofGroupMembers;
+  }
+  const key = contractSofGroupKey(contract);
+  if (!key) return [contract];
+  const peers = allContracts.filter(
+    (c) => !c.isHistorySnapshotRow && contractSofGroupKey(c) === key,
+  );
+  return peers.length > 0 ? sortMergedContractList(peers) : [contract];
+}
+
+/** แถวที่ใช้กับ action (view/edit/renew) — กลุ่ม SOF ใช้ location หลัก */
+function contractListActionTarget(c: Contract): Contract {
+  if (c.isSofGroupRow && c.sofGroupMembers && c.sofGroupMembers.length > 0) {
+    return c.sofGroupMembers[0];
+  }
+  return c;
+}
+
+function contractListGroupShowsRenewAction(c: Contract): boolean {
+  if (c.isSofGroupRow && c.sofGroupMembers) {
+    return c.sofGroupMembers.some((m) => contractListShowsRenewAction(m));
+  }
+  return contractListShowsRenewAction(c);
+}
+
+function contractListGroupShowsUndoTerminated(c: Contract): boolean {
+  if (c.isSofGroupRow && c.sofGroupMembers) {
+    return c.sofGroupMembers.some((m) => contractListShowsUndoTerminated(m));
+  }
+  return contractListShowsUndoTerminated(c);
+}
+
+function contractListGroupDisablesEdit(c: Contract): boolean {
+  if (c.isHistorySnapshotRow) return true;
+  return false;
+}
+
+function contractListGroupExpiryIncoming(c: Contract): ReturnType<typeof getContractExpiryIncomingLabel> {
+  if (c.isSofGroupRow && c.sofGroupMembers && c.sofGroupMembers.length > 0) {
+    const candidates = c.sofGroupMembers
+      .map((m) => ({
+        m,
+        label: getContractExpiryIncomingLabel(
+          m.endDate,
+          m.contractStatus === 'not_renewing',
+          m,
+        ),
+      }))
+      .filter(({ label }) => label.tone !== 'na');
+    if (candidates.length === 0) {
+      return getContractExpiryIncomingLabel(
+        c.sofGroupMembers[0].endDate,
+        c.sofGroupMembers[0].contractStatus === 'not_renewing',
+        c.sofGroupMembers[0],
+      );
+    }
+    const priority = { overdue: 3, due: 2, future: 1, na: 0 } as const;
+    candidates.sort(
+      (a, b) => (priority[b.label.tone] ?? 0) - (priority[a.label.tone] ?? 0),
+    );
+    return candidates[0].label;
+  }
+  return getContractExpiryIncomingLabel(c.endDate, c.contractStatus === 'not_renewing', c);
+}
+
+function ContractListPageJumpField({
   currentPage,
   totalPages,
   onGoTo,
@@ -597,9 +967,6 @@ function ContractListPageJump({
   onGoTo: (page: number) => void;
 }) {
   const [draft, setDraft] = useState(String(currentPage));
-  useEffect(() => {
-    setDraft(String(currentPage));
-  }, [currentPage, totalPages]);
 
   const commit = () => {
     const trimmed = draft.trim();
@@ -642,6 +1009,14 @@ function ContractListPageJump({
   );
 }
 
+function ContractListPageJump(props: {
+  currentPage: number;
+  totalPages: number;
+  onGoTo: (page: number) => void;
+}) {
+  return <ContractListPageJumpField key={`${props.currentPage}-${props.totalPages}`} {...props} />;
+}
+
 function ContractEditorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -676,7 +1051,6 @@ function ContractEditorPageContent() {
     location: '',
     notes: '',
   });
-  const [formType, setFormType] = useState<'add' | 'edit'>('add');
 
   // Renew Contract modal
   const [showRenewModal, setShowRenewModal] = useState(false);
@@ -701,10 +1075,14 @@ function ContractEditorPageContent() {
   const [assignRowPickerFilter, setAssignRowPickerFilter] = useState('');
   const [assignDeviceSelected, setAssignDeviceSelected] = useState<Set<string>>(new Set());
   const [assignDeviceSearch, setAssignDeviceSearch] = useState('');
-  const [devicesAssignedStatus, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
+  const [, setDevicesAssignedStatus] = useState<Record<string, boolean>>({});
   const [selectedDetailSiteSlid, setSelectedDetailSiteSlid] = useState<number | null>(null);
   const [detailSiteViewDropdownOpen, setDetailSiteViewDropdownOpen] = useState(false);
   const [detailSiteViewFilter, setDetailSiteViewFilter] = useState('');
+  /** location อื่นที่ใช้ SOF เดียวกัน — สลับใน modal รายละเอียด */
+  const [detailSofPeerContracts, setDetailSofPeerContracts] = useState<Contract[]>([]);
+  const [detailSofPeerDropdownOpen, setDetailSofPeerDropdownOpen] = useState(false);
+  const [detailSofPeerFilter, setDetailSofPeerFilter] = useState('');
   const [detailEquipmentPage, setDetailEquipmentPage] = useState(0);
   // Assign modal: เลือกดูตาม Site จาก contract_device.SLid (เหมือน detail)
   const [assignModalSelectedSiteSlid, setAssignModalSelectedSiteSlid] = useState<number | null>(null);
@@ -713,7 +1091,7 @@ function ContractEditorPageContent() {
 
   // Import Contract (เหมือน Import PM)
   const [isImportContractModalOpen, setIsImportContractModalOpen] = useState(false);
-  const [importedContracts, setImportedContracts] = useState<any[]>([]);
+  const [importedContracts, setImportedContracts] = useState<ImportedContractRow[]>([]);
   const [importContractErrors, setImportContractErrors] = useState<string[]>([]);
   const [isImportingContract, setIsImportingContract] = useState(false);
   const [importContractSites, setImportContractSites] = useState<Array<{ SLid: number; SiteName?: string; Location2?: string; label: string }>>([]);
@@ -788,7 +1166,7 @@ function ContractEditorPageContent() {
     }
   };
 
-  const fetchAndSetContracts = async (cancelled: () => boolean) => {
+  const fetchAndSetContracts = useCallback(async (cancelled: () => boolean) => {
     const res = await fetch(contractsListApiUrl(siteIdFilter));
     const json = await res.json();
     if (cancelled()) return false;
@@ -803,7 +1181,7 @@ function ContractEditorPageContent() {
     const merged = await mergeTerminatedHistoryRows(list);
     if (!cancelled()) setContracts(merged);
     return true;
-  };
+  }, [siteIdFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -841,7 +1219,7 @@ function ContractEditorPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [siteIdFilter]);
+  }, [siteIdFilter, fetchAndSetContracts]);
 
   const filteredContracts = contracts.filter((contract) => {
 
@@ -851,8 +1229,8 @@ function ContractEditorPageContent() {
       if (contractListBadgeKey(contract) !== 'renew') return false;
     } else if (activeFilter === 'Terminated') {
       if (contract.status !== 'closed') return false;
-    } else if (activeFilter !== 'All') {
-      // แถว snapshot จาก contract_history แสดงเฉพาะมุมมอง All (Active/Expiring/Expired ใช้สัญญา official เท่านั้น)
+    } else if (activeFilter !== 'All' && !searchTerm.trim()) {
+      // ขณะค้นหา ไม่กรอง Active/Expiring/Expired — ให้เจอสัญญาที่ SOF ตรงแม้สถานะไม่ตรงแท็บ
       if (contract.isHistorySnapshotRow) return false;
       const statusMap: Record<string, string> = {
         Active: 'active',
@@ -865,23 +1243,9 @@ function ContractEditorPageContent() {
       }
     }
 
-    // Filter ตามคำค้นหา
-    if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase();
-      const apiId = contractRowApiId(contract).toLowerCase();
-      const matchText =
-        contract.id.toLowerCase().includes(searchLower) ||
-        apiId.includes(searchLower) ||
-        (contract.historyId != null && `h-${contract.historyId}`.toLowerCase().includes(searchLower)) ||
-        contract.name.toLowerCase().includes(searchLower) ||
-        (contract.sofName ?? '').toLowerCase().includes(searchLower) ||
-        contract.partner.toLowerCase().includes(searchLower) ||
-        (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
-        (contract.siteLocation ?? '').toLowerCase().includes(searchLower) ||
-        (contract.contractSiteName ?? '').toLowerCase().includes(searchLower) ||
-        (contract.contractSiteLocation ?? '').toLowerCase().includes(searchLower) ||
-        (contract.siteId != null && String(contract.siteId).includes(searchLower));
-      if (!matchText) return false;
+    // Filter ตามคำค้นหา (รวม SOF เดิมจากประวัติ renew)
+    if (searchTerm && !contractMatchesListSearch(contract, searchTerm)) {
+      return false;
     }
 
     // กรองตามวันเริ่มสัญญา (contract.startDate): จาก = เริ่มสัญญา ≥ วันที่เลือก, ถึง = เริ่มสัญญา ≤ วันที่เลือก
@@ -904,12 +1268,16 @@ function ContractEditorPageContent() {
     return true;
   });
 
-  const totalContracts = filteredContracts.length;
+  const listForDisplay = searchTerm.trim()
+    ? filteredContracts
+    : groupContractsBySof(filteredContracts);
+
+  const totalContracts = listForDisplay.length;
   const cardTotalPages = Math.max(1, Math.ceil(totalContracts / CONTRACT_CARD_PAGE_SIZE));
   const tableTotalPages = Math.max(1, Math.ceil(totalContracts / CONTRACT_TABLE_PAGE_SIZE));
   const currentPage = viewMode === 'card' ? Math.min(contractPage, cardTotalPages) : Math.min(contractPage, tableTotalPages);
   const pageSize = viewMode === 'card' ? CONTRACT_CARD_PAGE_SIZE : CONTRACT_TABLE_PAGE_SIZE;
-  const paginatedContracts = filteredContracts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedContracts = listForDisplay.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const exportModalSiteOptions = (() => {
     const set = new Set<string>();
@@ -930,20 +1298,9 @@ function ContractEditorPageContent() {
 
   const exportModalContracts = (() => {
     let list = filteredContracts;
-    const searchQ = exportModalSearch.trim().toLowerCase();
+    const searchQ = exportModalSearch.trim();
     if (searchQ) {
-      list = list.filter((c) => {
-        const searchLower = searchQ;
-        return (
-          c.id.toLowerCase().includes(searchLower) ||
-          c.name.toLowerCase().includes(searchLower) ||
-          (c.partner ?? '').toLowerCase().includes(searchLower) ||
-          (c.siteName ?? '').toLowerCase().includes(searchLower) ||
-          (c.siteLocation ?? '').toLowerCase().includes(searchLower) ||
-          (c.contractSiteName ?? '').toLowerCase().includes(searchLower) ||
-          (c.contractSiteLocation ?? '').toLowerCase().includes(searchLower)
-        );
-      });
+      list = list.filter((c) => contractMatchesListSearch(c, searchQ));
     }
     if (!exportModalSiteFilter && !exportModalLocationFilter) return list;
     return list.filter((c) => {
@@ -1003,7 +1360,7 @@ function ContractEditorPageContent() {
         'End Date': string;
       }[] = [];
       // Sheets 2..N: 1 sheet ต่อ 1 contract (device name ใช้ serial)
-      const sheetsPerContract: Array<{ sheetName: string; rows: any[][] }> = [];
+      const sheetsPerContract: Array<{ sheetName: string; rows: ExcelSheet }> = [];
 
       const makeSheetName = (() => {
         const used = new Set<string>();
@@ -1076,7 +1433,7 @@ function ContractEditorPageContent() {
           }
         }
 
-        const sheetRows: any[][] = [];
+        const sheetRows: ExcelSheet = [];
         sheetRows.push(['Contract Name', c.name]);
         sheetRows.push(['Start Date (mm/dd/yyyy)', startDate, 'End Date (mm/dd/yyyy)', endDate]);
         sheetRows.push([]);
@@ -1136,10 +1493,6 @@ function ContractEditorPageContent() {
     });
   };
 
-  const selectAllExportContracts = (list: Contract[] = exportModalContracts) =>
-    setExportContractSelected((prev) => new Set([...prev, ...list.map((c) => c.id)]));
-  const deselectAllExportContracts = () => setExportContractSelected(new Set());
-
   const toggleExportContractPage = (checked: boolean) => {
     setExportContractSelected((prev) => {
       const next = new Set(prev);
@@ -1160,22 +1513,6 @@ function ContractEditorPageContent() {
     setContractPage(1);
   }, [activeFilter, searchTerm, viewMode]);
 
-  const openAddModal = () => {
-    setFormType('add');
-    setCurrentEquipmentList([]);
-    setContractForm({
-      name: '',
-      site: '',
-      maintenanceType: '',
-      startDate: '',
-      endDate: '',
-      value: '',
-      status: 'active',
-      description: '',
-    });
-    setShowAddModal(true);
-  };
-
   const closeModal = () => {
     setShowAddModal(false);
     setShowEditModal(false);
@@ -1192,6 +1529,9 @@ function ContractEditorPageContent() {
     liveDetailForModalRef.current = null;
     setEditingEquipmentIndex(null);
     setSelectedDetailSiteSlid(null);
+    setDetailSofPeerContracts([]);
+    setDetailSofPeerDropdownOpen(false);
+    setDetailSofPeerFilter('');
   };
 
   useEffect(() => {
@@ -1236,6 +1576,21 @@ function ContractEditorPageContent() {
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [detailSiteViewDropdownOpen]);
+
+  useEffect(() => {
+    if (!detailSofPeerDropdownOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const root = document.getElementById('contract-detail-sof-peer-dropdown');
+      const portal = document.querySelector('[data-dropdown-portal-for="contract-detail-sof-peer-dropdown"]');
+      const t = e.target as Node;
+      if (root && !root.contains(t) && !(portal && portal.contains(t))) {
+        setDetailSofPeerDropdownOpen(false);
+        setDetailSofPeerFilter('');
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [detailSofPeerDropdownOpen]);
 
   useEffect(() => {
     if (!showAssignSiteModal) {
@@ -1356,7 +1711,10 @@ function ContractEditorPageContent() {
     closeModal();
   };
 
-  const viewContractDetails = async (contract: Contract) => {
+  const viewContractDetails = async (
+    contract: Contract,
+    options?: { keepSofPeers?: Contract[] },
+  ) => {
     setCurrentContract(contract);
     setShowDetailModal(true);
 
@@ -1364,9 +1722,19 @@ function ContractEditorPageContent() {
     const isHistoryRow =
       Boolean(contract.isHistorySnapshotRow) && Number.isFinite(hid) && hid > 0;
     const switchingHistoryInModal = isHistoryRow && showDetailModal;
+    const switchingSofPeerInModal =
+      Boolean(options?.keepSofPeers?.length) && showDetailModal && !isHistoryRow;
+
+    if (!isHistoryRow) {
+      setDetailSofPeerContracts(
+        options?.keepSofPeers ?? resolveSofPeerContracts(contract, contracts),
+      );
+    } else if (!options?.keepSofPeers) {
+      setDetailSofPeerContracts([]);
+    }
 
     setLoadingContractDetails(true);
-    if (!switchingHistoryInModal) {
+    if (!switchingHistoryInModal && !switchingSofPeerInModal) {
       setFullContractDetails(null);
       setDetailModalHistoryRows([]);
       if (!isHistoryRow) liveDetailForModalRef.current = null;
@@ -1396,6 +1764,18 @@ function ContractEditorPageContent() {
         if (!isHistoryRow) {
           liveDetailForModalRef.current = rawDetail;
           setFullContractDetails(rawDetail);
+          setCurrentContract((cur) => {
+            if (!cur || cur.id !== contract.id) return contract;
+            const apiStatus = json.data.status != null ? String(json.data.status).toLowerCase() : '';
+            const markedNotRenewing = apiStatus === 'not_renewing';
+            const nextContractStatus: Contract['contractStatus'] =
+              apiStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
+            return {
+              ...contract,
+              contractStatus: nextContractStatus,
+              status: resolveContractListStatus(contract.endDate, markedNotRenewing),
+            };
+          });
         } else {
           const base =
             liveDetailForModalRef.current ??
@@ -1407,20 +1787,9 @@ function ContractEditorPageContent() {
           );
         }
         setDetailModalHistoryRows(histRows);
-        if (!isHistoryRow) {
-          const apiStatus = json.data.status != null ? String(json.data.status).toLowerCase() : '';
-          const markedNotRenewing = apiStatus === 'not_renewing';
-          const nextContractStatus: Contract['contractStatus'] =
-            apiStatus === 'draft' ? 'draft' : markedNotRenewing ? 'not_renewing' : 'official';
-          setCurrentContract((cur) =>
-            cur && cur.id === contract.id
-              ? {
-                  ...cur,
-                  contractStatus: nextContractStatus,
-                  status: resolveContractListStatus(cur.endDate, markedNotRenewing),
-                }
-              : cur,
-          );
+        if (switchingSofPeerInModal) {
+          setDetailEquipmentPage(0);
+          setSelectedDetailSiteSlid(null);
         }
       } else {
         console.error('Failed to load contract details:', json.message);
@@ -1603,6 +1972,11 @@ function ContractEditorPageContent() {
     }
   };
 
+  const switchDetailSofPeer = (peer: Contract) => {
+    if (!peer || peer.id === currentContract?.id) return;
+    void viewContractDetails(peer, { keepSofPeers: detailSofPeerContracts });
+  };
+
   const openAssignSiteForContract = async (contract: Contract) => {
     if (contract.isHistorySnapshotRow) {
       toastError('Site assignment is not available for history snapshot rows.');
@@ -1738,12 +2112,17 @@ function ContractEditorPageContent() {
       try {
         const result = await getSitesLocation();
         if (cancelled || !result.success || !result.data) return;
-        const list = (result.data as any[]).map((item: any) => ({
-          SLid: item.SLid,
-          SiteName: item.SiteName || 'Site',
-          Location2: item.Location2 || item.Location || '',
-          label: `${item.SiteName || 'Site'}${item.Location2 ? ` - ${item.Location2}` : ''}`,
-        }));
+        const list = (result.data as unknown[]).map((item) => {
+          const r = asRecord(item);
+          const siteName = readString(r, 'SiteName') || 'Site';
+          const location2 = readString(r, 'Location2') || readString(r, 'Location') || '';
+          return {
+            SLid: Number(r.SLid),
+            SiteName: siteName,
+            Location2: location2,
+            label: `${siteName}${location2 ? ` - ${location2}` : ''}`,
+          };
+        });
         setImportContractSites(list);
       } catch (e) {
         console.error('Load sites for import:', e);
@@ -1787,9 +2166,13 @@ function ContractEditorPageContent() {
       let devices = json.data;
       if (location && String(location).trim()) {
         const locLower = String(location).trim().toLowerCase();
-        devices = devices.filter((d: any) => (d.Location2 || '').toLowerCase().includes(locLower) || locLower.includes((d.Location2 || '').toLowerCase()));
+        devices = devices.filter((d: unknown) => {
+          const rec = asRecord(d);
+          const loc = readString(rec, 'Location2') || '';
+          return loc.toLowerCase().includes(locLower) || locLower.includes(loc.toLowerCase());
+        });
       }
-      return devices.map((d: any) => d.Did);
+      return devices.map((d: unknown) => Number(asRecord(d).Did)).filter((n: number) => Number.isFinite(n));
     } catch {
       return [];
     }
@@ -1799,7 +2182,7 @@ function ContractEditorPageContent() {
     const errors: string[] = [];
     const numericIds = parts.filter((s: string) => /^\d+$/.test(s)).map((s: string) => parseInt(s, 10));
     const serials = parts.filter((s: string) => !/^\d+$/.test(s));
-    let ids = [...numericIds];
+    const ids = [...numericIds];
     if (serials.length > 0) {
       try {
         const res = await fetch(apiUrl(`/api/devices/by-serials?serials=${serials.map((s: string) => encodeURIComponent(s)).join(',')}`));
@@ -1813,7 +2196,7 @@ function ContractEditorPageContent() {
             if (missing.length) errors.push(`${rowLabel}: Serial not found: ${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ` (+${missing.length - 5} more)` : ''}`);
           }
         }
-      } catch (_) { /* ignore */ }
+      } catch { /* ignore */ }
     }
     return { ids, errors };
   };
@@ -1821,9 +2204,9 @@ function ContractEditorPageContent() {
   const parseContractExcelFile = async (
     file: File,
     sitesList: Array<{ SLid: number; SiteName?: string; Location2?: string; label: string }>
-  ): Promise<{ contracts: any[]; errors: string[] }> => {
-    let jsonData: any[][];
-    let deviceSheetData: any[][] | null = null;
+  ): Promise<{ contracts: ImportedContractRow[]; errors: string[] }> => {
+    let jsonData: ExcelSheet;
+    let deviceSheetData: ExcelSheet | null = null;
     const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
 
     if (isExcel) {
@@ -1837,10 +2220,10 @@ function ContractEditorPageContent() {
         const msg = e instanceof Error ? e.message : 'Failed to parse Excel';
         throw new Error(msg);
       }
-      const sheets: { name: string; data: any[][] }[] = [];
+      const sheets: { name: string; data: ExcelSheet }[] = [];
       workbook.SheetNames.forEach((sheetName) => {
         const sheet = workbook.Sheets[sheetName];
-        const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+        const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as ExcelSheet;
         sheets.push({ name: sheetName, data: data || [] });
       });
       if (!sheets[0] || !sheets[0].data || sheets[0].data.length < 2) {
@@ -1849,13 +2232,13 @@ function ContractEditorPageContent() {
       jsonData = sheets[0].data;
       if (sheets[1] && sheets[1].data) deviceSheetData = sheets[1].data;
     } else {
-      jsonData = await new Promise<any[][]>((resolve, reject) => {
+      jsonData = await new Promise<ExcelSheet>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
           const text = e.target?.result as string;
           const workbook = XLSX.read(text, { type: 'string', sheetRows: 0 });
           const ws = workbook.Sheets[workbook.SheetNames[0]];
-          resolve(XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][]);
+          resolve(XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as ExcelSheet);
         };
         reader.onerror = () => reject(new Error('Failed to read file'));
         reader.readAsText(file);
@@ -1865,7 +2248,7 @@ function ContractEditorPageContent() {
 
     let rowIndex = 0;
     while (rowIndex < jsonData.length) {
-      const first = jsonData[rowIndex] as any[];
+      const first = jsonData[rowIndex] as ExcelRow;
       const firstCell = (first && first[0] != null) ? String(first[0]).trim() : '';
       if (firstCell.startsWith('#')) {
         rowIndex++;
@@ -1874,7 +2257,7 @@ function ContractEditorPageContent() {
       break;
     }
     if (rowIndex >= jsonData.length) throw new Error('File must have header and at least one data row');
-    const headers = (jsonData[rowIndex] as any[]).map((h: any) => String(h || '').replace(/\uFEFF/g, '').trim().toLowerCase());
+    const headers = (jsonData[rowIndex] as ExcelRow).map((h) => String(h || '').replace(/\uFEFF/g, '').trim().toLowerCase());
     const norm = (h: string) => h.replace(/\s+/g, ' ').trim();
     const map: Record<string, string> = {
       'contract name': 'contract_name', 'contract_name': 'contract_name', 'contractname': 'contract_name',
@@ -1894,8 +2277,8 @@ function ContractEditorPageContent() {
     const contractNameColIndex = headers.findIndex((h) => map[norm(h)] === 'contract_name' || map[h] === 'contract_name');
     const contractNamesFromSheet1 = new Set<string>();
     for (let r = rowIndex + 1; r < jsonData.length; r++) {
-      const rrow = jsonData[r] as any[];
-      if (!rrow || rrow.every((c: any) => c == null || c === '')) continue;
+      const rrow = jsonData[r] as ExcelRow;
+      if (!rrow || rrow.every((c) => c == null || c === '')) continue;
       const name = contractNameColIndex >= 0 && rrow[contractNameColIndex] != null && rrow[contractNameColIndex] !== ''
         ? String(rrow[contractNameColIndex]).trim()
         : '';
@@ -1903,7 +2286,7 @@ function ContractEditorPageContent() {
     }
     const devicesByContractName: Record<string, string[]> = {};
     if (isExcel && deviceSheetData && deviceSheetData.length > 1) {
-      const headerRow = deviceSheetData[0] as any[] || [];
+      const headerRow = (deviceSheetData[0] as ExcelRow) || [];
       const numCols = Math.max(1, headerRow.length);
       const firstColHeader = (headerRow[0] != null ? String(headerRow[0]).trim().toLowerCase() : '');
       const isContractNameHeader = /contract\s*name|contractname/.test(firstColHeader);
@@ -1917,7 +2300,7 @@ function ContractEditorPageContent() {
           if (!contractName || !contractNamesFromSheet1.has(contractName)) continue;
           if (!devicesByContractName[contractName]) devicesByContractName[contractName] = [];
           for (let dr = 2; dr < deviceSheetData.length; dr++) {
-            const row = deviceSheetData[dr] as any[];
+            const row = deviceSheetData[dr] as ExcelRow;
             const serial = row && row[col] != null ? String(row[col]).trim() : '';
             if (serial) devicesByContractName[contractName].push(serial);
           }
@@ -1926,7 +2309,7 @@ function ContractEditorPageContent() {
         // รูปแบบคอลัมน์เดียว: แถวที่เป็นชื่อสัญญา ตามด้วยแถว serial
         let currentContract: string | null = null;
         for (let dr = 1; dr < deviceSheetData.length; dr++) {
-          const deviceRow = deviceSheetData[dr] as any[];
+          const deviceRow = deviceSheetData[dr] as ExcelRow;
           const val = deviceRow && deviceRow[0] != null ? String(deviceRow[0]).trim() : '';
           if (!val) continue;
           if (contractNamesFromSheet1.has(val)) {
@@ -1939,15 +2322,17 @@ function ContractEditorPageContent() {
         }
       }
     }
-    const contracts: any[] = [];
+    const contracts: ImportedContractRow[] = [];
     const errors: string[] = [];
     for (let i = rowIndex + 1; i < jsonData.length; i++) {
-      const row = jsonData[i] as any[];
-      if (!row || row.every((c: any) => c == null || c === '')) continue;
-      const rowData: any = {};
+      const row = jsonData[i] as ExcelRow;
+      if (!row || row.every((c) => c == null || c === '')) continue;
+      const rowData: ImportedContractRow = {};
       headers.forEach((header, colIndex) => {
         const key = map[norm(header)] || map[header];
-        if (key && row[colIndex] != null && row[colIndex] !== '') rowData[key] = String(row[colIndex]).trim();
+        if (key && row[colIndex] != null && row[colIndex] !== '') {
+          (rowData as Record<string, string>)[key] = String(row[colIndex]).trim();
+        }
       });
       if (!rowData.contract_name) {
         errors.push(`Row ${i + 2}: Missing Contract Name`);
@@ -2022,8 +2407,8 @@ function ContractEditorPageContent() {
       const { contracts: list, errors } = await parseContractExcelFile(file, importContractSites);
       setImportContractErrors(errors);
       setImportedContracts(list);
-    } catch (err: any) {
-      toastError(err?.message || 'Import failed');
+    } catch (err: unknown) {
+      toastError(getErrorMessage(err) || 'Import failed');
     } finally {
       setIsImportingContract(false);
       if (importContractFileRef.current) importContractFileRef.current.value = '';
@@ -2067,8 +2452,8 @@ function ContractEditorPageContent() {
         } else {
           errors.push(`Row ${idx + 2}: ${json.message || 'Failed'}`);
         }
-      } catch (err: any) {
-        errors.push(`Row ${idx + 2}: ${err?.message || 'Failed'}`);
+      } catch (err: unknown) {
+        errors.push(`Row ${idx + 2}: ${getErrorMessage(err) || 'Failed'}`);
       }
     }
     setIsImportingContract(false);
@@ -2093,7 +2478,7 @@ function ContractEditorPageContent() {
       const res = await fetch(contractsListApiUrl(siteIdFilter));
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
-        const list = (json.data as any[]).map((c: any) => mapApiRowToContract(c));
+        const list = json.data.map((c: Parameters<typeof mapApiRowToContract>[0]) => mapApiRowToContract(c));
         const merged = await mergeTerminatedHistoryRows(list);
         setContracts(merged);
       }
@@ -2218,11 +2603,11 @@ function ContractEditorPageContent() {
               </button>
             ))}
           </div>
-          <div className="flex-1 min-w-0 relative">
+          <div className="flex-1 min-w-[12rem] sm:min-w-[16rem] relative">
             <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <input
               type="text"
-              placeholder="Search contract..."
+              placeholder="Search contract, SOF (current or previous)..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full py-2.5 pl-12 pr-4 border border-border rounded-lg text-sm transition-all duration-300 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
@@ -2297,11 +2682,12 @@ function ContractEditorPageContent() {
         <div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(350px,1fr))] items-stretch gap-6">
           {paginatedContracts.map((contract, idx) => {
-            const showRenewBtn = contractListShowsRenewAction(contract);
-            const showUndoBtn = contractListShowsUndoTerminated(contract);
-            const editDisabled = contractListDisablesEdit(contract);
+            const actionTarget = contractListActionTarget(contract);
+            const showRenewBtn = contractListGroupShowsRenewAction(contract);
+            const showUndoBtn = contractListGroupShowsUndoTerminated(contract);
+            const editDisabled = contractListGroupDisablesEdit(contract);
             const statusBadgeKey = contractListTableStatusBadgeKey(contract);
-            const renewCol = renewHistoryColumnContent(contract);
+            const renewCol = renewHistoryColumnContent(actionTarget);
             return (
             <div
               key={contract.id}
@@ -2324,8 +2710,15 @@ function ContractEditorPageContent() {
                     >
                       <History size={14} aria-hidden /> History
                     </span>
+                  ) : contract.isSofGroupRow && (contract.sofGroupSize ?? 0) > 1 ? (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-800"
+                      title={`${contract.sofGroupSize} locations with the same SOF`}
+                    >
+                      {contract.sofGroupSize} locations
+                    </span>
                   ) : null}
-                  {contract.contractSiteName ?? contract.partner ?? '—'}
+                  {contractListDisplaySiteName(contract)}
                 </div>
                 <span className={`px-4 py-1.5 rounded-[20px] text-xs font-semibold tracking-wide flex-shrink-0 ${getStatusBadgeClass(statusBadgeKey)}`}>
                   {getStatusText(statusBadgeKey)}
@@ -2335,14 +2728,14 @@ function ContractEditorPageContent() {
                 <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><Building2 size={18} /></span>
                 <span className="text-muted-foreground min-w-[100px] flex-shrink-0">Site:</span>
                 <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.contractSiteName ?? contract.partner ?? '—'}
+                  {contractListDisplaySiteName(contract)}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><MapPin size={18} /></span>
                 <span className="text-muted-foreground min-w-[100px] flex-shrink-0">Location:</span>
                 <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
-                  {contract.contractSiteLocation ?? '—'}
+                  {contractListDisplaySiteLocation(contract)}
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
@@ -2378,9 +2771,9 @@ function ContractEditorPageContent() {
                 <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-2">
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => viewContractDetails(contract)}
+                      onClick={() => viewContractDetails(actionTarget)}
                       className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-xs font-medium shadow-sm transition-all duration-300 bg-blue-600 text-white hover:-translate-y-0.5 hover:bg-blue-700"
-                      title="View Details"
+                      title={contract.isSofGroupRow ? 'View details — switch locations inside' : 'View Details'}
                     >
                       <Info size={18} className="text-white" />
                     </button>
@@ -2389,7 +2782,7 @@ function ContractEditorPageContent() {
                       disabled={contract.isHistorySnapshotRow}
                       onClick={() => {
                         if (contract.isHistorySnapshotRow) return;
-                        openAssignSiteForContract(contract);
+                        openAssignSiteForContract(actionTarget);
                       }}
                       className={`flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 text-white ${
                         contract.isHistorySnapshotRow
@@ -2415,7 +2808,11 @@ function ContractEditorPageContent() {
                       disabled={!showRenewBtn && !showUndoBtn && editDisabled}
                       onClick={() => {
                         if (!showRenewBtn && !showUndoBtn && editDisabled) return;
-                        showRenewBtn ? renewContract(contract) : editContract(contract);
+                        if (showRenewBtn) {
+                          renewContract(actionTarget);
+                        } else {
+                          editContract(actionTarget);
+                        }
                       }}
                       className={`flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-medium transition-all duration-300 ${
                         showRenewBtn
@@ -2443,7 +2840,7 @@ function ContractEditorPageContent() {
                     {showUndoBtn && (
                       <button
                         type="button"
-                        onClick={() => handleUndoTerminated(contract)}
+                        onClick={() => handleUndoTerminated(actionTarget)}
                         className="flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-emerald-500 px-2 text-[11px] font-semibold text-white transition-all duration-300 hover:bg-emerald-600"
                         title="Undo terminated"
                       >
@@ -2454,7 +2851,7 @@ function ContractEditorPageContent() {
                       !contract.isHistorySnapshotRow && (
                       <button
                         type="button"
-                        onClick={() => openTerminateContractModal(contract)}
+                        onClick={() => openTerminateContractModal(actionTarget)}
                         className="flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-red-500 px-2 text-[11px] font-semibold text-white transition-all duration-300 hover:bg-red-600"
                         title="Terminated"
                       >
@@ -2534,15 +2931,12 @@ function ContractEditorPageContent() {
               </thead>
               <tbody>
                 {paginatedContracts.map((contract) => {
-                  const incoming = getContractExpiryIncomingLabel(
-                    contract.endDate,
-                    contract.contractStatus === 'not_renewing',
-                    contract,
-                  );
-                  const renewCol = renewHistoryColumnContent(contract);
-                  const showRenewBtn = contractListShowsRenewAction(contract);
-                  const showUndoBtn = contractListShowsUndoTerminated(contract);
-                  const editDisabled = contractListDisablesEdit(contract);
+                  const actionTarget = contractListActionTarget(contract);
+                  const incoming = contractListGroupExpiryIncoming(contract);
+                  const renewCol = renewHistoryColumnContent(actionTarget);
+                  const showRenewBtn = contractListGroupShowsRenewAction(contract);
+                  const showUndoBtn = contractListGroupShowsUndoTerminated(contract);
+                  const editDisabled = contractListGroupDisablesEdit(contract);
                   const statusBadgeKey = contractListTableStatusBadgeKey(contract);
                   return (
                   <tr
@@ -2550,10 +2944,17 @@ function ContractEditorPageContent() {
                     className="border-b border-border bg-card transition-colors hover:bg-muted/50"
                   >
                     <td className="py-4 px-4 text-sm font-medium text-foreground">
-                      {contract.contractSiteName?.trim() ? contract.contractSiteName : '—'}
+                      <div className="flex min-w-0 flex-col gap-1">
+                        <span>{contractListDisplaySiteName(contract)}</span>
+                        {contract.isSofGroupRow && (contract.sofGroupSize ?? 0) > 1 ? (
+                          <span className="text-[11px] font-medium text-blue-700">
+                            {contract.sofGroupSize} locations · same SOF
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-4 px-4 text-sm text-muted-foreground">
-                      {contract.contractSiteLocation?.trim() ? contract.contractSiteLocation : '—'}
+                      {contractListDisplaySiteLocation(contract)}
                     </td>
                     <td className="py-4 px-4 text-sm text-muted-foreground whitespace-nowrap">
                       {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
@@ -2599,9 +3000,9 @@ function ContractEditorPageContent() {
                       <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => viewContractDetails(contract)}
+                            onClick={() => viewContractDetails(actionTarget)}
                             className="flex size-8 shrink-0 items-center justify-center rounded-md bg-blue-600 text-[10px] font-medium text-white transition-all duration-200 hover:bg-blue-700"
-                            title="View Details"
+                            title={contract.isSofGroupRow ? 'View details — switch locations inside' : 'View Details'}
                           >
                             <Info size={14} className="text-white" />
                           </button>
@@ -2610,12 +3011,10 @@ function ContractEditorPageContent() {
                             disabled={contract.isHistorySnapshotRow}
                             onClick={() => {
                               if (contract.isHistorySnapshotRow) return;
-                              openAssignSiteForContract(contract);
+                              openAssignSiteForContract(actionTarget);
                             }}
                             className={`flex size-8 shrink-0 items-center justify-center rounded-md text-[10px] font-medium text-white transition-all duration-200 ${
-                              contract.isHistorySnapshotRow
-                                ? 'cursor-not-allowed opacity-40'
-                                : ''
+                              contract.isHistorySnapshotRow ? 'cursor-not-allowed opacity-40' : ''
                             } ${
                               contract.devicesSlidAligned
                                 ? 'bg-green-600 hover:bg-green-700'
@@ -2636,7 +3035,11 @@ function ContractEditorPageContent() {
                             disabled={!showRenewBtn && !showUndoBtn && editDisabled}
                             onClick={() => {
                               if (!showRenewBtn && !showUndoBtn && editDisabled) return;
-                              showRenewBtn ? renewContract(contract) : editContract(contract);
+                              if (showRenewBtn) {
+                                renewContract(actionTarget);
+                              } else {
+                                editContract(actionTarget);
+                              }
                             }}
                             className={`flex size-8 shrink-0 items-center justify-center rounded-md font-medium transition-all duration-200 ${
                               showRenewBtn
@@ -2664,7 +3067,7 @@ function ContractEditorPageContent() {
                           {showUndoBtn && (
                             <button
                               type="button"
-                              onClick={() => handleUndoTerminated(contract)}
+                              onClick={() => handleUndoTerminated(actionTarget)}
                               className="flex h-8 shrink-0 items-center justify-center rounded-md bg-emerald-500 px-2 text-[10px] font-semibold text-white transition-all duration-200 hover:bg-emerald-600"
                               title="Undo terminated"
                             >
@@ -2675,7 +3078,7 @@ function ContractEditorPageContent() {
                             !contract.isHistorySnapshotRow && (
                             <button
                               type="button"
-                              onClick={() => openTerminateContractModal(contract)}
+                              onClick={() => openTerminateContractModal(actionTarget)}
                               className="flex h-8 shrink-0 items-center justify-center rounded-md bg-red-500 px-2 text-[10px] font-semibold text-white transition-all duration-200 hover:bg-red-600"
                               title="Terminated"
                             >
@@ -3344,21 +3747,19 @@ function ContractEditorPageContent() {
                     </div>
                   </div>
 
-                  {/* Sites & Devices */}
-                  {fullContractDetails.devices && fullContractDetails.devices.length > 0 && (() => {
-                    const sites = mergeContractPrimarySiteIntoSites(
-                      fullContractDetails.sites ?? [],
-                      fullContractDetails,
-                    );
-                    const devices = fullContractDetails.devices;
+                  {/* Site and Device — รูปแบบเดียวกับหน้า add contract เมื่อ SOF เดียวกันมีหลาย site */}
+                  {fullContractDetails && (() => {
+                    const devices = fullContractDetails.devices ?? [];
                     const detailBadgeKey = currentContract ? contractListBadgeKey(currentContract) : '';
                     const isRenewOrTerminatedDetail =
                       detailBadgeKey === 'renew' || detailBadgeKey === 'closed';
+                    const hasSofPeerSwitcher =
+                      detailSofPeerContracts.length > 1 && !fullContractDetails.history_detail;
 
                     const getDevicesForSite = (slid: number) =>
-                      devices.filter((d) => deviceRowMatchesContractSiteSlid(d, slid));
+                      (devices ?? []).filter((d) => deviceRowMatchesContractSiteSlid(d, slid));
 
-                    const renderDeviceTable = (deviceList: typeof devices) => {
+                    const renderDeviceTable = (deviceList: NonNullable<typeof fullContractDetails.devices>) => {
                       const total = deviceList.length;
                       const maxPage = Math.max(0, Math.ceil(total / EQUIPMENT_PAGE_SIZE) - 1);
                       const page = Math.min(detailEquipmentPage, maxPage);
@@ -3438,6 +3839,82 @@ function ContractEditorPageContent() {
                         </div>
                       );  
                     };
+
+                    if (hasSofPeerSwitcher) {
+                      const peerSiteName =
+                        (
+                          currentContract?.contractSiteName ??
+                          currentContract?.siteName ??
+                          fullContractDetails.site_name ??
+                          ''
+                        ).trim();
+                      const peerLocation =
+                        (
+                          currentContract?.contractSiteLocation ??
+                          currentContract?.siteLocation ??
+                          fullContractDetails.site_location ??
+                          ''
+                        ).trim();
+                      return (
+                        <div className="bg-card rounded-lg border border-border">
+                          <div className="p-6 space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                Site and Device
+                              </span>
+                            </div>
+                            <DetailModalViewSiteDropdown
+                              peers={detailSofPeerContracts}
+                              currentContract={currentContract}
+                              open={detailSofPeerDropdownOpen}
+                              filter={detailSofPeerFilter}
+                              onToggle={() => {
+                                if (detailSofPeerDropdownOpen) setDetailSofPeerFilter('');
+                                setDetailSofPeerDropdownOpen((o) => !o);
+                              }}
+                              onFilterChange={setDetailSofPeerFilter}
+                              onPick={(value) => {
+                                const peer = detailSofPeerContracts.find((p) => p.id === value);
+                                if (peer) switchDetailSofPeer(peer);
+                                setDetailSofPeerDropdownOpen(false);
+                                setDetailSofPeerFilter('');
+                              }}
+                            />
+                            <DetailModalSiteLocationCard
+                              siteName={peerSiteName}
+                              locationName={peerLocation}
+                            />
+                            {devices.length > 0 ? (
+                              <div className="space-y-3 border-t border-border pt-4">
+                                <h3 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                                  {isRenewOrTerminatedDetail ? (
+                                    <>
+                                      <Wrench size={16} className="shrink-0 text-muted-foreground" aria-hidden />
+                                      Devices in contract
+                                    </>
+                                  ) : (
+                                    'Selected devices'
+                                  )}
+                                  <span className="font-normal text-muted-foreground">({devices.length})</span>
+                                </h3>
+                                {renderDeviceTable(devices)}
+                              </div>
+                            ) : (
+                              <p className="border-t border-border pt-4 text-sm text-muted-foreground">
+                                No devices for this site.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (devices.length === 0) return null;
+
+                    const sites = mergeContractPrimarySiteIntoSites(
+                      fullContractDetails.sites ?? [],
+                      fullContractDetails,
+                    );
 
                     if (sites.length <= 1) {
                       const siteLabel =
@@ -3622,6 +4099,7 @@ function ContractEditorPageContent() {
                                       rel="noopener noreferrer"
                                       className="rounded-lg border border-border overflow-hidden hover:border-border transition-colors"
                                     >
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
                                       <img src={image} alt={`Image ${idx + 1}`} className="w-full h-auto" />
                                     </a>
                                   ))}
@@ -4311,7 +4789,7 @@ function ContractEditorPageContent() {
                       type="text"
                       value={exportModalSearch}
                       onChange={(e) => setExportModalSearch(e.target.value)}
-                      placeholder="Search contract..."
+                      placeholder="Search contract, SOF (current or previous)..."
                       className="w-full rounded-lg border border-border bg-card py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
                     />
                     {exportModalSearch && (
@@ -4621,7 +5099,7 @@ function ContractEditorPageContent() {
                               <td className="px-2 py-2 whitespace-nowrap">{row.end_date || '—'}</td>
                               <td className="px-2 py-2 whitespace-nowrap">{row.sla_term || '—'}</td>
                               <td className="px-2 py-2 text-center">
-                                {row.site_device_pairs?.reduce((n: number, p: any) => n + (p.device_ids?.length || 0), 0) ?? 0}
+                                {row.site_device_pairs?.reduce((n: number, p: ImportedSiteDevicePair) => n + (p.device_ids?.length || 0), 0) ?? 0}
                               </td>
                             </tr>
                           ))}

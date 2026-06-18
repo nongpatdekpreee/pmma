@@ -1,4 +1,5 @@
 'use client';
+import Image from 'next/image';
 import { Paperclip, ImageIcon, X } from 'lucide-react';
 import { apiUrl } from '@/lib/api';
 
@@ -102,7 +103,14 @@ export function FileUploadBlock({
                     key={p}
                     className="flex items-center gap-3 rounded-lg bg-muted px-3 py-2 text-sm"
                   >
-                    <img src={apiUrl(p)} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
+                    <Image
+                      src={apiUrl(p)}
+                      alt=""
+                      width={40}
+                      height={40}
+                      unoptimized
+                      className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                    />
                     <a
                       href={apiUrl(p)}
                       target="_blank"

@@ -916,41 +916,49 @@ const updateContract = async (req, res) => {
 
     const effStatus = contractStatus ?? prevDbStatus;
     const syncSofRenameAll = body.sync_sof_rename_to_all_peers === true;
-    await applyContractFieldsToSlid(conn, cid, body, effStatus);
-
-    if (
-      sofChangeHistory?.oldSof &&
-      sofChangeHistory?.newSof &&
-      sofChangeHistory.oldSof !== sofChangeHistory.newSof &&
-      syncSofRenameAll
-    ) {
-      await syncSofRenameToAllPeers(
-        conn,
-        sofChangeHistory.oldSof,
-        sofChangeHistory.newSof
-      );
+    /** จับคู่ก่อนอัปเดตแถวปัจจุบัน — ใช้ sync SOF + period ไปทุก location ที่ใช้เลข SOF เดิม */
+    let peerSlidsWithOldSof = [];
+    if (syncSofRenameAll && oldSofForPeers) {
+      peerSlidsWithOldSof = await findSlidsWithMatchingSof(conn, oldSofForPeers);
     }
 
-    const peerBody =
-      sofChangeHistory && !syncSofRenameAll
-        ? { ...body, sof_name: undefined, sof_id: undefined }
-        : body;
+    await applyContractFieldsToSlid(conn, cid, body, effStatus);
 
-    if (
-      oldSofForPeers &&
-      shouldPropagateContractFields(peerBody, existing, {
-        sofChangeHistory: syncSofRenameAll ? sofChangeHistory : null,
-        otherEdits,
-        isTransitionToNotRenewing,
-      })
-    ) {
-      await propagateContractFieldsToSameSofPeers(
-        conn,
-        oldSofForPeers,
-        cid,
-        peerBody,
-        effStatus
-      );
+    const syncAllPeersOnSofRename =
+      syncSofRenameAll &&
+      sofChangeHistory?.oldSof &&
+      sofChangeHistory?.newSof &&
+      sofChangeHistory.oldSof !== sofChangeHistory.newSof;
+
+    if (syncAllPeersOnSofRename) {
+      for (const slid of peerSlidsWithOldSof) {
+        if (slid === cid) continue;
+        await applyContractFieldsToSlid(conn, slid, body, effStatus, {
+          persistContractName: false,
+        });
+      }
+    } else {
+      const peerBody =
+        sofChangeHistory && !syncSofRenameAll
+          ? { ...body, sof_name: undefined, sof_id: undefined }
+          : body;
+
+      if (
+        oldSofForPeers &&
+        shouldPropagateContractFields(peerBody, existing, {
+          sofChangeHistory: syncSofRenameAll ? sofChangeHistory : null,
+          otherEdits,
+          isTransitionToNotRenewing,
+        })
+      ) {
+        await propagateContractFieldsToSameSofPeers(
+          conn,
+          oldSofForPeers,
+          cid,
+          peerBody,
+          effStatus
+        );
+      }
     }
 
     const pairs = parsePairsFromBody(body, contractStatus || prevDbStatus);

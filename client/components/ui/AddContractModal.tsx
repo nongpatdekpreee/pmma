@@ -1,4 +1,5 @@
 'use client';
+import Image from 'next/image';
 import { X, Loader2, Paperclip, ImageIcon, Plus, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { apiUrl } from '@/lib/api';
@@ -160,7 +161,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
     throw new Error(json.message || 'ดึง Devices ไม่ได้');
   };
 
-  const openDeviceModalForSite = async (entryId: string, siteId: string, siteLabel: string) => {
+  const openDeviceModalForSite = async (entryId: string, siteId: string) => {
     setActiveSiteEntryId(entryId);
     setDevicesLoading(true);
     setFetchError('');
@@ -442,7 +443,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => entry.siteId && openDeviceModalForSite(entry.id, entry.siteId, entry.siteLabel)}
+                        onClick={() => entry.siteId && openDeviceModalForSite(entry.id, entry.siteId)}
                         disabled={!entry.siteId || devicesLoading}
                         className="px-4 py-2 bg-blue-500 text-white rounded-xl font-semibold text-sm hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
@@ -585,7 +586,14 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
               <ul className="mt-2 space-y-1">
                 {imagePaths.map((p, i) => (
                   <li key={p} className="flex items-center gap-2 text-sm bg-muted rounded-lg px-3 py-2">
-                    <img src={apiUrl(p)} alt="" className="w-10 h-10 object-cover rounded" />
+                    <Image
+                      src={apiUrl(p)}
+                      alt=""
+                      width={40}
+                      height={40}
+                      unoptimized
+                      className="w-10 h-10 object-cover rounded"
+                    />
                     <a href={apiUrl(p)} target="_blank" rel="noreferrer" className="text-blue-600 truncate flex-1 min-w-0">
                       {p.split('/').pop()}
                     </a>

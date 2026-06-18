@@ -13,6 +13,24 @@ function getApiBase(): string {
 }
 const API_BASE = getApiBase();
 
+/** Task object from Express /api/tasks* (camelCase and snake_case field aliases). */
+export interface ApiTask {
+  id?: number | string;
+  taskType?: 'PM' | 'MA';
+  task_type?: 'PM' | 'MA';
+  title?: string;
+  status?: string;
+  startDate?: string;
+  start_date?: string;
+  endDate?: string;
+  end_date?: string;
+  siteId?: number | string;
+  site_id?: number | string;
+  Sid?: number | string;
+  siteName?: string;
+  engineer?: string;
+  [key: string]: unknown;
+}
 
 export function apiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`;
@@ -622,7 +640,7 @@ export async function postTask(body: {
 /** GET /api/tasks?month=&year= - ดึง Tasks สำหรับปฏิทิน */
 export async function getTasks(params?: { month?: number; year?: number }): Promise<{
   success: boolean;
-  data?: any[];
+  data?: ApiTask[];
   count?: number;
   message?: string;
 }> {
@@ -641,7 +659,7 @@ export async function getTasks(params?: { month?: number; year?: number }): Prom
 export async function getOverdueTasks(
   taskType: 'MA' | 'PM',
   filters?: { sid?: number | string | null; lid?: number | string | null }
-): Promise<{ success: boolean; data?: any[]; count?: number }> {
+): Promise<{ success: boolean; data?: ApiTask[]; count?: number }> {
   const q = new URLSearchParams();
   q.set('task_type', taskType);
   if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
@@ -654,7 +672,7 @@ export async function getOverdueTasks(
 export async function getCompletedTasks(
   taskType: 'MA' | 'PM',
   filters?: { sid?: number | string | null; lid?: number | string | null }
-): Promise<{ success: boolean; data?: any[]; count?: number }> {
+): Promise<{ success: boolean; data?: ApiTask[]; count?: number }> {
   const q = new URLSearchParams();
   q.set('task_type', taskType);
   if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
@@ -667,7 +685,7 @@ export async function getCompletedTasks(
 export async function getInprocessTasks(
   taskType: 'MA' | 'PM',
   filters?: { sid?: number | string | null; lid?: number | string | null }
-): Promise<{ success: boolean; data?: any[]; count?: number }> {
+): Promise<{ success: boolean; data?: ApiTask[]; count?: number }> {
   const q = new URLSearchParams();
   q.set('task_type', taskType);
   if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
@@ -680,7 +698,7 @@ export async function getInprocessTasks(
 export async function getPendingTasks(
   taskType: 'MA' | 'PM',
   filters?: { sid?: number | string | null; lid?: number | string | null }
-): Promise<{ success: boolean; data?: any[]; count?: number }> {
+): Promise<{ success: boolean; data?: ApiTask[]; count?: number }> {
   const q = new URLSearchParams();
   q.set('task_type', taskType);
   if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));

@@ -1,14 +1,14 @@
 'use client';
 
-import { Suspense, useState, useMemo, useEffect, useRef, Fragment } from 'react';
+import { Suspense, useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Image from 'next/image';
 import DashboardHeader from '@/components/ui/Header';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import {
   ChevronLeft,
   ChevronRight,
   Plus,
-  Edit2,
   Trash2,
   X,
   FileCheck,
@@ -26,9 +26,11 @@ import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
-import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocation, getSitesLocationWithContracts, getEmployees, getContractsBySite, syncContractsFromReferSof, getDevicesByContract, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem } from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocationWithContracts, getEmployees, getContractsBySite, syncContractsFromReferSof, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem } from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
+import { getErrorMessage, asRecord, readNumber, readString } from '@/lib/unknownUtil';
+import { type ApiTask, apiTaskString } from '@/lib/apiTask';
 import * as XLSX from 'xlsx';
 
 
@@ -95,6 +97,163 @@ interface CalendarEvent {
   status?: 'done' | 'working' | 'stuck' | 'not-started';
   /** MA — จาก tasks.assigned_service */
   assignedService?: string | null;
+}
+
+type ExcelCell = string | number | boolean | Date | null | undefined;
+type ExcelRow = ExcelCell[];
+type ExcelSheet = ExcelRow[];
+
+type SiteLocationApiRow = {
+  SLid?: number | string;
+  SiteName?: string;
+  Location2?: string;
+  Location?: string;
+  Sid?: number;
+  sid?: number;
+  lid?: number;
+};
+
+type ContractApiRow = {
+  contract_id: number;
+  sof_name?: string;
+  contract_name?: string;
+  site_id?: number | null;
+  end_date?: string;
+};
+
+type ApiDeviceRow = Record<string, unknown> & {
+  Did?: number;
+  Refer_SOF?: unknown;
+  CI_Name?: string;
+  Dtypeid?: number;
+  DeRoleid?: number;
+  roleName?: string;
+  model?: string;
+  serial?: string;
+  Asset_State?: string;
+  Asset_Number?: string;
+  manufacturername?: string;
+  SLid?: number;
+  Location2?: string;
+};
+
+type ImportedPmTask = {
+  taskType: 'PM';
+  Eng_ids?: Engineer[];
+  _importEngineerRaw?: string;
+  siteName?: string;
+  location?: string;
+  importSid?: number;
+  importLid?: number;
+  siteId?: string | number;
+  Sid?: string;
+  Sname?: string;
+  siteSid?: number;
+  siteLid?: number;
+  title?: string;
+  sofName?: string;
+  contractId?: number;
+  _contractEndDate?: string;
+  startDate?: string;
+  endDate?: string;
+  coverageScope?: string;
+  notes?: string;
+  rescheduleNote?: string;
+  devices?: ApiDeviceRow[];
+  deviceIds?: number[];
+  deviceCount?: number;
+  SLid?: number;
+  vendorName?: string;
+  assetBinding?: string;
+  _importSheetRow?: number;
+  _importPreviewRow?: number;
+  [key: string]: unknown;
+};
+
+type TaskSavePayload = Record<string, unknown>;
+type TaskUpdateInput = Pick<CalendarEvent, 'id' | 'status'> & { notes?: string | null };
+
+type ImportedAssetPayload = {
+  id: number | undefined;
+  name: string;
+  Dtypeid: number | null;
+  DeRoleid: number | null;
+  type: string;
+  serialNumber: string | null;
+  site: string | null;
+  assetState: string | null;
+  assetNumber: string | null;
+  source: 'site';
+  SLid: number | null;
+  role: string | null;
+  manufacturer: string | null;
+  model: string | null;
+};
+
+function minimalImportedAsset(did: number, siteLabel?: string | null): ImportedAssetPayload {
+  return {
+    id: did,
+    name: `Device ${did}`,
+    Dtypeid: null,
+    DeRoleid: null,
+    type: 'Device',
+    serialNumber: null,
+    site: siteLabel ?? null,
+    assetState: null,
+    assetNumber: null,
+    source: 'site',
+    SLid: null,
+    role: null,
+    manufacturer: null,
+    model: null,
+  };
+}
+
+function deviceRowToImportedAsset(
+  device: ApiDeviceRow,
+  siteLabel: string | null,
+  slid: number | null
+): ImportedAssetPayload {
+  return {
+    id: device.Did,
+    name: device.CI_Name || (device.Did != null ? `Device ${device.Did}` : 'Device'),
+    Dtypeid: device.Dtypeid ?? null,
+    DeRoleid: device.DeRoleid ?? null,
+    type: device.roleName || device.model || 'Device',
+    serialNumber: device.serial ?? null,
+    site: siteLabel,
+    assetState: device.Asset_State ?? null,
+    assetNumber: device.Asset_Number ?? null,
+    source: 'site',
+    SLid: slid,
+    role: device.roleName ?? null,
+    manufacturer: device.manufacturername ?? null,
+    model: device.model ?? null,
+  };
+}
+
+function apiDeviceJsonToImportedAsset(
+  d: Record<string, unknown>,
+  did: number,
+  siteLabel: string | null,
+  slid: number | null
+): ImportedAssetPayload {
+  return {
+    id: readNumber(d, 'Did') ?? did,
+    name: readString(d, 'CI_Name') || `Device ${did}`,
+    Dtypeid: readNumber(d, 'Dtypeid') ?? null,
+    DeRoleid: readNumber(d, 'DeRoleid') ?? null,
+    type: readString(d, 'roleName') || readString(d, 'model') || 'Device',
+    serialNumber: readString(d, 'serial') ?? null,
+    site: siteLabel,
+    assetState: readString(d, 'Asset_State') ?? null,
+    assetNumber: readString(d, 'Asset_Number') ?? null,
+    source: 'site',
+    SLid: slid,
+    role: readString(d, 'roleName') ?? null,
+    manufacturer: readString(d, 'manufacturername') ?? null,
+    model: readString(d, 'model') ?? null,
+  };
 }
 
 /**
@@ -332,7 +491,7 @@ function taskMatchesTableDateFilter(
       const me = new Date(y, m + 1, 0, 23, 59, 59, 999);
       if (end < ms || start > me) return false;
     } else {
-      let cur = new Date(start.getFullYear(), start.getMonth(), 1);
+      const cur = new Date(start.getFullYear(), start.getMonth(), 1);
       const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
       let found = false;
       while (cur <= endMonth) {
@@ -359,12 +518,11 @@ function ScheduleManagementContent() {
   const [draggedEvent, setDraggedEvent] = useState<CalendarEvent | null>(null);
   const draggedEventRef = useRef<CalendarEvent | null>(null);
   const [dragOverDay, setDragOverDay] = useState<number | null>(null);
-  const [dragStartDay, setDragStartDay] = useState<number | null>(null);
+  const [, setDragStartDay] = useState<number | null>(null);
   const [isDragOverTrash, setIsDragOverTrash] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<CalendarEvent | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
   const { showConfirm, alertModal } = useAlertModal();
@@ -384,7 +542,7 @@ function ScheduleManagementContent() {
   
   /* ===== Excel/CSV Import ===== */
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importedTasks, setImportedTasks] = useState<any[]>([]);
+  const [importedTasks, setImportedTasks] = useState<ImportedPmTask[]>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   /** After file upload: switch between ready-to-import rows vs validation issues */
   const [importResultTab, setImportResultTab] = useState<'ready' | 'issues'>('ready');
@@ -472,20 +630,24 @@ function ScheduleManagementContent() {
   const [tableSelectedIds, setTableSelectedIds] = useState<Set<string>>(() => new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-  const mapTaskToEvent = (task: any): CalendarEvent => {
-    const start = task.startDate || task.start_date || new Date().toISOString().split('T')[0];
-    const end = task.endDate || task.end_date || start;
+  const mapTaskToEvent = useCallback((task: ApiTask): CalendarEvent => {
+    const start = apiTaskString(task, 'startDate', 'start_date') || new Date().toISOString().split('T')[0];
+    const end = apiTaskString(task, 'endDate', 'end_date') || start;
     const startDateObj = new Date(start);
     const endDateObj = new Date(end);
-    const engineers = task.engineers || task.Eng_ids || [];
+    const engineers = (Array.isArray(task.engineers) ? task.engineers : task.Eng_ids) || [];
     const engineerNames =
-      engineers.length > 0
-        ? engineers.map((e: Engineer) => (e.name || e.id) + (e.lastName ? ' ' + e.lastName : '')).join(', ')
+      Array.isArray(engineers) && engineers.length > 0
+        ? engineers
+            .map((e) => {
+              const eng = e as Engineer;
+              return (eng.name || eng.id) + (eng.lastName ? ' ' + eng.lastName : '');
+            })
+            .join(', ')
         : 'Unassigned';
-    const taskType = task.taskType || task.task_type || 'PM';
-    let siteName = task.siteName || task.site_name || task.Sname || '';
-    let location = task.location || task.Location2 || '';
-    // API ส่งแค่ site_name (ข้อความรวม) → แยก "Site - Location" เป็น location + site แล้วแสดง location ก่อน site
+    const taskType = (apiTaskString(task, 'taskType', 'task_type') || 'PM') as 'PM' | 'MA';
+    let siteName = apiTaskString(task, 'siteName', 'site_name') || readString(task, 'Sname') || '';
+    let location = readString(task, 'location') ?? readString(task, 'Location2') ?? '';
     if (!location && siteName && siteName.includes(' - ')) {
       const parts = siteName.split(' - ');
       const sitePart = parts[0]?.trim() || '';
@@ -503,17 +665,18 @@ function ScheduleManagementContent() {
             ? `${location}`
             : siteName
               ? ` ${siteName}`
-              : `${task.vendorName || task.vendor_name || 'Maintenance Agreement'}`
+              : `${apiTaskString(task, 'vendorName', 'vendor_name') || 'Maintenance Agreement'}`
         : location && siteName
           ? `${location} - ${siteName}`
           : location
             ? location
             : (siteName || 'Preventive Maintenance');
+    const sofNameRaw = readString(task, 'sofName') ?? readString(task, 'sof_name');
 
     return {
       id: String(task.id ?? task.taskId ?? task.task_id ?? Date.now()),
       title,
-      time: task.time || '09:00',
+      time: readString(task, 'time') || '09:00',
       color:
         task.priority === 'High'
           ? 'border-red-500'
@@ -526,72 +689,72 @@ function ScheduleManagementContent() {
       year: startDateObj.getFullYear(),
       engineer: engineerNames,
       taskType,
-      contractId: task.contractId || task.contract_id || undefined,
-      ...(task.sofName && String(task.sofName).trim() ? { sofName: String(task.sofName).trim() } : {}),
-      replacementDeviceId: task.replacementDeviceId || task.replacement_device_id || undefined,
-      Sid: task.siteId ? String(task.siteId) : task.Sid,
+      contractId: readNumber(task, 'contractId') ?? readNumber(task, 'contract_id'),
+      ...(sofNameRaw && String(sofNameRaw).trim() ? { sofName: String(sofNameRaw).trim() } : {}),
+      replacementDeviceId:
+        readNumber(task, 'replacementDeviceId') ?? readNumber(task, 'replacement_device_id'),
+      Sid: task.siteId ? String(task.siteId) : readString(task, 'Sid'),
       Sname: siteName,
-      location: location,
-      Eng_ids: engineers,
+      location,
+      Eng_ids: engineers as Engineer[],
       startDate: start,
       endDate: end,
-      ...(task.priority ? { priority: task.priority } : {}),
-      coverageScope: task.coverageScope,
-      assets: task.assets || [],
-      vendorName: task.vendorName || task.vendor_name,
-      vendorTel: task.vendorTel || task.vendor_tel,
-      reporterName: task.reporterName || task.reporter_name,
-      reporterTel: task.reporterTel || task.reporter_tel,
-      ticket: task.ticket,
-      rootCause: task.rootCause || task.root_cause,
-      resolution: task.resolution,
-      ...((task.slaTerm || task.sla_term) ? { slaTerm: task.slaTerm || task.sla_term } : {}),
-      duration: task.duration,
+      ...(readString(task, 'priority') ? { priority: readString(task, 'priority') } : {}),
+      coverageScope: readString(task, 'coverageScope'),
+      assets: (Array.isArray(task.assets) ? task.assets : []) as Device[],
+      vendorName: apiTaskString(task, 'vendorName', 'vendor_name'),
+      vendorTel: apiTaskString(task, 'vendorTel', 'vendor_tel'),
+      reporterName: apiTaskString(task, 'reporterName', 'reporter_name'),
+      reporterTel: apiTaskString(task, 'reporterTel', 'reporter_tel'),
+      ticket: readString(task, 'ticket'),
+      rootCause: apiTaskString(task, 'rootCause', 'root_cause'),
+      resolution: readString(task, 'resolution'),
+      ...((apiTaskString(task, 'slaTerm', 'sla_term')
+        ? { slaTerm: apiTaskString(task, 'slaTerm', 'sla_term') }
+        : {}) as { slaTerm?: string }),
+      duration: readString(task, 'duration'),
       downtimeDate:
-        task.downtimeDate ??
-        task.downTimeStartDate ??
-        task.down_time_start_date,
+        apiTaskString(task, 'downtimeDate', 'downTimeStartDate') ??
+        readString(task, 'down_time_start_date'),
       downtimeTime:
-        task.downtimeTime ??
-        task.downTimeStartTime ??
-        task.down_time_start_time,
+        apiTaskString(task, 'downtimeTime', 'downTimeStartTime') ??
+        readString(task, 'down_time_start_time'),
       uptimeDate:
-        task.uptimeDate ?? task.downTimeEndDate ?? task.down_time_end_date,
+        apiTaskString(task, 'uptimeDate', 'downTimeEndDate') ?? readString(task, 'down_time_end_date'),
       uptimeTime:
-        task.uptimeTime ?? task.downTimeEndTime ?? task.down_time_end_time,
+        apiTaskString(task, 'uptimeTime', 'downTimeEndTime') ?? readString(task, 'down_time_end_time'),
       downtimeTotalHours:
-        task.downtimeTotalHours ?? task.down_time_total_hours ?? undefined,
+        readNumber(task, 'downtimeTotalHours') ?? readNumber(task, 'down_time_total_hours'),
       assignedService:
-        task.assignedService ??
-        task.assigned_service ??
-        null,
-      assetBinding: task.assetBinding || task.asset_binding,
-      travelMethod: task.travelMethod || task.travel_method,
-      travelCost: task.travelCost,
-      status: task.status || 'not-started',
-      actuallyWent: task.actuallyWent ?? task.actually_went ?? false,
-      photos: task.photos || [],
-      notes: task.notes || '',
-      rescheduleNote: task.rescheduleNote || task.reschedule_note || '',
+        (readString(task, 'assignedService') ?? readString(task, 'assigned_service')) || null,
+      assetBinding: apiTaskString(task, 'assetBinding', 'asset_binding'),
+      travelMethod: apiTaskString(task, 'travelMethod', 'travel_method'),
+      travelCost: readString(task, 'travelCost'),
+      status: (readString(task, 'status') || 'not-started') as CalendarEvent['status'],
+      actuallyWent: Boolean(task.actuallyWent ?? task.actually_went ?? false),
+      photos: (Array.isArray(task.photos) ? task.photos : []) as string[],
+      notes: readString(task, 'notes') || '',
+      rescheduleNote: apiTaskString(task, 'rescheduleNote', 'reschedule_note') || '',
     };
-  };
+  }, []);
 
-  const loadTasksFromApi = async () => {
+  const loadTasksFromApi = useCallback(async () => {
     setIsLoading(true);
     setLoadError(null);
     try {
       const json = await getTasks();
       if (!json.success) throw new Error(json.message || 'Cannot load tasks');
-      setCalendarEvents((json.data || []).map(mapTaskToEvent));
-    } catch (error: any) {
+      const rows = Array.isArray(json.data) ? (json.data as ApiTask[]) : [];
+      setCalendarEvents(rows.map(mapTaskToEvent));
+    } catch (error: unknown) {
       console.error('loadTasksFromApi error', error);
-      setLoadError(error.message || 'Cannot load tasks');
+      setLoadError(getErrorMessage(error) || 'Cannot load tasks');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [mapTaskToEvent]);
 
-  const loadReportedTaskIds = async () => {
+  const loadReportedTaskIds = useCallback(async () => {
     try {
       const [pmRes, maRes] = await Promise.all([
         getPmReportedTaskIds(),
@@ -603,15 +766,15 @@ function ScheduleManagementContent() {
       if (maRes.success && Array.isArray(maRes.taskIds)) {
         setReportedMATaskIds(new Set(maRes.taskIds));
       }
-    } catch (e) {
+    } catch (e: unknown) {
       console.error('loadReportedTaskIds error', e);
     }
-  };
+  }, []);
 
-  const loadHolidays = async (year = currentYear) => {
+  const loadHolidays = useCallback(async (year: number) => {
     const res = await getHolidays(year);
     if (res.success && res.data) setHolidays(res.data);
-  };
+  }, []);
 
   const normalizeHolidayImportDate = (value: unknown): string | null => {
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -658,7 +821,7 @@ function ScheduleManagementContent() {
     try {
       setImportingHolidays(true);
       const ext = file.name.toLowerCase().split('.').pop() || '';
-      const rows: any[][] = await new Promise((resolve, reject) => {
+      const rows: ExcelSheet = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (event) => {
           try {
@@ -671,7 +834,7 @@ function ScheduleManagementContent() {
               workbook = XLSX.read(result, { type: 'array', cellDates: true });
             }
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+            const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as ExcelSheet;
             resolve(data);
           } catch (e) {
             reject(e);
@@ -687,7 +850,7 @@ function ScheduleManagementContent() {
         return;
       }
 
-      const header = (rows[0] || []).map((h: any) => String(h || '').trim().toLowerCase());
+      const header = (rows[0] || []).map((h) => String(h || '').trim().toLowerCase());
       const dateIdx = header.findIndex((h: string) => ['date', 'holiday_date', 'day'].includes(h));
       const nameIdx = header.findIndex((h: string) => ['name', 'holiday_name', 'title'].includes(h));
       const startIdx = dateIdx >= 0 ? dateIdx : 0;
@@ -721,8 +884,8 @@ function ScheduleManagementContent() {
       await loadHolidays(currentYear);
       if (successCount === pending.size) toastSuccess(`Imported ${successCount} holidays`);
       else toastError(`Imported ${successCount}/${pending.size} holidays`);
-    } catch (error: any) {
-      toastError(`Failed to import holidays: ${error?.message || 'Unknown error'}`);
+    } catch (error: unknown) {
+      toastError(`Failed to import holidays: ${getErrorMessage(error) || 'Unknown error'}`);
     } finally {
       setImportingHolidays(false);
       if (holidayFileInputRef.current) holidayFileInputRef.current.value = '';
@@ -730,15 +893,15 @@ function ScheduleManagementContent() {
   };
 
   useEffect(() => {
-    loadTasksFromApi();
-    loadReportedTaskIds();
+    void loadTasksFromApi();
+    void loadReportedTaskIds();
     // Load sites and engineers for Excel import
     const loadSitesAndEngineers = async () => {
       try {
         // ใช้ endpoint ที่กรองเฉพาะ sites ที่มี contract
         const result = await getSitesLocationWithContracts();
         if (result.success) {
-          const sites = (result.data || []).map((item: any) => ({
+          const sites = (result.data || []).map((item: SiteLocationApiRow) => ({
             id: String(item.SLid), // SLid from sites_location table
             name: item.SiteName || 'Site',
             location: item.Location2 || '',
@@ -765,11 +928,11 @@ function ScheduleManagementContent() {
         // Load contracts for sof_name → contract_id lookup
         const contractsResult = await getContractsBySite();
         if (contractsResult.success && contractsResult.data) {
-          setAvailableContracts(contractsResult.data.map((c: any) => ({
+          setAvailableContracts(contractsResult.data.map((c: ContractApiRow) => ({
             contract_id: c.contract_id,
             sof_name: c.sof_name || '',
             contract_name: c.contract_name || '',
-            site_id: c.site_id || null,
+            site_id: c.site_id ?? undefined,
             end_date: c.end_date || undefined,
           })));
         }
@@ -778,8 +941,8 @@ function ScheduleManagementContent() {
       }
     };
     
-    loadSitesAndEngineers();
-  }, []);
+    void loadSitesAndEngineers();
+  }, [loadTasksFromApi, loadReportedTaskIds]);
 
   /* ================= Calendar ================= */
   const currentMonth = currentDate.getMonth();
@@ -793,8 +956,8 @@ function ScheduleManagementContent() {
   }, [currentYear, currentMonth]);
 
   useEffect(() => {
-    loadHolidays(currentYear);
-  }, [currentYear]);
+    void loadHolidays(currentYear);
+  }, [currentYear, loadHolidays]);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -1171,7 +1334,7 @@ function ScheduleManagementContent() {
 
   const persistTaskDates = async (taskId: string, startDate: string, endDate: string, reason?: string) => {
     try {
-      const body: any = { startDate, endDate };
+      const body: { startDate: string; endDate: string; rescheduleNote?: string } = { startDate, endDate };
       if (reason) {
         body.rescheduleNote = reason;
       }
@@ -1203,14 +1366,6 @@ function ScheduleManagementContent() {
     if (event.status === 'done') return;
     draggedEventRef.current = event;
     setDraggedEvent(event);
-  };
-
-  const handleDragOver = (e: React.DragEvent, day: number | null) => {
-    e.preventDefault();
-    setIsDragOverTrash(false);
-    if (day !== null && draggedEvent) {
-      setDragOverDay(day);
-    }
   };
 
   const handleTrashDragOver = (e: React.DragEvent) => {
@@ -1396,7 +1551,7 @@ function ScheduleManagementContent() {
   };
 
   /* ================= Modal ================= */
-  const handleSaveFromModal = async (data: any | any[]) => {
+  const handleSaveFromModal = async (data: TaskSavePayload | TaskSavePayload[]) => {
     const batch = Array.isArray(data) ? data : [data];
     const first = batch[0];
     if (!first) {
@@ -1416,15 +1571,17 @@ function ScheduleManagementContent() {
     try {
       for (let i = 0; i < batch.length; i++) {
         const item = batch[i];
+        const repDev = asRecord(item.replacementDevice);
+        const repDevId = repDev.id;
         const payload = {
           taskType: item.taskType || normalizedTaskType,
           contractId: item.contractId || item.contract_id || null,
           replacementDeviceId:
             item.replacementDeviceId ||
-            (item.replacementDevice?.id
-              ? typeof item.replacementDevice.id === 'number'
-                ? item.replacementDevice.id
-                : parseInt(String(item.replacementDevice.id), 10)
+            (repDevId != null
+              ? typeof repDevId === 'number'
+                ? repDevId
+                : parseInt(String(repDevId), 10)
               : null),
           siteId: item.siteId || (item.Sid ? Number(item.Sid) : null),
           siteName: item.Sname || item.siteName,
@@ -1475,7 +1632,7 @@ function ScheduleManagementContent() {
           throw new Error(detail || 'Save task failed');
         }
 
-        const mapped = mapTaskToEvent(json.data);
+        const mapped = mapTaskToEvent((json.data ?? {}) as ApiTask);
         setCalendarEvents((events) =>
           editingEvent
             ? events.map((ev) => (ev.id === mapped.id ? mapped : ev))
@@ -1489,9 +1646,9 @@ function ScheduleManagementContent() {
       if (wasEditingExisting) {
         router.push('/calendar');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('handleSaveFromModal error', error);
-      toastError(error.message || 'Save task failed');
+      toastError(getErrorMessage(error) || 'Save task failed');
     }
   };
 
@@ -1518,9 +1675,9 @@ function ScheduleManagementContent() {
       setIsDetailModalOpen(false);
       setSelectedTask(null);
       toastSuccess('Delete task successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('handleDeleteTask error', error);
-      toastError(error?.message || 'Delete task failed');
+      toastError(getErrorMessage(error) || 'Delete task failed');
     }
   };
 
@@ -1574,7 +1731,7 @@ function ScheduleManagementContent() {
           try {
             await deleteTaskById(taskId);
             successCount += 1;
-          } catch (err: any) {
+          } catch (err: unknown) {
             failed.push(taskId);
             console.error('bulk delete task', taskId, err);
           }
@@ -1614,13 +1771,6 @@ function ScheduleManagementContent() {
     setIsDetailModalOpen(true);
   };
 
-  // Handle edit task
-  const handleEditTask = (event: CalendarEvent, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingEvent(event);
-    setIsModalOpen(true);
-  };
-
   /* ===== Excel/CSV Import Functions ===== */
   /** เทียบ Refer_SOF ในฐานข้อมูลกับ SOF ที่ import (รองรับเลขแบบมี/ไม่มี 0 นำหน้า, ช่องว่าง, คั่นตัวเลขใน DB) */
   const importReferSofMatches = (referSofDb: unknown, importSof: string): boolean => {
@@ -1654,7 +1804,7 @@ function ScheduleManagementContent() {
     siteId: number | null, 
     _location: string | null,
     contractId?: number | null
-  ): Promise<{deviceIds: number[]; count: number; devices: Array<{Did: number; CI_Name?: string; Asset_Number?: string; Location2?: string}>}> => {
+  ): Promise<{deviceIds: number[]; count: number; devices: ApiDeviceRow[]}> => {
     if (!sofName || !siteId) {
       return { deviceIds: [], count: 0, devices: [] };
     }
@@ -1675,44 +1825,31 @@ function ScheduleManagementContent() {
 
     try {
       // 1) contract_device ที่ SLid นี้ — กรองเฉพาะเครื่องที่ Refer_SOF ตรง SOF ที่ import
-      let devices = contractId ? await doFetchByContract() : [];
-      devices = devices.filter((d: any) => importReferSofMatches(d.Refer_SOF, sofName));
+      let devices: ApiDeviceRow[] = contractId ? (await doFetchByContract()) as ApiDeviceRow[] : [];
+      devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
 
       // 2) ถ้าไม่มีเครื่องที่ SOF ตรง ให้ลองจาก devices โดย Refer_SOF + SLid
       if (devices.length === 0) {
-        devices = await doFetchBySof(sofName);
-        devices = devices.filter((d: any) => importReferSofMatches(d.Refer_SOF, sofName));
+        devices = (await doFetchBySof(sofName)) as ApiDeviceRow[];
+        devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
       }
       if (devices.length === 0 && /^\d+$/.test(sofName)) {
         const altSof = parseInt(sofName, 10).toString(); // 0987 → 987
         if (altSof !== sofName) {
-          devices = await doFetchBySof(altSof);
-          devices = devices.filter((d: any) => importReferSofMatches(d.Refer_SOF, sofName));
+          devices = (await doFetchBySof(altSof)) as ApiDeviceRow[];
+          devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
         }
         if (devices.length === 0) {
-          devices = await doFetchBySof(sofName.padStart(4, '0')); // 987 → 0987
-          devices = devices.filter((d: any) => importReferSofMatches(d.Refer_SOF, sofName));
+          devices = (await doFetchBySof(sofName.padStart(4, '0'))) as ApiDeviceRow[]; // 987 → 0987
+          devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
         }
       }
 
-      const deviceIds = devices.map((d: any) => d.Did);
+      const deviceIds = devices.map((d) => d.Did).filter((id): id is number => id != null);
       return {
         deviceIds,
         count: deviceIds.length,
-        devices: devices.map((d: any) => ({
-          Did: d.Did,
-          CI_Name: d.CI_Name,
-          Asset_Number: d.Asset_Number,
-          Asset_State: d.Asset_State,
-          serial: d.serial,
-          Dtypeid: d.Dtypeid,
-          DeRoleid: d.DeRoleid,
-          Location2: d.Location2,
-          model: d.model,
-          roleName: d.roleName,
-          manufacturername: d.manufacturername,
-          SLid: d.SLid,
-        }))
+        devices,
       };
     } catch (error) {
       console.error(`Error fetching devices for SOF ${sofName}, Site ${siteId}:`, error);
@@ -1902,12 +2039,12 @@ function ScheduleManagementContent() {
     return { rowBadge, why, detail, hintChunks };
   };
 
-  const parseExcelFile = async (file: File): Promise<{ tasks: any[]; errors: string[] }> => {
+  const parseExcelFile = async (file: File): Promise<{ tasks: ImportedPmTask[]; errors: string[] }> => {
     return new Promise(async (resolve, reject) => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
-          let jsonData: any[][];
+          let jsonData: ExcelSheet;
           
           if (file.name.endsWith('.csv')) {
             // Parse CSV using XLSX library (handles quoted fields and multiline)
@@ -1915,14 +2052,14 @@ function ScheduleManagementContent() {
             const workbook = XLSX.read(text, { type: 'string', sheetRows: 0 });
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
-            jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as any[][];
+            jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as ExcelSheet;
           } else {
             // Parse Excel
             const data = new Uint8Array(e.target?.result as ArrayBuffer);
             const workbook = XLSX.read(data, { type: 'array' });
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
-            jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+            jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as ExcelSheet;
           }
           
           if (jsonData.length < 2) {
@@ -1930,7 +2067,7 @@ function ScheduleManagementContent() {
             return;
           }
 
-          const headers = (jsonData[0] as any[]).map((h: any) =>
+          const headers = (jsonData[0] || []).map((h) =>
             String(h || '').replace(/\uFEFF/g, '').trim().toLowerCase()
           );
           // Normalize header for lookup (หลายช่องว่าง → ช่องว่างเดียว) เพื่อให้ตรงกับ columnMap
@@ -1965,14 +2102,14 @@ function ScheduleManagementContent() {
             'reschedule': 'rescheduleNote',
           };
 
-          const tasks: any[] = [];
+          const tasks: ImportedPmTask[] = [];
           const errors: string[] = [];
 
           for (let i = 1; i < jsonData.length; i++) {
-            const row = jsonData[i] as any[];
+            const row = jsonData[i];
             if (!row || row.every(cell => !cell)) continue;
 
-            const task: any = { taskType: 'PM' };
+            const task: ImportedPmTask = { taskType: 'PM' };
 
             headers.forEach((header, colIndex) => {
               const value = row[colIndex];
@@ -2003,7 +2140,8 @@ function ScheduleManagementContent() {
                       if (fullName.includes(valLower)) return true;
                       return false;
                     });
-                    if (eng && !task.Eng_ids.find((e: Engineer) => e.id === eng.id)) {
+                    if (eng && !(task.Eng_ids ?? []).find((e: Engineer) => e.id === eng.id)) {
+                      if (!task.Eng_ids) task.Eng_ids = [];
                       task.Eng_ids.push(eng);
                     } else if (!eng) {
                       console.warn(`Row ${i + 1}: Engineer "${val}" not found`);
@@ -2249,8 +2387,8 @@ function ScheduleManagementContent() {
               task.siteId = site.id;
               task.Sid = site.id;
               task.Sname = site.name;
-              task.siteSid = site.sid;
-              task.siteLid = site.lid;
+              task.siteSid = site.sid ?? undefined;
+              task.siteLid = site.lid ?? undefined;
               console.log(
                 `Row ${i + 1}: Found SLid ${site.id} (Sid: ${site.sid}, lid: ${site.lid}) for Site "${task.siteName}" + Location "${task.location || 'none'}"`
               );
@@ -2265,8 +2403,8 @@ function ScheduleManagementContent() {
               }
               task.Sid = site.id;
               task.Sname = site.name;
-              task.siteSid = site.sid;
-              task.siteLid = site.lid;
+              task.siteSid = site.sid ?? undefined;
+              task.siteLid = site.lid ?? undefined;
               const locCsv = (task.location || '').trim();
               if (locCsv && !/^\d+$/.test(locCsv)) {
                 const ok = importSiteLocTextEquals(locCsv, site.location || '');
@@ -2375,7 +2513,7 @@ function ScheduleManagementContent() {
           }
 
           // หลัง SOF+สัญญาและ SLid (site+location) ชัดแล้ว — ดึง device ต่อคีย์ Site+SOF+Location+contract
-          const devicesMap: Record<string, {deviceIds: number[]; count: number; devices: any[]}> = {};
+          const devicesMap: Record<string, {deviceIds: number[]; count: number; devices: ApiDeviceRow[]}> = {};
           for (const task of tasks) {
             console.log(`Processing task:`, {
               row: tasks.indexOf(task) + 2,
@@ -2391,7 +2529,7 @@ function ScheduleManagementContent() {
               if (!devicesMap[key]) {
                 console.log(`[${key}] Fetching devices for SOF: "${task.sofName}", Site ID: ${task.Sid}, Location: "${task.location || 'none'}"`);
                 const result = await fetchDevicesBySiteSOFLocation(
-                  task.sofName,
+                  task.sofName ?? '',
                   Number(task.Sid),
                   task.location || null,
                   task.contractId ? Number(task.contractId) : null
@@ -2459,8 +2597,8 @@ function ScheduleManagementContent() {
           });
 
           resolve({ tasks, errors });
-        } catch (error: any) {
-          reject(new Error(`Failed to parse file: ${error.message}`));
+        } catch (error: unknown) {
+          reject(error instanceof Error ? error : new Error(getErrorMessage(error)));
         }
       };
       reader.onerror = () => reject(new Error('Failed to read file'));
@@ -2491,8 +2629,8 @@ function ScheduleManagementContent() {
       setImportErrors(parseErrors);
       setImportResultTab(parseErrors.length > 0 ? 'issues' : 'ready');
       setIsImportModalOpen(true);
-    } catch (error: any) {
-      toastError(`Error importing file: ${error.message}`);
+    } catch (error: unknown) {
+      toastError(`Error importing file: ${getErrorMessage(error)}`);
       console.error('Import error:', error);
     } finally {
       setIsImporting(false);
@@ -2595,62 +2733,35 @@ function ScheduleManagementContent() {
         
         // assets → JSON array with full device data (same as existing data)
         // use devices data fetched from fetchDevicesBySiteSOFLocation
-        let assetsArray: any[] = [];
+        let assetsArray: ImportedAssetPayload[] = [];
         if (task.devices && task.devices.length > 0) {
-          // use existing devices data (full data from API)
-          assetsArray = task.devices.map((device: any) => ({
-            id: device.Did,
-            name: device.CI_Name || `Device ${device.Did}`,
-            Dtypeid: device.Dtypeid || null,
-            DeRoleid: device.DeRoleid || null,
-            type: device.roleName || device.model || 'Device',
-            serialNumber: device.serial || null,
-            site: task.Sname || task.siteName || null,
-            assetState: device.Asset_State || null,
-            assetNumber: device.Asset_Number || null,
-            source: 'site',
-            SLid: Number(task.Sid) || task.SLid || null,
-            role: device.roleName || null,
-            manufacturer: device.manufacturername || null,
-            model: device.model || null,
-          }));
+          const siteLabel = task.Sname || task.siteName || null;
+          const slid = Number(task.Sid) || task.SLid || null;
+          assetsArray = task.devices.map((device) => deviceRowToImportedAsset(device, siteLabel, slid));
         } else if (task.deviceIds && task.deviceIds.length > 0) {
           // Fallback: if no devices but has deviceIds, fetch all device details from API
           console.warn(`⚠️ Task "${task.siteName}" has deviceIds but no devices array. Fetching device details...`);
           try {
+            const siteLabel = task.Sname || task.siteName || null;
+            const slid = Number(task.Sid) || null;
             const devicePromises = task.deviceIds.map(async (did: number) => {
               try {
                 const res = await fetch(apiUrl(`/api/devices/${did}`));
                 const json = await responseJsonSafe<{ success?: boolean; data?: Record<string, unknown> }>(res);
                 if (json?.success && json.data) {
-                  const d = json.data;
-                  return {
-                    id: d.Did,
-                    name: d.CI_Name || `Device ${d.Did}`,
-                    Dtypeid: d.Dtypeid || null,
-                    DeRoleid: d.DeRoleid || null,
-                    type: d.roleName || d.model || 'Device',
-                    serialNumber: d.serial || null,
-                    site: task.Sname || task.siteName || null,
-                    assetState: d.Asset_State || null,
-                    assetNumber: d.Asset_Number || null,
-                    source: 'site',
-                    SLid: Number(task.Sid) || d.SLid || null,
-                    role: d.roleName || null,
-                    manufacturer: d.manufacturername || null,
-                    model: d.model || null,
-                  };
+                  return apiDeviceJsonToImportedAsset(json.data, did, siteLabel, slid);
                 }
               } catch (err) {
                 console.error(`Error fetching device ${did}:`, err);
               }
-              return { id: did }; // Fallback if fetching fails
+              return minimalImportedAsset(did, siteLabel);
             });
             assetsArray = await Promise.all(devicePromises);
           } catch (error) {
             console.error('Error fetching device details:', error);
-            // Fallback to simple format
-            assetsArray = task.deviceIds.map((did: number) => ({ id: did }));
+            assetsArray = task.deviceIds.map((did: number) =>
+              minimalImportedAsset(did, task.Sname || task.siteName || null)
+            );
           }
         }
         
@@ -2711,17 +2822,17 @@ function ScheduleManagementContent() {
         }
         
         // Update local state
-        const mapped = mapTaskToEvent(json.data);
+        const mapped = mapTaskToEvent((json.data ?? {}) as ApiTask);
         setCalendarEvents((events) => [...events, mapped]);
         successCount++;
-      } catch (error: any) {
-        const sheetN = (task as { _importSheetRow?: number })._importSheetRow;
+      } catch (error: unknown) {
+        const sheetN = task._importSheetRow;
         const head =
           sheetN != null
             ? `Preview row ${bulkRow} (spreadsheet row ${sheetN}):`
             : `Preview row ${bulkRow}:`;
         errors.push(
-          `${head} สร้างงานไม่สำเร็จ (Site "${task.Sname || task.siteName || '—'}", SOF "${String(task.sofName || '').trim() || '—'}"): ${error.message || 'ไม่ทราบสาเหตุ'}\nFrom your file: Site "${task.Sname || task.siteName || '—'}", SOF "${String(task.sofName || '').trim() || '—'}".`
+          `${head} สร้างงานไม่สำเร็จ (Site "${task.Sname || task.siteName || '—'}", SOF "${String(task.sofName || '').trim() || '—'}"): ${getErrorMessage(error) || 'ไม่ทราบสาเหตุ'}\nFrom your file: Site "${task.Sname || task.siteName || '—'}", SOF "${String(task.sofName || '').trim() || '—'}".`
         );
       }
     }
@@ -2758,12 +2869,12 @@ function ScheduleManagementContent() {
   };
 
   // Handle task update from detail modal (for status updates only)
-  const handleTaskUpdate = async (updatedTask: any) => {
+  const handleTaskUpdate = async (updatedTask: TaskUpdateInput) => {
     const originalEvent = calendarEvents.find((e) => e.id === updatedTask.id);
     const originalStartDate = originalEvent?.startDate;
     const originalEndDate = originalEvent?.endDate;
 
-    const payload: any = {
+    const payload: { status?: CalendarEvent['status']; notes?: string | null } = {
       status: updatedTask.status,
     };
     if (updatedTask.notes !== undefined) {
@@ -2797,7 +2908,7 @@ function ScheduleManagementContent() {
       const base = {
         ...ev,
         status: updatedTask.status,
-        ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes } : {}),
+        ...(updatedTask.notes !== undefined ? { notes: updatedTask.notes ?? undefined } : {}),
         startDate: originalStartDate || ev.startDate,
         endDate: originalEndDate || ev.endDate,
       };
@@ -3463,7 +3574,6 @@ function ScheduleManagementContent() {
                   hasMultiDayBarAbove,
                   multiDayRowsThisDay,
                   holidayForDay,
-                  nPills,
                   pillsStackPx,
                 };
               });
@@ -3486,7 +3596,6 @@ function ScheduleManagementContent() {
                       hasMultiDayBarAbove,
                       multiDayRowsThisDay,
                       holidayForDay,
-                      nPills,
                       pillsStackPx,
                     } = dayLayouts[dayIndex];
                     return (
@@ -3594,7 +3703,14 @@ function ScheduleManagementContent() {
                                       <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
                                         <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
                                           {ev.Eng_ids[0].photo ? (
-                                            <img src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                                            <Image
+                                              src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)}
+                                              alt=""
+                                              width={20}
+                                              height={20}
+                                              unoptimized
+                                              className="h-full w-full object-cover"
+                                            />
                                           ) : (
                                             <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
                                               {(ev.Eng_ids[0].name?.[0] || ev.Eng_ids[0].id?.[0] || '?').toUpperCase()}
@@ -3700,7 +3816,14 @@ function ScheduleManagementContent() {
                           <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
                             <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
                               {event.Eng_ids[0].photo ? (
-                                <img src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)} alt="" className="h-full w-full object-cover" />
+                                <Image
+                                  src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)}
+                                  alt=""
+                                  width={20}
+                                  height={20}
+                                  unoptimized
+                                  className="h-full w-full object-cover"
+                                />
                               ) : (
                                 <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
                                   {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
@@ -3849,7 +3972,14 @@ function ScheduleManagementContent() {
                     <div key={eng.id || idx} className="flex items-center gap-2">
                       <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-border bg-muted">
                         {eng.photo ? (
-                          <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
+                          <Image
+                            src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)}
+                            alt=""
+                            width={32}
+                            height={32}
+                            unoptimized
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
                           <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-muted-foreground">
                             {(eng.name?.[0] || eng.id?.[0] || '?').toUpperCase()}
@@ -3999,7 +4129,7 @@ function ScheduleManagementContent() {
                     if (res.success) {
                       setNewHolidayDate('');
                       setNewHolidayName('');
-                      await loadHolidays();
+                      await loadHolidays(currentYear);
                       toastSuccess('Holiday added');
                     } else {
                       toastError(res.message || 'Failed to add');
@@ -4235,11 +4365,11 @@ function ScheduleManagementContent() {
                 <div className="text-xs text-blue-700 space-y-1">
                   <p><strong>Required columns:</strong></p>
                   <ul className="ml-4 list-disc space-y-0.5">
-                    <li><strong>Site</strong> → site_name Example: "Thai Beverage Public Company Limited"</li>
-                    <li><strong>Location</strong> → location Example: "Beer Thai"</li>
-                    <li><strong>Plan Start</strong> → start_date Example: "Monday, February 23, 2026"</li>
-                    <li><strong>Plan End</strong> → end_date Example: "Friday, February 27, 2026"</li>
-                    <li><strong>Engineer</strong> → engineers Example: ["John Doe", "Jane Smith"]</li>
+                    <li><strong>Site</strong> → site_name Example: &quot;Thai Beverage Public Company Limited&quot;</li>
+                    <li><strong>Location</strong> → location Example: &quot;Beer Thai&quot;</li>
+                    <li><strong>Plan Start</strong> → start_date Example: &quot;Monday, February 23, 2026&quot;</li>
+                    <li><strong>Plan End</strong> → end_date Example: &quot;Friday, February 27, 2026&quot;</li>
+                    <li><strong>Engineer</strong> → engineers Example: [&quot;John Doe&quot;, &quot;Jane Smith&quot;]</li>
                     <li><strong>SOF</strong> → contract_id (From sof, then fetch devices from that contract)</li>
                   </ul>
                   <p className="mt-2"><strong>Optional columns:</strong></p>

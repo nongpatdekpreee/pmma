@@ -1,5 +1,14 @@
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
+import { getErrorMessage } from '@/lib/unknownUtil';
+
+type ExcelSheetRow = unknown[];
+
+function sheetTo2DArray(sheet: XLSX.WorkSheet): ExcelSheetRow[] {
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(Array.isArray).map((row) => [...(row as unknown[])]);
+}
 
 /**
  * POST /api/import-contract-excel
@@ -19,21 +28,21 @@ export async function POST(req: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
 
-    const sheets: { name: string; data: any[][] }[] = [];
+    const sheets: { name: string; data: ExcelSheetRow[] }[] = [];
 
     workbook.SheetNames.forEach((sheetName) => {
       const sheet = workbook.Sheets[sheetName];
-      const data = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
-      sheets.push({ name: sheetName, data: data || [] });
+      const data = sheetTo2DArray(sheet);
+      sheets.push({ name: sheetName, data });
     });
 
     return NextResponse.json({
       success: true,
       sheets,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
-      { success: false, error: error?.message || 'Failed to parse Excel' },
+      { success: false, error: getErrorMessage(error) || 'Failed to parse Excel' },
       { status: 500 }
     );
   }

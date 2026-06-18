@@ -1,3 +1,7 @@
+'use client';
+
+import { useState } from 'react';
+import Image from 'next/image';
 import { Calendar } from 'lucide-react';
 import Link from 'next/link';
 
@@ -19,6 +23,25 @@ function statusBadge(status?: string) {
   if (s === 'working') return { label: 'In progress', className: 'bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-400' };
   if (s === 'stuck') return { label: 'Stuck', className: 'bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400' };
   return { label: 'Not started', className: 'bg-muted text-muted-foreground' };
+}
+
+function AssigneeAvatar({ url, index }: { url: string; index: number }) {
+  const fallback = `https://i.pravatar.cc/150?u=${encodeURIComponent(url || String(index))}`;
+  const [src, setSrc] = useState(url);
+
+  return (
+    <Image
+      src={src}
+      alt=""
+      width={32}
+      height={32}
+      unoptimized
+      className="w-8 h-8 rounded-full border-4 border-card object-cover shadow-sm bg-muted"
+      onError={() => {
+        if (src !== fallback) setSrc(fallback);
+      }}
+    />
+  );
 }
 
 export function MaintenanceCard({
@@ -70,19 +93,7 @@ export function MaintenanceCard({
         <p className="text-[10px] font-bold text-muted-foreground mb-1 uppercase">Assignees</p>
         <div className="flex -space-x-3">
           {assignees.map((url, i) => (
-            <img
-              key={i}
-              src={url}
-              alt=""
-              className="w-8 h-8 rounded-full border-4 border-card object-cover shadow-sm bg-muted"
-              onError={(e) => {
-                const t = e.currentTarget;
-                if (!t.dataset.fallback) {
-                  t.dataset.fallback = '1';
-                  t.src = `https://i.pravatar.cc/150?u=${encodeURIComponent(url || String(i))}`;
-                }
-              }}
-            />
+            <AssigneeAvatar key={`${url}-${i}`} url={url} index={i} />
           ))}
         </div>
       </div>

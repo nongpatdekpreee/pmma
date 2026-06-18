@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, UserPlus, Trash2 } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
@@ -25,6 +26,7 @@ import {
   isEmployeePhotoOverSize,
 } from "@/lib/employeePhoto";
 import { useToast, ToastContainer } from "@/components/ui/Toast";
+import { getErrorMessage } from "@/lib/unknownUtil";
 
 const AddEmployeePage = () => {
   const router = useRouter();
@@ -54,25 +56,6 @@ const AddEmployeePage = () => {
     if (!t) return "Email is required.";
     if (!/^[^\s@]+@tcc-technology\.com$/.test(t)) return "Please enter a valid email address.";
     return "";
-  };
-  const validateForm = (): string | null => {
-    const nameTrim = name.trim();
-    const gmailTrim = gmail.trim();
-    if (!nameTrim || !gmailTrim || !tel.replace(/\D/g, "")) {
-      return "Please fill in Name, Email and Phone.";
-    }
-    if (!/^[a-zA-Z\u0E00-\u0E7F\s]+$/.test(nameTrim)) {
-      return "Name must contain letters only (no numbers or special characters).";
-    }
-    if (nameTrim.length < 10) {
-      return "Name must be at least 10 characters.";
-    }
-    const telCombinedErr = validateEmployeePhoneSubmit(tel, telExt);
-    if (telCombinedErr) return telCombinedErr;
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gmailTrim)) {
-      return "Please enter a valid email address.";
-    }
-    return null;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -136,7 +119,14 @@ const AddEmployeePage = () => {
               <div className="flex items-center gap-4">
                 <label className="relative flex h-24 w-24 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                   {photo ? (
-                    <img src={employeePhotoSrc(photo) ?? ''} alt="" className="h-full w-full object-cover" />
+                    <Image
+                      src={employeePhotoSrc(photo) ?? ''}
+                      alt=""
+                      width={96}
+                      height={96}
+                      unoptimized
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
                     <span className="text-sm text-muted-foreground select-none">{photoUploading ? "Uploading..." : "Select Image"}</span>
                   )}
@@ -163,8 +153,8 @@ const AddEmployeePage = () => {
                         const uploadRes = await uploadEmployeePhoto(file);
                         if (uploadRes.success && uploadRes.path) setPhoto(uploadRes.path);
                         else toastError(uploadRes.message || "Upload image failed");
-                      } catch (err) {
-                        toastError("Upload image failed");
+                      } catch (error) {
+                        toastError(getErrorMessage(error) || "Upload image failed");
                       } finally {
                         setPhotoUploading(false);
                       }

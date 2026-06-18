@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, Suspense, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
@@ -16,14 +16,14 @@ import {
   absoluteUrlForHyperlink,
   deletePmReport,
   deleteMaReport,
+  type ApiTask,
 } from '@/lib/api';
+import { apiTaskString } from '@/lib/apiTask';
+import { asRecord, readString } from '@/lib/unknownUtil';
 import JSZip from 'jszip';
 import { PageCatLoader } from '@/components/ui/CatLoader';
 import {
   Plus,
-  CheckCircle2,
-  AlertCircle,
-  XCircle,
   FileText,
   Search,
   Calendar,
@@ -37,12 +37,11 @@ import {
   MapPin,
   Cpu,
   Building2,
-  Hash,
   Clock,
   Replace,
   Download,
   Upload,
-  Image,
+  Image as ImageIcon,
   Loader2,
   Paperclip,
   Trash2,
@@ -70,6 +69,49 @@ function normalizeRepairPathsFromPhotos(photos: unknown): string[] {
 
 type ReportTab = 'pm' | 'ma';
 
+type ReportAsset = Record<string, unknown>;
+
+type ReportDeviceSummary = {
+  CI_Name?: string;
+  name?: string;
+  Asset_Number?: string;
+  serial?: string;
+  Sitename?: string;
+  Location2?: string;
+  Refer_SOF?: string;
+  model?: string;
+  Vendor?: string;
+  location?: string;
+  Location?: string;
+  SiteName?: string;
+  site?: string;
+  assetNumber?: string;
+  serialNumber?: string;
+  Model?: string;
+  Manufacturername?: string;
+  manufacturername?: string;
+  refer_sof?: string;
+  vendor?: string;
+};
+
+function assetsFromRow(row: unknown): ReportAsset[] {
+  const assets = asRecord(row).assets;
+  if (!Array.isArray(assets)) return [];
+  return assets.map((a) => asRecord(a));
+}
+
+function assetIdKey(a: ReportAsset): string {
+  return String(a.id ?? a.Did ?? a.did ?? '').trim();
+}
+
+function readAssetString(a: ReportAsset, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const v = readString(a, key);
+    if (v) return v;
+  }
+  return undefined;
+}
+
 interface PMReport {
   id: string;
   taskId?: number;
@@ -84,10 +126,11 @@ interface PMReport {
     Location2?: string;
     Refer_SOF?: string;
     Vendor?: string;
+    model?: string;
   };
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   pmResult: 'pass' | 'warning' | 'fail';
-  assets?: any[];
+  assets?: ReportAsset[];
   sla_result?: number;
   technicianName?: string;
   pmDate?: string;
@@ -118,10 +161,11 @@ interface MAReport {
     Location2?: string;
     Refer_SOF?: string;
     Vendor?: string;
+    model?: string;
   };
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   maResult: 'pass' | 'warning' | 'fail';
-  assets?: any[];
+  assets?: ReportAsset[];
   sla_result?: number;
   technicianName?: string;
   maDate?: string;
@@ -140,6 +184,41 @@ interface MAReport {
   repairNoticePaths?: string[];
   /** ถ้า API แนบจากงาน */
   assignedService?: string | null;
+  replacementDeviceId?: number | string;
+  replacement_device_id?: number | string;
+}
+
+/** รายการ devices ทั้งหมดที่ไปทำ PM/MA ครั้งนั้น (จาก assets หรือ device เดียว) */
+function getReportDevices(report: PMReport | MAReport): ReportDeviceSummary[] {
+  const assets = report.assets;
+  if (Array.isArray(assets) && assets.length > 0) {
+    return assets.map((raw) => {
+      const a = asRecord(raw);
+      const device = report.device;
+      return {
+        CI_Name: readAssetString(a, 'CI_Name', 'name'),
+        name: readAssetString(a, 'name', 'CI_Name'),
+        Asset_Number: readAssetString(a, 'Asset_Number', 'assetNumber'),
+        serial: readAssetString(a, 'serial', 'serialNumber'),
+        Sitename: readAssetString(a, 'Sitename', 'SiteName', 'site'),
+        Location2: readAssetString(a, 'Location2', 'location', 'Location'),
+        Refer_SOF: readAssetString(a, 'Refer_SOF', 'refer_sof') ?? device?.Refer_SOF,
+        model:
+          readAssetString(a, 'model', 'Model', 'Manufacturername', 'manufacturername') ?? device?.model,
+        Vendor: readAssetString(a, 'Vendor', 'vendor') ?? device?.Vendor,
+      };
+    });
+  }
+  if (report.device) {
+    const d = report.device;
+    return [{
+      ...d,
+      Refer_SOF: d.Refer_SOF,
+      model: d.model,
+      Vendor: d.Vendor,
+    }];
+  }
+  return [{ CI_Name: `Device ${report.deviceId}`, name: `Device ${report.deviceId}` }];
 }
 
 /** ลำดับ path จาก Upload Images/Documents/MA Results ของรายงาน (uploadedFiles[].path) */
@@ -184,7 +263,7 @@ export type BrokenDeviceExportDetail = { site?: string; location?: string };
  * MA export: Site = Sitename (merge DB ก่อน); Location = Location2 (merge DB ก่อน) ต่อแต่ละเครื่องเสียใน assets
  */
 function exportBrokenSitesAndLocationsFromAssets(
-  assets: any[],
+  assets: ReportAsset[],
   reportSiteName: unknown,
   deviceDetailsById?: Record<string, BrokenDeviceExportDetail>
 ): { site: string; location: string } {
@@ -195,10 +274,10 @@ function exportBrokenSitesAndLocationsFromAssets(
   const siteParts: string[] = [];
   const locParts: string[] = [];
   for (const a of assets) {
-    const idKey = String(a?.id ?? a?.Did ?? a?.did ?? '').trim();
+    const idKey = assetIdKey(a);
     const det = idKey && deviceDetailsById ? deviceDetailsById[idKey] : undefined;
-    let rawA = String(a?.Sitename ?? a?.SiteName ?? a?.site ?? '').trim();
-    let expA = String(a?.Location2 ?? a?.location ?? a?.Location ?? '').trim();
+    let rawA = readAssetString(a, 'Sitename', 'SiteName', 'site') ?? '';
+    let expA = readAssetString(a, 'Location2', 'location', 'Location') ?? '';
     if (det) {
       if (det.site) rawA = String(det.site).trim();
       if (det.location) expA = String(det.location).trim();
@@ -261,7 +340,7 @@ function ReportPageContent() {
   const [reportMonthFilter, setReportMonthFilter] = useState('');
   const [reportRoundFilter, setReportRoundFilter] = useState('');
   const [downloadModalPage, setDownloadModalPage] = useState(1);
-  const [pmMaTasks, setPmMaTasks] = useState<any[]>([]);
+  const [pmMaTasks, setPmMaTasks] = useState<ApiTask[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [selectedReport, setSelectedReport] = useState<PMReport | MAReport | null>(null);
   const [viewingUploadedFileKey, setViewingUploadedFileKey] = useState<string | null>(null);
@@ -378,7 +457,7 @@ function ReportPageContent() {
         const res = await getTasks();
         if (res.success && res.data) {
           const list = res.data.filter(
-            (task: any) => task.taskType === 'PM' || task.taskType === 'MA'
+            (task) => task.taskType === 'PM' || task.taskType === 'MA'
           );
           setPmMaTasks(list);
         }
@@ -488,43 +567,41 @@ function ReportPageContent() {
   }, [reports, searchTerm, dateKey]);
 
   /** กรอง PM/MA task (ยังไม่มี report) ตามช่องค้นหา — สอดคล้องกับรายการ report */
-  const pmMaTaskWithoutReportMatchesSearch = (task: any, term: string) => {
+  const pmMaTaskWithoutReportMatchesSearch = (task: ApiTask, term: string) => {
     const t = term.trim();
     if (!t) return true;
     const q = t.toLowerCase();
-    const assets: any[] = Array.isArray(task?.assets) ? task.assets : [];
+    const assets = assetsFromRow(task);
     for (const a of assets) {
-      const deviceName = String(a?.CI_Name ?? a?.name ?? a?.Asset_Number ?? a?.serial ?? '').toLowerCase();
-      const deviceId = String(a?.Asset_Number ?? a?.assetNumber ?? a?.Did ?? '').toLowerCase();
-      const aSite = String(a?.Sitename ?? '').toLowerCase();
-      const aLoc = String(a?.Location2 ?? a?.location ?? '').toLowerCase();
+      const deviceName = String(readAssetString(a, 'CI_Name', 'name', 'Asset_Number', 'serial') ?? '').toLowerCase();
+      const deviceId = String(readAssetString(a, 'Asset_Number', 'assetNumber') ?? String(a.Did ?? '')).toLowerCase();
+      const aSite = String(readAssetString(a, 'Sitename') ?? '').toLowerCase();
+      const aLoc = String(readAssetString(a, 'Location2', 'location') ?? '').toLowerCase();
       if (deviceName.includes(q) || deviceId.includes(q) || aSite.includes(q) || aLoc.includes(q)) return true;
     }
     const first = assets[0];
     const rawSiteLabel =
-      task?.siteName != null && String(task.siteName).trim() !== ''
-        ? String(task.siteName)
-        : first?.Sitename != null
-          ? String(first.Sitename)
+      apiTaskString(task, 'siteName', 'site_name') != null && String(apiTaskString(task, 'siteName', 'site_name')).trim() !== ''
+        ? String(apiTaskString(task, 'siteName', 'site_name'))
+        : first != null
+          ? String(readAssetString(first, 'Sitename') ?? '')
           : '';
     const explicitLocFromAsset =
-      first?.Location2 != null
-        ? String(first.Location2)
-        : first?.location != null
-          ? String(first.location)
-          : '';
+      first != null
+        ? String(readAssetString(first, 'Location2', 'location') ?? '')
+        : '';
     const { site: taskSiteDisp, location: taskLocDisp } = exportSiteAndLocation(
       rawSiteLabel,
       explicitLocFromAsset
     );
     const technician = getEngineerDisplay({
-      engineers: task?.engineers,
-      technicianName: task?.technicianName,
+      engineers: Array.isArray(task.engineers) ? task.engineers as PMReport['engineers'] : undefined,
+      technicianName: readString(task, 'technicianName'),
     } as PMReport).toLowerCase();
-    const dateVal = task?.endDate || task?.startDate;
+    const dateVal = apiTaskString(task, 'endDate', 'end_date') ?? apiTaskString(task, 'startDate', 'start_date');
     const dateStr = typeof dateVal === 'string' ? dateVal.toLowerCase() : '';
-    const siteStr = String(task?.siteName ?? '').toLowerCase();
-    const statusStr = String(task?.status ?? '').toLowerCase();
+    const siteStr = String(apiTaskString(task, 'siteName', 'site_name') ?? '').toLowerCase();
+    const statusStr = String(task.status ?? '').toLowerCase();
     const siteLocHay = [
       siteStr,
       rawSiteLabel.toLowerCase(),
@@ -547,11 +624,9 @@ function ReportPageContent() {
       setReplacementDevicesMap({});
       return;
     }
-    const rawAssets: any[] = Array.isArray((selectedReport as any).assets)
-      ? (selectedReport as any).assets
-      : [];
+    const rawAssets = assetsFromRow(selectedReport);
     const repIds = new Set<string>();
-    rawAssets.forEach((a: any) => {
+    rawAssets.forEach((a) => {
       if (!a) return;
       const rid = a.replacementDeviceId ?? a.replacement_device_id;
       if (rid != null && String(rid).trim() !== '') {
@@ -611,13 +686,11 @@ function ReportPageContent() {
       setBrokenDevicesDetailMap({});
       return;
     }
-    const rawAssets: any[] = Array.isArray((selectedReport as any).assets)
-      ? (selectedReport as any).assets
-      : [];
+    const rawAssets = assetsFromRow(selectedReport);
     const ids = new Set<string>();
-    rawAssets.forEach((a: any) => {
+    rawAssets.forEach((a) => {
       if (!a) return;
-      const bid = a?.id ?? a?.Did ?? a?.did;
+      const bid = a.id ?? a.Did ?? a.did;
       if (bid != null && String(bid).trim() !== '') ids.add(String(bid));
     });
     if (ids.size === 0) {
@@ -711,43 +784,23 @@ function ReportPageContent() {
   // Pair original assets with replacement devices (for MA)
   const assetPairs = useMemo(() => {
     if (!selectedReport || tab !== 'ma') return [];
-    const rawAssets: any[] = Array.isArray((selectedReport as any).assets)
-      ? (selectedReport as any).assets
-      : [];
-    return rawAssets.map((a: any) => {
-      const idKey = String(a?.id ?? a?.Did ?? a?.did ?? '').trim();
+    const rawAssets = assetsFromRow(selectedReport);
+    return rawAssets.map((a) => {
+      const idKey = assetIdKey(a);
       const fromDb = idKey ? brokenDevicesDetailMap[idKey] : undefined;
       const original = {
-        name: a?.name ?? a?.CI_Name ?? a?.Asset_Number ?? '',
-        assetNumber: a?.assetNumber ?? a?.Asset_Number,
-        serial: a?.serialNumber ?? a?.serial,
-        model: a?.model,
-        site: fromDb?.site ?? a?.Sitename ?? a?.SiteName ?? a?.site,
-        location: fromDb?.location ?? a?.Location2 ?? a?.location,
+        name: readAssetString(a, 'name', 'CI_Name', 'Asset_Number') ?? '',
+        assetNumber: readAssetString(a, 'assetNumber', 'Asset_Number'),
+        serial: readAssetString(a, 'serialNumber', 'serial'),
+        model: readAssetString(a, 'model'),
+        site: fromDb?.site ?? readAssetString(a, 'Sitename', 'SiteName', 'site'),
+        location: fromDb?.location ?? readAssetString(a, 'Location2', 'location'),
       };
-      const rid = a?.replacementDeviceId ?? a?.replacement_device_id;
+      const rid = a.replacementDeviceId ?? a.replacement_device_id;
       const replacement = rid != null ? replacementDevicesMap[String(rid)] : undefined;
       return { original, replacement };
     });
   }, [selectedReport, tab, replacementDevicesMap, brokenDevicesDetailMap]);
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pass': return 'bg-green-500';
-      case 'warning': return 'bg-amber-400';
-      case 'fail': return 'bg-red-500';
-      default: return 'bg-slate-300';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'pass': return <CheckCircle2 size={20} className="text-white" />;
-      case 'warning': return <AlertCircle size={20} className="text-white" />;
-      case 'fail': return <XCircle size={20} className="text-white" />;
-      default: return null;
-    }
-  };
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '-';
@@ -762,34 +815,6 @@ function ReportPageContent() {
     }
   };
 
-  // รายการ devices ทั้งหมดที่ไปทำ PM/MA ครั้งนั้น (จาก assets หรือ device เดียว)
-  const getReportDevices = (report: PMReport | MAReport): Array<{ CI_Name?: string; name?: string; Asset_Number?: string; serial?: string; Sitename?: string; Location2?: string; Refer_SOF?: string; model?: string; [k: string]: any }> => {
-    const assets = report.assets;
-    if (Array.isArray(assets) && assets.length > 0) {
-      return assets.map((a: any) => ({
-        CI_Name: a.CI_Name ?? a.name,
-        name: a.name ?? a.CI_Name,
-        Asset_Number: a.Asset_Number ?? a.assetNumber,
-        serial: a.serial ?? a.serialNumber,
-        Sitename: a.Sitename ?? a.SiteName ?? a.site,
-        Location2: a.Location2 ?? a.location ?? a.Location,
-        Refer_SOF: a.Refer_SOF ?? a.refer_sof ?? (report.device as any)?.Refer_SOF,
-        model: a.model ?? a.Model ?? a.Manufacturername ?? a.manufacturername ?? (report.device as any)?.model,
-        Vendor: a.Vendor ?? a.vendor ?? (report.device as any)?.Vendor,
-      }));
-    }
-    if (report.device) {
-      const d = report.device as any;
-      return [{
-        ...d,
-        Refer_SOF: d.Refer_SOF ?? d.refer_sof,
-        model: d.model ?? d.Model ?? d.Manufacturername ?? d.manufacturername,
-        Vendor: d.Vendor ?? d.vendor,
-      }];
-    }
-    return [{ CI_Name: `Device ${report.deviceId}`, name: `Device ${report.deviceId}` }];
-  };
-
   const pickFirstNonEmpty = (...vals: unknown[]) => {
     for (const v of vals) {
       if (v != null && String(v).trim() !== '') return String(v).trim();
@@ -798,14 +823,18 @@ function ReportPageContent() {
   };
 
   /** SOF สำหรับ ZIP/ดาวน์โหลด — ไม่พึ่งแค่ device_json (merge DB + assets + contract จาก task) */
-  const getReferSofFromReport = (r: PMReport | MAReport) => {
+  const getLinkedTaskForReport = useCallback(
+    (r: PMReport | MAReport) =>
+      r.taskId != null
+        ? pmMaTasks.find((t) => Number(t.id) === Number(r.taskId))
+        : undefined,
+    [pmMaTasks]
+  );
+
+  const getReferSofFromReport = useCallback((r: PMReport | MAReport) => {
     const base = r.device as Record<string, unknown> | undefined;
     const firstDev = getReportDevices(r)[0];
-    const linkedTask =
-      r.taskId != null
-        ? pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(r.taskId))
-        : undefined;
-    const taskAny = linkedTask as { sofName?: string; sof_name?: string } | undefined;
+    const linkedTask = getLinkedTaskForReport(r);
     const did = String(r.deviceId || base?.Did || '').trim();
     const fromApi = did ? pmDeviceDetailMap[did] : undefined;
     return (
@@ -814,19 +843,13 @@ function ReportPageContent() {
         base?.Refer_SOF,
         base?.refer_sof,
         firstDev?.Refer_SOF,
-        taskAny?.sofName,
-        taskAny?.sof_name
+        linkedTask ? apiTaskString(linkedTask, 'sofName', 'sof_name') : undefined
       ) || 'Unknown SOF'
     );
-  };
-
-  const getLinkedTaskForReport = (r: PMReport | MAReport) =>
-    r.taskId != null
-      ? pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(r.taskId))
-      : undefined;
+  }, [getLinkedTaskForReport, pmDeviceDetailMap]);
 
   /** Site + Location สำหรับ card / search — merge DB + device_json + assets + task */
-  const getReportSiteAndLocation = (
+  const getReportSiteAndLocation = useCallback((
     r: PMReport | MAReport,
     deviceDetailMap: Record<
       string,
@@ -836,25 +859,22 @@ function ReportPageContent() {
     const base = r.device as Record<string, unknown> | undefined;
     const devices = getReportDevices(r);
     const firstDev = devices[0];
-    const taskAny = getLinkedTaskForReport(r) as
-      | { siteName?: string; site_name?: string; location?: string }
-      | undefined;
+    const taskAny = getLinkedTaskForReport(r);
     const did = String(r.deviceId || base?.Did || '').trim();
     const fromApi = did ? deviceDetailMap[did] : undefined;
     const rSiteName = pickFirstNonEmpty(
       (r as PMReport).site_name,
       (r as MAReport).site_name,
-      taskAny?.siteName,
-      taskAny?.site_name
+      taskAny ? apiTaskString(taskAny, 'siteName', 'site_name') : undefined
     );
 
-    let site = pickFirstNonEmpty(fromApi?.Sitename, base?.Sitename, firstDev?.Sitename, rSiteName);
+    let site = pickFirstNonEmpty(fromApi?.Sitename, base?.Sitename as string | undefined, firstDev?.Sitename, rSiteName);
     let location = pickFirstNonEmpty(
       fromApi?.Location2,
-      base?.Location2,
-      base?.location2,
+      base?.Location2 as string | undefined,
+      readString(base ?? {}, 'location2'),
       firstDev?.Location2,
-      taskAny?.location
+      taskAny ? readString(taskAny, 'location') : undefined
     );
 
     if (!location) {
@@ -868,14 +888,8 @@ function ReportPageContent() {
     }
 
     if (!location) {
-      const assets = Array.isArray(r.assets) ? r.assets : [];
-      for (const a of assets) {
-        const aid = String(
-          (a as { id?: unknown; Did?: unknown; did?: unknown })?.id
-            ?? (a as { Did?: unknown })?.Did
-            ?? (a as { did?: unknown })?.did
-            ?? ''
-        ).trim();
+      for (const a of assetsFromRow(r)) {
+        const aid = assetIdKey(a);
         const fromAssetDb = aid ? deviceDetailMap[aid]?.Location2 : undefined;
         if (fromAssetDb) {
           location = fromAssetDb;
@@ -897,7 +911,7 @@ function ReportPageContent() {
     }
 
     return { site, location };
-  };
+  }, [getLinkedTaskForReport, pmDeviceDetailMap]);
 
   const collectDeviceIdsFromExportRow = (row: PMReport | MAReport | Record<string, unknown>) => {
     const ids = new Set<string>();
@@ -958,18 +972,18 @@ function ReportPageContent() {
   };
 
   /** Site + Location สำหรับ Download modal / ZIP (fallback Unknown เมื่อว่าง) */
-  const getReportSiteLocationForDownload = (r: PMReport | MAReport) => {
+  const getReportSiteLocationForDownload = useCallback((r: PMReport | MAReport) => {
     const { site, location } = getReportSiteAndLocation(r);
     return {
       siteName: site || 'Unknown',
       location: location || 'Unknown',
     };
-  };
+  }, [getReportSiteAndLocation]);
 
-  const getVisitDate = (r: PMReport | MAReport) => {
+  const getVisitDate = useCallback((r: PMReport | MAReport) => {
     const d = r[dateKey as keyof typeof r];
     return d && typeof d === 'string' ? d.slice(0, 10) : '';
-  };
+  }, [dateKey]);
 
   const visitMonthKey = (visitRound: string) => {
     if (visitRound && /^\d{4}-\d{2}-\d{2}$/.test(visitRound)) return visitRound.slice(0, 7);
@@ -998,7 +1012,7 @@ function ReportPageContent() {
     });
 
   /** รอบที่ n ต่อ Site + Location + ปีปฏิทิน + SOF — ปีใหม่เริ่มรอบ 1 ใหม่ */
-  const buildYearlyRoundMapForReports = (
+  const buildYearlyRoundMapForReports = useCallback((
     source: (PMReport | MAReport)[],
     opts?: { requireUploadFiles?: boolean }
   ) => {
@@ -1028,7 +1042,7 @@ function ReportPageContent() {
         });
     });
     return roundByReportId;
-  };
+  }, [getVisitDate, getReportSiteLocationForDownload, getReferSofFromReport]);
 
   const reportMonthOptions = useMemo(() => {
     const months = new Set<string>();
@@ -1037,7 +1051,7 @@ function ReportPageContent() {
       if (m) months.add(m);
     });
     return Array.from(months).sort((a, b) => b.localeCompare(a));
-  }, [reports, dateKey]);
+  }, [reports, getVisitDate]);
 
   const reportRoundOptions = useMemo(() => {
     const pool = reportMonthFilter
@@ -1050,7 +1064,7 @@ function ReportPageContent() {
       if (n != null) rounds.add(n);
     });
     return Array.from(rounds).sort((a, b) => a - b);
-  }, [reports, reportMonthFilter, dateKey]);
+  }, [reports, reportMonthFilter, buildYearlyRoundMapForReports, getVisitDate]);
 
   const filteredReports = useMemo(() => {
     let list = searchFilteredReports;
@@ -1062,7 +1076,7 @@ function ReportPageContent() {
       list = list.filter((r) => String(roundMap.get(String(r.id)) ?? '') === reportRoundFilter);
     }
     return list;
-  }, [searchFilteredReports, reports, reportMonthFilter, reportRoundFilter, dateKey]);
+  }, [searchFilteredReports, reports, reportMonthFilter, reportRoundFilter, buildYearlyRoundMapForReports, getVisitDate]);
 
   const totalPages = Math.ceil(filteredReports.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -1091,7 +1105,7 @@ function ReportPageContent() {
         getReportDevices(report)[0]?.Vendor
       ),
     };
-  }, [selectedReport, tab, pmDeviceDetailMap, pmMaTasks]);
+  }, [selectedReport, tab, pmDeviceDetailMap, getReferSofFromReport, getReportSiteAndLocation]);
 
   // Tasks without Report (remaining)
   const reportedPMTaskIds = useMemo(
@@ -1245,15 +1259,16 @@ function ReportPageContent() {
       location: string;
       site: string;
     };
-    let replacementPlaceMap: Record<string, ReplacementInfo> = {};
-    let brokenDeviceExportDetails: Record<string, BrokenDeviceExportDetail> = {};
-    const addReplacementIdsFromRow = (row: any, repIds: Set<string>) => {
-      const assets: any[] = Array.isArray(row?.assets) ? row.assets : [];
-      assets.forEach((a: any) => {
-        const rid = a?.replacementDeviceId ?? a?.replacement_device_id;
+    const replacementPlaceMap: Record<string, ReplacementInfo> = {};
+    const brokenDeviceExportDetails: Record<string, BrokenDeviceExportDetail> = {};
+    const addReplacementIdsFromRow = (row: PMReport | MAReport | ApiTask, repIds: Set<string>) => {
+      const assets = assetsFromRow(row);
+      assets.forEach((a) => {
+        const rid = a.replacementDeviceId ?? a.replacement_device_id;
         if (rid != null && String(rid).trim() !== '') repIds.add(String(rid));
       });
-      const taskRepId = row?.replacementDeviceId ?? row?.replacement_device_id;
+      const rowRec = asRecord(row);
+      const taskRepId = rowRec.replacementDeviceId ?? rowRec.replacement_device_id;
       if (taskRepId != null && String(taskRepId).trim() !== '') repIds.add(String(taskRepId));
     };
     if (tab === 'ma') {
@@ -1267,10 +1282,10 @@ function ReportPageContent() {
             const json = await res.json();
             if (res.ok && json.data) {
               const d = json.data as Record<string, unknown>;
-              const serial = (d.serial ?? (d as any).serialNumber ?? '') as string;
-              const model = (d.model ?? (d as any).type ?? '') as string;
-              const assetNum = (d.Asset_Number ?? (d as any).assetNumber ?? '') as string;
-              const siteDb = String(d.Sitename ?? (d as any).SiteName ?? (d as any).sitename ?? '').trim();
+              const serial = readString(d, 'serial') ?? readString(d, 'serialNumber') ?? '';
+              const model = readString(d, 'model') ?? readString(d, 'type') ?? '';
+              const assetNum = readString(d, 'Asset_Number') ?? readString(d, 'assetNumber') ?? '';
+              const siteDb = String(readString(d, 'Sitename') ?? readString(d, 'SiteName') ?? readString(d, 'sitename') ?? '').trim();
               const locDb = String((d.Location2 ?? d.location2 ?? '') as string).trim();
               replacementPlaceMap[rid] = {
                 serial: String(serial || '').trim() || '-',
@@ -1301,10 +1316,9 @@ function ReportPageContent() {
       );
 
       const brokenIds = new Set<string>();
-      const addBrokenIdsFromRow = (row: any) => {
-        const ast: any[] = Array.isArray(row?.assets) ? row.assets : [];
-        for (const a of ast) {
-          const bid = a?.id ?? a?.Did ?? a?.did;
+      const addBrokenIdsFromRow = (row: PMReport | MAReport | ApiTask) => {
+        for (const a of assetsFromRow(row)) {
+          const bid = a.id ?? a.Did ?? a.did;
           if (bid != null && String(bid).trim() !== '') brokenIds.add(String(bid));
         }
       };
@@ -1336,12 +1350,13 @@ function ReportPageContent() {
       number,
       { startDate?: string; endDate?: string; assignedService?: string | null }
     >();
-    pmMaTasks.forEach((t: { id?: number; startDate?: string; endDate?: string; assignedService?: string | null; assigned_service?: string | null }) => {
-      if (t?.id != null && !Number.isNaN(Number(t.id))) {
+    pmMaTasks.forEach((t) => {
+      if (t.id != null && !Number.isNaN(Number(t.id))) {
         taskById.set(Number(t.id), {
-          startDate: t.startDate,
-          endDate: t.endDate,
-          assignedService: t.assignedService ?? t.assigned_service ?? null,
+          startDate: apiTaskString(t, 'startDate', 'start_date'),
+          endDate: apiTaskString(t, 'endDate', 'end_date'),
+          assignedService:
+            (readString(t, 'assignedService') ?? readString(t, 'assigned_service') ?? null) as string | null,
         });
       }
     });
@@ -1410,7 +1425,7 @@ function ReportPageContent() {
       if (fromLegacyPaths.length > 0) return fromLegacyPaths;
       const tid = ma.taskId;
       if (tid == null) return [];
-      const linked = pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(tid));
+      const linked = pmMaTasks.find((t) => Number(t.id) === Number(tid));
       return normalizeRepairPathsFromPhotos(linked?.photos);
     };
     const headers = tab === 'ma' ? maHeaders : pmHeaders;
@@ -1426,7 +1441,7 @@ function ReportPageContent() {
       if (tab === 'pm') {
         const resolved = getReportSiteAndLocation(r, exportDeviceDetailMap);
         const { site, location } = csvSiteLocation(resolved.site, resolved.location);
-        const assets = Array.isArray((r as any).assets) ? (r as any).assets : [];
+        const assets = assetsFromRow(r);
         const totalDevicesThisReport = assets.length > 0 ? assets.length : 1;
         row([
           String(totalDevicesThisReport),
@@ -1441,7 +1456,7 @@ function ReportPageContent() {
         ]);
         return;
       }
-      const assets: any[] = Array.isArray((r as any).assets) ? (r as any).assets : [];
+      const assets = assetsFromRow(r);
       const brokenPlace = exportBrokenSitesAndLocationsFromAssets(
         assets,
         rSite,
@@ -1450,7 +1465,8 @@ function ReportPageContent() {
       // Site = Sitename (หลัง merge DB); Location = Location2 (จาก asset หรือ DB ผ่าน exportBroken…)
       const site = brokenPlace.site;
       const location = brokenPlace.location;
-      const taskRepId = (r as any).replacementDeviceId ?? (r as any).replacement_device_id;
+      const maRow = r as MAReport;
+      const taskRepId = maRow.replacementDeviceId ?? maRow.replacement_device_id;
       const origNames: string[] = [];
       const origAssets: string[] = [];
       const origSerials: string[] = [];
@@ -1460,16 +1476,16 @@ function ReportPageContent() {
       const repAssetNums: string[] = [];
       const newSites: string[] = [];
       const newLocations: string[] = [];
-      assets.forEach((a: any, i: number) => {
-        const origName = a?.name ?? a?.CI_Name ?? a?.Asset_Number ?? a?.serial ?? '';
-        const origAsset = a?.Asset_Number ?? a?.assetNumber ?? '';
-        const origSerial = a?.serial ?? a?.serialNumber ?? '';
-        const origModel = (a?.model ?? a?.type ?? '').toString().trim();
+      assets.forEach((a, i) => {
+        const origName = readAssetString(a, 'name', 'CI_Name', 'Asset_Number', 'serial') ?? '';
+        const origAsset = readAssetString(a, 'Asset_Number', 'assetNumber') ?? '';
+        const origSerial = readAssetString(a, 'serial', 'serialNumber') ?? '';
+        const origModel = (readAssetString(a, 'model', 'type') ?? '').trim();
         if (origName) origNames.push(origName);
         if (origAsset) origAssets.push(origAsset);
         if (origSerial) origSerials.push(origSerial);
         if (origModel) origModels.push(origModel);
-        const rid = a?.replacementDeviceId ?? a?.replacement_device_id ?? (i === 0 ? taskRepId : null);
+        const rid = a.replacementDeviceId ?? a.replacement_device_id ?? (i === 0 ? taskRepId : null);
         const repInfo = rid != null ? replacementPlaceMap[String(rid)] : null;
         if (rid != null && repInfo) {
           repSerials.push(repInfo.serial);
@@ -1526,7 +1542,7 @@ function ReportPageContent() {
         maR.reporterName ?? '',
         maR.reporterTel ?? '',
         maR.ticket ?? '',
-        assignedServiceForTaskExport(maR.taskId ?? (r as any).taskId),
+        assignedServiceForTaskExport(maR.taskId ?? r.taskId),
         'Done',
         reportStatus,
         repairCell,
@@ -1534,19 +1550,29 @@ function ReportPageContent() {
       ]);
     });
 
-    pendingExport.forEach((task: any) => {
-      const assets: any[] = Array.isArray(task?.assets) ? task.assets : [];
+    pendingExport.forEach((task) => {
+      const assets = assetsFromRow(task);
       const first = assets[0];
       let siteFromTask: string;
       let locationFromTask: string;
       if (tab === 'pm') {
-        const pseudoReport = {
-          taskId: task?.id,
-          site_name: task?.siteName ?? task?.site_name,
+        const pseudoReport: PMReport = {
+          id: String(task.id ?? ''),
+          taskId: typeof task.id === 'number' ? task.id : Number(task.id),
+          site_name: apiTaskString(task, 'siteName', 'site_name'),
           deviceId: String(first?.id ?? first?.Did ?? first?.did ?? ''),
-          device: first,
-          assets: task?.assets,
-        } as PMReport;
+          device: first ? {
+            Did: typeof first.Did === 'number' ? first.Did : undefined,
+            CI_Name: readAssetString(first, 'CI_Name', 'name'),
+            Asset_Number: readAssetString(first, 'Asset_Number', 'assetNumber'),
+            serial: readAssetString(first, 'serial'),
+            Sitename: readAssetString(first, 'Sitename'),
+            Location2: readAssetString(first, 'Location2'),
+          } : undefined,
+          assets,
+          checklistItems: [],
+          pmResult: 'pass',
+        };
         const resolved = getReportSiteAndLocation(pseudoReport, exportDeviceDetailMap);
         ({ site: siteFromTask, location: locationFromTask } = csvSiteLocation(
           resolved.site,
@@ -1555,15 +1581,15 @@ function ReportPageContent() {
       } else {
         const pairMa = exportBrokenSitesAndLocationsFromAssets(
           assets,
-          task?.siteName,
+          apiTaskString(task, 'siteName', 'site_name'),
           brokenDeviceExportDetails
         );
         siteFromTask = pairMa.site;
         locationFromTask = pairMa.location;
       }
       const engDisplay = getEngineerDisplay({
-        engineers: task?.engineers,
-        technicianName: task?.technicianName,
+        engineers: Array.isArray(task.engineers) ? task.engineers as PMReport['engineers'] : undefined,
+        technicianName: readString(task, 'technicianName'),
       } as PMReport);
       if (tab === 'pm') {
         const totalDevicesThisReport = assets.length > 0 ? assets.length : 1;
@@ -1572,16 +1598,16 @@ function ReportPageContent() {
           siteFromTask,
           locationFromTask,
           engDisplay,
-          formatExportDate(task?.startDate),
-          formatExportDate(task?.endDate),
-          formatTaskStatusForCsv(task?.status),
+          formatExportDate(apiTaskString(task, 'startDate', 'start_date')),
+          formatExportDate(apiTaskString(task, 'endDate', 'end_date')),
+          formatTaskStatusForCsv(task.status),
           'Not yet',
-          String(task?.notes ?? '')
+          String(readString(task, 'notes') ?? '')
             .replace(/\n/g, ' '),
         ]);
         return;
       }
-      const taskRepId = task?.replacementDeviceId ?? task?.replacement_device_id;
+      const taskRepId = task.replacementDeviceId ?? task.replacement_device_id;
       const origSerials: string[] = [];
       const origModels: string[] = [];
       const origAssetNums: string[] = [];
@@ -1590,14 +1616,14 @@ function ReportPageContent() {
       const repAssetNumsRepl: string[] = [];
       const newSites: string[] = [];
       const newLocations: string[] = [];
-      assets.forEach((a: any, i: number) => {
-        const origSerial = a?.serial ?? a?.serialNumber ?? '';
+      assets.forEach((a, i) => {
+        const origSerial = readAssetString(a, 'serial', 'serialNumber') ?? '';
         if (origSerial) origSerials.push(origSerial);
-        const om = (a?.model ?? a?.type ?? '').toString().trim();
+        const om = (readAssetString(a, 'model', 'type') ?? '').trim();
         if (om) origModels.push(om);
-        const an = (a?.Asset_Number ?? a?.assetNumber ?? '').toString().trim();
+        const an = (readAssetString(a, 'Asset_Number', 'assetNumber') ?? '').trim();
         if (an) origAssetNums.push(an);
-        const rid = a?.replacementDeviceId ?? a?.replacement_device_id ?? (i === 0 ? taskRepId : null);
+        const rid = a.replacementDeviceId ?? a.replacement_device_id ?? (i === 0 ? taskRepId : null);
         const repInfo = rid != null ? replacementPlaceMap[String(rid)] : null;
         if (rid != null && repInfo) {
           repSerials.push(repInfo.serial);
@@ -1620,20 +1646,20 @@ function ReportPageContent() {
       const assetNumStr =
         origAssetNums.length > 0
           ? origAssetNums.join('; ')
-          : String(first?.Asset_Number ?? first?.assetNumber ?? '-');
+          : String(readAssetString(first ?? {}, 'Asset_Number', 'assetNumber') ?? '-');
       const replaceDeviceStr = repSerials.length > 0 ? repSerials.join('; ') : '-';
       const replaceModelStr = repModels.length > 0 ? repModels.join('; ') : '-';
       const replaceAssetStr = repAssetNumsRepl.length > 0 ? repAssetNumsRepl.join('; ') : '-';
       const newSiteStr = newSites.length > 0 ? newSites.join('; ') : '-';
       const newLocationStr = newLocations.length > 0 ? newLocations.join('; ') : '-';
-      const photosArr = normalizeRepairPathsFromPhotos(task?.photos);
+      const photosArr = normalizeRepairPathsFromPhotos(task.photos);
       const repairCell = buildRepairNoticeCsvCell(
         {
-          taskId: task?.id,
+          taskId: typeof task.id === 'number' ? task.id : Number(task.id),
           repairNoticePaths: photosArr,
         } as MAReport,
         {
-          ticket: task?.ticket != null ? String(task.ticket) : '',
+          ticket: readString(task, 'ticket') ?? '',
           site: siteFromTask,
         },
         repairNoticeExcelSeq
@@ -1650,18 +1676,18 @@ function ReportPageContent() {
         siteFromTask,
         locationFromTask,
         engDisplay,
-        formatExportDate(task?.startDate),
-        formatExportDate(task?.endDate),
-        task?.vendorName ?? '',
-        task?.vendorTel ?? '',
-        task?.reporterName ?? '',
-        task?.reporterTel ?? '',
-        task?.ticket ?? '',
-        String(task?.assignedService ?? task?.assigned_service ?? '').trim() || '-',
-        formatTaskStatusForCsv(task?.status),
+        formatExportDate(apiTaskString(task, 'startDate', 'start_date')),
+        formatExportDate(apiTaskString(task, 'endDate', 'end_date')),
+        readString(task, 'vendorName') ?? readString(task, 'vendor_name') ?? '',
+        readString(task, 'vendorTel') ?? readString(task, 'vendor_tel') ?? '',
+        readString(task, 'reporterName') ?? readString(task, 'reporter_name') ?? '',
+        readString(task, 'reporterTel') ?? readString(task, 'reporter_tel') ?? '',
+        readString(task, 'ticket') ?? '',
+        String(readString(task, 'assignedService') ?? readString(task, 'assigned_service') ?? '').trim() || '-',
+        formatTaskStatusForCsv(task.status),
         'Not yet',
         repairCell,
-        String(task?.notes ?? '')
+        String(readString(task, 'notes') ?? '')
           .replace(/\n/g, ' '),
       ]);
     });
@@ -1677,7 +1703,6 @@ function ReportPageContent() {
   };
 
   const [downloadingImages, setDownloadingImages] = useState(false);
-  const [showSiteImageMenu, setShowSiteImageMenu] = useState(false);
 
   type DownloadFileEntry = {
     path: string;
@@ -1847,120 +1872,6 @@ function ReportPageContent() {
     return files;
   };
 
-  const downloadZipForSOF = async (sofName: string, sourceReports: (PMReport | MAReport)[]) => {
-    const sofReports = sourceReports.filter(
-      (r: PMReport | MAReport) => getReferSofFromReport(r) === sofName
-    );
-    const bySite = buildFilesBySiteMap(sofReports);
-    if (bySite.size === 0) {
-      toastWarning(`No files (images/PDFs) for SOF: ${sofName}`);
-      return;
-    }
-    const taskLabel = tab === 'pm' ? 'PM' : 'MA';
-    const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
-    const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
-
-    const zip = new JSZip();
-    const sofFolderName = safe(sofName.replace(/[/\\?*|"<>]/g, '_') || 'Unknown_SOF');
-    const sofFolder = zip.folder(sofFolderName);
-    if (!sofFolder) {
-      toastWarning('Could not build zip folder');
-      return;
-    }
-
-    for (const [siteName, allFiles] of bySite.entries()) {
-      const roundMap = getRoundMapBySiteLocationDate(allFiles);
-      const siteFolder = sofFolder.folder(safe(siteName) || 'Unknown_Site');
-      if (!siteFolder) continue;
-      for (const f of allFiles) {
-        const y = visitCalendarYear(f.visitRound);
-        const visitDate = getNormalizedVisitDate(f.visitRound, y);
-        const n = roundMap.get(f) ?? 1;
-        try {
-          const res = await fetch(apiUrl(f.path));
-          if (res.ok) {
-            const blob = await res.blob();
-            const ext = getExt(f.name, f.type);
-            const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${visitDate}_รอบที่${n}${ext}`;
-            siteFolder.file(safeFileName, blob);
-          }
-        } catch {
-          // skip failed fetch
-        }
-      }
-    }
-
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    triggerBlobDownload(
-      zipBlob,
-      `${taskLabel}_SOF_${sofFolderName}_sites_${bySite.size}_${new Date().toISOString().slice(0, 10)}.zip`
-    );
-  };
-
-  const downloadZipForSite = async (siteName: string, sourceReports: (PMReport | MAReport)[], locationFilter?: string) => {
-    const siteReports = sourceReports.filter(
-      (r: PMReport | MAReport) => {
-        const { siteName: reportSite, location: reportLocation } = getReportSiteLocationForDownload(r);
-        return reportSite === siteName && (!locationFilter || reportLocation === locationFilter);
-      }
-    );
-    const allFiles = getFilesFromReports(siteReports);
-    if (allFiles.length === 0) {
-      toastWarning(
-        locationFilter
-          ? `No files (images/PDFs) for Site: ${siteName} / Location: ${locationFilter}`
-          : `No files (images/PDFs) for Site: ${siteName}`
-      );
-      return;
-    }
-    const taskLabel = tab === 'pm' ? 'PM' : 'MA';
-    const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
-    const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
-    const yearLabel = (() => {
-      const dates = siteReports.map((r) => getVisitDate(r)).filter(Boolean).sort();
-      if (dates.length === 0) return String(new Date().getFullYear());
-      const y0 = dates[0].slice(0, 4);
-      const y1 = dates[dates.length - 1].slice(0, 4);
-      return y0 === y1 ? y0 : `${y0}-${y1}`;
-    })();
-    const locationName = locationFilter || getReportSiteLocationForDownload(siteReports[0]).location;
-
-    const roundMap = getRoundMapBySiteLocationDate(allFiles);
-    const zip = new JSZip();
-    const bySof = new Map<string, DownloadFileEntry[]>();
-    for (const f of allFiles) {
-      const k = safe(f.referSof) || 'Unknown_SOF';
-      const arr = bySof.get(k) ?? [];
-      arr.push(f);
-      bySof.set(k, arr);
-    }
-    for (const [sofKey, filesInSof] of bySof.entries()) {
-      const sofDir = zip.folder(sofKey);
-      if (!sofDir) continue;
-      for (const f of filesInSof) {
-        const y = visitCalendarYear(f.visitRound);
-        const visitDate = getNormalizedVisitDate(f.visitRound, y);
-        const n = roundMap.get(f) ?? 1;
-        try {
-          const res = await fetch(apiUrl(f.path));
-          if (res.ok) {
-            const blob = await res.blob();
-            const ext = getExt(f.name, f.type);
-            const safeFileName = `${safe(f.siteLocation)}_${safe(f.location)}_${visitDate}_รอบที่${n}${ext}`;
-            sofDir.file(safeFileName, blob);
-          }
-        } catch {
-          // skip failed fetch
-        }
-      }
-    }
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    triggerBlobDownload(
-      zipBlob,
-      `${taskLabel}_${yearLabel}_Site_${safe(siteName)}_Location_${safe(locationName)}_by_SOF.zip`
-    );
-  };
-
   const downloadZipForSelectedLocations = async (
     selections: Array<{ siteName: string; location: string }>,
     sourceReports: (PMReport | MAReport)[],
@@ -1972,7 +1883,6 @@ function ReportPageContent() {
     }
 
     const taskLabel = tab === 'pm' ? 'PM' : 'MA';
-    const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
     const getExt = (name: string, type?: string) => name?.match(/\.\w+$/)?.[0] || (type === 'pdf' ? '.pdf' : '.jpg');
     const zip = new JSZip();
     let addedFiles = 0;
@@ -2028,35 +1938,6 @@ function ReportPageContent() {
     );
   };
 
-  // ดาวน์โหลดไฟล์ (รูป/PDF) แยกตาม SOF → แยก zip ต่อ Site; รอบที่ X ต่อ SOF+Site; ใช้กับทั้ง PM และ MA ตาม tab ปัจจุบัน
-  const handleDownloadImagesBySOF = async (sofName: string) => {
-    setDownloadingImages(true);
-    setShowSiteImageMenu(false);
-    setIsDownloadFilesModalOpen(false);
-    try {
-      await downloadZipForSOF(sofName, downloadSourceReports);
-    } catch (e) {
-      console.error(e);
-      toastError('Error downloading images');
-    } finally {
-      setDownloadingImages(false);
-    }
-  };
-
-  const handleDownloadImagesBySite = async (siteName: string) => {
-    setDownloadingImages(true);
-    setShowSiteImageMenu(false);
-    setIsDownloadFilesModalOpen(false);
-    try {
-      await downloadZipForSite(siteName, downloadSourceReports);
-    } catch (e) {
-      console.error(e);
-      toastError('Error downloading images');
-    } finally {
-      setDownloadingImages(false);
-    }
-  };
-
   const sofsWithImages = useMemo(() => {
     const map = new Map<string, { count: number; items: Array<{ siteName: string; visitDate: string }> }>();
     downloadSourceReports.forEach((r: PMReport | MAReport) => {
@@ -2082,7 +1963,7 @@ function ReportPageContent() {
     return Array.from(map.entries())
       .map(([sofName, { count, items }]) => ({ sofName, count, items }))
       .sort((a, b) => b.count - a.count);
-  }, [downloadSourceReports, tab, pmMaTasks, pmDeviceDetailMap]);
+  }, [downloadSourceReports, getReferSofFromReport, getReportSiteLocationForDownload, getVisitDate]);
 
   const sitesWithImages = useMemo(() => {
     const map = new Map<string, { count: number; items: Array<{ sofName: string; visitDate: string }> }>();
@@ -2109,7 +1990,7 @@ function ReportPageContent() {
     return Array.from(map.entries())
       .map(([siteName, { count, items }]) => ({ siteName, count, items }))
       .sort((a, b) => b.count - a.count);
-  }, [downloadSourceReports, tab, pmMaTasks, pmDeviceDetailMap]);
+  }, [downloadSourceReports, getReferSofFromReport, getReportSiteLocationForDownload, getVisitDate]);
 
   const downloadModalSites = useMemo(() => {
     const locationMap = new Map<string, {
@@ -2173,9 +2054,9 @@ function ReportPageContent() {
     downloadSiteSearch,
     downloadLocationFilter,
     downloadSofFilter,
-    dateKey,
-    pmMaTasks,
-    pmDeviceDetailMap,
+    getReferSofFromReport,
+    getReportSiteLocationForDownload,
+    getVisitDate,
   ]);
 
   const downloadLocationOptions = useMemo(
@@ -2183,14 +2064,14 @@ function ReportPageContent() {
       Array.from(
         new Set(downloadSourceReports.map((r) => getReportSiteLocationForDownload(r).location))
       ).sort((a, b) => a.localeCompare(b)),
-    [downloadSourceReports, pmMaTasks, pmDeviceDetailMap]
+    [downloadSourceReports, getReportSiteLocationForDownload]
   );
   const downloadSofOptions = useMemo(
     () =>
       Array.from(new Set(downloadSourceReports.map((r) => getReferSofFromReport(r)))).sort((a, b) =>
         a.localeCompare(b)
       ),
-    [downloadSourceReports, pmMaTasks, pmDeviceDetailMap]
+    [downloadSourceReports, getReferSofFromReport]
   );
 
   const downloadModalTotal = downloadModalSites.length;
@@ -2323,7 +2204,6 @@ function ReportPageContent() {
   // ดาวน์โหลดทั้งหมด — zip เดียว ข้างในโครงสร้าง SOF / Site / file_วันที่ไป_รอบที่X (รอบที่ของ site นั้นๆ)
   const handleDownloadAllSites1Site1SOF = async () => {
     setDownloadingImages(true);
-    setShowSiteImageMenu(false);
     try {
       const taskLabel = tab === 'pm' ? 'PM' : 'MA';
       const safe = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
@@ -2945,7 +2825,7 @@ function ReportPageContent() {
                       disabled={downloadingImages || downloadSourceReports.length === 0}
                       className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                     >
-                      <Image size={14} />
+                      <ImageIcon size={14} aria-hidden="true" />
                       Download all (1 site 1 SOF)
                     </button>
                   </div>
@@ -3314,7 +3194,7 @@ function ReportPageContent() {
                       : [];
                     const linkedTask =
                       ma.taskId != null
-                        ? pmMaTasks.find((t: { id?: number }) => Number(t?.id) === Number(ma.taskId))
+                        ? pmMaTasks.find((t) => Number(t.id) === Number(ma.taskId))
                         : undefined;
                     const fromTask = normalizeRepairPathsFromPhotos(linkedTask?.photos);
                     const repairPaths =

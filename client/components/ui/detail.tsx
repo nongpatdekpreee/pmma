@@ -1,12 +1,13 @@
 'use client';
 
-import { X, CheckCircle2, XCircle, Trash2, FileText, Download, Paperclip, Clock3, Calendar, MoreHorizontal } from 'lucide-react';
+import { X, CheckCircle2, Trash2, FileText, Download, Paperclip, Clock3, Calendar, MoreHorizontal } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { apiUrl } from '@/lib/api';
 import { DEFAULT_IN_STORE_SITE_NAME } from '@/lib/inStoreSite';
 import { parseRescheduleNoteOrigin } from '@/lib/rescheduleNote';
 import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
+import { readString } from '@/lib/unknownUtil';
 import { useAlertModal } from '@/components/ui/useAlertModal';
 import {
   buildDeviceMapsFromDetail,
@@ -221,7 +222,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   ? (d.model || d.CI_Name || d.Asset_Number || asset.name || '')
                   : (d.CI_Name || d.Asset_Number || asset.name || ''),
                 type: d.model || d.manufacturername || asset.type || '—',
-                role: d.roleName || (asset as any).role || undefined,
+                role: d.roleName || asset.role || undefined,
                 serialNumber: d.serial || asset.serialNumber,
                 site: d.Sitename || d.Location2 || asset.site,
                 assetNumber: d.Asset_Number || asset.assetNumber,
@@ -238,7 +239,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
 
     load();
     return () => { cancelled = true; };
-  }, [isOpen, task?.id, task?.assets]);
+  }, [isOpen, task?.id, task?.assets, task?.taskType]);
 
   // Fetch replacement device details for MA tasks - รองรับหลายคู่ (แต่ละ asset อาจมี replacementDeviceId)
   useEffect(() => {
@@ -249,7 +250,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
     const assets = task.assets || [];
     const repIds = new Set<string | number>();
     assets.forEach((a: Device, i: number) => {
-      const rid = (a as any).replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null);
+      const rid = a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null);
       if (rid != null) repIds.add(rid);
     });
     if (task.replacementDeviceId != null && repIds.size === 0) repIds.add(task.replacementDeviceId);
@@ -286,7 +287,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
     };
     load();
     return () => { cancelled = true; };
-  }, [isOpen, task?.id, task?.taskType, task?.replacementDeviceId, task?.assets]);
+  }, [isOpen, task]);
 
   if (!isOpen || !task) {
     return <>{alertModal}</>;
@@ -533,6 +534,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                   <div key={eng.id} className="flex items-center gap-2">
                     <span className="flex h-8 w-8 shrink-0 rounded-full overflow-hidden border border-border bg-muted">
                       {eng.photo ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
                         <img src={eng.photo.startsWith('http') ? eng.photo : apiUrl(eng.photo)} alt="" className="h-full w-full object-cover" />
                       ) : (
                         <span className="flex h-full w-full items-center justify-center text-xs font-semibold text-muted-foreground">
@@ -586,7 +588,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                     {paginatedAssets.map((asset, pageIndex) => {
                       const index = (assetPage - 1) * assetsPerPage + pageIndex;
                       const resolvedAsset = getResolvedAsset(asset) || asset;
-                      const repId = (resolvedAsset as any).replacementDeviceId ?? (index === 0 ? task.replacementDeviceId : null);
+                      const repId = resolvedAsset.replacementDeviceId ?? (index === 0 ? task.replacementDeviceId : null);
                       const replacementDevice = repId != null ? replacementDevicesMap[String(repId)] : null;
                       return (
                         <div key={asset.id} className="flex flex-wrap items-center gap-2">
@@ -962,18 +964,19 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                           return `${year}-${month}-${day}`;
                         };
 
+                        const taskRec = task as unknown as Record<string, unknown>;
                         const taskToEdit = {
                           ...task,
                           startDate: formatDateForInput(task.startDate),
                           endDate: formatDateForInput(task.endDate),
-                          contractId: task.contractId || (task as any).contract_id || undefined,
+                          contractId: task.contractId || readString(taskRec, 'contract_id') || undefined,
                           replacementDeviceId:
-                            task.replacementDeviceId || (task as any).replacement_device_id || undefined,
+                            task.replacementDeviceId || readString(taskRec, 'replacement_device_id') || undefined,
                           assets: task.assets || [],
-                          vendorName: task.vendorName || (task as any).vendor_name || undefined,
+                          vendorName: task.vendorName || readString(taskRec, 'vendor_name') || undefined,
                           assignedService:
-                            task.assignedService ?? (task as any).assigned_service ?? undefined,
-                          ...(String(task.taskType || (task as any).task_type || '')
+                            task.assignedService ?? readString(taskRec, 'assigned_service') ?? undefined,
+                          ...(String(task.taskType || readString(taskRec, 'task_type') || '')
                             .toUpperCase() !== 'MA'
                             ? { duration: task.duration || undefined }
                             : {}),

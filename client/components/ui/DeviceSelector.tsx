@@ -45,7 +45,6 @@ export function DeviceSelector({
   onDeviceInputKeyDown,
   onAddDevice,
   onRemoveDevice,
-  getDeviceLabel,
   sitesLocation,
   dataLoading,
 }: DeviceSelectorProps) {

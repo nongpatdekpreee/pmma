@@ -276,7 +276,6 @@ export function ContractSimpleSearchListDropdown({
 
   useLayoutEffect(() => {
     if (!portalPanel || !open || disabled) {
-      setPortalBox(null);
       return;
     }
     const measure = () => {
@@ -293,6 +292,8 @@ export function ContractSimpleSearchListDropdown({
       window.removeEventListener('scroll', measure, true);
     };
   }, [portalPanel, open, disabled, displayText, items.length, filter]);
+
+  const activePortalBox = portalPanel && open && !disabled ? portalBox : null;
 
   const hasValue =
     Boolean(displayText?.trim()) ||
@@ -340,7 +341,6 @@ export function ContractSimpleSearchListDropdown({
           disabled={disabled}
           aria-expanded={open}
           aria-haspopup="listbox"
-          aria-multiselectable={multiSelect || undefined}
           onClick={() => {
             if (disabled) return;
             onToggle();
@@ -397,16 +397,16 @@ export function ContractSimpleSearchListDropdown({
       </div>
       {!portalPanel && panelNode}
       {portalPanel &&
-        portalBox &&
+        activePortalBox &&
         panelNode &&
         createPortal(
           <div
             data-dropdown-portal-for={rootId}
             style={{
               position: 'fixed',
-              top: portalBox.top,
-              left: portalBox.left,
-              width: portalBox.width,
+              top: activePortalBox.top,
+              left: activePortalBox.left,
+              width: activePortalBox.width,
               zIndex: 10050,
             }}
             className="pointer-events-auto min-w-0"
@@ -504,7 +504,6 @@ export function ContractShellSearchListDropdown({
           disabled={disabled || loading}
           aria-expanded={open}
           aria-haspopup="listbox"
-          aria-multiselectable={multiSelect || undefined}
           className={`${contractDropdownTextButtonClass} ${multiSelect ? 'items-start' : 'items-center'}`}
         >
           <span

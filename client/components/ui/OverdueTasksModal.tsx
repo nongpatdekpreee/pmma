@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Calendar, CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { getCompletedTasks, getInprocessTasks, getOverdueTasks, getPendingTasks, getSitesLocation } from '@/lib/api';
+import { asRecord, getErrorMessage, readString } from '@/lib/unknownUtil';
 
 type TaskType = 'PM' | 'MA';
 
@@ -109,25 +110,26 @@ function toLocalDateString(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function normalizeTask(raw: any): OverdueTask | null {
+function normalizeTask(raw: unknown): OverdueTask | null {
   if (!raw) return null;
-  const id = raw.id ?? raw.taskId ?? raw.task_id;
+  const r = asRecord(raw);
+  const id = r.id ?? r.taskId ?? r.task_id;
   if (id == null) return null;
 
-  const taskTypeRaw = String(raw.taskType ?? raw.task_type ?? 'PM').toUpperCase();
+  const taskTypeRaw = String(r.taskType ?? r.task_type ?? 'PM').toUpperCase();
   const taskType: TaskType = taskTypeRaw === 'MA' ? 'MA' : 'PM';
 
-  const startDate = raw.startDate ?? raw.start_date ?? undefined;
-  const endDate = raw.endDate ?? raw.end_date ?? startDate ?? undefined;
-  const siteLocationIdRaw = raw.siteId ?? raw.site_id ?? raw.SLid ?? raw.slid ?? undefined;
+  const startDate = r.startDate ?? r.start_date ?? undefined;
+  const endDate = r.endDate ?? r.end_date ?? startDate ?? undefined;
+  const siteLocationIdRaw = r.siteId ?? r.site_id ?? r.SLid ?? r.slid ?? undefined;
   const siteLocationId = siteLocationIdRaw != null && siteLocationIdRaw !== '' ? Number(siteLocationIdRaw) : undefined;
 
-  const status = raw.status ?? undefined;
+  const status = r.status ?? undefined;
   const isMA = taskType === 'MA';
 
   // Prefer consistent "location - site" title similar to calendar page
-  let siteName = raw.siteName ?? raw.site_name ?? raw.Sname ?? '';
-  let location = raw.location ?? raw.Location2 ?? '';
+  let siteName = readString(r, 'siteName') ?? readString(r, 'site_name') ?? readString(r, 'Sname') ?? '';
+  let location = readString(r, 'location') ?? readString(r, 'Location2') ?? '';
   if (!location && siteName && String(siteName).includes(' - ')) {
     const parts = String(siteName).split(' - ');
     const sitePart = parts[0]?.trim() || '';
@@ -144,16 +146,21 @@ function normalizeTask(raw: any): OverdueTask | null {
         ? String(location)
         : siteName
           ? String(siteName)
-          : String(raw.vendorName ?? raw.vendor_name ?? (isMA ? 'Maintenance Agreement' : 'Preventive Maintenance'));
+          : String(r.vendorName ?? r.vendor_name ?? (isMA ? 'Maintenance Agreement' : 'Preventive Maintenance'));
 
-  const engineers = raw.engineers ?? raw.Eng_ids ?? [];
+  const engineers = r.engineers ?? r.Eng_ids ?? [];
   const engineer =
     Array.isArray(engineers) && engineers.length > 0
       ? engineers
-          .map((e: any) => String(e?.name || e?.id || '').trim() + (e?.lastName ? ` ${String(e.lastName).trim()}` : ''))
+          .map((entry) => {
+            const e = asRecord(entry);
+            const name = readString(e, 'name') || readString(e, 'id') || '';
+            const last = readString(e, 'lastName');
+            return `${name}${last ? ` ${last}` : ''}`.trim();
+          })
           .filter(Boolean)
           .join(', ')
-      : raw.engineer ?? undefined;
+      : r.engineer ?? undefined;
 
   return {
     id: String(id),
@@ -226,8 +233,8 @@ export function OverdueTasksModal({
           setTasks(normalized);
           setPage(1);
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Failed to load overdue tasks');
+      } catch (e: unknown) {
+        if (!cancelled) setError(getErrorMessage(e) || 'Failed to load overdue tasks');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -468,8 +475,8 @@ export function CompletedTasksModal({
           setTasks(normalized);
           setPage(1);
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Failed to load completed tasks');
+      } catch (e: unknown) {
+        if (!cancelled) setError(getErrorMessage(e) || 'Failed to load completed tasks');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -714,8 +721,8 @@ export function InprocessTasksModal({
           setTasks(normalized);
           setPage(1);
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Failed to load in process tasks');
+      } catch (e: unknown) {
+        if (!cancelled) setError(getErrorMessage(e) || 'Failed to load in process tasks');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -957,8 +964,8 @@ export function PendingTasksModal({
           setTasks(normalized);
           setPage(1);
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Failed to load pending tasks');
+      } catch (e: unknown) {
+        if (!cancelled) setError(getErrorMessage(e) || 'Failed to load pending tasks');
       } finally {
         if (!cancelled) setLoading(false);
       }

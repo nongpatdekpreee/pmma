@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect, useRef } from "react";
+import Image from "next/image";
 import * as XLSX from "xlsx";
 import { LucideIcon, UserCheck, UserRoundCog, Wrench, Search, UserPlus, X, FileUp, Edit, Trash2, Download } from "lucide-react";
 import { getEmployees, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
@@ -28,7 +29,8 @@ import {
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { useToast, ToastContainer } from "@/components/ui/Toast";
-import { useAlertModal } from "@/components/ui/useAlertModal";   
+import { useAlertModal } from "@/components/ui/useAlertModal";
+import { getErrorMessage } from "@/lib/unknownUtil";
 
 /* ================= summary ================= */
 interface SummaryEM {
@@ -58,8 +60,7 @@ const EmployeeManagement = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [sortOrder, setSortOrder] =
-    useState<"newest" | "oldest">("newest");
+  const sortOrder = "newest" as const;
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
   const [addForm, setAddForm] = useState({
@@ -71,7 +72,6 @@ const EmployeeManagement = () => {
     employmentType: "Full-Time",
     photo: null as string | null,
   });
-  const [addPhotoFile, setAddPhotoFile] = useState<File | null>(null);
   const [addPhotoUploading, setAddPhotoUploading] = useState(false);
   const [addModalTab, setAddModalTab] = useState<"form" | "import">("form");
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -117,7 +117,7 @@ const EmployeeManagement = () => {
     } catch (error) {
       console.error('Error fetching employees:', error);
       setEmployees([]);
-      setFetchError(error instanceof Error ? error.message : 'Failed to load employees');
+      setFetchError(getErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -139,7 +139,7 @@ const EmployeeManagement = () => {
       editPhoneMainOverflowWarned.current = false;
       editPhoneExtOverflowWarned.current = false;
     }
-  }, [editingEmployee?.id]);
+  }, [editingEmployee]);
 
   const openEditModal = (emp: Employee) => {
     setEditingEmployee(emp);
@@ -279,7 +279,6 @@ const EmployeeManagement = () => {
       const uploadRes = await uploadEmployeePhoto(file);
       if (uploadRes.success && uploadRes.path) {
         setAddForm((f) => ({ ...f, photo: uploadRes.path ?? null }));
-        setAddPhotoFile(file);
       } else {
         toastError(uploadRes.message || "Upload image failed");
       }
@@ -327,7 +326,6 @@ const EmployeeManagement = () => {
         setAddModalOpen(false);
         setAddForm({ name: "", gmail: "", tel: "", telExt: "", positionType: "Technical", employmentType: "Full-Time", photo: null });
         setAddFormErrors({ name: "", gmail: "", tel: "" });
-        setAddPhotoFile(null);
         await fetchEmployees();
         toastSuccess("Employee added successfully");
       } else {
@@ -363,10 +361,10 @@ const EmployeeManagement = () => {
 
   const normalizeHeader = (value: string) => value.toLowerCase().replace(/[\s_-]/g, "");
 
-  const rowsFromSheetData = (jsonData: any[][]): Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> => {
+  const rowsFromSheetData = (jsonData: unknown[][]): Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> => {
     if (!jsonData || jsonData.length === 0) return [];
     const rows: Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> = [];
-    const firstRow = (jsonData[0] || []).map((c: any) => String(c ?? "").trim());
+    const firstRow = (jsonData[0] || []).map((c) => String(c ?? "").trim());
     const firstRowLower = firstRow.map((c) => normalizeHeader(c));
     const hasHeader = firstRowLower.some((c) => c === "name") && (firstRowLower.some((c) => c === "gmail") || firstRowLower.some((c) => c === "email"));
     const start = hasHeader ? 1 : 0;
@@ -377,34 +375,16 @@ const EmployeeManagement = () => {
     const positionIdx = hasHeader ? firstRowLower.findIndex((c) => c.includes("position") && !c.includes("employment")) : 3;
     const employmentIdx = hasHeader ? firstRowLower.findIndex((c) => /employment/i.test(c.replace(/\s/g, ""))) : 4;
 
-    const safe = (row: any[], i: number, d: string) => (i >= 0 && i < (row || []).length ? String(row[i] ?? "").trim() : "") || d;
+    const safe = (row: unknown[], i: number, d: string) => (i >= 0 && i < (row || []).length ? String(row[i] ?? "").trim() : "") || d;
 
     for (let i = start; i < jsonData.length; i++) {
-      const row = jsonData[i] || [];
+      const row = (jsonData[i] || []) as unknown[];
       const name = safe(row, nameIdx >= 0 ? nameIdx : 0, "");
       const gmail = safe(row, gmailIdx >= 0 ? gmailIdx : 1, "");
       const tel = safe(row, telIdx >= 0 ? telIdx : 2, "").replace(/\s/g, "");
       const positionType = safe(row, positionIdx >= 0 ? positionIdx : 3, "Technical") || "Technical";
       const employmentType = safe(row, employmentIdx >= 0 ? employmentIdx : 4, "Full-Time") || "Full-Time";
       if (name || gmail || tel) rows.push({ name, gmail, tel, positionType, employmentType });
-    }
-    return rows;
-  };
-
-  const rowsFromSheetObjects = (objData: Record<string, any>[]): Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> => {
-    const rows: Array<{ name: string; gmail: string; tel: string; positionType: string; employmentType: string }> = [];
-    const getVal = (obj: Record<string, any>, ...candidates: string[]) => {
-      const lower = candidates.map((c) => normalizeHeader(c));
-      const k = Object.keys(obj || {}).find((k) => lower.includes(normalizeHeader(k.trim())));
-      return k != null ? String(obj[k] ?? "").trim() : "";
-    };
-    for (const obj of objData) {
-      const name = getVal(obj, "name");
-      const gmail = getVal(obj, "gmail", "email");
-      const tel = (getVal(obj, "tel", "phone", "phone_number") || "").replace(/\s/g, "");
-      const positionType = getVal(obj, "positiontype", "position type", "position_type") || "Technical";
-      const employmentType = getVal(obj, "employmenttype", "employment type", "employment_type") || "Full-Time";
-      if (name || gmail || tel) rows.push({ name, gmail, tel, positionType: positionType || "Technical", employmentType: employmentType || "Full-Time" });
     }
     return rows;
   };
@@ -421,7 +401,7 @@ const EmployeeManagement = () => {
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
             // Use header: 1 to get all rows as array and not miss rows from used range
-            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", blankrows: true }) as any[][];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "", blankrows: true }) as unknown[][];
             resolve(rowsFromSheetData(jsonData));
           } else {
             const text = String(e.target?.result ?? "");
@@ -757,7 +737,14 @@ const EmployeeManagement = () => {
                           <td className="px-3 py-2">
                             <div className="mx-auto flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-muted">
                               {emp.photo ? (
-                                <img src={employeePhotoSrc(emp.photo) ?? ''} alt="" className="h-full w-full object-cover" />
+                                <Image
+                                  src={employeePhotoSrc(emp.photo) ?? ''}
+                                  alt=""
+                                  width={36}
+                                  height={36}
+                                  unoptimized
+                                  className="h-full w-full object-cover"
+                                />
                               ) : (
                                 <UserRoundCog className="h-4 w-4 text-muted-foreground" />
                               )}
@@ -873,7 +860,14 @@ const EmployeeManagement = () => {
                     <div className="flex items-center gap-4">
                       <label className="relative flex h-20 w-20 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                         {addForm.photo ? (
-                          <img src={employeePhotoSrc(addForm.photo) ?? ''} alt="" className="h-full w-full object-cover" />
+                          <Image
+                            src={employeePhotoSrc(addForm.photo) ?? ''}
+                            alt=""
+                            width={80}
+                            height={80}
+                            unoptimized
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
                           <span className="text-xs text-muted-foreground select-none">{addPhotoUploading ? "Uploading..." : "Select Image"}</span>
                         )}
@@ -1187,7 +1181,14 @@ const EmployeeManagement = () => {
                     <div className="flex items-center gap-4">
                       <label className="relative flex h-20 w-20 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 border-dashed border-border bg-muted hover:border-indigo-300 hover:bg-muted">
                         {editForm.photo ? (
-                          <img src={employeePhotoSrc(editForm.photo) ?? ''} alt="" className="h-full w-full object-cover" />
+                          <Image
+                            src={employeePhotoSrc(editForm.photo) ?? ''}
+                            alt=""
+                            width={80}
+                            height={80}
+                            unoptimized
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
                           <span className="text-xs text-muted-foreground select-none">{editPhotoUploading ? "Uploading..." : "Select Image"}</span>
                         )}

@@ -58,8 +58,8 @@ async function buildSlListSelect(conn) {
 }
 
 const RENEW_HIST_RENEW_WHERE = `(
-  h.action_type = 'Renew'
-  OR (h.action_type IS NULL AND h.old_sof IS NOT NULL AND h.SOF IS NOT NULL AND TRIM(h.SOF) != '')
+  h.action_type IN ('Renew', 'SOF Change')
+  OR (h.old_sof IS NOT NULL AND TRIM(h.old_sof) != '')
 )`;
 
 /** app_db (7): ไม่มี changed_at — ใช้ created_at เป็นเวลา history */
@@ -86,7 +86,10 @@ function buildRenewHistSubqueries(tsColumn) {
   (SELECT h.SOF FROM sites_location_sof_history h
     WHERE h.SLid = sl.SLid AND ${RENEW_HIST_RENEW_WHERE}
     ORDER BY h.log_id DESC LIMIT 1) AS renew_hist_new_sof,
-  ${atExpr} AS renew_hist_at`;
+  ${atExpr} AS renew_hist_at,
+  (SELECT GROUP_CONCAT(DISTINCT TRIM(h.old_sof) ORDER BY h.log_id SEPARATOR ',')
+    FROM sites_location_sof_history h
+    WHERE h.SLid = sl.SLid AND h.old_sof IS NOT NULL AND TRIM(h.old_sof) != '') AS hist_old_sofs`;
 }
 
 const HISTORY_STATUS_SUBQUERY = `

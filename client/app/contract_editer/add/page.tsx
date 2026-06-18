@@ -52,7 +52,7 @@ import {
   ContractSimpleSearchListDropdown,
   ContractShellSearchListDropdown,
 } from '@/components/ui/ContractSearchListDropdown';
-import type { SiteLocation, DeviceItem } from './types';
+import type { SiteLocation, DeviceItem, ContractSiteRow } from './types';
 
 const inputBase =
   'w-full rounded-xl border border-border/90 bg-card p-3 text-sm text-foreground shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-muted-foreground focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
@@ -75,7 +75,7 @@ type SiteEntry = {
 
 type SiteDevicePair = { site_id: number; device_ids: number[] };
 
-function resolveDeviceScope(entry: SiteEntry, sitesLocation: SiteLocation[]): { sid?: string; slid?: string } {
+function resolveDeviceScope(entry: SiteEntry): { sid?: string; slid?: string } {
   // เลือก Location แล้ว (siteId = SLid) → ดึง device เฉพาะ site+location นั้น (ไม่ใช่ทั้ง Sid)
   if (entry.siteId?.trim()) {
     return { slid: entry.siteId.trim() };
@@ -85,8 +85,8 @@ function resolveDeviceScope(entry: SiteEntry, sitesLocation: SiteLocation[]): { 
   return {};
 }
 
-function entryHasSiteScope(entry: SiteEntry, sitesLocation: SiteLocation[]): boolean {
-  const { sid, slid } = resolveDeviceScope(entry, sitesLocation);
+function entryHasSiteScope(entry: SiteEntry): boolean {
+  const { sid, slid } = resolveDeviceScope(entry);
   return Boolean(sid || slid);
 }
 
@@ -106,30 +106,18 @@ function shouldShowSelectDeviceButton(
   entry: SiteEntry,
   sofExistsInDb: boolean,
   siteLocationSplitMode: boolean,
-  sitesLocation: SiteLocation[]
 ): boolean {
   if (siteLocationSplitMode) {
     return Boolean(entry.siteId?.trim());
   }
   if (sofExistsInDb) return entryHasSlidForSofDevicePick(entry);
-  return entryHasSiteScope(entry, sitesLocation);
+  return entryHasSiteScope(entry);
 }
 
 function entryViewKey(entry: SiteEntry): string | null {
   if (entry.siteId) return entry.siteId;
   if (entry.selectedSid?.trim()) return `sid:${entry.selectedSid.trim()}`;
   return null;
-}
-
-/** Sid ที่ entry ใช้ (จาก Site dropdown หรือจาก SLid) — สำหรับ scope device / API */
-function getEffectiveSidForEntry(entry: SiteEntry, sitesLocation: SiteLocation[]): string | undefined {
-  const ss = entry.selectedSid?.trim();
-  if (ss) return ss;
-  if (entry.siteId) {
-    const row = sitesLocation.find((s) => String(s.SLid) === entry.siteId);
-    if (row?.Sid != null) return String(row.Sid);
-  }
-  return undefined;
 }
 
 function locationRowsForSid(sid: string, sitesLocation: SiteLocation[]): SiteLocation[] {
@@ -320,7 +308,7 @@ function AddContractPageContent() {
 
   // Form state
   const [contractName, setContractName] = useState('');
-  const [sofName, setSofName] = useState('');
+  const [, setSofName] = useState('');
   const [assignedService, setAssignedService] = useState('');
   const [slaTerm, setSlaTerm] = useState('');
   const [selectedSOF, setSelectedSOF] = useState('');
@@ -420,7 +408,7 @@ function AddContractPageContent() {
   const [uploading, setUploading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [saveError, setSaveError] = useState('');
-  const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
+  const { toasts, removeToast, error: toastError, warning: toastWarning } = useToast();
   /** แจ้งเตือนเต็ม/เกินหลักต่อผู้ติดต่อ — key = row.id */
   const saleTelOverflowWarned = useRef<Map<string, { main?: boolean; ext?: boolean }>>(new Map());
 
@@ -438,6 +426,14 @@ function AddContractPageContent() {
   }, [isNewContractFlow, selectedSOF, sourceSofs, referSOFList]);
 
   const sofExistsInDb = referSofInDb != null;
+
+  /** ตัวเลือก SOF ตอนแก้ไข — รวมเลข SOF เดิมที่โหลดมา (แม้ไม่อยู่ใน referSOFList ปัจจุบัน) */
+  const editReferSofOptions = useMemo(() => {
+    const set = new Set(referSOFList);
+    const orig = originalSofOnEdit.trim();
+    if (orig) set.add(orig);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [referSOFList, originalSofOnEdit]);
 
   const showSiteDeviceSection = isNewContractFlow
     ? sourceSofs.length > 0
@@ -674,11 +670,13 @@ function AddContractPageContent() {
           setReferSOFList(referSOFJson.data);
         }
 
-        // โหลด sitesLocation ก่อน
+        // โหลด sitesLocation ก่อน (ใช้ตัวแปร local — อย่าใส่ sitesLocation ใน deps ของ effect นี้)
+        let currentSites: SiteLocation[] = [];
         const sitesRes = await fetch(apiUrl('/api/sites/locations'));
         const sitesJson = await sitesRes.json();
         if (sitesRes.ok && sitesJson.data) {
-          setSitesLocation(sitesJson.data);
+          currentSites = sitesJson.data as SiteLocation[];
+          setSitesLocation(currentSites);
         }
 
         // ดึงข้อมูลสัญญา
@@ -739,23 +737,11 @@ function AddContractPageContent() {
           } catch {}
         }
 
-        // รอ sitesLocation โหลดเสร็จก่อนสร้าง site entries
-        let currentSites = sitesLocation;
-        if (currentSites.length === 0) {
-          // ถ้ายังไม่มี sitesLocation ให้รอโหลดเสร็จก่อน
-          const sitesRes2 = await fetch(apiUrl('/api/sites/locations'));
-          const sitesJson2 = await sitesRes2.json();
-          if (sitesRes2.ok && sitesJson2.data) {
-            currentSites = sitesJson2.data;
-            setSitesLocation(sitesJson2.data);
-          }
-        }
-
         // สร้าง site entries จาก sites และใส่ devices ตาม SLid (รองรับ draft ที่มีแค่ site ไม่มี device)
         const devicesBySLid = new Map<number, DeviceItem[]>();
         if (contract.devices && contract.devices.length > 0) {
           contract.devices.forEach((device: DeviceItem) => {
-            const slid = ((device as any).contract_SLid ?? (device as any).SLid) as number | null | undefined;
+            const slid = device.contract_SLid ?? device.SLid;
             if (slid) {
               if (!devicesBySLid.has(slid)) {
                 devicesBySLid.set(slid, []);
@@ -766,7 +752,7 @@ function AddContractPageContent() {
         }
 
         if (contract.sites && contract.sites.length > 0) {
-          const newSiteEntries: SiteEntry[] = contract.sites.map((site: any) => {
+          const newSiteEntries: SiteEntry[] = contract.sites.map((site: ContractSiteRow) => {
             const slid = site.SLid;
             const sl = currentSites.find((s) => s.SLid === slid);
             const devices = devicesBySLid.get(slid) || [];
@@ -778,8 +764,8 @@ function AddContractPageContent() {
               devices: devices.map((d) => ({
                 id: String(d.Did),
                 label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
-                role: (d as any).roleName || undefined,
-                slid: ((d as any).contract_SLid ?? (d as any).SLid ?? slid) as number,
+                role: d.roleName || undefined,
+                slid: d.contract_SLid ?? d.SLid ?? slid,
               })),
             };
           });
@@ -787,9 +773,9 @@ function AddContractPageContent() {
         } else if (devicesBySLid.size > 0) {
           const newSiteEntries: SiteEntry[] = [];
           devicesBySLid.forEach((devices, slid) => {
-            const site = currentSites.find((s) => s.SLid === slid) || contract.sites?.find((s: any) => s.SLid === slid);
+            const site = currentSites.find((s) => s.SLid === slid) || contract.sites?.find((s: ContractSiteRow) => s.SLid === slid);
             const siteLabel = site
-              ? `${(site as any).SiteName || ''} – ${(site as any).Location2 || ''}`.trim() || `Site ${slid}`
+              ? `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`
               : `Site ${slid}`;
             const sl = currentSites.find((s) => s.SLid === slid);
             newSiteEntries.push({
@@ -800,8 +786,8 @@ function AddContractPageContent() {
               devices: devices.map((d) => ({
                 id: String(d.Did),
                 label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
-                role: (d as any).roleName || undefined,
-                slid: ((d as any).contract_SLid ?? (d as any).SLid ?? slid) as number,
+                role: d.roleName || undefined,
+                slid: d.contract_SLid ?? d.SLid ?? slid,
               })),
             });
           });
@@ -825,13 +811,13 @@ function AddContractPageContent() {
       setLoadingOldContract(true);
       setFetchError('');
       try {
-        // โหลด sitesLocation ก่อน (ถ้ายังไม่มี)
-        if (sitesLocation.length === 0) {
-          const sitesRes = await fetch(apiUrl('/api/sites/locations'));
-          const sitesJson = await sitesRes.json();
-          if (sitesRes.ok && sitesJson.data) {
-            setSitesLocation(sitesJson.data);
-          }
+        // โหลด sitesLocation ก่อน
+        let currentSites: SiteLocation[] = [];
+        const sitesRes = await fetch(apiUrl('/api/sites/locations'));
+        const sitesJson = await sitesRes.json();
+        if (sitesRes.ok && sitesJson.data) {
+          currentSites = sitesJson.data as SiteLocation[];
+          setSitesLocation(currentSites);
         }
 
         // ดึงข้อมูลสัญญาเต็ม (รวม email_acc / tel_acc สำหรับหลายผู้ติดต่อ)
@@ -895,7 +881,7 @@ function AddContractPageContent() {
     };
     
     loadOldContract();
-  }, [renewContractId]);
+  }, [renewContractId, editContractId]);
 
   // สร้าง site entries จาก devices เก่าเมื่อ sitesLocation และ oldContractDevices โหลดเสร็จแล้ว
   useEffect(() => {
@@ -903,22 +889,20 @@ function AddContractPageContent() {
     
     // รอ sitesLocation โหลดเสร็จ (ถ้ายังไม่มีให้โหลด)
     const setupSiteEntries = async () => {
-      let currentSites = sitesLocation;
-      if (currentSites.length === 0) {
-        const sitesRes = await fetch(apiUrl('/api/sites/locations'));
-        const sitesJson = await sitesRes.json();
-        if (sitesRes.ok && sitesJson.data) {
-          currentSites = sitesJson.data;
-          setSitesLocation(sitesJson.data);
-        }
+      let currentSites: SiteLocation[] = [];
+      const sitesRes = await fetch(apiUrl('/api/sites/locations'));
+      const sitesJson = await sitesRes.json();
+      if (sitesRes.ok && sitesJson.data) {
+        currentSites = sitesJson.data as SiteLocation[];
+        setSitesLocation(currentSites);
       }
-      
+
       if (currentSites.length === 0) return;
       
       // จัดกลุ่ม devices ตาม SLid และสร้าง site entries
       const devicesBySLid = new Map<number, DeviceItem[]>();
       oldContractDevices.forEach((device) => {
-        const slid = (device as any).SLid as number | null | undefined;
+        const slid = device.SLid;
         if (slid) {
           if (!devicesBySLid.has(slid)) {
             devicesBySLid.set(slid, []);
@@ -941,7 +925,7 @@ function AddContractPageContent() {
             id: String(d.Did),
             label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
             role: d.roleName || undefined,
-            slid: ((d as any).SLid ?? slid) as number,
+            slid: d.SLid ?? slid,
           })),
         });
       });
@@ -952,7 +936,7 @@ function AddContractPageContent() {
     };
     
     setupSiteEntries();
-  }, [renewContractId, oldContractDevices, sitesLocation]);
+  }, [renewContractId, oldContractDevices]);
 
   // โหลด Sites: สัญญาใหม่ = Refer SOF เดียว; แก้ไข/ต่อ = ใช้ selectedSOF เดิม
   useEffect(() => {
@@ -1105,7 +1089,7 @@ function AddContractPageContent() {
   const openDeviceModalForEntry = async (entryId: string) => {
     const entry = siteEntries.find((e) => e.id === entryId);
     if (!canOpenDevicePicker(entry, sofExistsInDb)) return;
-    const scope = entry ? resolveDeviceScope(entry, sitesLocation) : {};
+    const scope = entry ? resolveDeviceScope(entry) : {};
     if (sofExistsInDb && !scope.sid && !scope.slid) return;
 
     setActiveSiteEntryId(entryId);
@@ -1208,10 +1192,6 @@ function AddContractPageContent() {
     );
   };
 
-  /** ลบ devices ที่เลือกทั้งหมดทุก site */
-  const clearAllDevices = () => {
-    setSiteEntries((prev) => prev.map((e) => ({ ...e, devices: [] })));
-  };
 
   // เลือกตาม Sid ก่อน แล้วค่อยเลือก lid (Location) ที่ตรงกัน → ได้ SLid
   const uniqueSites = (() => {
@@ -1363,7 +1343,7 @@ function AddContractPageContent() {
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- closeSiteLocationPicker สร้างใหม่ทุก render; ใช้ ref สำหรับ apply แล้ว
+     
   }, [siteLocationPicker, siteSidMultiDraft, locationSlidMultiDraft]);
 
   /** แถว site สูงสุดเท่าจำนวน location (SLid) ในระบบ */
@@ -1528,7 +1508,7 @@ function AddContractPageContent() {
     const validPairs = isDraft
       ? siteEntries.filter(
           (e) =>
-            entryHasSiteScope(e, sitesLocation) &&
+            entryHasSiteScope(e) &&
             (!sofExistsInDb || entryHasSlidForSofDevicePick(e))
         )
       : siteEntries.filter(
@@ -1542,7 +1522,7 @@ function AddContractPageContent() {
       const devicesBySLid = new Map<number, number[]>();
       oldContractDevices.forEach((device) => {
         if (selectedOldDevices.has(device.Did)) {
-          const slid = (device as any).SLid as number | null | undefined;
+          const slid = device.SLid;
           if (slid) {
             if (!devicesBySLid.has(slid)) {
               devicesBySLid.set(slid, []);
@@ -1637,7 +1617,7 @@ function AddContractPageContent() {
         // จัดกลุ่ม devices ที่เหลือตาม SLid
         const remainingBySLid = new Map<number, number[]>();
         remainingOldDevices.forEach((device) => {
-          const slid = (device as any).SLid as number | null | undefined;
+          const slid = device.SLid;
           if (slid) {
             if (!remainingBySLid.has(slid)) {
               remainingBySLid.set(slid, []);
@@ -1671,7 +1651,7 @@ function AddContractPageContent() {
 
       const primaryContractSlid = primaryContractSiteIdFromEntries(validPairs);
 
-      const body: any = {
+      const body: Record<string, unknown> = {
         contract_name: contractName.trim() || null,
         start_date: startDate || null,
         end_date: endDate || null,
@@ -1948,7 +1928,7 @@ function AddContractPageContent() {
                     )}
                   </div>
                   <datalist id="sof-list-edit">
-                    {referSOFList.map((sof) => (
+                    {editReferSofOptions.map((sof) => (
                       <option key={sof} value={sof} />
                     ))}
                   </datalist>
@@ -1964,7 +1944,8 @@ function AddContractPageContent() {
                           onChange={(e) => setSyncSofRenameToAllPeers(e.target.checked)}
                         />
                         <span>
-                          Change SOF for all locations that use{' '}
+                          Apply SOF and contract period (start/end dates, PM times/year) to all
+                          locations that use{' '}
                           <span className="font-mono font-semibold">{originalSofOnEdit}</span>
                           {!syncSofRenameToAllPeers && (
                             <span className="text-amber-800/80"> (Unchecked = only this contract)</span>
@@ -2721,7 +2702,6 @@ function AddContractPageContent() {
                       entry,
                       sofExistsInDb,
                       uniqueSites.length > 0,
-                      sitesLocation
                     );
                     return (
                     <div

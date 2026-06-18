@@ -1,4 +1,5 @@
-import { apiUrl, getEmployees as getEmployeesFromAPI } from '@/lib/api';
+import { getEmployees as getEmployeesFromAPI } from '@/lib/api';
+import { asRecord, readString } from '@/lib/unknownUtil';
 
 // Interface สำหรับ Employee
 export interface Employee {
@@ -15,41 +16,53 @@ export interface Employee {
   photo?: string | null;
 }
 
+function mapApiEmployeeToEmployee(emp: unknown): Employee {
+  const r = asRecord(emp);
+  const name = readString(r, 'name') ?? '';
+  const nameParts = name.split(' ');
+  const firstName = nameParts[0] || '';
+  const lastName = nameParts.slice(1).join(' ') || '';
+  const displayName =
+    firstName && lastName ? `${firstName} ${lastName.charAt(0)}.` : name;
+
+  const id =
+    readString(r, 'id') ??
+    (r.user_id != null ? String(r.user_id) : '');
+
+  const photo = r.photo;
+  const photoValue =
+    typeof photo === 'string' || photo === null ? photo : photo != null ? String(photo) : null;
+
+  return {
+    id,
+    displayName,
+    firstName,
+    lastName,
+    name,
+    department: readString(r, 'department') ?? 'Technical',
+    gmail: readString(r, 'gmail') ?? '',
+    tel: readString(r, 'tel') ?? readString(r, 'phone') ?? '',
+    positionType: readString(r, 'positionType') ?? readString(r, 'type') ?? 'Technical',
+    employmentType:
+      readString(r, 'employmentType') ?? readString(r, 'employment') ?? 'Full-Time',
+    photo: photoValue,
+  };
+}
+
 // Function สำหรับดึงข้อมูล Employee จาก API (ไม่มี mock data)
 export async function fetchEmployeesFromAPI(): Promise<Employee[]> {
   try {
     const result = await getEmployeesFromAPI({ limit: 1000 });
     
     if (!result.success || !result.data || !Array.isArray(result.data)) {
-      const msg = (result as { message?: string; error?: string }).message || (result as { message?: string; error?: string }).error;
+      const resultRec = asRecord(result);
+      const msg = readString(resultRec, 'message') ?? readString(resultRec, 'error');
       console.error('API returned invalid data format:', msg || result);
       return [];
     }
     
     // แปลงข้อมูลจาก API ให้ตรงกับโครงสร้างที่ใช้
-    return result.data.map((emp: any) => {
-      // แยกชื่อและนามสกุลจาก name (ถ้ามี)
-      const nameParts = (emp.name || '').split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
-      const displayName = firstName && lastName 
-        ? `${firstName} ${lastName.charAt(0)}.` 
-        : emp.name || '';
-      
-      return {
-        id: String(emp.id || emp.user_id || ''),
-        displayName,
-        firstName,
-        lastName,
-        name: emp.name || '',
-        department: emp.department || 'Technical',
-        gmail: emp.gmail || '',
-        tel: emp.tel || emp.phone || '',
-        positionType: emp.positionType || emp.type || 'Technical',
-        employmentType: emp.employmentType || emp.employment || 'Full-Time',
-        photo: emp.photo ?? null,
-      };
-    });
+    return result.data.map(mapApiEmployeeToEmployee);
   } catch (error) {
     console.error('Error fetching employees from API:', error);
     // ไม่ return mock data แทน - return empty array

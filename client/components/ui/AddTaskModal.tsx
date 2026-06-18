@@ -3,10 +3,8 @@
 import {
   X,
   Paperclip,
-  Link as LinkIcon,
   ShieldCheck,
   CalendarClock,
-  Calendar,
   Plus,
   Search,
   ChevronDown,
@@ -17,17 +15,18 @@ import {
   apiUrl,
   getContractsBySite,
   getDevicesByContract,
-  getSitesByContract,
-  getSitesLocation,
   getSitesLocationWithContracts,
   getTasks,
   checkEngineerConflict,
   uploadMaReportFile,
   getAssignedServices,
+  type ApiTask,
 } from '@/lib/api';
 import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
+import { asRecord, getErrorMessage, readString, readNumber } from '@/lib/unknownUtil';
+import { apiTaskString } from '@/lib/apiTask';
 import {
   formatTenDigitUsDisplay,
   parseTelLineFromDb,
@@ -54,12 +53,57 @@ import {
 } from '@/lib/maBrokenAssetState';
 
 
+type CalendarEventStatus = 'done' | 'working' | 'stuck' | 'not-started';
+
+interface TaskEditingEvent {
+  id?: string | number;
+  taskType?: 'PM' | 'MA';
+  contractId?: number;
+  contract_id?: number;
+  siteId?: number | string;
+  Sid?: string | number;
+  Sname?: string;
+  siteName?: string;
+  location?: string;
+  Eng_ids?: Engineer[];
+  engineers?: Engineer[];
+  startDate?: string;
+  endDate?: string;
+  coverageScope?: string;
+  photos?: unknown;
+  vendorName?: string;
+  vendorTel?: string;
+  vendor_tel?: string;
+  reporterName?: string;
+  reporter_name?: string;
+  reporterTel?: string;
+  reporter_tel?: string;
+  ticket?: string;
+  rootCause?: string;
+  root_cause?: string;
+  resolution?: string;
+  downtimeDate?: string;
+  downTimeStartDate?: string;
+  down_time_start_date?: string;
+  downtimeTime?: string;
+  downTimeStartTime?: string;
+  down_time_start_time?: string;
+  assetBinding?: string;
+  assignedService?: string | null;
+  assigned_service?: string | null;
+  replacementDeviceId?: number;
+  assets?: Device[];
+  status?: CalendarEventStatus;
+}
+
+export type TaskSavePayload = Record<string, unknown>;
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   /** ส่ง object เดียว หรือ array เมื่อสร้างหลายทาสก์จากหลายสัญญา */
-  onSave?: (data: any | any[]) => Promise<void> | void;
-  editingEvent?: any;
+  onSave?: (data: TaskSavePayload | TaskSavePayload[]) => Promise<void> | void;
+  editingEvent?: TaskEditingEvent | null;
 }
 
 interface Device {
@@ -260,9 +304,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   /** MA — ตรงกับ devices.Assigned_Service (dropdown) */
   const [maAssignedService, setMaAssignedService] = useState('');
   const [assignedServiceOptions, setAssignedServiceOptions] = useState<string[]>([]);
-  const [replacementDevices, setReplacementDevices] = useState<Device[]>([]);
   const [selectedReplacementDevice, setSelectedReplacementDevice] = useState<Device | null>(null);
-  const [loadingReplacementDevices, setLoadingReplacementDevices] = useState(false);
 
   interface BrokenDevicePair {
     id: string; // unique ID for this pair
@@ -286,9 +328,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
-  const [availableNewDevices, setAvailableNewDevices] = useState<Device[]>([]);
   const [selectedDevices, setSelectedDevices] = useState<Device[]>([]);
-  const [showAll, setShowAll] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deviceSearchPm, setDeviceSearchPm] = useState('');
   const [siteSearch, setSiteSearch] = useState('');
@@ -306,8 +346,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [deviceRoles, setDeviceRoles] = useState<Array<{ DeRoleid: number; name: string; slug: string }>>([]);
   const [deviceTypes, setDeviceTypes] = useState<Array<{ Dtypeid: number; model: string; Mid: number; manufacturer_name: string }>>([]);
   const [loadingManufacturers, setLoadingManufacturers] = useState(false);
-  const [loadingDeviceRoles, setLoadingDeviceRoles] = useState(false);
-  const [loadingDeviceTypes, setLoadingDeviceTypes] = useState(false);
   const editingAssetsRef = useRef<Device[]>([]);
   const siteDropdownRef = useRef<HTMLDivElement>(null);
   const contractDropdownRef = useRef<HTMLDivElement>(null);
@@ -356,10 +394,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setContractOptions([]);
     setSelectedContractIds([]);
     setDevices([]);
-    setAvailableNewDevices([]);
     setSelectedDevices([]);
-    setShowAll(false);
-    setReplacementDevices([]);
     setSelectedReplacementDevice(null);
     setBrokenDevicePairs([]);
     setSiteSearch('');
@@ -376,32 +411,34 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     replacementWarehouseInflightRef.current = null;
   };
 
-  const mapDeviceFromApi = (item: any, source: 'site' | 'available'): Device => {
-    const sitename = item.Sitename || item.SiteName || item.site;
-    const loc = item.Location2 || item.Location || item.location || '';
-    const locStr = loc != null && String(loc).trim() !== '' ? String(loc).trim() : '';
+  const mapDeviceFromApi = (item: unknown, source: 'site' | 'available'): Device => {
+    const rec = asRecord(item);
+    const sitename = readString(rec, 'Sitename') ?? readString(rec, 'SiteName') ?? readString(rec, 'site');
+    const loc = readString(rec, 'Location2') ?? readString(rec, 'Location') ?? readString(rec, 'location') ?? '';
+    const locStr = loc.trim();
+    const rawId = rec.Did ?? rec.id ?? rec.Asset_Number ?? rec.serial ?? randomUUID();
     return {
-      id: item.Did ?? item.id ?? item.Asset_Number ?? item.serial ?? randomUUID(),
-      name: item.CI_Name || item.name || item.Asset_Number || 'Device',
-      Dtypeid: item.Dtypeid,
-      DeRoleid: item.DeRoleid,
-      type: item.model || item.type || item.type_name || '',
-      serialNumber: item.serial || item.serialNumber || '',
-      site: sitename || (item.SLid ? `SL-${item.SLid}` : undefined),
+      id: rawId as string | number,
+      name: readString(rec, 'CI_Name') || readString(rec, 'name') || readString(rec, 'Asset_Number') || 'Device',
+      Dtypeid: readNumber(rec, 'Dtypeid'),
+      DeRoleid: readNumber(rec, 'DeRoleid'),
+      type: readString(rec, 'model') || readString(rec, 'type') || readString(rec, 'type_name') || '',
+      serialNumber: readString(rec, 'serial') || readString(rec, 'serialNumber') || '',
+      site: sitename || (rec.SLid != null ? `SL-${rec.SLid}` : undefined),
       ...(locStr ? { location: locStr, Location2: locStr } : {}),
-      ...(sitename ? { Sitename: String(sitename), SiteName: String(sitename) } : {}),
-      assetState: item.Asset_State || item.assetState,
-      assetNumber: item.Asset_Number || item.assetNumber,
+      ...(sitename ? { Sitename: sitename, SiteName: sitename } : {}),
+      assetState: readString(rec, 'Asset_State') ?? readString(rec, 'assetState'),
+      assetNumber: readString(rec, 'Asset_Number') ?? readString(rec, 'assetNumber'),
       source,
-      SLid: item.SLid != null ? Number(item.SLid) : undefined,
-      role: item.roleName || '', // Will be set by useEffect
-      manufacturer: item.manufacturername || '', // Will be set by useEffect
-      contract_id: item.contract_id != null ? Number(item.contract_id) : undefined,
+      SLid: rec.SLid != null ? Number(rec.SLid) : undefined,
+      role: readString(rec, 'roleName') || '',
+      manufacturer: readString(rec, 'manufacturername') || '',
+      contract_id: rec.contract_id != null ? Number(rec.contract_id) : undefined,
     };
   };
 
   /** In Store ในคลังตาม backend — cache / in-flight เดียวกัน (หลาย MA pair ไม่ยิง API ซ้ำ) */
-  const fetchReplacementWarehousePool = async (): Promise<Device[]> => {
+  const fetchReplacementWarehousePool = useCallback(async (): Promise<Device[]> => {
     if (replacementWarehouseCacheRef.current) {
       return replacementWarehouseCacheRef.current;
     }
@@ -413,7 +450,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           if (!res.ok || !json.data) {
             return [];
           }
-          const raw = (json.data as any[]).map((item: any) => mapDeviceFromApi(item, 'available'));
+          const raw = (Array.isArray(json.data) ? json.data : []).map((item: unknown) =>
+            mapDeviceFromApi(item, 'available')
+          );
           const safeFiltered = raw.filter((d: Device) => {
             const state = (d.assetState ?? '').toString().trim().toLowerCase();
             return state === 'in store';
@@ -428,7 +467,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       })();
     }
     return replacementWarehouseInflightRef.current;
-  };
+  }, []);
 
   const fetchAllSites = async () => {
     try {
@@ -444,13 +483,16 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         console.warn('No sites with contracts found');
         return [];
       }
-      return (result.data || []).map((item: any) => ({
-        id: String(item.SLid),
-        name: item.SiteName || 'Site',
-        location: item.Location || item.Location2 || '',
-        label: `${item.SiteName || 'Site'}${item.Location || item.Location2 ? ` - ${item.Location || item.Location2}` : ''}`,
-      }));
-    } catch (error: any) {
+      return (result.data || []).map((item) => {
+        const rec = asRecord(item);
+        return {
+          id: String(rec.SLid ?? ''),
+          name: readString(rec, 'SiteName') || 'Site',
+          location: readString(rec, 'Location') || readString(rec, 'Location2') || '',
+          label: `${readString(rec, 'SiteName') || 'Site'}${readString(rec, 'Location') || readString(rec, 'Location2') ? ` - ${readString(rec, 'Location') || readString(rec, 'Location2')}` : ''}`,
+        };
+      });
+    } catch (error: unknown) {
       console.error('fetchAllSites error:', error);
       // ถ้าเกิด error ให้ return empty array แทนที่จะ throw error
       // เพื่อให้ modal ยังเปิดได้ แต่จะไม่มี site ให้เลือก
@@ -466,82 +508,43 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         throw new Error('Cannot load contracts of site.');
       }
       return result.data || [];
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('fetchContractsBySite error:', error);
-      throw new Error(error.message || 'Cannot load contracts of site.');
+      throw new Error(getErrorMessage(error) || 'Cannot load contracts of site.');
     }
   };
 
-  const fetchSitesByContract = async (contractId: string) => {
-    if (!contractId) return [];
-    try {
-      const result = await getSitesByContract(contractId);
-      if (!result.success) {
-        throw new Error('Cannot load sites of contract.');
-      }
-      return (result.data || []).map((item: any) => ({
-        id: String(item.SLid),
-        name: item.SiteName || 'Site',
-        location: item.Location2 || '',
-        label: `${item.SiteName || 'Site'}${item.Location2 ? ` - ${item.Location2}` : ''}`,
-      }));
-    } catch (error: any) {
-      console.error('fetchSitesByContract error:', error);
-      throw new Error(error.message || 'Cannot load sites of contract.');
-    }
-  };
-
-  const fetchDevicesByContract = async (contractId: string, siteId?: string | null) => {
+  const fetchDevicesByContract = useCallback(async (contractId: string, siteId?: string | null) => {
     if (!contractId) return [];
     try {
       const result = await getDevicesByContract(contractId, siteId);
       if (!result.success) {
         throw new Error('Cannot load devices of contract.');
       }
-      return (result.data || []).map((d: any) => mapDeviceFromApi(d, 'site'));
-    } catch (error: any) {
+      return (result.data || []).map((d) => mapDeviceFromApi(d, 'site'));
+    } catch (error: unknown) {
       console.error('fetchDevicesByContract error:', error);
-      throw new Error(error.message || 'Cannot load devices of contract.');
+      throw new Error(getErrorMessage(error) || 'Cannot load devices of contract.');
     }
-  };
+  }, []);
 
-  const fetchAvailableDevices = async () => {
-    const res = await fetch(apiUrl('/api/devices/by-asset-state?states=In%20Store,In%20Store%20On%20Site,Waiting%20to%20sell'));
-    const json = await res.json();
-    if (!json.success) {
-      throw new Error(json.message || 'Cannot load available devices.');
-    }
-    return (json.data || []).map((d: any) => mapDeviceFromApi(d, 'available'));
-  };
-
-  const mergeDevices = (lists: Device[][]) => {
-    const map = new Map<string, Device>();
-    lists.flat().forEach((device) => {
-      const key = String(device.id);
-      if (!map.has(key)) {
-        map.set(key, device);
-      }
-    });
-    return Array.from(map.values());
-  };
-
-  const loadAllSites = async () => {
+  const loadAllSites = useCallback(async () => {
     if (!isOpen) return;
     setLoadingSites(true);
     setDeviceError(null);
     try {
       const sites = await fetchAllSites();
       setSiteOptions(sites);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('loadAllSites error:', error);
-      setDeviceError(error.message || 'Cannot load sites.');
+      setDeviceError(getErrorMessage(error) || 'Cannot load sites.');
       setSiteOptions([]);
     } finally {
       setLoadingSites(false);
     }
-  };
+  }, [isOpen]);
 
-  const loadContractsForSite = async (siteId: string, preserveContractId?: string) => {
+  const loadContractsForSite = useCallback(async (siteId: string, preserveContractId?: string) => {
     if (!isOpen || !siteId) {
       setContractOptions([]);
       if (!preserveContractId) {
@@ -575,82 +578,16 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           setSelectedContractIds([]);
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('loadContractsForSite error:', error);
-      setDeviceError(error.message || 'Cannot load contracts.');
+      setDeviceError(getErrorMessage(error) || 'Cannot load contracts.');
       setContractOptions([]);
     } finally {
       setLoadingContracts(false);
     }
-  };
+  }, [isOpen]);
 
-  const fetchAllContracts = async () => {
-    try {
-      const result = await getContractsBySite();
-      if (!result.success) {
-        throw new Error('Cannot load contracts.');
-      }
-      return result.data || [];
-    } catch (error: any) {
-      console.error('fetchAllContracts error:', error);
-      throw new Error(error.message || 'Cannot load contracts.');
-    }
-  };
-
-  const loadAllContracts = async () => {
-    if (!isOpen) return;
-    setLoadingContracts(true);
-    setDeviceError(null);
-    try {
-      const contracts = await fetchAllContracts();
-      setContractOptions(contracts);
-    } catch (error: any) {
-      console.error('loadAllContracts error:', error);
-      setDeviceError(error.message || 'Cannot load contracts.');
-      setContractOptions([]);
-    } finally {
-      setLoadingContracts(false);
-    }
-  };
-
-  const loadSitesForContract = async (contractId: string, preserveSiteId?: string) => {
-    if (!isOpen || !contractId) {
-      setSiteOptions([]);
-      if (!preserveSiteId) {
-        setSid('');
-        setSname('');
-      }
-      return;
-    }
-    setLoadingSites(true);
-    setDeviceError(null);
-    try {
-      const sites = await fetchSitesByContract(contractId);
-      setSiteOptions(sites);
-      if (!preserveSiteId) {
-        setSid('');
-        setSname('');
-      } else {
-        const siteExists = sites.some((s: SiteOption) => s.id === String(preserveSiteId));
-        if (siteExists) {
-          const sel = sites.find((s: SiteOption) => s.id === String(preserveSiteId));
-          setSid(String(preserveSiteId));
-          setSname(sel ? sel.label : '');
-        } else {
-          setSid('');
-          setSname('');
-        }
-      }
-    } catch (error: any) {
-      console.error('loadSitesForContract error:', error);
-      setDeviceError(error.message || 'Cannot load sites');
-      setSiteOptions([]);
-    } finally {
-      setLoadingSites(false);
-    }
-  };
-
-  const loadDevicesForSelection = async (
+  const loadDevicesForSelection = useCallback(async (
     contractIds: string[],
     currentTaskType: 'PM' | 'MA',
     preserveSelectedDevices: Device[] = []
@@ -658,7 +595,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     if (!isOpen) return;
     if (!contractIds.length) {
       setDevices([]);
-      setAvailableNewDevices([]);
       if (!preserveSelectedDevices.length) {
         setSelectedDevices([]);
         setBrokenDevicePairs([]);
@@ -684,13 +620,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         }
       }
 
-      if (currentTaskType === 'MA') {
-        const availableList = await fetchAvailableDevices();
-        setAvailableNewDevices(availableList);
-      } else {
-        setAvailableNewDevices([]);
-      }
-
       setDevices(merged);
 
       if (preserveSelectedDevices.length > 0) {
@@ -698,14 +627,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       } else {
         setSelectedDevices((prev) => prev.filter((d) => merged.some((c) => String(c.id) === String(d.id))));
       }
-      setShowAll(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('loadDevicesForSelection error:', error);
-      setDeviceError(error.message || 'Cannot load devices');
+      setDeviceError(getErrorMessage(error) || 'Cannot load devices');
     } finally {
       setLoadingDevices(false);
     }
-  };
+  }, [Sid, isOpen, fetchDevicesByContract]);
 
   /* ================= effects ================= */
   useEffect(() => {
@@ -718,11 +646,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const editTaskType = editingEvent.taskType || 'PM';
       setMaAssignedService(
         editTaskType === 'MA'
-          ? String(
-              (editingEvent as any).assignedService ??
-                (editingEvent as any).assigned_service ??
-                ''
-            ).trim()
+          ? String(editingEvent.assignedService ?? editingEvent.assigned_service ?? '').trim()
           : ''
       );
       setSid(editingEvent.Sid ? String(editingEvent.Sid) : editingEvent.siteId ? String(editingEvent.siteId) : '');
@@ -745,11 +669,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         setVendorTelError('');
       }
       vendorPhoneMainOverflowWarned.current = false;
-      setReporterName(editingEvent.reporterName || (editingEvent as any).reporter_name || '');
+      setReporterName(editingEvent.reporterName || editingEvent.reporter_name || '');
       setReporterNameRequiredError('');
       {
         const reporterLine = String(
-          editingEvent.reporterTel || (editingEvent as any).reporter_tel || ''
+          editingEvent.reporterTel || editingEvent.reporter_tel || ''
         ).trim();
         const rp = parseTelLineFromDb(reporterLine);
         setReporterTel(formatTenDigitUsDisplay(rp.tel));
@@ -758,29 +682,28 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setReporterPhoneError('');
       setTicket(editingEvent.ticket || '');
       setTicketRequiredError('');
-      setRootCause(editingEvent.rootCause || (editingEvent as any).root_cause || '');
+      setRootCause(editingEvent.rootCause || editingEvent.root_cause || '');
       setResolution(editingEvent.resolution || '');
-      {
-        const ev = editingEvent as any;
-        if ((editingEvent.taskType || 'PM') === 'MA') {
-          setDowntimeDate(
-            String(
-              ev.downtimeDate ??
-                ev.downTimeStartDate ??
-                ev.down_time_start_date ??
-                start ??
-                ''
-            ).slice(0, 10)
-          );
-          setDowntimeTime(
-            toTimeHHmm(
-              ev.downtimeTime ?? ev.downTimeStartTime ?? ev.down_time_start_time
-            ) || ''
-          );
-        } else {
-          setDowntimeDate('');
-          setDowntimeTime('');
-        }
+      if ((editingEvent.taskType || 'PM') === 'MA') {
+        setDowntimeDate(
+          String(
+            editingEvent.downtimeDate ??
+              editingEvent.downTimeStartDate ??
+              editingEvent.down_time_start_date ??
+              start ??
+              ''
+          ).slice(0, 10)
+        );
+        setDowntimeTime(
+          toTimeHHmm(
+            editingEvent.downtimeTime ??
+              editingEvent.downTimeStartTime ??
+              editingEvent.down_time_start_time
+          ) || ''
+        );
+      } else {
+        setDowntimeDate('');
+        setDowntimeTime('');
       }
       setAssetBinding(editingEvent.assetBinding || '');
       const contractId = editingEvent.contractId ? String(editingEvent.contractId) : '';
@@ -830,8 +753,9 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           );
 
           // แต่ละ asset อาจมี replacementDeviceId (จากที่ save ไว้) หรือใช้ task.replacementDeviceId สำหรับตัวแรก
-          const replacementIds = editingAssets.map((a: any, i: number) =>
-            a.replacementDeviceId ?? (i === 0 ? editingEvent.replacementDeviceId : null)
+          const replacementIds = editingAssets.map((a, i) =>
+            (a as Device & { replacementDeviceId?: number | null }).replacementDeviceId ??
+            (i === 0 ? editingEvent.replacementDeviceId : null)
           );
           const replacementDetails = await Promise.all(
             replacementIds.map((id) => fetchReplacementDetails(id))
@@ -865,8 +789,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
   useEffect(() => {
     if (!isOpen) return;
-    loadAllSites();
-  }, [isOpen]);
+    void loadAllSites();
+  }, [isOpen, loadAllSites]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -963,7 +887,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     };
 
     const loadDeviceRoles = async () => {
-      setLoadingDeviceRoles(true);
       try {
         const res = await fetch(apiUrl('/api/device-roles'));
         const json = await res.json();
@@ -972,13 +895,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         }
       } catch (error) {
         console.error('Error loading device roles:', error);
-      } finally {
-        setLoadingDeviceRoles(false);
       }
     };
 
     const loadDeviceTypes = async () => {
-      setLoadingDeviceTypes(true);
       try {
         const res = await fetch(apiUrl('/api/device-types'));
         const json = await res.json();
@@ -987,8 +907,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         }
       } catch (error) {
         console.error('Error loading device types:', error);
-      } finally {
-        setLoadingDeviceTypes(false);
       }
     };
 
@@ -1002,12 +920,12 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     if (!isOpen) return;
     const preserveContractId = editingEvent?.contractId ?? editingEvent?.contract_id;
     if (Sid) {
-      loadContractsForSite(Sid, preserveContractId ? String(preserveContractId) : undefined);
+      void loadContractsForSite(Sid, preserveContractId ? String(preserveContractId) : undefined);
     } else {
       setContractOptions([]);
       setSelectedContractIds([]);
     }
-  }, [Sid, isOpen, editingEvent]);
+  }, [Sid, isOpen, editingEvent, loadContractsForSite]);
 
   const selectedContractIdsKey = selectedContractIds.slice().sort().join(',');
 
@@ -1017,7 +935,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     const preserveDevices = editingEvent?.assets || [];
     // โหลด devices จากทุกสัญญาที่เลือก (รวมรายการ)
     if (selectedContractIds.length > 0) {
-      loadDevicesForSelection(
+      void loadDevicesForSelection(
         selectedContractIds,
         taskType,
         preserveDevices.length > 0 && editingEvent ? preserveDevices : []
@@ -1027,7 +945,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setSelectedDevices([]);
       setBrokenDevicePairs([]);
     }
-  }, [selectedContractIdsKey, taskType, Sid, isOpen, editingEvent]);
+  }, [selectedContractIdsKey, taskType, Sid, isOpen, editingEvent, loadDevicesForSelection, selectedContractIds]);
 
   // Re-map devices when deviceRoles and deviceTypes are loaded to include role and manufacturer
   useEffect(() => {
@@ -1123,7 +1041,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       setDowntimeDate('');
       setDowntimeTime('');
       setAssetBinding('');
-      setReplacementDevices([]);
       setSelectedReplacementDevice(null);
       setBrokenDevicePairs([]);
       setMaAssignedService('');
@@ -1151,42 +1068,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     };
   }, [isOpen, taskType]);
 
-  // Load replacement devices for broken device pairs (for MA only)
-  useEffect(() => {
-    if (taskType === 'MA') {
-      brokenDevicePairs.forEach((pair) => {
-        if (!pair.replacementListFetched && !pair.loading) {
-          loadReplacementDevicesForPair(pair.id);
-        }
-      });
-    }
-  }, [brokenDevicePairs, taskType]);
-
-  // Legacy: Keep for backward compatibility when not using broken device pairs
-  useEffect(() => {
-    if (taskType === 'MA' && selectedDevices.length > 0 && brokenDevicePairs.length === 0) {
-      void loadReplacementDevices(selectedDevices);
-    } else if (taskType === 'MA' && brokenDevicePairs.length === 0) {
-      setReplacementDevices([]);
-      setSelectedReplacementDevice(null);
-    }
-  }, [selectedDevices, taskType, brokenDevicePairs.length]);
-
-  const loadReplacementDevices = async (excludeDevices: Device[] = []) => {
-    setLoadingReplacementDevices(true);
-    try {
-      const pool = await fetchReplacementWarehousePool();
-      const excludeIds = new Set(excludeDevices.map((d: Device) => String(d.id)));
-      setReplacementDevices(pool.filter((d: Device) => !excludeIds.has(String(d.id))));
-    } catch (error) {
-      console.error('Error loading replacement devices:', error);
-      setReplacementDevices([]);
-    } finally {
-      setLoadingReplacementDevices(false);
-    }
-  };
-
-  const loadReplacementDevicesForPair = async (pairId: string) => {
+  const loadReplacementDevicesForPair = useCallback(async (pairId: string) => {
     setBrokenDevicePairs((prev) =>
       prev.map((pair) =>
         pair.id === pairId ? { ...pair, loading: true } : pair
@@ -1201,10 +1083,10 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           excludeIds.add(String(p.brokenDevice.id));
           if (p.replacementDevice) excludeIds.add(String(p.replacementDevice.id));
         });
-        const replacementDevices = pool.filter((d: Device) => !excludeIds.has(String(d.id)));
+        const pairReplacements = pool.filter((d: Device) => !excludeIds.has(String(d.id)));
         return prev.map((pair) =>
           pair.id === pairId
-            ? { ...pair, replacementDevices, loading: false, replacementListFetched: true }
+            ? { ...pair, replacementDevices: pairReplacements, loading: false, replacementListFetched: true }
             : pair
         );
       });
@@ -1218,7 +1100,18 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
         )
       );
     }
-  };
+  }, [fetchReplacementWarehousePool]);
+
+  // Load replacement devices for broken device pairs (for MA only)
+  useEffect(() => {
+    if (taskType === 'MA') {
+      brokenDevicePairs.forEach((pair) => {
+        if (!pair.replacementListFetched && !pair.loading) {
+          void loadReplacementDevicesForPair(pair.id);
+        }
+      });
+    }
+  }, [brokenDevicePairs, taskType, loadReplacementDevicesForPair]);
 
   const addBrokenDevicePair = (device: Device) => {
     const pairId = randomUUID();
@@ -1310,7 +1203,17 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   );
 
   // ฟังก์ชันเช็ค conflict สำหรับ engineer คนเดียว (เช็คจาก database)
-  const checkSingleEngineerConflict = async (engineer: Engineer): Promise<{ hasConflict: boolean; conflictingTask: any | null }> => {
+  type ConflictingTaskSummary = {
+    id?: number | string;
+    siteName?: string;
+    Sname?: string;
+    startDate?: string;
+    endDate?: string;
+  };
+
+  const checkSingleEngineerConflict = async (
+    engineer: Engineer
+  ): Promise<{ hasConflict: boolean; conflictingTask: ConflictingTaskSummary | null }> => {
     if (!startDate) {
       return { hasConflict: false, conflictingTask: null };
     }
@@ -1330,7 +1233,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       if (result.hasConflict) {
         return {
           hasConflict: true,
-          conflictingTask: result.conflictingTask,
+          conflictingTask: result.conflictingTask ?? null,
         };
       }
 
@@ -1453,9 +1356,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices). ถ้ากรองตาม site แล้วไม่เจอ (เช่น fallback มาจากดึงแค่ตาม contract) ให้โชว์ทั้งหมดที่ผูกกับ contract นั้น
   const bySite = Sid ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid) : devices;
   const devicesToShow = Sid && bySite.length > 0 ? bySite : devices;
-  // Get unique device types, sites, roles, models, and manufacturers for filter dropdowns
-  const uniqueDeviceTypes = Array.from(new Set(devicesToShow.map(d => d.type).filter(Boolean))).sort();
-  const uniqueDeviceSites = Array.from(new Set(devicesToShow.map(d => d.site).filter(Boolean))).sort();
   const uniqueDeviceRoles = Array.from(new Set(devicesToShow.map(d => d.role).filter(Boolean))).sort();
 
   // Get unique models from devicesToShow, but use deviceTypes data if available for better accuracy
@@ -1551,23 +1451,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   ]);
 
   // Select All / Deselect All handlers
-  const handleSelectAll = () => {
-    const allIds = new Set(paginatedDevices.map(d => d.id));
-    const currentSelectedIds = new Set(selectedDevices.map(d => d.id));
-
-    // Check if all current page items are selected
-    const allSelected = paginatedDevices.every(d => currentSelectedIds.has(d.id));
-
-    if (allSelected) {
-      // Deselect all items on current page
-      setSelectedDevices(prev => prev.filter(d => !allIds.has(d.id)));
-    } else {
-      // Select all items on current page (add only those not already selected)
-      const newSelections = paginatedDevices.filter(d => !currentSelectedIds.has(d.id));
-      setSelectedDevices(prev => [...prev, ...newSelections]);
-    }
-  };
-
   const handleSelectAllFiltered = () => {
     // Use availableDevices (already filtered out selected ones)
     const allAvailableIds = new Set(availableDevices.map(d => d.id));
@@ -1589,15 +1472,11 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     setSelectedDevices([]);
   };
 
-  const handleClearFilters = () => {
-    setDeviceRoleFilter('');
-    setDeviceModelFilter('');
-    setDeviceManufacturerFilter('');
-    setDeviceSearchPm('');
-  };
-
   // ฟังก์ชันเช็ค conflict ระหว่าง tasks
-  const checkEngineerConflicts = async (): Promise<{ hasConflict: boolean; conflicts: Array<{ engineerId: string; engineerName: string; conflictingTask: any }> }> => {
+  const checkEngineerConflicts = async (): Promise<{
+    hasConflict: boolean;
+    conflicts: Array<{ engineerId: string; engineerName: string; conflictingTask: ConflictingTaskSummary }>;
+  }> => {
     if (!startDate || selectedEngineers.length === 0) {
       return { hasConflict: false, conflicts: [] };
     }
@@ -1623,35 +1502,42 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const tasksResponses = await Promise.all(tasksPromises);
       const allTasks = tasksResponses
         .filter(res => res.success && res.data)
-        .flatMap(res => res.data || []);
+        .flatMap(res => (res.data || []) as ApiTask[]);
 
-      const existingTasks = allTasks.filter((task: any) => {
-        // ข้าม task ที่กำลังแก้ไข (ถ้าเป็น edit mode)
-        if (editingEvent?.id && task.id === editingEvent.id) {
+      const existingTasks = allTasks.filter((task) => {
+        if (editingEvent?.id && String(task.id) === String(editingEvent.id)) {
           return false;
         }
-        return task.startDate; // ต้องมี startDate อย่างน้อย
+        return Boolean(apiTaskString(task, 'startDate', 'start_date'));
       });
 
-      const conflicts: Array<{ engineerId: string; engineerName: string; conflictingTask: any }> = [];
-      const selectedEngineerIds = selectedEngineers.map(e => String(e.id));
+      const conflicts: Array<{ engineerId: string; engineerName: string; conflictingTask: ConflictingTaskSummary }> = [];
 
-      // เช็คแต่ละ engineer ที่เลือก
       for (const engineer of selectedEngineers) {
         const engineerId = String(engineer.id);
         const engineerName = engineerDisplayName(engineer);
 
-        // หา tasks ที่ engineer คนนี้มีอยู่แล้ว
-        const engineerTasks = existingTasks.filter((task: any) => {
-          const taskEngineerIds = task.Eng_ids?.map((e: any) => String(e.id)) ||
-            task.Eng_id?.map((id: any) => String(id)) || [];
+        const engineerTasks = existingTasks.filter((task) => {
+          const taskRec = asRecord(task);
+          const engList = Array.isArray(taskRec.Eng_ids)
+            ? taskRec.Eng_ids
+            : Array.isArray(taskRec.engineers)
+              ? taskRec.engineers
+              : [];
+          const idList = Array.isArray(taskRec.Eng_id) ? taskRec.Eng_id : [];
+          const taskEngineerIds = [
+            ...engList.map((e) => String(asRecord(e).id ?? '')),
+            ...idList.map((id) => String(id)),
+          ].filter(Boolean);
           return taskEngineerIds.includes(engineerId);
         });
 
-        // เช็คว่า task ใด overlap กับวันที่ที่เลือก
         for (const task of engineerTasks) {
-          const taskStart = new Date(task.startDate);
-          const taskEnd = task.endDate ? new Date(task.endDate) : new Date(task.startDate); // ถ้าไม่มี endDate ให้ใช้ startDate
+          const taskStartRaw = apiTaskString(task, 'startDate', 'start_date');
+          const taskEndRaw = apiTaskString(task, 'endDate', 'end_date') || taskStartRaw;
+          if (!taskStartRaw) continue;
+          const taskStart = new Date(taskStartRaw);
+          const taskEnd = taskEndRaw ? new Date(taskEndRaw) : new Date(taskStartRaw);
 
           // เช็คว่า overlap หรือไม่: ถ้าวันที่ทับกัน
           const isOverlap = (startDateObj <= taskEnd && endDateObj >= taskStart);
@@ -1660,7 +1546,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             conflicts.push({
               engineerId,
               engineerName,
-              conflictingTask: task
+              conflictingTask: {
+                id: task.id,
+                siteName: apiTaskString(task, 'siteName', 'site_name'),
+                Sname: readString(task, 'Sname'),
+                startDate: taskStartRaw,
+                endDate: taskEndRaw,
+              },
             });
             break; // หาแค่ task แรกที่ conflict
           }
@@ -3359,14 +3251,6 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 }
 
 /* ================= helpers ================= */
-const input =
-  'w-full p-3 bg-muted border border-border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm';
-
-const label =
-  'block text-[10px] font-bold uppercase text-muted-foreground mb-1';
-
-const iconBtn =
-  'p-2 bg-muted rounded-xl hover:bg-muted transition';
 const fieldLabel =
   'block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1';
 
@@ -3460,24 +3344,23 @@ function SearchableDeviceSelect({
     ? `${value.name}${value.assetNumber ? ` (${value.assetNumber})` : ''}${value.serialNumber ? ` - SN: ${value.serialNumber}` : ''}`
     : '';
 
+  const closeDropdown = useCallback(() => {
+    setOpen(false);
+    setSearch('');
+    setRoleFilter('');
+    setTypeFilter('');
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
+        closeDropdown();
       }
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) {
-      setSearch('');
-      setRoleFilter('');
-      setTypeFilter('');
-    }
-  }, [open]);
+  }, [open, closeDropdown]);
 
   const filterRowVisible =
     showTypeRoleFilters && (roleOptions.length > 0 || typeOptions.length > 0);
@@ -3530,7 +3413,7 @@ function SearchableDeviceSelect({
         rootId={rootId}
         disabled={disabled}
         open={open}
-        onToggle={() => !disabled && setOpen((o) => !o)}
+        onToggle={() => !disabled && (open ? closeDropdown() : setOpen(true))}
         displayText={displayText}
         emptyPlaceholder={placeholder}
         panelTitle="Select device"
@@ -3542,14 +3425,14 @@ function SearchableDeviceSelect({
           const d =
             scoped.find((x) => String(x.id) === id) ?? devices.find((x) => String(x.id) === id);
           if (d) onSelect(d);
-          setOpen(false);
+          closeDropdown();
         }}
         searchPlaceholder="Find device..."
         emptyText="No devices found"
         showClearOption={Boolean(showClearOption && value)}
         onClear={() => {
           onSelect(null);
-          setOpen(false);
+          closeDropdown();
         }}
         betweenTitleAndSearch={betweenTitleAndSearch}
         listMaxHeightClass="max-h-48"
@@ -3577,22 +3460,32 @@ function AssetSelectModal({
   onClose,
   onConfirm,
 }: AssetModalProps) {
+  if (!open) return null;
+  const selectionKey = selected.map((d) => String(d.id)).join(',');
+  return (
+    <AssetSelectModalBody
+      key={`${taskType}-${selectionKey}`}
+      devices={devices}
+      selected={selected}
+      taskType={taskType}
+      onClose={onClose}
+      onConfirm={onConfirm}
+    />
+  );
+}
+
+function AssetSelectModalBody({
+  devices,
+  selected,
+  taskType = 'PM',
+  onClose,
+  onConfirm,
+}: Omit<AssetModalProps, 'open'>) {
   const [localSelected, setLocalSelected] = useState<Device[]>(selected);
-  const [singleSelected, setSingleSelected] = useState<Device | null>(null);
+  const [singleSelected, setSingleSelected] = useState<Device | null>(
+    () => (taskType === 'MA' && selected.length > 0 ? selected[0] : null)
+  );
   const [deviceSearch, setDeviceSearch] = useState('');
-
-  useEffect(() => {
-    setLocalSelected(selected);
-    if (taskType === 'MA' && selected.length > 0) {
-      setSingleSelected(selected[0]);
-    } else if (taskType === 'MA') {
-      setSingleSelected(null);
-    }
-  }, [selected, taskType]);
-
-  useEffect(() => {
-    if (!open) setDeviceSearch('');
-  }, [open]);
 
   const q = deviceSearch.trim().toLowerCase();
   const filteredDevices = q
@@ -3605,8 +3498,6 @@ function AssetSelectModal({
       return parts.every((part) => searchable.includes(part));
     })
     : devices;
-
-  if (!open) return null;
 
   const toggle = (d: Device) => {
     if (taskType === 'MA') {

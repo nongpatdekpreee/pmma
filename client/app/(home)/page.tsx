@@ -13,6 +13,7 @@ import {
   Building2,
 } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import DashboardHeader from '@/components/ui/Header';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getTasks, getTopSitesHeatmap, getEmployees, apiUrl, getPmDashboard, getSitesLocation } from '@/lib/api';
@@ -22,6 +23,18 @@ import {
 } from '@/lib/dashboardPeriod';
 import { TopSitesWidget, type TopSitesHeatmapData } from '@/components/ui/TopSitesWidget';
 import { InlineCatLoader } from '@/components/ui/CatLoader';
+import { asRecord, getErrorMessage, readString } from '@/lib/unknownUtil';
+import {
+  type ApiTask,
+  apiTaskId,
+  apiTaskString,
+  mapEngineerFromApi,
+  taskEndDate,
+  taskStartDate,
+} from '@/lib/apiTask';
+
+type TaskWithStart = ApiTask & { _start: Date };
+type TaskWithStartEnd = ApiTask & { _start: Date; _end: Date | null };
 
 type EventEngineer = {
   /** Employee id — must match employees API for roster photo */
@@ -71,9 +84,12 @@ function EngineerRosterAvatar({
   }
 
   return (
-    <img
+    <Image
       src={url}
       alt=""
+      width={32}
+      height={32}
+      unoptimized
       className={`h-8 w-8 shrink-0 rounded-full object-cover bg-muted shadow-sm ${borderClassName}`}
       onError={() => setBroken(true)}
     />
@@ -139,24 +155,18 @@ function formatThaiDaysPastDue(endDateIso: string, todayStart: Date): string | n
   return `Overdue ${n} days`;
 }
 
-function taskStart(t: any): Date | null {
-  const s = t.startDate || t.start_date;
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+function taskStart(t: ApiTask): Date | null {
+  return taskStartDate(t);
 }
 
-function taskEnd(t: any): Date | null {
-  const s = t.endDate || t.end_date;
-  if (!s) return null;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
+function taskEnd(t: ApiTask): Date | null {
+  return taskEndDate(t);
 }
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function DashboardPage() {
-  const [allTasks, setAllTasks] = useState<any[]>([]);
+  const [allTasks, setAllTasks] = useState<ApiTask[]>([]);
   const [employeePhotoById, setEmployeePhotoById] = useState<Record<string, string>>({});
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [tasksError, setTasksError] = useState<string | null>(null);
@@ -230,9 +240,9 @@ export default function DashboardPage() {
           });
           setEmployeePhotoById(map);
         }
-      } catch (e) {
+      } catch (e: unknown) {
         if (!cancelled) {
-          setTasksError(e instanceof Error ? e.message : 'Could not reach server');
+          setTasksError(getErrorMessage(e) || 'Could not reach server');
           setAllTasks([]);
         }
       } finally {
@@ -261,37 +271,26 @@ export default function DashboardPage() {
 
   const todayStart = startOfDay(new Date());
 
-  const toEventItem = useCallback((t: any): EventItem => {
-    const start = t.startDate || t.start_date;
-    const end = t.endDate || t.end_date;
+  const toEventItem = useCallback((t: ApiTask): EventItem => {
+    const start = apiTaskString(t, 'startDate', 'start_date');
+    const end = apiTaskString(t, 'endDate', 'end_date');
     const d = start ? new Date(start) : new Date();
-    const taskType = (String(t.taskType || t.task_type || 'PM').toUpperCase() === 'MA' ? 'MA' : 'PM') as
+    const taskType = (String(apiTaskString(t, 'taskType', 'task_type') || 'PM').toUpperCase() === 'MA' ? 'MA' : 'PM') as
       | 'PM'
       | 'MA';
-    const siteName = t.siteName || t.site_name || t.Sname || '';
+    const siteName = apiTaskString(t, 'siteName', 'site_name') || readString(t, 'Sname') || '';
     const title =
       taskType === 'MA'
-        ? `MA: ${t.vendorName || t.vendor_name || siteName || 'Maintenance Agreement'}`
+        ? `MA: ${apiTaskString(t, 'vendorName', 'vendor_name') || siteName || 'Maintenance Agreement'}`
         : `PM: ${siteName || 'Preventive Maintenance'}`;
-    const timeStr = t.time || '09:00';
+    const timeStr = readString(t, 'time') || '09:00';
     const dateStr = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-    const mapEng = (e: any): EventEngineer => {
-      const rawId = e?.id ?? e?.user_id;
-      const id =
-        rawId !== null && rawId !== undefined && String(rawId).trim() !== '' ? String(rawId) : undefined;
-      return {
-        id,
-        name: e?.name || String(rawId ?? '') || '',
-        lastName: e?.lastName || e?.last_name || '',
-      };
-    };
-    const engineers = Array.isArray(t.engineers)
-      ? t.engineers.map(mapEng)
-      : Array.isArray(t.Eng_ids)
-        ? t.Eng_ids.map(mapEng)
-        : undefined;
+    const engineersRaw = t.engineers ?? t.Eng_ids;
+    const engineers = Array.isArray(engineersRaw)
+      ? engineersRaw.map(mapEngineerFromApi)
+      : undefined;
     return {
-      id: String(t.id),
+      id: apiTaskId(t),
       title,
       dateStr,
       timeStr,
@@ -299,10 +298,10 @@ export default function DashboardPage() {
       siteName,
       startDate: start || undefined,
       endDate: end || undefined,
-      location: t.location || t.Location2 || undefined,
+      location: readString(t, 'location') ?? readString(t, 'Location2'),
       engineers,
-      status: t.status || undefined,
-      vendorName: t.vendorName || t.vendor_name || undefined,
+      status: readString(t, 'status'),
+      vendorName: apiTaskString(t, 'vendorName', 'vendor_name'),
     };
   }, []);
 
@@ -454,13 +453,18 @@ export default function DashboardPage() {
     return getDashboardPeriodBounds(months, null);
   }, [periodRange, months, dashboardParams]);
 
+  const periodStartMs = periodBounds.start.getTime();
+  const periodEndExclusiveMs = periodBounds.endExclusive.getTime();
+
   useEffect(() => {
+    const periodStart = new Date(periodStartMs);
+    const periodEndExclusive = new Date(periodEndExclusiveMs);
     let cancelled = false;
     const loadHeatmap = async () => {
       setLoadingHeatmap(true);
       setHeatmapError(null);
-      const period_start = formatDateISO(periodBounds.start);
-      const period_end_exclusive = formatDateISO(periodBounds.endExclusive);
+      const period_start = formatDateISO(periodStart);
+      const period_end_exclusive = formatDateISO(periodEndExclusive);
       try {
         const res = await getTopSitesHeatmap({
           site_limit: 5,
@@ -480,9 +484,9 @@ export default function DashboardPage() {
             max_value: Math.max(1, Number(res.max_value ?? 1)),
           });
         }
-      } catch (e) {
+      } catch (e: unknown) {
         if (!cancelled) {
-          setHeatmapError(e instanceof Error ? e.message : 'Failed to load heatmap');
+          setHeatmapError(getErrorMessage(e) || 'Failed to load heatmap');
           setHeatmap({ sites: [], contracts: [], matrix: [], max_value: 1 });
         }
       } finally {
@@ -493,37 +497,40 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [periodBounds.start.getTime(), periodBounds.endExclusive.getTime()]);
+  }, [periodStartMs, periodEndExclusiveMs]);
 
   const pmCards = useMemo(() => {
     const upcomingPm = allTasks
-      .filter((t: any) => String(t.taskType || t.task_type || '').toUpperCase() === 'PM')
-      .filter((t: any) => (t.status || '') !== 'done')
-      .filter((t: any) => t.startDate || t.start_date)
-      .map((t: any) => ({ ...t, _start: taskStart(t)! }))
+      .filter((t) => String(apiTaskString(t, 'taskType', 'task_type') || '').toUpperCase() === 'PM')
+      .filter((t) => (readString(t, 'status') || '') !== 'done')
+      .filter((t) => apiTaskString(t, 'startDate', 'start_date'))
+      .map((t) => ({ ...t, _start: taskStart(t)! }))
       .filter(
-        (t: any) =>
+        (t): t is TaskWithStart =>
           !Number.isNaN(t._start.getTime()) && taskStartInPeriodBounds(t._start, periodBounds)
       )
-      .sort((a: any, b: any) => a._start.getTime() - b._start.getTime());
+      .sort((a, b) => a._start.getTime() - b._start.getTime());
 
-    return upcomingPm.map((t: any) => {
+    return upcomingPm.map((t) => {
       const assets = Array.isArray(t.assets) ? t.assets : [];
-      const first = assets[0] || {};
-      const serial = first?.serial || first?.Serial || '—';
+      const first = assets[0];
+      const firstRec = first && typeof first === 'object' && first !== null ? (first as Record<string, unknown>) : {};
+      const serial = readString(firstRec, 'serial') ?? readString(firstRec, 'Serial') ?? '—';
       const engineers = Array.isArray(t.engineers) ? t.engineers : [];
-      const assignees = engineers.slice(0, 4).map((e: any, i: number) => {
-        const eid = String(e?.id ?? e?.user_id ?? '');
+      const assignees = engineers.slice(0, 4).map((e, i) => {
+        const eng = asRecord(e);
+        const eid = String(eng.id ?? eng.user_id ?? '');
         const realPhoto = eid ? employeePhotoById[eid] : null;
         if (realPhoto) return realPhoto;
-        const seed = (e?.name || e?.id || String(i + 1)).toString();
+        const seed = (readString(eng, 'name') || String(eng.id ?? i + 1)).toString();
         return `https://i.pravatar.cc/150?u=${encodeURIComponent(seed)}`;
       });
+      const startIso = apiTaskString(t, 'startDate', 'start_date')!;
       return {
-        taskId: String(t.id),
-        id: `PM-${t.id}`,
-        location: String(t.siteName || '—'),
-        date: new Date(t.startDate || t.start_date).toLocaleDateString('en-US', {
+        taskId: apiTaskId(t),
+        id: `PM-${apiTaskId(t)}`,
+        location: String(apiTaskString(t, 'siteName', 'site_name') || '—'),
+        date: new Date(startIso).toLocaleDateString('en-US', {
           year: 'numeric',
           month: 'short',
           day: 'numeric',
@@ -531,27 +538,27 @@ export default function DashboardPage() {
         serial: String(serial),
         count: Number(assets.length || 0),
         assignees: (assignees.length > 0 ? assignees : ['https://i.pravatar.cc/150?u=pm']) as string[],
-        status: String(t.status || 'not-started'),
+        status: String(readString(t, 'status') || 'not-started'),
       };
     });
   }, [allTasks, employeePhotoById, periodBounds]);
 
   const nearestEvents = useMemo(() => {
     const nearest = allTasks
-      .filter((t: any) => (t.status || '') !== 'done' && (t.startDate || t.start_date))
-      .map((t: any) => ({ ...t, _start: taskStart(t)! }))
+      .filter((t) => (readString(t, 'status') || '') !== 'done' && apiTaskString(t, 'startDate', 'start_date'))
+      .map((t) => ({ ...t, _start: taskStart(t)! }))
       .filter(
-        (t: any) =>
+        (t): t is TaskWithStart =>
           !Number.isNaN(t._start.getTime()) && taskStartInPeriodBounds(t._start, periodBounds)
       )
-      .filter((t: any) => {
-        const raw = t.startDate || t.start_date;
+      .filter((t) => {
+        const raw = apiTaskString(t, 'startDate', 'start_date');
         const startDay = parseISODateLocal(String(raw));
         if (Number.isNaN(startDay.getTime())) return false;
         const n = calendarDaysBetween(todayStart, startDay);
         return n >= 0 && n <= INCOMING_EVENTS_HORIZON_DAYS;
       })
-      .sort((a: any, b: any) => a._start.getTime() - b._start.getTime())
+      .sort((a, b) => a._start.getTime() - b._start.getTime())
       .slice(0, 80)
       .map(toEventItem);
     return nearest;
@@ -560,22 +567,25 @@ export default function DashboardPage() {
   const missingEvents = useMemo(() => {
     const rows = allTasks
       .filter(
-        (t: any) =>
-          (t.status || 'not-started') !== 'done' &&
-          (t.startDate || t.start_date)
+        (t) =>
+          (readString(t, 'status') || 'not-started') !== 'done' &&
+          apiTaskString(t, 'startDate', 'start_date')
       )
-      .map((t: any) => ({
+      .map((t) => ({
         ...t,
-        _end: (t.endDate || t.end_date) && taskEnd(t) ? taskEnd(t)! : null,
+        _end: apiTaskString(t, 'endDate', 'end_date') && taskEnd(t) ? taskEnd(t)! : null,
         _start: taskStart(t)!,
       }))
-      .filter((t: any) => !Number.isNaN(t._start.getTime()) && taskStartInPeriodBounds(t._start, periodBounds))
-      .filter((t: any) => {
-        const rawStart = t.startDate || t.start_date;
+      .filter(
+        (t): t is TaskWithStartEnd =>
+          !Number.isNaN(t._start.getTime()) && taskStartInPeriodBounds(t._start, periodBounds)
+      )
+      .filter((t) => {
+        const rawStart = apiTaskString(t, 'startDate', 'start_date');
         const startDay = parseISODateLocal(String(rawStart));
         if (Number.isNaN(startDay.getTime())) return false;
         const startPast = calendarDaysBetween(todayStart, startDay) < 0;
-        const rawEnd = t.endDate || t.end_date;
+        const rawEnd = apiTaskString(t, 'endDate', 'end_date');
         let endPast = false;
         if (rawEnd && t._end && !Number.isNaN(t._end.getTime())) {
           const endDay = parseISODateLocal(String(rawEnd));
@@ -584,17 +594,17 @@ export default function DashboardPage() {
         return endPast || startPast;
       });
 
-    const endPastRows = rows.filter((t: any) => {
-      const rawEnd = t.endDate || t.end_date;
+    const endPastRows = rows.filter((t) => {
+      const rawEnd = apiTaskString(t, 'endDate', 'end_date');
       if (!rawEnd || !t._end || Number.isNaN(t._end.getTime())) return false;
       const endDay = parseISODateLocal(String(rawEnd));
       return !Number.isNaN(endDay.getTime()) && endDay.getTime() < todayStart.getTime();
     });
-    const endPastIds = new Set(endPastRows.map((t: any) => String(t.id)));
-    const startOnlyPast = rows.filter((t: any) => !endPastIds.has(String(t.id)));
+    const endPastIds = new Set(endPastRows.map((t) => apiTaskId(t)));
+    const startOnlyPast = rows.filter((t) => !endPastIds.has(apiTaskId(t)));
 
-    endPastRows.sort((a: any, b: any) => b._end!.getTime() - a._end!.getTime());
-    startOnlyPast.sort((a: any, b: any) => a._start.getTime() - b._start.getTime());
+    endPastRows.sort((a, b) => b._end!.getTime() - a._end!.getTime());
+    startOnlyPast.sort((a, b) => a._start.getTime() - b._start.getTime());
 
     const missing = [...endPastRows, ...startOnlyPast].slice(0, 80).map(toEventItem);
     return missing;

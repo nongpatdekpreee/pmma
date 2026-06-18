@@ -5,7 +5,8 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, postMaReport, getTasks, getMaReports, getMaReportedTaskIds, getContractById, uploadMaReportFile } from '@/lib/api';
+import { apiUrl, postMaReport, getTasks, getMaReportedTaskIds, uploadMaReportFile } from '@/lib/api';
+import { asRecord } from '@/lib/unknownUtil';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
 import {
   computeDownTimeTotalHours,
@@ -88,6 +89,93 @@ interface Device {
   Reason?: string;
 }
 
+interface MaTaskAsset {
+  id?: string | number;
+  name?: string;
+  CI_Name?: string;
+  Asset_Number?: string;
+  assetNumber?: string;
+  serial?: string;
+  serialNumber?: string;
+  model?: string;
+  type?: string;
+  site?: string;
+  SiteName?: string;
+  replacementDeviceId?: string | number | null;
+}
+
+interface DoneMATask {
+  id: number;
+  status?: string;
+  taskType?: string;
+  task_type?: string;
+  siteName?: string;
+  site_name?: string;
+  startDate?: string;
+  endDate?: string;
+  engineers?: unknown;
+  Eng_ids?: unknown;
+  assets?: MaTaskAsset[];
+  replacementDeviceId?: string | number | null;
+  vendorName?: string;
+  vendor_name?: string;
+  vendorTel?: string;
+  vendor_tel?: string;
+  reporterName?: string;
+  reporter_name?: string;
+  reporterTel?: string;
+  reporter_tel?: string;
+  ticket?: string;
+  photos?: unknown;
+  slaTerm?: string | number | null;
+  sla_term?: string | number | null;
+  contractId?: string | number | null;
+  uptimeDate?: string;
+  uptime_date?: string;
+  downTimeEndDate?: string;
+  down_time_end_date?: string;
+  uptimeTime?: string;
+  uptime_time?: string;
+  downTimeEndTime?: string;
+  down_time_end_time?: string;
+  downtimeDate?: string;
+  downtime_date?: string;
+  downTimeStartDate?: string;
+  down_time_start_date?: string;
+  downtimeTime?: string;
+  downtime_time?: string;
+  downTimeStartTime?: string;
+  down_time_start_time?: string;
+}
+
+type SortTaskBy = 'date-desc' | 'date-asc' | 'site' | 'engineer';
+
+function maTaskSiteName(t: DoneMATask): string {
+  return t.siteName || t.site_name || '';
+}
+
+function maTaskReporterName(t: DoneMATask): string | undefined {
+  return t.reporterName || t.reporter_name;
+}
+
+function maTaskReporterTel(t: DoneMATask): string | undefined {
+  return t.reporterTel || t.reporter_tel;
+}
+
+function isDoneMaTask(raw: unknown): boolean {
+  const r = asRecord(raw);
+  const status = String(r.status ?? '').toLowerCase();
+  const type = String(r.taskType ?? r.task_type ?? '').toUpperCase();
+  const id = Number(r.id);
+  return status === 'done' && type === 'MA' && Number.isFinite(id);
+}
+
+function toDoneMaTask(raw: unknown): DoneMATask | null {
+  if (!isDoneMaTask(raw)) return null;
+  const rec = asRecord(raw);
+  return { ...rec, id: Number(rec.id) } as DoneMATask;
+}
+
 /** แปลงแถวจาก GET /api/devices ให้เป็น Device รูปแบบเดียวกัน */
 function normalizeApiDevice(raw: Record<string, unknown>): Device {
   const did = Number(raw.Did ?? raw.did);
@@ -143,8 +231,9 @@ function deviceFromTaskAssetSnapshot(raw: unknown, didNum: number): Device {
 }
 
 /** เติมค่าจาก task (SOF สัญญา, Assigned Service, Vendor) เมื่อ device ไม่มีหลัง MA Done */
-function enrichDeviceForDisplay(device: Device, task: Record<string, unknown> | null | undefined): Device {
+function enrichDeviceForDisplay(device: Device, task: DoneMATask | Record<string, unknown> | null | undefined): Device {
   if (!task) return device;
+  const rec = asRecord(task);
   const str = (v: unknown) => {
     if (v == null) return undefined;
     const s = String(v).trim();
@@ -152,11 +241,11 @@ function enrichDeviceForDisplay(device: Device, task: Record<string, unknown> | 
   };
   return {
     ...device,
-    Refer_SOF: device.Refer_SOF ?? str(task.sofName ?? task.contract_sof_name),
+    Refer_SOF: device.Refer_SOF ?? str(rec.sofName ?? rec.contract_sof_name),
     Assigned_Service:
-      device.Assigned_Service ?? str(task.assignedService ?? task.assigned_service),
-    Vendor: device.Vendor ?? str(task.vendorName ?? task.vendor_name),
-    Sitename: device.Sitename ?? str(task.siteName ?? task.site_name),
+      device.Assigned_Service ?? str(rec.assignedService ?? rec.assigned_service),
+    Vendor: device.Vendor ?? str(rec.vendorName ?? rec.vendor_name),
+    Sitename: device.Sitename ?? str(rec.siteName ?? rec.site_name),
   };
 }
 
@@ -180,19 +269,18 @@ function AddMAReportPageContent() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const maResult: 'pass' = 'pass';
+  const maResult = 'pass' as const;
   const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
   const [maDate, setMaDate] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [hasDoneMATasks, setHasDoneMATasks] = useState(false);
-  const [doneMATasks, setDoneMATasks] = useState<any[]>([]);
+  const [doneMATasks, setDoneMATasks] = useState<DoneMATask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [checkingTasks, setCheckingTasks] = useState(true);
   const [reportedTaskIds, setReportedTaskIds] = useState<Set<number>>(new Set());
-  const [contractSlaMap, setContractSlaMap] = useState<Record<number, number>>({});
   const [searchTaskReport, setSearchTaskReport] = useState('');
-  const [sortTaskBy, setSortTaskBy] = useState<'date-desc' | 'date-asc' | 'site' | 'engineer'>('date-desc');
+  const [sortTaskBy, setSortTaskBy] = useState<SortTaskBy>('date-desc');
   const [taskPage, setTaskPage] = useState(1);
 
   const TASKS_PER_PAGE = 3;
@@ -201,7 +289,7 @@ function AddMAReportPageContent() {
     () =>
       selectedTaskId == null
         ? null
-        : (doneMATasks.find((t: any) => Number(t.id) === Number(selectedTaskId)) ?? null),
+        : (doneMATasks.find((t) => Number(t.id) === Number(selectedTaskId)) ?? null),
     [doneMATasks, selectedTaskId]
   );
 
@@ -279,7 +367,7 @@ function AddMAReportPageContent() {
 
   // แสดงเฉพาะ Task ที่ยังไม่มี report_id (task_id ไม่อยู่ใน table report)
   const availableMATasks = useMemo(
-    () => doneMATasks.filter((t: any) => !reportedTaskIds.has(Number(t.id))),
+    () => doneMATasks.filter((t) => !reportedTaskIds.has(Number(t.id))),
     [doneMATasks, reportedTaskIds]
   );
 
@@ -287,19 +375,19 @@ function AddMAReportPageContent() {
   const filteredAndSortedTasks = useMemo(() => {
     let list = availableMATasks;
     if (taskSearchLower) {
-      list = list.filter((t: any) => {
-        const site = (t.siteName || t.site_name || '').toLowerCase();
+      list = list.filter((t) => {
+        const site = maTaskSiteName(t).toLowerCase();
         const start = t.startDate ? new Date(t.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
         const end = t.endDate ? new Date(t.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toLowerCase() : '';
         const engineers = formatTaskEngineersLine(t.engineers ?? t.Eng_ids).toLowerCase();
-        const devices = (t.assets || []).map((a: any) => (a.name || a.CI_Name || a.id || '').toString().toLowerCase()).join(' ');
+        const devices = (t.assets || []).map((a) => (a.name || a.CI_Name || a.id || '').toString().toLowerCase()).join(' ');
         return [site, start, end, engineers, devices].some(s => s.includes(taskSearchLower));
       });
     }
-    const sorted = [...list].sort((a: any, b: any) => {
+    const sorted = [...list].sort((a, b) => {
       if (sortTaskBy === 'date-desc') return (new Date(b.startDate || 0).getTime()) - (new Date(a.startDate || 0).getTime());
       if (sortTaskBy === 'date-asc') return (new Date(a.startDate || 0).getTime()) - (new Date(b.startDate || 0).getTime());
-      if (sortTaskBy === 'site') return (a.siteName || a.site_name || '').localeCompare(b.siteName || b.site_name || '');
+      if (sortTaskBy === 'site') return maTaskSiteName(a).localeCompare(maTaskSiteName(b));
       if (sortTaskBy === 'engineer') {
         const aStr = formatTaskEngineersLine(a.engineers ?? a.Eng_ids);
         const bStr = formatTaskEngineersLine(b.engineers ?? b.Eng_ids);
@@ -331,14 +419,14 @@ function AddMAReportPageContent() {
       appliedTaskIdFromUrlRef.current = true;
       return;
     }
-    const exists = availableMATasks.some((t: any) => Number(t.id) === n);
+    const exists = availableMATasks.some((t) => Number(t.id) === n);
     if (!exists) {
       appliedTaskIdFromUrlRef.current = true;
       return;
     }
     appliedTaskIdFromUrlRef.current = true;
     setSelectedTaskId(n);
-    const idx = filteredAndSortedTasks.findIndex((t: any) => Number(t.id) === n);
+    const idx = filteredAndSortedTasks.findIndex((t) => Number(t.id) === n);
     if (idx >= 0) {
       setTaskPage(Math.floor(idx / TASKS_PER_PAGE) + 1);
     }
@@ -355,11 +443,9 @@ function AddMAReportPageContent() {
           getMaReportedTaskIds(), // ดึง task_id ที่มี report_id แล้ว เพื่อกรองออก (แสดงเฉพาะที่ยังไม่มี)
         ]);
         if (tasksRes.success && tasksRes.data) {
-          const done = tasksRes.data.filter((task: any) => {
-            const status = String(task.status ?? '').toLowerCase();
-            const type = String(task.taskType ?? task.task_type ?? '').toUpperCase();
-            return status === 'done' && type === 'MA';
-          });
+          const done = tasksRes.data
+            .map(toDoneMaTask)
+            .filter((t): t is DoneMATask => t != null);
           setHasDoneMATasks(done.length > 0);
           setDoneMATasks(done);
         }
@@ -399,7 +485,7 @@ function AddMAReportPageContent() {
   /** เครื่องในงาน MA อาจไม่อยู่ใน GET /api/devices?limit=1000 — ดึงรายละเอียดตาม Did แล้ว merge */
   useEffect(() => {
     if (selectedTaskId == null) return;
-    const task = availableMATasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    const task = availableMATasks.find((t) => Number(t.id) === Number(selectedTaskId));
     if (!task) return;
 
     const need = new Set<number>();
@@ -407,7 +493,7 @@ function AddMAReportPageContent() {
       const n = typeof id === 'number' ? id : parseInt(String(id), 10);
       if (!Number.isNaN(n) && n > 0) need.add(n);
     };
-    (task.assets || []).forEach((a: any, i: number) => {
+    (task.assets || []).forEach((a, i: number) => {
       pushId(getDeviceIdFromAsset(a));
       pushId(a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null));
     });
@@ -437,7 +523,7 @@ function AddMAReportPageContent() {
         const seen = new Set(prev.map((d) => String(d.Did)));
         const next = [...prev];
         for (const d of fetched) {
-          const k = String((d as any).Did);
+          const k = String(d.Did);
           if (!seen.has(k)) {
             seen.add(k);
             next.push(d);
@@ -460,7 +546,7 @@ function AddMAReportPageContent() {
   // Device จาก Task ที่เลือก (assets + replacement) — ใช้ snapshot ใน task ถ้าไม่พบในรายการ devices ที่โหลดมา
   const allowedDevices = useMemo(() => {
     if (selectedTaskId == null) return [];
-    const task = availableMATasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    const task = availableMATasks.find((t) => Number(t.id) === Number(selectedTaskId));
     if (!task) return [];
 
     const seen = new Set<string>();
@@ -485,7 +571,7 @@ function AddMAReportPageContent() {
       }
     };
 
-    (task.assets || []).forEach((a: any, i: number) => {
+    (task.assets || []).forEach((a, i: number) => {
       const idStr = getDeviceIdFromAsset(a);
       if (idStr) {
         const fromPool = devices.find((d) => String(d.Did) === String(idStr));
@@ -523,7 +609,7 @@ function AddMAReportPageContent() {
   }, [allowedDevices, selectedDeviceId]);
 
   // ใช้ข้อมูลจาก Task ที่เลือก pre-fill form
-  const applyTaskToForm = (task: any) => {
+  const applyTaskToForm = (task: DoneMATask) => {
     setSelectedTaskId(task.id);
     const firstAsset = task.assets && task.assets[0];
     if (firstAsset) {
@@ -537,25 +623,11 @@ function AddMAReportPageContent() {
   /** จาก Calendar/Schedule (?taskId=) — pre-fill ช่าง/วันที่/อุปกรณ์เมื่อเลือก task หรือโหลดรายการ task เสร็จ */
   useEffect(() => {
     if (selectedTaskId == null) return;
-    const task = doneMATasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
+    const task = doneMATasks.find((t) => Number(t.id) === Number(selectedTaskId));
     if (!task) return;
     applyTaskToForm(task);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync เมื่อ selection / snapshot รายการเปลี่ยน
+     
   }, [selectedTaskId, doneMATasks]);
-
-  // sla_term จาก Contract (ผ่าน Task ที่เลือก) ใช้เป็นเกณฑ์ Pass/Fail
-  // Fallback: ถ้า Task ไม่มี slaTerm แต่มี contractId ให้ใช้จาก contractSlaMap
-  const slaThreshold = useMemo(() => {
-    const task = selectedTaskId != null ? doneMATasks.find((t: any) => t.id === selectedTaskId) : null;
-    if (!task) return 70;
-    let st = task.slaTerm ?? task.sla_term;
-    if ((st == null || String(st).trim() === '') && task.contractId != null) {
-      st = contractSlaMap[Number(task.contractId)];
-    }
-    if (st == null || String(st).trim() === '') return 70;
-    const n = typeof st === 'number' ? st : parseInt(String(st).trim(), 10);
-    return Number.isNaN(n) ? 70 : n;
-  }, [doneMATasks, selectedTaskId, contractSlaMap]);
 
   // Handle file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -785,7 +857,7 @@ function AddMAReportPageContent() {
               </div>
               <select
                 value={sortTaskBy}
-                onChange={(e) => { setSortTaskBy(e.target.value as any); setTaskPage(1); }}
+                onChange={(e) => { setSortTaskBy(e.target.value as SortTaskBy); setTaskPage(1); }}
                 className="px-3 py-2 bg-muted border border-border rounded-xl text-sm focus:ring-2 focus:ring-green-500 outline-none"
               >
                 <option value="date-desc">Newest first</option>
@@ -820,9 +892,9 @@ function AddMAReportPageContent() {
                         <User size={16} className="text-muted-foreground" />
                         {formatTaskEngineersLine(task.engineers ?? task.Eng_ids) || '—'}
                       </span>
-                      {task.assets?.length > 0 && (
+                      {(task.assets?.length ?? 0) > 0 && (
                         <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-muted-foreground">
-                          {task.assets.map((a: any, idx: number) => {
+                          {(task.assets ?? []).map((a, idx: number) => {
                             const repId = a.replacementDeviceId ?? (idx === 0 ? task.replacementDeviceId : null);
                             const rep = repId != null ? devices.find((d) => d.Did === Number(repId)) : null;
                             const repName = rep ? (rep.CI_Name || rep.Asset_Number || rep.serial || `Device ${repId}`) : repId != null ? `Device ${repId}` : null;
@@ -843,15 +915,15 @@ function AddMAReportPageContent() {
                       )}
                     </div>
                     {/* Contract Information (MA) - compact one line */}
-                    {(task.vendorName || task.vendor_name || task.vendorTel || task.vendor_tel || task.reporterName || (task as any).reporter_name || task.ticket) && (
+                    {(task.vendorName || task.vendor_name || task.vendorTel || task.vendor_tel || maTaskReporterName(task) || task.ticket) && (
                       <div className="mt-1.5 pt-1.5 border-t border-border text-xs text-muted-foreground">
                         <span className="font-bold text-muted-foreground">Contract Info: </span>
                         <span>
                           {(task.vendorName || task.vendor_name) && (
                             <>Vendor: <span className="text-foreground font-medium">{task.vendorName || task.vendor_name}</span>{' · '}</>
                           )}
-                          {(task.reporterName || (task as any).reporter_name) && (
-                            <>Reporter: <span className="text-foreground font-medium">{task.reporterName || (task as any).reporter_name}</span>{' · '}</>
+                          {maTaskReporterName(task) && (
+                            <>Reporter: <span className="text-foreground font-medium">{maTaskReporterName(task)}</span>{' · '}</>
                           )}
                           {task.ticket && (
                             <>Ticket: <span className="text-foreground font-medium">{task.ticket}</span></>
@@ -947,8 +1019,8 @@ function AddMAReportPageContent() {
                       : 'Select device...'}
               </option>
               {allowedDevices.map(device => {
-                const task = selectedTaskId != null ? availableMATasks.find((t: any) => t.id === selectedTaskId) : null;
-                const isReplacement = task && (task.replacementDeviceId === device.Did || task.assets?.some((a: any, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === device.Did));
+                const task = selectedTaskId != null ? availableMATasks.find((t) => t.id === selectedTaskId) : null;
+                const isReplacement = task && (task.replacementDeviceId === device.Did || task.assets?.some((a, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === device.Did));
                 return (
                   <option key={device.Did} value={device.Did.toString()}>
                     {device.CI_Name || device.Asset_Number || `Device ${device.Did}`}
@@ -968,13 +1040,9 @@ function AddMAReportPageContent() {
                 allowedDevices.find((d) => d.Did.toString() === selectedDeviceId) ??
                 devices.find((d) => d.Did.toString() === selectedDeviceId);
               if (!rawSelected) return null;
-              const task = selectedTaskId != null ? availableMATasks.find((t: any) => t.id === selectedTaskId) : null;
+              const task = selectedTaskId != null ? availableMATasks.find((t) => t.id === selectedTaskId) : null;
               const selected = enrichDeviceForDisplay(rawSelected, task);
-              const isReplacement = task && (task.replacementDeviceId === selected.Did || task.assets?.some((a: any, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === selected.Did));
-              const formatDate = (v: string | null | undefined) => {
-                if (!v) return undefined;
-                try { return new Date(v).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }); } catch { return v; }
-              };
+              const isReplacement = task && (task.replacementDeviceId === selected.Did || task.assets?.some((a, i: number) => (a.replacementDeviceId ?? (i === 0 ? task.replacementDeviceId : null)) === selected.Did));
               const deviceFields: { label: string; value?: string | number | null }[] = [
                 { label: 'CI Name', value: selected.CI_Name },
                 { label: 'Asset Number', value: selected.Asset_Number },
@@ -983,7 +1051,7 @@ function AddMAReportPageContent() {
                 { label: 'SOF', value: selected.Refer_SOF },
                 { label: 'Manufacturer', value: selected.Manufacturername },
                 { label: 'Site', value: selected.Sitename },
-                { label: 'Location', value: (selected as any).Location2 ?? selected.Location2 },
+                { label: 'Location', value: selected.Location2 },
                 { label: 'Vendor', value: selected.Vendor },
                 { label: 'Asset State', value: selected.Asset_State },
                 { label: 'Assigned Service', value: selected.Assigned_Service },
@@ -1141,9 +1209,9 @@ function AddMAReportPageContent() {
 
           {/* Contract Information (full) - โชว์เมื่อเลือก task แล้ว */}
           {selectedTaskId != null && (() => {
-            const task = availableMATasks.find((t: any) => t.id === selectedTaskId);
+            const task = availableMATasks.find((t) => t.id === selectedTaskId);
             if (!task) return null;
-            const hasContract = task.vendorName || task.vendor_name || task.vendorTel || task.vendor_tel || task.reporterName || (task as any).reporter_name || task.reporterTel || (task as any).reporter_tel || task.ticket;
+            const hasContract = task.vendorName || task.vendor_name || task.vendorTel || task.vendor_tel || maTaskReporterName(task) || maTaskReporterTel(task) || task.ticket;
             if (!hasContract) return null;
             return (
               <div className="mb-6 p-4 bg-muted rounded-xl border border-border">
@@ -1161,16 +1229,16 @@ function AddMAReportPageContent() {
                       <p className="font-medium text-foreground">{task.vendorTel || task.vendor_tel}</p>
                     </div>
                   )}
-                  {(task.reporterName || (task as any).reporter_name) && (
+                  {maTaskReporterName(task) && (
                     <div>
                       <p className="text-xs font-medium text-muted-foreground mb-0.5">Reporter name</p>
-                      <p className="font-medium text-foreground">{task.reporterName || (task as any).reporter_name}</p>
+                      <p className="font-medium text-foreground">{maTaskReporterName(task)}</p>
                     </div>
                   )}
-                  {(task.reporterTel || (task as any).reporter_tel) && (
+                  {maTaskReporterTel(task) && (
                     <div>
                       <p className="text-xs font-medium text-muted-foreground mb-0.5">Reporter phone</p>
-                      <p className="font-medium text-foreground">{task.reporterTel || (task as any).reporter_tel}</p>
+                      <p className="font-medium text-foreground">{maTaskReporterTel(task)}</p>
                     </div>
                   )}
                   {task.ticket && (
@@ -1187,7 +1255,7 @@ function AddMAReportPageContent() {
           {/* Repair notice (ใบแจ้งซ่อม) — จากงานที่เลือก เพื่อดูรายละเอียดก่อนส่งรายงาน */}
           {selectedTaskId != null &&
             (() => {
-              const task = availableMATasks.find((t: any) => t.id === selectedTaskId);
+              const task = availableMATasks.find((t) => t.id === selectedTaskId);
               if (!task) return null;
               const paths = normalizeRepairPathsFromPhotos(task.photos);
               if (paths.length === 0) return null;
@@ -1292,6 +1360,7 @@ function AddMAReportPageContent() {
                     className="flex items-center gap-3 p-3 bg-muted rounded-lg border border-border"
                   >
                     {file.type === 'image' && file.preview ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
                       <img
                         src={file.preview}
                         alt={file.name}

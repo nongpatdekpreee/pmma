@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import path from 'path';
+import { asRecord, getErrorMessage, isRecord } from '@/lib/unknownUtil';
+
+interface HolidayItem {
+  id: string;
+  date?: string;
+  name?: string;
+}
 
 const getHolidaysPath = () => path.join(process.cwd(), 'data', 'holidays.json');
 const getHolidayOverridesPath = () => path.join(process.cwd(), 'data', 'holiday-overrides.json');
@@ -9,10 +16,27 @@ interface HolidayOverrides {
   excludedOfficialDates: string[];
 }
 
+const parseHolidayList = (raw: string): HolidayItem[] => {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is HolidayItem => isRecord(item) && typeof item.id === 'string'
+    );
+  } catch {
+    return [];
+  }
+};
+
 const parseOverrides = (raw: string): HolidayOverrides => {
   try {
-    const parsed = JSON.parse(raw) as HolidayOverrides;
-    return { excludedOfficialDates: (parsed.excludedOfficialDates || []).filter(Boolean) };
+    const parsed: unknown = JSON.parse(raw);
+    const rec = asRecord(parsed);
+    const dates = rec.excludedOfficialDates;
+    const excludedOfficialDates = Array.isArray(dates)
+      ? dates.filter((d): d is string => typeof d === 'string' && Boolean(d))
+      : [];
+    return { excludedOfficialDates };
   } catch {
     const extractedDates = raw.match(/\d{4}-\d{2}-\d{2}/g) || [];
     return { excludedOfficialDates: Array.from(new Set(extractedDates)).sort() };
@@ -53,15 +77,15 @@ export async function DELETE(
 
     const filePath = getHolidaysPath();
     const data = await readFile(filePath, 'utf-8').catch(() => '[]');
-    const list = JSON.parse(data);
-    const next = list.filter((h: { id: string }) => h.id !== id);
+    const list = parseHolidayList(data);
+    const next = list.filter((h) => h.id !== id);
     if (next.length === list.length) {
       return NextResponse.json({ success: false, message: 'Holiday not found' }, { status: 404 });
     }
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, JSON.stringify(next, null, 2), 'utf-8');
     return NextResponse.json({ success: true });
-  } catch (e: any) {
-    return NextResponse.json({ success: false, message: e?.message || 'Failed to delete holiday' }, { status: 500 });
+  } catch (e: unknown) {
+    return NextResponse.json({ success: false, message: getErrorMessage(e) || 'Failed to delete holiday' }, { status: 500 });
   }
 }
