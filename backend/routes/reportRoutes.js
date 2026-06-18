@@ -17,7 +17,7 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}-${base}`);
   },
 });
-const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } }); // 20MB
+const upload = multer({ storage, limits: { fileSize: 30 * 1024 * 1024 } }); // 30MB — PM PDF with embedded photos
 
 // POST /upload — อัปโหลดไฟล์ Report (ต้องมาก่อน inferType)
 router.post('/upload', upload.single('file'), uploadReportFile);

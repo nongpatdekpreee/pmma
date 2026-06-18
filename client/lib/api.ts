@@ -766,7 +766,8 @@ export async function postPmReport(body: {
   deviceId: string;
   device?: object;
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
-  uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
+  uploadedFiles?: Array<{ name: string; type: string; path?: string; slot?: string }>;
+  pmResult?: 'pass' | 'fail' | 'warning';
   comment?: string;
   technicianName?: string;
   pmDate?: string;

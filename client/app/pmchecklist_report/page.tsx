@@ -2822,7 +2822,7 @@ function ReportPageContent() {
                             </div>
                           )}
                         </div>
-                        {report.checklistItems && report.checklistItems.length > 0 && (
+                        {tab === 'ma' && report.checklistItems && report.checklistItems.length > 0 && (
                           <div className="mt-2 pt-2 border-t border-border">
                             <div className="flex items-center justify-between mb-1.5">
                               <p className="text-[10px] font-semibold text-muted-foreground">Checklist ({report.checklistItems.length})</p>
@@ -3538,7 +3538,7 @@ function ReportPageContent() {
                 )}
 
                 {/* Checklist Items */}
-                {selectedReport.checklistItems && selectedReport.checklistItems.length > 0 && (
+                {tab === 'ma' && selectedReport.checklistItems && selectedReport.checklistItems.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-4">
                       <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">

@@ -1247,7 +1247,7 @@ function ScheduleManagementContent() {
   const handleDrop = async (e: React.DragEvent, day: number | null) => {
     e.preventDefault();
     if (!day || !draggedEvent) return;
-    if (draggedEvent.status === 'done') return; // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
+    if (draggedEvent.status === 'done') return; // Task that is done cannot be changed
 
     // Calculate duration from original startDate and endDate
     const originalStart = draggedEvent.startDate 
@@ -2728,23 +2728,32 @@ function ScheduleManagementContent() {
 
     setIsImporting(false);
 
-    if (errors.length > 0) {
-      setImportErrors(errors);
-      setImportResultTab('issues');
-    }
-
-    if (errors.length > 0 && successCount === 0) {
-      toastError(`Failed to create tasks. ${errors.slice(0, 5).join(', ')}${errors.length > 5 ? `... and ${errors.length - 5} more` : ''}`);
-    } else if (errors.length > 0) {
-      toastSuccess(`Created ${successCount} tasks successfully. ${errors.length} errors occurred.`);
-      await loadTasksFromApi();
-    } else {
-      toastSuccess(`Successfully created ${successCount} tasks!`);
+    if (successCount > 0) {
+      if (errors.length > 0) {
+        toastSuccess(
+          `Created ${successCount} task(s). ${errors.length} row(s) could not be imported.`
+        );
+      } else {
+        toastSuccess(`Successfully created ${successCount} tasks!`);
+      }
       setIsImportModalOpen(false);
       setImportedTasks([]);
       setImportErrors([]);
       setImportResultTab('ready');
-      await loadTasksFromApi();
+      try {
+        await loadTasksFromApi();
+      } catch (loadErr) {
+        console.error('loadTasksFromApi after import:', loadErr);
+      }
+      return;
+    }
+
+    if (errors.length > 0) {
+      setImportErrors(errors);
+      setImportResultTab('issues');
+      toastError(
+        `Failed to create tasks. ${errors.slice(0, 3).join(' ')}${errors.length > 3 ? ` … +${errors.length - 3} more` : ''}`
+      );
     }
   };
 

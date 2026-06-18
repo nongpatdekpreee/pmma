@@ -3693,7 +3693,7 @@ const importExcel = async (req, res) => {
         if (!dtypeid) {
           errors.push({
             index: i + 1,
-            error: `ไม่สามารถสร้าง Device Type สำหรับ Model: ${model}, Brand: ${brandName}`,
+            error: `Cannot create Device Type for Model: ${model}, Brand: ${brandName}`,
             row: row
           });
           continue;

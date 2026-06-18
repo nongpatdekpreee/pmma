@@ -1,8 +1,20 @@
 import path from "path";
 import type { NextConfig } from "next";
 
+/** LAN dev — ใส่ใน client/.env เช่น ALLOWED_DEV_ORIGINS=192.168.60.69 */
+const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS || "192.168.60.69")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  /** ให้เครื่องอื่นใน LAN โหลด /_next/* ตอน dev (ไม่งั้นหน้าเปล่า/พัง) */
+  allowedDevOrigins: ["localhost", "127.0.0.1", ...allowedDevOrigins],
+  experimental: {
+    /** Dev proxy (/api → Express): default 10MB truncates uploads; match backend multer (30MB) */
+    proxyClientMaxBodySize: "30mb",
+  },
   turbopack: {
     root: path.resolve(__dirname),
   },

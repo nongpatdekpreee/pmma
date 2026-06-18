@@ -735,7 +735,7 @@ function CalendarPageContent() {
   const handleDrop = async (e: React.DragEvent, day: number | null) => {
     e.preventDefault();
     if (!day || !draggedEvent) return;
-    if (draggedEvent.status === 'done') return; // Task ที่เป็น Done แล้วไม่สามารถแก้ไขวันที่ได้
+    if (draggedEvent.status === 'done') return; // Task that is done cannot be changed
 
     // Calculate duration from original startDate and endDate
     const originalStart = draggedEvent.startDate 

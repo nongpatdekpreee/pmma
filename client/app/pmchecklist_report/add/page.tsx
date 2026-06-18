@@ -5,14 +5,13 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, postPmReport, getTasks, getPmReportedTaskIds, getContractById, uploadReportFile } from '@/lib/api';
+import { apiUrl, getTasks, getPmReportedTaskIds, getContractById } from '@/lib/api';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
+import { PmReportWizard, type PmReportWizardHandle, type PmSavePhase } from '@/components/pm-report-wizard/PmReportWizard';
+import { computePmNo } from '@/lib/pmWorkOrder';
 import { 
-  Upload, 
-  X, 
   AlertCircle,
   FileText,
-  Image as ImageIcon,
   Save,
   ArrowLeft,
   Calendar,
@@ -29,14 +28,6 @@ interface ChecklistItem {
   task: string;
   status: 'pending' | 'pass' | 'warning' | 'fail';
   notes?: string;
-}
-
-interface UploadedFile {
-  id: string;
-  name: string;
-  type: 'image' | 'pdf' | 'other';
-  file: File;
-  preview?: string;
 }
 
 interface Device {
@@ -66,16 +57,19 @@ function AddPMReportPageContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const appliedTaskIdFromUrlRef = useRef(false);
+  const tasksInitialLoadDoneRef = useRef(false);
+  const lastAppliedTaskSyncRef = useRef('');
+  const wizardRef = useRef<PmReportWizardHandle>(null);
   const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [loadingDevices, setLoadingDevices] = useState(false);
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [slaResult, setSlaResult] = useState<string>('');
-  const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
   const [pmDate, setPmDate] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
+  const [savePhase, setSavePhase] = useState<PmSavePhase>(null);
+  const [pdfPreparing, setPdfPreparing] = useState(false);
   const [hasDonePMTasks, setHasDonePMTasks] = useState(false);
   const [donePMTasks, setDonePMTasks] = useState<any[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
@@ -93,13 +87,15 @@ function AddPMReportPageContent() {
 
   // ดึง task_id ที่มี report_id แล้ว เพื่อกรองออก (แสดงเฉพาะที่ยังไม่มี)
   useEffect(() => {
+    let cancelled = false;
     const checkDoneTasks = async () => {
-      setCheckingTasks(true);
+      if (!tasksInitialLoadDoneRef.current) setCheckingTasks(true);
       try {
         const [tasksRes, reportedIdsRes] = await Promise.all([
           getTasks(),
           getPmReportedTaskIds(),
         ]);
+        if (cancelled) return;
         if (tasksRes.success && tasksRes.data) {
           const done = tasksRes.data.filter((task: any) => {
             const status = String(task.status ?? '').toLowerCase();
@@ -115,11 +111,17 @@ function AddPMReportPageContent() {
       } catch (error) {
         console.error('Error checking tasks:', error);
       } finally {
-        setCheckingTasks(false);
+        if (!cancelled) {
+          tasksInitialLoadDoneRef.current = true;
+          setCheckingTasks(false);
+        }
       }
     };
-    checkDoneTasks();
-  }, [router]);
+    void checkDoneTasks();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // แสดงเฉพาะ Task ที่ยังไม่มี report_id (task_id ไม่อยู่ใน table report)
   const availablePMTasks = useMemo(
@@ -187,11 +189,15 @@ function AddPMReportPageContent() {
     setTaskPage(p => Math.min(p, Math.max(1, Math.ceil(filteredAndSortedTasks.length / TASKS_PER_PAGE)) || 1));
   }, [searchTaskReport, sortTaskBy, sofFilter, filteredAndSortedTasks.length]);
 
-  /** จากลิงก์ Create Report (เช่น schedule) — เลือก task และเลื่อนไปหน้ารายการที่มี task นั้น */
+  /** จาก Calendar/Schedule (?taskId=) — pre-fill ช่าง/วันที่/อุปกรณ์เมื่อเลือก task */
   useEffect(() => {
-    if (checkingTasks || appliedTaskIdFromUrlRef.current) return;
+    if (checkingTasks) return;
+    if (appliedTaskIdFromUrlRef.current) return;
     const raw = searchParams.get('taskId');
-    if (!raw?.trim()) return;
+    if (!raw?.trim()) {
+      appliedTaskIdFromUrlRef.current = true;
+      return;
+    }
     const n = parseInt(raw.trim(), 10);
     if (Number.isNaN(n) || n <= 0) {
       appliedTaskIdFromUrlRef.current = true;
@@ -362,6 +368,12 @@ function AddPMReportPageContent() {
     return (selectedDevice?.Sitename ?? '').toString().trim();
   }, [selectedTaskId, selectedTaskSiteName, selectedDevice]);
 
+  /** PM No. = ครั้งที่ทำ PM ของ site ในปี (ไม่ใช่ลำดับ device/หน้า) */
+  const selectedTaskPmNo = useMemo(() => {
+    if (selectedTaskId == null) return '1';
+    return computePmNo(donePMTasks, selectedTaskId, pmDate);
+  }, [donePMTasks, selectedTaskId, pmDate]);
+
   const selectedLocationDisplayName = useMemo(() => {
     if (selectedTaskId == null) return '';
     const loc = selectedDeviceLocationName;
@@ -432,7 +444,9 @@ function AddPMReportPageContent() {
 
   // ใช้ข้อมูลจาก Task ที่เลือก pre-fill form
   const applyTaskToForm = (task: any) => {
-    setSelectedTaskId(task.id);
+    const taskId = Number(task.id);
+    setSelectedTaskId(Number.isNaN(taskId) ? null : taskId);
+    lastAppliedTaskSyncRef.current = `${task.id}:${task.updatedAt ?? task.updated_at ?? ''}`;
     const firstAsset = task.assets && task.assets[0];
     if (firstAsset) {
       const deviceId = getDeviceIdFromAsset(firstAsset);
@@ -448,108 +462,43 @@ function AddPMReportPageContent() {
     setTechnicianName(formatTaskEngineersLine(task.engineers ?? task.Eng_ids));
   };
 
-  /** จาก Calendar/Schedule (?taskId=) — pre-fill ช่าง/วันที่/อุปกรณ์เมื่อเลือก task หรือโหลดรายการ task เสร็จ */
+  /** Pre-fill จาก task ที่เลือก — ไม่ re-run ทุกครั้งที่ donePMTasks ได้ array ใหม่ (กัน wizard กระพริบ) */
   useEffect(() => {
     if (selectedTaskId == null) return;
     const task = donePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
     if (!task) return;
+    const syncKey = `${task.id}:${task.updatedAt ?? task.updated_at ?? ''}`;
+    if (lastAppliedTaskSyncRef.current === syncKey) return;
+    lastAppliedTaskSyncRef.current = syncKey;
     applyTaskToForm(task);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync เมื่อ selection / snapshot รายการเปลี่ยน
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync เฉพาะเมื่อ task id / updatedAt เปลี่ยน
   }, [selectedTaskId, donePMTasks]);
 
-  // Handle file upload
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    files.forEach(file => {
-      const fileType = file.type.startsWith('image/') ? 'image' : 
-                      file.type === 'application/pdf' ? 'pdf' : 'other';
-      
-      const uploadedFile: UploadedFile = {
-        id: `file-${Date.now()}-${Math.random()}`,
-        name: file.name,
-        type: fileType,
-        file,
-      };
+  const saveButtonLabel = saving
+    ? savePhase === 'generating-pdf'
+      ? 'Generating PDF...'
+      : savePhase === 'uploading-pdf'
+        ? 'Uploading PDF...'
+        : savePhase === 'saving-report'
+          ? 'Saving report...'
+          : 'Sending...'
+    : pdfPreparing
+      ? 'Preparing PDF...'
+      : 'Save PM Report';
 
-      // Create preview for images
-      if (fileType === 'image') {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          uploadedFile.preview = e.target?.result as string;
-          setUploadedFiles(prev => [...prev, uploadedFile]);
-        };
-        reader.readAsDataURL(file);
-      } else {
-        setUploadedFiles(prev => [...prev, uploadedFile]);
-      }
-    });
-  };
-
-  // Remove uploaded file
-  const removeFile = (id: string) => {
-    setUploadedFiles(files => files.filter(f => f.id !== id));
-  };
-
-  // Handle save - อัปโหลดไฟล์ก่อน แล้วส่ง report
+  // Handle save — ผ่าน wizard (สร้าง PDF แล้วอัปโหลดไฟล์เดียว)
   const handleSave = async () => {
     if (!selectedTaskId) {
       toastWarning('Please select a task before submitting the report.');
       return;
     }
-    if (!selectedDeviceId) {
-      toastWarning('Please select a device.');
+    if (!wizardRef.current?.canSave()) {
+      toastWarning('Complete the PM Document wizard: upload backup and add before/after photos for every device.');
       return;
     }
-
-    const task: any = availablePMTasks.find((t: any) => Number(t.id) === Number(selectedTaskId));
-
     setSaving(true);
     try {
-      // ต้องเปลี่ยนตาม task ที่เราเลือก (ใช้ site_name จาก task ก่อน)
-      const siteName = (task?.siteName ?? task?.site_name ?? selectedDevice?.Sitename ?? '').toString().trim() || 'Unknown';
-      const locationName = (selectedDevice?.Location2 ?? '').toString().trim() || 'Unknown';
-      const safeForName = (s: string) => s.replace(/[/\\?*|"<>:]/g, '_').replace(/\s+/g, '_') || 'Unknown';
-      const getExt = (name: string, type: string) => {
-        const m = name?.match(/\.\w+$/);
-        if (m) return m[0];
-        return type === 'pdf' ? '.pdf' : '.jpg';
-      };
-      // อัปโหลดไฟล์ก่อน — ตั้งชื่อเป็น Site_Location_วันที่_ลำดับ เพื่อแยกตาม site และมี location
-      const filesWithPath: Array<{ name: string; type: string; path?: string }> = [];
-      for (let i = 0; i < uploadedFiles.length; i++) {
-        const f = uploadedFiles[i];
-        const uploadRes = await uploadReportFile(f.file);
-        const ext = getExt(f.name, f.type);
-        const displayName = `${safeForName(siteName)}_${safeForName(locationName)}_${pmDate}_${i + 1}${ext}`;
-        if (uploadRes.success && uploadRes.path) {
-          filesWithPath.push({ name: displayName, type: f.type, path: uploadRes.path });
-        } else {
-          filesWithPath.push({ name: displayName, type: f.type });
-        }
-      }
-
-      const reportData = {
-        taskId: selectedTaskId,
-        deviceId: selectedDeviceId,
-        device: selectedDevice ?? undefined,
-        checklistItems: [],
-        uploadedFiles: filesWithPath,
-        comment,
-        technicianName,
-        pmDate,
-        createdAt: new Date().toISOString(),
-      };
-
-      const res = await postPmReport(reportData);
-      if (res.success) {
-        toastSuccess(res.message || 'PM report saved successfully', 3200);
-        window.setTimeout(() => router.push('/pmchecklist_report'), 1200);
-      } else {
-        toastError(res.message || 'Failed to submit report');
-      }
-    } catch (e) {
-      console.error(e);
-      toastError('Error submitting report.');
+      await wizardRef.current.save();
     } finally {
       setSaving(false);
     }
@@ -765,41 +714,29 @@ function AddPMReportPageContent() {
 
         {/* Main Form */}
         <div className="bg-card/95 backdrop-blur-sm p-6 rounded-2xl border border-border shadow-sm">
-          {/* Devices – แสดงเฉพาะจำนวนอุปกรณ์ ไม่ต้องโชว์ตาราง */}
-          <div className="mb-6">
-            <label className="block text-sm font-bold text-muted-foreground mb-1">
-              Devices
-            </label>
-            {loadingDevices ? (
-              <p className="text-sm text-muted-foreground py-2">Loading devices...</p>
-            ) : !selectedTaskId && availablePMTasks.length > 0 ? (
-              <p className="text-sm text-muted-foreground py-2">Please select a task above first.</p>
-            ) : allowedDevices.length > 0 ? (
-              <div className="py-2 space-y-1">
-                <p className="inline-flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-muted text-muted-foreground text-xs">
-                    {allowedDevices.length}
-                  </span>
-                  <span>{allowedDevices.length === 1 ? 'Device' : 'Devices'}</span>
-                </p>
-                {selectedTaskId != null && (selectedSiteDisplayName || selectedLocationDisplayName) ? (
-                  <div className="space-y-0.5">
-                    <p className="text-base font-extrabold text-foreground">
-                      {selectedSiteDisplayName}
-                    </p>
-                    {selectedLocationDisplayName ? (
-                      <p className="text-xs text-muted-foreground">
-                        {selectedLocationDisplayName}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : selectedTaskId != null ? (
-              <p className="text-sm text-amber-700 py-2">This task has no linked devices in its data.</p>
-            ) : (
-              <p className="text-sm text-muted-foreground py-2">No devices to show. Select a task above.</p>
-            )}
+          {/* PM Document Wizard — Backup + Before/After photos + PDF */}
+          <div className="mb-8">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-foreground">PM Document Report (Backup → PDF)</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Upload device backup, attach before/after photos, and generate a TCC PM document PDF.
+              </p>
+            </div>
+            <PmReportWizard
+              ref={wizardRef}
+              selectedTaskId={selectedTaskId}
+              technicianName={technicianName}
+              pmDate={pmDate}
+              siteName={selectedSiteDisplayName}
+              pmNo={selectedTaskPmNo}
+              allowedDevices={allowedDevices}
+              loadingDevices={loadingDevices}
+              toastSuccess={toastSuccess}
+              toastError={toastError}
+              toastWarning={toastWarning}
+              onSavePhase={setSavePhase}
+              onPdfPrepareState={({ preparing }) => setPdfPreparing(preparing)}
+            />
           </div>
 
           {/* PM Information */}
@@ -829,126 +766,18 @@ function AddPMReportPageContent() {
             </div>
           </div>
 
-         
-          {/* File Upload Section */}
-          <div className="mb-6">
-            <label className="block text-sm font-bold text-muted-foreground mb-3">
-              Upload Images / Documents / PM Results
-            </label>
-            <div className="border-2 border-dashed border-border rounded-xl p-6 bg-muted">
-              <input
-                type="file"
-                id="file-upload"
-                multiple
-                accept="image/*,.pdf"
-                onChange={handleFileUpload}
-                className="sr-only"
-                aria-label="Upload image or PDF"
-              />
-              <label
-                htmlFor="file-upload"
-                className="flex flex-col items-center justify-center cursor-pointer"
-              >
-                <Upload size={32} className="text-muted-foreground mb-2" />
-                <p className="text-sm text-muted-foreground font-medium">
-                  Click to upload files (PDF/Images)
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Supports image and PDF files
-                </p>
-              </label>
-            </div>
-
-            {/* Uploaded Files List */}
-            {uploadedFiles.length > 0 && (
-              <div className="mt-4 space-y-2">
-                {uploadedFiles.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center gap-3 p-3 bg-muted rounded-lg border border-border"
-                  >
-                    {file.type === 'image' && file.preview ? (
-                      <img
-                        src={file.preview}
-                        alt={file.name}
-                        className="w-12 h-12 object-cover rounded-lg"
-                      />
-                    ) : (
-                      <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                        {file.type === 'pdf' ? (
-                          <FileText size={20} className="text-blue-600" />
-                        ) : (
-                          <ImageIcon size={20} className="text-blue-600" />
-                        )}
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {file.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {file.type === 'image' ? 'Image' : file.type === 'pdf' ? 'PDF' : 'File'}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => removeFile(file.id)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <X size={18} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* PM Result - อิงตาม sla_term จาก Contract (ไม่แสดง threshold)
-          <div className="mb-6">
-            <label className="block text-sm font-bold text-muted-foreground mb-3">
-              PM Result * <span className="font-normal text-muted-foreground">(SLA Term)</span>
-            </label>
-            <div className="flex flex-wrap items-center gap-4">
-              <input
-                type="number" 
-                min={0}
-                max={100}
-                value={slaResult}
-                onChange={(e) => setSlaResult(e.target.value)}
-                placeholder="e.g. 85"
-                className="w-32 p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-              />
-              {slaResult.trim() !== '' && !Number.isNaN(Number(slaResult)) && (
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold ${Number(slaResult) > slaThreshold ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {Number(slaResult) > slaThreshold ? <CheckCircle2 size={18} /> : <XCircle size={18} />}
-                  {Number(slaResult) > slaThreshold ? 'Pass' : 'Fail'}
-                </span>
-              )}
-            </div>
-          </div> */}
-
-          {/* Comment Field */}
-          <div className="mb-6">
-            <label className="block text-sm font-bold text-muted-foreground mb-3">
-             Notes from Technician
-            </label>
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Enter additional notes..."
-              rows={4}
-              className="w-full p-3 bg-muted border border-border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-none"
-            />
-          </div>
-
-          {/* Save Button */}
-          <div className="flex justify-end">
+          {/* Save — อัปโหลด PDF สำเร็จรูปจาก wizard อัตโนมัติ */}
+          <div className="flex flex-col items-end gap-2">
+            <p className="text-xs text-muted-foreground text-right max-w-md">
+              After completing the wizard above, save here. The finished PM PDF is uploaded automatically — Download PDF is optional for your own copy.
+            </p>
             <button
-              onClick={handleSave}
-              disabled={saving}
+              onClick={() => void handleSave()}
+              disabled={saving || pdfPreparing}
               className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-8 py-3.5 rounded-xl font-bold hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-blue-500/25"
             >
               <Save size={18} />
-              {saving ? 'Sending...' : 'Save PM Report'}
+              {saveButtonLabel}
             </button>
           </div>
         </div>
