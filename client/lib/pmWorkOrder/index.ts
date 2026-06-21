@@ -7,7 +7,16 @@ export type {
   PmMaintenanceItemRow,
   PmTaskContext,
 } from './types';
-export { parseBackupFile, findBackupBySerial, findBackupForDevice, backupModelMatchesDevice, normalizeSerial } from './parseBackupFile';
+export {
+  parseBackupFile,
+  findBackupBySerial,
+  findBackupByDeviceName,
+  findBackupForDevice,
+  backupModelMatchesDevice,
+  normalizeSerial,
+  normalizeDeviceName,
+  deviceNameKey,
+} from './parseBackupFile';
 export {
   applyBackupToInspection,
   buildDeviceTaskContext,

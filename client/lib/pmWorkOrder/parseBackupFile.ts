@@ -13,7 +13,15 @@ const SERIAL_KEYS = [
 const FIELD_ALIASES: Record<keyof Omit<PmBackupRecord, 'serialNumber'>, string[]> = {
   equipmentType: ['equipmenttype', 'equipment_type', 'type', 'type of equipment', 'device type'],
   equipmentLocation: ['equipmentlocation', 'equipment_location', 'location'],
-  hostname: ['hostname', 'host name', 'host'],
+  hostname: [
+    'hostname',
+    'host name',
+    'host',
+    'host name list',
+    'hostnamelist',
+    'host sequence',
+    'host name list',
+  ],
   product: ['product'],
   model: ['model'],
   rackRu: ['rackru', 'rack_ru', 'rack', 'rack/ru', 'ru'],
@@ -79,9 +87,8 @@ function pickField(row: Record<string, unknown>, aliases: string[]): string {
 
 function rowToBackupRecord(row: Record<string, unknown>): PmBackupRecord | null {
   const serialNumber = pickSerial(row);
-  if (!serialNumber) return null;
 
-  const record: PmBackupRecord = { serialNumber };
+  const record: PmBackupRecord = { serialNumber: serialNumber || '' };
   for (const [field, aliases] of Object.entries(FIELD_ALIASES) as [
     keyof Omit<PmBackupRecord, 'serialNumber'>,
     string[],
@@ -89,7 +96,24 @@ function rowToBackupRecord(row: Record<string, unknown>): PmBackupRecord | null 
     const val = pickField(row, aliases);
     if (val) record[field] = val;
   }
+  if (!record.serialNumber && !record.hostname?.trim()) return null;
   return record;
+}
+
+export function normalizeDeviceName(name: string): string {
+  return name.trim().toUpperCase().replace(/[\s_-]+/g, '');
+}
+
+export function deviceNameKey(device: { CI_Name?: string; name?: string }): string | null {
+  const raw = (device.CI_Name ?? device.name ?? '').trim();
+  if (!raw) return null;
+  return normalizeDeviceName(raw);
+}
+
+function backupDeviceNameKey(backup: PmBackupRecord): string | null {
+  const raw = (backup.hostname ?? '').trim();
+  if (!raw) return null;
+  return normalizeDeviceName(raw);
 }
 
 export function normalizeSerial(serial: string): string {
@@ -106,7 +130,7 @@ function deviceModelKey(device: { CI_Name?: string; model?: string }): string | 
   return normalizeLabel(raw);
 }
 
-/** Task CI_Name/model must match backup Model column */
+/** @deprecated Prefer device name match via findBackupForDevice */
 export function backupModelMatchesDevice(
   device: { CI_Name?: string; model?: string },
   backup: PmBackupRecord
@@ -126,19 +150,26 @@ export function findBackupBySerial(
   return records.find((r) => normalizeSerial(r.serialNumber) === target);
 }
 
-/** Match device → backup row when Model + Serial Number both align */
+/** Match task device CI_Name ↔ backup Host Name / hostname column */
 export function findBackupForDevice(
   records: PmBackupRecord[],
-  device: { serial?: string; CI_Name?: string; model?: string }
+  device: { CI_Name?: string; name?: string; serial?: string; model?: string }
 ): PmBackupRecord | undefined {
-  const serial = (device.serial ?? '').trim();
-  if (!serial || !deviceModelKey(device)) return undefined;
+  const deviceKey = deviceNameKey(device);
+  if (!deviceKey) return undefined;
+  return records.find((r) => {
+    const backupKey = backupDeviceNameKey(r);
+    return backupKey != null && backupKey === deviceKey;
+  });
+}
 
-  const targetSerial = normalizeSerial(serial);
-  return records.find(
-    (r) =>
-      normalizeSerial(r.serialNumber) === targetSerial && backupModelMatchesDevice(device, r)
-  );
+export function findBackupByDeviceName(
+  records: PmBackupRecord[],
+  deviceName: string
+): PmBackupRecord | undefined {
+  const target = normalizeDeviceName(deviceName);
+  if (!target) return undefined;
+  return records.find((r) => backupDeviceNameKey(r) === target);
 }
 
 function rowsFromObjects(objects: unknown[]): PmBackupRecord[] {
@@ -190,7 +221,7 @@ async function parseXlsxBuffer(buffer: ArrayBuffer): Promise<PmBackupRecord[]> {
   return rowsFromObjects(json);
 }
 
-/** Parse backup file (JSON / CSV / XLSX / XLS) → records indexed by serial */
+/** Parse backup file (JSON / CSV / XLSX / XLS) → records keyed by device name / serial */
 export async function parseBackupFile(file: File): Promise<PmBackupRecord[]> {
   const name = file.name.toLowerCase();
   if (name.endsWith('.json')) {

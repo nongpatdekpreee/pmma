@@ -26,8 +26,8 @@ import {
   buildPmWorkOrderFilename,
   createDefaultMaintenanceDrafts,
   downloadPmWorkOrderPdf,
+  deviceNameKey,
   findBackupForDevice,
-  findBackupBySerial,
   generatePmWorkOrderPdfBlob,
   parseBackupFile,
 } from '@/lib/pmWorkOrder';
@@ -178,7 +178,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     return buildPmFullDocumentMulti(baseTaskContext, allowedDevices, maintenanceRows, backupByDid);
   }, [backupMapped, allowedDevices, baseTaskContext, maintenanceRows, backupByDid]);
 
-  /** Inspection rows ที่ match backup จริง (Model + Serial ตรง) */
+  /** Inspection rows ที่ match backup จริง (Device name ตรง) */
   const matchedInspections = useMemo(() => {
     if (!fullDocument) return [];
     return allowedDevices.flatMap((device, idx) => {
@@ -260,23 +260,17 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       let mappedCount = 0;
 
       for (const device of allowedDevices) {
-        const serial = (device.serial ?? '').trim();
         const label = device.CI_Name || device.model || `Device ${device.Did}`;
         let backup: PmBackupRecord | null = null;
 
-        if (!serial) {
-          unmapped.push(`${label}: no serial in task`);
-        } else if (!device.CI_Name?.trim() && !device.model?.trim()) {
-          unmapped.push(`${label} (${serial}): no model/CI_Name in task`);
+        if (!deviceNameKey(device)) {
+          unmapped.push(`${label}: no device name (CI_Name) in task`);
         } else {
-          const serialHit = findBackupBySerial(records, serial);
           backup = findBackupForDevice(records, device) ?? null;
           if (backup) {
             mappedCount += 1;
-          } else if (!serialHit) {
-            unmapped.push(`${label} (${serial}): serial not in backup`);
           } else {
-            unmapped.push(`${label} (${serial}): model does not match backup Model column`);
+            unmapped.push(`${label}: device name not found in backup (Host Name / hostname column)`);
           }
         }
         nextBackupByDid.set(device.Did, backup);
@@ -304,7 +298,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
 
       if (unmapped.length) {
         setBackupError(
-          `Could not map ${unmapped.length} device(s) — Model and Serial Number must both match. ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? `; +${unmapped.length - 5} more` : ''}`
+          `Could not map ${unmapped.length} device(s) — Device name (CI_Name) must match backup Host Name. ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? `; +${unmapped.length - 5} more` : ''}`
         );
       } else {
         setBackupError('');
@@ -551,8 +545,8 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             <>
               <p className="text-sm text-muted-foreground">
                 <strong className="text-foreground">{allowedDevices.length}</strong> device(s) in this task — matched
-                when <strong className="text-foreground">Model</strong> (CI_Name ↔ Model column) and{' '}
-                <strong className="text-foreground">Serial Number</strong> both match the backup file.
+                when <strong className="text-foreground">Device name</strong> (CI_Name in task ↔ Host Name /
+                hostname in backup file) matches.
               </p>
               <div className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center">
                 <input type="file" id="pm-backup-upload" accept=".json,.csv,.xlsx,.xls" className="sr-only" onChange={handleBackupUpload} disabled={backupLoading} />
@@ -633,7 +627,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               )}
               {backupMapped && mappedDeviceCount === 0 && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                  No devices matched the backup file. Check Model and Serial Number columns.
+                  No devices matched the backup file. Check Host Name / hostname column vs CI_Name in task.
                 </div>
               )}
             </>
@@ -649,7 +643,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
                 if (!canGoStep2) {
                   toastWarning(
                     backupError
-                      ? 'All devices must match the backup file (Model + Serial) before continuing.'
+                      ? 'All devices must match the backup file (device name) before continuing.'
                       : 'Upload a backup file and map all devices first.'
                   );
                   return;
