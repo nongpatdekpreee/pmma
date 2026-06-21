@@ -2551,14 +2551,8 @@ function ScheduleManagementContent() {
               task.devices = devicesMap[key].devices;
               console.log(`✓ Task "${task.siteName}" - SOF "${task.sofName}": ${task.deviceCount} devices assigned`, task.deviceIds);
               if (task.deviceCount === 0) {
-                const previewN = task._importPreviewRow ?? tasks.indexOf(task) + 1;
-                const sheetN = task._importSheetRow;
-                const rowRef =
-                  sheetN != null
-                    ? `Preview row ${previewN} (spreadsheet row ${sheetN})`
-                    : `Preview row ${previewN}`;
-                errors.push(
-                  `${rowRef}: No devices found for SLid ${task.Sid} + Location "${task.location || '—'}" + SOF "${task.sofName}" in this contract\nFrom your file: SOF "${task.sofName}", SLid ${task.Sid}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
+                console.warn(
+                  `[import] No devices for SLid ${task.Sid} + SOF "${task.sofName}" — plan can still be created without devices`,
                 );
               }
             } else {
@@ -2713,26 +2707,16 @@ function ScheduleManagementContent() {
           }
         }
 
-        const hasDevices =
-          (task.deviceIds && task.deviceIds.length > 0) ||
-          (task.devices && task.devices.length > 0);
-        if (!hasDevices) {
-          errors.push(
-            `${bulkRowHead} No devices found for SLid ${task.Sid || task.siteId || '—'} + Location "${task.location || '—'}" + SOF "${sofTrimBulk}"\nFrom your file: SOF "${sofTrimBulk}", SLid ${task.Sid || task.siteId || '—'}, Site "${task.Sname || task.siteName || '—'}", Location "${task.location || '—'}".`
-          );
-          continue;
-        }
-
         // ===== Prepare payload according to database schema (tasks.sql) =====
-        // engineers → JSON: [{"id":"9","name":"Chainarin","lastName":"Phosai"}]
-        const engineersArray = task.Eng_ids ? task.Eng_ids.map((e: Engineer) => ({
-          id: String(e.id),
-          name: e.name || '',
-          lastName: e.lastName || ''
-        })) : [];
-        
-        // assets → JSON array with full device data (same as existing data)
-        // use devices data fetched from fetchDevicesBySiteSOFLocation
+        const engineersArray = task.Eng_ids
+          ? task.Eng_ids.map((e: Engineer) => ({
+              id: String(e.id),
+              name: e.name || '',
+              lastName: e.lastName || '',
+            }))
+          : [];
+
+        // assets → JSON array with full device data (empty allowed — plan without devices)
         let assetsArray: ImportedAssetPayload[] = [];
         if (task.devices && task.devices.length > 0) {
           const siteLabel = task.Sname || task.siteName || null;

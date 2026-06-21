@@ -22,6 +22,7 @@ import {
   getAssignedServices,
   type ApiTask,
 } from '@/lib/api';
+import { prepareReportUploadFile } from '@/lib/prepareReportUploadFile';
 import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
@@ -1353,9 +1354,28 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     return formatContractDisplayLabel(c, contractIdStr);
   }, [contractOptions]);
 
-  // กรอง devices ตาม site ที่เลือก (Contract → Site → Devices). ถ้ากรองตาม site แล้วไม่เจอ (เช่น fallback มาจากดึงแค่ตาม contract) ให้โชว์ทั้งหมดที่ผูกกับ contract นั้น
-  const bySite = Sid ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid) : devices;
-  const devicesToShow = Sid && bySite.length > 0 ? bySite : devices;
+  const deviceContractKey = (d: Device) =>
+    d.contract_id != null
+      ? String(d.contract_id)
+      : d.SLid != null
+        ? String(d.SLid)
+        : '';
+
+  /** หลาย SOF = หลาย SLid — ห้ามกรองด้วย Sid เดียว (dropdown อาจเป็น SLid ล่าสุดของ location) */
+  const devicesToShow = useMemo(() => {
+    if (selectedContractIds.length > 0) {
+      const allowed = new Set(selectedContractIds.map(String));
+      const bySelectedContracts = devices.filter((d) => {
+        const key = deviceContractKey(d);
+        return key !== '' && allowed.has(key);
+      });
+      if (selectedContractIds.length > 1 || bySelectedContracts.length > 0) {
+        return bySelectedContracts;
+      }
+    }
+    const bySite = Sid ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid) : devices;
+    return Sid && bySite.length > 0 ? bySite : devices;
+  }, [devices, Sid, selectedContractIdsKey, selectedContractIds]);
   const uniqueDeviceRoles = Array.from(new Set(devicesToShow.map(d => d.role).filter(Boolean))).sort();
 
   // Get unique models from devicesToShow, but use deviceTypes data if available for better accuracy
@@ -1698,7 +1718,19 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
       const photosPayloadForSave = [...taskAttachmentPaths];
       if (taskType === 'MA' && taskAttachmentFilesPending.length > 0) {
         for (const file of taskAttachmentFilesPending) {
-          const up = await uploadMaReportFile(file);
+          const fileType = file.type.startsWith('image/')
+            ? 'image'
+            : file.type === 'application/pdf'
+              ? 'pdf'
+              : 'other';
+          let prepared: File;
+          try {
+            prepared = await prepareReportUploadFile(file, fileType);
+          } catch (err) {
+            toastError(err instanceof Error ? err.message : `Cannot prepare ${file.name} for upload`);
+            return;
+          }
+          const up = await uploadMaReportFile(prepared);
           if (!up.success || !up.path) {
             toastError(`อัปโหลดไม่สำเร็จ: ${file.name}`);
             return;
@@ -1766,16 +1798,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
       // ----- สร้างใหม่ -----
       if (taskType === 'PM') {
-        if (selectedContractIds.length > 1 && selectedDevices.length === 0) {
-          showWarning('Select at least one device, or choose only one contract.');
-          return;
-        }
         if (selectedContractIds.length === 1) {
           const cid = Number(selectedContractIds[0]);
           await onSave?.(makePayload(selectedDevices, isNaN(cid) ? null : cid, null));
           onClose();
           return;
         }
+        /** หลาย SOF = หลาย plan (1 task ต่อ contract_id) — แม้บาง SOF ไม่มี device */
         const groups = new Map<number, Device[]>();
         for (const d of selectedDevices) {
           const c = d.contract_id != null ? Number(d.contract_id) : NaN;
@@ -1786,16 +1815,18 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           if (!groups.has(c)) groups.set(c, []);
           groups.get(c)!.push(d);
         }
-        const keys = [...groups.keys()].sort((a, b) => a - b);
-        if (keys.length === 0) {
-          showWarning('No devices match the selected contracts.');
+        const payloads = selectedContractIds
+          .map((cidStr) => {
+            const cid = Number(cidStr);
+            if (isNaN(cid)) return null;
+            return makePayload(groups.get(cid) ?? [], cid, null);
+          })
+          .filter((p): p is ReturnType<typeof makePayload> => p != null);
+        if (payloads.length === 0) {
+          showWarning('Please select a contract (SOF) for this PM task');
           return;
         }
-        if (keys.length === 1) {
-          await onSave?.(makePayload(groups.get(keys[0])!, keys[0], null));
-        } else {
-          await onSave?.(keys.map((cid) => makePayload(groups.get(cid)!, cid, null)));
-        }
+        await onSave?.(payloads.length === 1 ? payloads[0] : payloads);
         onClose();
         return;
       }
@@ -2090,7 +2121,8 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
             {deviceError && <p className="text-xs text-red-500">{deviceError}</p>}
             {loadingDevices && <p className="text-xs text-muted-foreground">Loading devices...</p>}
 
-            {devicesToShow.length > 0 && taskType === 'PM' && (
+            {(devicesToShow.length > 0 || (taskType === 'PM' && selectedContractIds.length > 1)) &&
+              taskType === 'PM' && (
               <div className="space-y-1.5">
                 {/* Search and Filter Row */}
                 <div className="space-y-2">
@@ -2307,7 +2339,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           </div>
                           {groupAvail.length === 0 && (
                             <p className="text-[10px] text-muted-foreground leading-snug">
-                              No devices in this list (already selected, filtered out, or no assets on this contract for the site).
+                              No devices on this contract (already selected, filtered out, or not assigned in contract editor).
                             </p>
                           )}
                         </div>

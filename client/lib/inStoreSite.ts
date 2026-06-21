@@ -10,3 +10,15 @@ export const DEFAULT_IN_STORE_SITE_NAME =
  * ว่าง = ไม่ fallback; ถ้ามีค่าใช้เมื่อ API device ไม่ส่ง Location2
  */
 export const DEFAULT_IN_STORE_LOCATION = '';
+
+/** Location2 เมื่อ backend auto-provision คลัง — sync กับ backend/config/inStoreSite.js */
+export const DEFAULT_IN_STORE_WAREHOUSE_LOCATION = 'Bangna';
+
+/** เปรียบเทียบชื่อ site กับคลัง In Store (ไม่ใช้ hardcode SLid) */
+export function isDefaultInStoreSiteName(name: string | null | undefined): boolean {
+  return (
+    String(name ?? '')
+      .trim()
+      .toLowerCase() === DEFAULT_IN_STORE_SITE_NAME.trim().toLowerCase()
+  );
+}

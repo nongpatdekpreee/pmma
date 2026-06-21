@@ -135,6 +135,16 @@ async function resolveContractNameDbColumn(conn, table) {
   return 'contract_name';
 }
 
+function parseSiteContactField(raw) {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch {
+    return null;
+  }
+}
+
 function storedContractNameFromRow(slRow) {
   if (!slRow) return '';
   if (slRow.contract_name != null && String(slRow.contract_name).trim() !== '') {
@@ -162,6 +172,19 @@ async function ensureSitesLocationAssignedService(conn) {
   if (await columnExists(conn, 'sites_location', 'Assigned_Service')) return;
   await conn.execute(
     `ALTER TABLE sites_location ADD COLUMN Assigned_Service varchar(100) NOT NULL DEFAULT '' AFTER sla_term`
+  );
+}
+
+/** Site contact JSON ({ site_contact_1, site_contact_2 }) — แยกจาก contactname (ชื่อสัญญา) */
+async function ensureSitesLocationContactColumn(conn) {
+  if (await columnExists(conn, 'sites_location', 'contact')) return;
+  const afterCol = (await columnExists(conn, 'sites_location', 'email_acc'))
+    ? 'email_acc'
+    : (await columnExists(conn, 'sites_location', 'contactname'))
+      ? 'contactname'
+      : 'lid';
+  await conn.execute(
+    `ALTER TABLE sites_location ADD COLUMN \`contact\` JSON DEFAULT NULL AFTER \`${afterCol}\``
   );
 }
 
@@ -213,6 +236,7 @@ function mapSlRowToContractDetail(slRow) {
     coverage_scope: slRow.coverage_scope,
     file_paths: slRow.file_paths,
     image_paths: slRow.image_paths,
+    contact: parseSiteContactField(slRow.contact),
     pm_time_per_year: slRow.pm_time_per_year,
     created_at: slRow.created_at,
   };
@@ -230,6 +254,7 @@ async function insertSiteLocationHistory(conn, slid, actionType, meta = {}) {
   const hasChangedAt = await columnExists(conn, 'sites_location_sof_history', 'changed_at');
   const hasOldSof = await columnExists(conn, 'sites_location_sof_history', 'old_sof');
   const hasTerm = await columnExists(conn, 'sites_location_sof_history', 'terminated_reason');
+  const hasContactHist = await columnExists(conn, 'sites_location_sof_history', 'contact');
   const contractNameCol = await resolveContractNameDbColumn(conn, 'sites_location_sof_history');
 
   const sofForHistory =
@@ -254,6 +279,7 @@ async function insertSiteLocationHistory(conn, slid, actionType, meta = {}) {
     'tel_acc',
     'email_acc',
     'coverage_scope',
+    ...(hasContactHist ? ['contact'] : []),
     'file_paths',
     'image_paths',
     'status'
@@ -276,6 +302,7 @@ async function insertSiteLocationHistory(conn, slid, actionType, meta = {}) {
     slRow.tel_acc,
     slRow.email_acc,
     slRow.coverage_scope,
+    ...(hasContactHist ? [slRow.contact ?? null] : []),
     slRow.file_paths,
     slRow.image_paths,
     slRow.status
@@ -306,6 +333,85 @@ async function assignDevicesToSlid(conn, slid, deviceIds) {
   await conn.execute(`UPDATE devices SET SLid = ? WHERE Did IN (${ph})`, [slid, ...ids]);
 }
 
+/** sites_location ที่มีสัญญา official อยู่แล้ว — ห้าม Create ทับ (ใช้ Renew/Edit แทน) */
+function slRowHasBlockingOfficialContract(slRow) {
+  if (!slRow) return false;
+  const status = String(slRow.status ?? '').trim().toLowerCase();
+  if (!status || status === 'draft' || status === 'not_renewing') return false;
+  if (status !== 'official') return false;
+  const sof = slRow.SOF != null ? String(slRow.SOF).trim() : '';
+  if (!sof) return false;
+  const lower = sof.toLowerCase();
+  if (lower === 'not assigned' || lower === 'n/a' || lower === 'na') return false;
+  return true;
+}
+
+/** ตรวจว่า device อยู่คลัง Bangna และ In Store (พร้อม assign ไป site ลูกค้า) */
+async function assertDevicesAtBangnaWarehouse(conn, deviceIds) {
+  const { DEFAULT_IN_STORE_SITE_NAME } = require('../config/inStoreSite');
+  const ids = [...new Set(deviceIds.map((d) => parseInt(d, 10)).filter((n) => !Number.isNaN(n)))];
+  if (ids.length === 0) return;
+  const ph = ids.map(() => '?').join(', ');
+  const [rows] = await conn.execute(
+    `SELECT d.Did
+     FROM devices d
+     INNER JOIN sites_location sl ON d.SLid = sl.SLid
+     INNER JOIN sites s ON sl.Sid = s.Sid
+     WHERE d.Did IN (${ph})
+       AND LOWER(TRIM(s.Name)) = LOWER(TRIM(?))
+       AND LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store'`,
+    [...ids, DEFAULT_IN_STORE_SITE_NAME]
+  );
+  const found = new Set((rows || []).map((r) => parseInt(r.Did, 10)));
+  const invalid = ids.filter((id) => !found.has(id));
+  if (invalid.length > 0) {
+    const err = new Error(
+      `Selected devices must be In Store at Bangna warehouse (invalid Did: ${invalid.join(', ')})`
+    );
+    err.code = 'DEVICES_NOT_AT_BANGNA';
+    err.device_ids = invalid;
+    throw err;
+  }
+}
+
+/** สร้างสัญญาใหม่: ย้าย device จากคลัง Bangna → SLid ลูกค้า และตั้ง Asset_State = In Use */
+async function assignDevicesFromBangnaToSlid(conn, targetSlid, deviceIds) {
+  const slidNum = parseInt(targetSlid, 10);
+  if (Number.isNaN(slidNum)) {
+    throw new Error(`Invalid target SLid for device assignment: ${targetSlid}`);
+  }
+  const ids = [...new Set(deviceIds.map((d) => parseInt(d, 10)).filter((n) => !Number.isNaN(n)))];
+  if (ids.length === 0) return;
+  await assertDevicesAtBangnaWarehouse(conn, ids);
+  const ph = ids.map(() => '?').join(', ');
+  await conn.execute(
+    `UPDATE devices SET SLid = ?, Asset_State = 'In Use' WHERE Did IN (${ph})`,
+    [slidNum, ...ids]
+  );
+}
+
+/** หลังสร้างสัญญา official — ย้าย device In Store ที่ SLid นี้แต่ไม่อยู่ในรายการที่เลือก กลับคลัง */
+async function reconcileInStoreDevicesAtSlid(conn, slid, keepDeviceIds) {
+  const slidNum = parseInt(slid, 10);
+  if (Number.isNaN(slidNum)) return;
+  const keep = new Set(
+    (keepDeviceIds || []).map((d) => parseInt(d, 10)).filter((n) => !Number.isNaN(n))
+  );
+  const [rows] = await conn.execute(
+    `SELECT Did FROM devices
+     WHERE SLid = ?
+       AND LOWER(TRIM(COALESCE(Asset_State,''))) = 'in store'`,
+    [slidNum]
+  );
+  if (!rows.length) return;
+  const { assignDeviceToInStoreWarehouse } = require('../config/inStoreSite');
+  for (const row of rows) {
+    const did = parseInt(row.Did, 10);
+    if (Number.isNaN(did) || keep.has(did)) continue;
+    await assignDeviceToInStoreWarehouse(conn, did);
+  }
+}
+
 /** Device already on another official sites_location with SOF */
 async function findDevicesOnOtherContracts(conn, deviceIds, excludeSlid) {
   const ids = [...new Set(deviceIds.map((d) => parseInt(d, 10)).filter((n) => !Number.isNaN(n)))];
@@ -333,12 +439,73 @@ async function findDevicesOnOtherContracts(conn, deviceIds, excludeSlid) {
   return (rows || []).map((r) => r.device_id);
 }
 
+function buildSiteLocationContractFieldMap(fields, connMeta = {}) {
+  const { contractNameCol = 'contract_name', hasAssignedService = true, hasContactCol = true } =
+    connMeta;
+  return {
+    SOF: fields.sof_name,
+    [contractNameCol]: fields.contract_name,
+    start_date: fields.start_date,
+    end_date: fields.end_date,
+    sla_term: fields.sla_term,
+    Assigned_Service: fields.assigned_service,
+    sale_account: fields.sale_account,
+    tel_acc: fields.tel_acc,
+    email_acc: fields.email_acc,
+    coverage_scope: fields.coverage_scope,
+    contact: fields.contact,
+    file_paths: fields.file_paths,
+    image_paths: fields.image_paths,
+    pm_time_per_year: fields.pm_time_per_year,
+    status: fields.status,
+  };
+}
+
+/** Create = สัญญาใหม่ที่ location เดิม — INSERT sites_location แถวใหม่ (ไม่ทับ SLid เก่า) */
+async function insertSiteLocationContract(conn, sid, lid, fields = {}) {
+  await ensureSitesLocationAssignedService(conn);
+  await ensureSitesLocationContactColumn(conn);
+  const contractNameCol = await resolveContractNameDbColumn(conn, 'sites_location');
+  const hasAssignedService = await columnExists(conn, 'sites_location', 'Assigned_Service');
+  const hasContactCol = await columnExists(conn, 'sites_location', 'contact');
+  const sidNum = parseInt(sid, 10);
+  const lidNum = parseInt(lid, 10);
+  if (Number.isNaN(sidNum) || Number.isNaN(lidNum)) {
+    throw new Error(`Invalid Sid/lid for new sites_location: Sid=${sid}, lid=${lid}`);
+  }
+
+  const cols = ['Sid', 'lid'];
+  const vals = [sidNum, lidNum];
+  const map = buildSiteLocationContractFieldMap(fields, {
+    contractNameCol,
+    hasAssignedService,
+    hasContactCol,
+  });
+  for (const [col, val] of Object.entries(map)) {
+    if (col === 'Assigned_Service' && !hasAssignedService) continue;
+    if (col === 'contact' && !hasContactCol) continue;
+    if (col === 'contact' && (val === undefined || val === null)) continue;
+    if (val !== undefined) {
+      cols.push(col);
+      vals.push(val);
+    }
+  }
+
+  const [result] = await conn.execute(
+    `INSERT INTO sites_location (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+    vals
+  );
+  return result.insertId;
+}
+
 async function updateSiteLocationContract(conn, slid, fields) {
   await ensureSitesLocationAssignedService(conn);
+  await ensureSitesLocationContactColumn(conn);
   const contractNameCol = await resolveContractNameDbColumn(conn, 'sites_location');
   const sets = [];
   const vals = [];
   const hasAssignedService = await columnExists(conn, 'sites_location', 'Assigned_Service');
+  const hasContactCol = await columnExists(conn, 'sites_location', 'contact');
   const map = {
     SOF: fields.sof_name,
     [contractNameCol]: fields.contract_name,
@@ -350,6 +517,7 @@ async function updateSiteLocationContract(conn, slid, fields) {
     tel_acc: fields.tel_acc,
     email_acc: fields.email_acc,
     coverage_scope: fields.coverage_scope,
+    contact: fields.contact,
     file_paths: fields.file_paths,
     image_paths: fields.image_paths,
     pm_time_per_year: fields.pm_time_per_year,
@@ -357,6 +525,9 @@ async function updateSiteLocationContract(conn, slid, fields) {
   };
   for (const [col, val] of Object.entries(map)) {
     if (col === 'Assigned_Service' && !hasAssignedService) continue;
+    if (col === 'contact' && !hasContactCol) continue;
+    // JSON column: skip NULL — empty contact = ไม่แก้ค่าเดิม (หลีกเลี่ยง NOT NULL / invalid JSON)
+    if (col === 'contact' && (val === undefined || val === null)) continue;
     if (val !== undefined) {
       sets.push(`${col} = ?`);
       vals.push(val);
@@ -389,6 +560,7 @@ function mergeHistoryDetailWithLive(snap, liveDetail) {
     tel_acc: pick('tel_acc'),
     email_acc: pick('email_acc'),
     coverage_scope: pick('coverage_scope'),
+    contact: snap.contact != null ? parseSiteContactField(snap.contact) : parseSiteContactField(liveDetail.contact),
     file_paths: pick('file_paths'),
     image_paths: pick('image_paths'),
     pm_time_per_year: snap.pm_time_per_year != null ? snap.pm_time_per_year : liveDetail.pm_time_per_year,
@@ -432,6 +604,7 @@ function mapHistoryRowToContractDetail(histRow, siteInfo = {}) {
     tel_acc: histRow.tel_acc,
     email_acc: histRow.email_acc,
     coverage_scope: histRow.coverage_scope,
+    contact: parseSiteContactField(histRow.contact),
     file_paths: histRow.file_paths,
     image_paths: histRow.image_paths,
     pm_time_per_year: histRow.pm_time_per_year,
@@ -493,6 +666,7 @@ module.exports = {
   columnExists,
   ensureHistoryCompatColumns,
   ensureSitesLocationAssignedService,
+  ensureSitesLocationContactColumn,
   resolveContractNameFromRow,
   fetchSiteLocationRow,
   mapSlRowToContractDetail,
@@ -500,7 +674,12 @@ module.exports = {
   mergeHistoryDetailWithLive,
   insertSiteLocationHistory,
   assignDevicesToSlid,
+  assignDevicesFromBangnaToSlid,
+  assertDevicesAtBangnaWarehouse,
+  slRowHasBlockingOfficialContract,
+  reconcileInStoreDevicesAtSlid,
   findDevicesOnOtherContracts,
+  insertSiteLocationContract,
   updateSiteLocationContract,
   mapHistoryRowToLegacy,
   DEVICES_BY_SLID_SQL,

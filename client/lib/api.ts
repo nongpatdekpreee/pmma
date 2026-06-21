@@ -315,7 +315,12 @@ export async function getSitesByContract(contractId: number | string): Promise<{
 /** GET /api/contracts/:id - ดึง Contract เดียว (สำหรับ fallback sla_term) */
 export async function getContractById(contractId: number | string): Promise<{
   success: boolean;
-  data?: { contract_id: number; contract_name?: string; sla_term?: number | string };
+  data?: {
+    contract_id: number;
+    contract_name?: string;
+    sla_term?: number | string;
+    contact?: unknown;
+  };
 }> {
   const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}`));
   return jsonWithFallback(res, { success: false });

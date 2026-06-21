@@ -46,6 +46,33 @@ function jsonPaths(field) {
   return null;
 }
 
+function jsonContact(field) {
+  if (field == null) return null;
+  if (typeof field === 'object') {
+    if (Array.isArray(field)) return null;
+    if (Object.keys(field).length === 0) return null;
+    return JSON.stringify(field);
+  }
+  const trimmed = String(field).trim();
+  if (!trimmed || trimmed === 'null') return null;
+  try {
+    JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  return trimmed;
+}
+
+function contactComparable(field) {
+  const j = jsonContact(field);
+  if (j == null) return '';
+  try {
+    return JSON.stringify(JSON.parse(j));
+  } catch {
+    return j;
+  }
+}
+
 function parsePairsFromBody(body, contractStatus) {
   let pairs = [];
   if (Array.isArray(body.site_device_pairs) && body.site_device_pairs.length > 0) {
@@ -55,15 +82,36 @@ function parsePairsFromBody(body, contractStatus) {
         device_ids: Array.isArray(p.device_ids)
           ? p.device_ids.map((d) => parseInt(d, 10)).filter((n) => !isNaN(n))
           : [],
+        contact: p.contact !== undefined ? p.contact : undefined,
       }))
       .filter(
         (p) =>
           p.site_id != null &&
           !isNaN(p.site_id) &&
-          (p.device_ids.length > 0 || contractStatus === 'draft')
+          (p.device_ids.length > 0 || contractStatus === 'draft' || p.contact !== undefined)
       );
   }
   return pairs;
+}
+
+function bodyWithoutContact(body) {
+  if (!body || body.contact === undefined) return body;
+  const { contact: _omit, ...rest } = body;
+  return rest;
+}
+
+function resolveContactForSlid(body, pairContact) {
+  if (pairContact !== undefined) return jsonContact(pairContact);
+  if (body.contact !== undefined) return jsonContact(body.contact);
+  return undefined;
+}
+
+function pairContactForSlid(pairs, slid) {
+  if (!Array.isArray(pairs)) return undefined;
+  const id = parseInt(slid, 10);
+  if (Number.isNaN(id)) return undefined;
+  const match = pairs.find((p) => p.site_id === id);
+  return match?.contact;
 }
 
 async function historySchemaFlags() {
@@ -553,6 +601,9 @@ function hasOtherContractEdits(existing, body, { skipNotRenewingStatus = false }
   if (body.coverage_scope !== undefined && normStr(body.coverage_scope) !== normStr(existing.coverage_scope)) {
     return true;
   }
+  if (body.contact !== undefined && contactComparable(body.contact) !== contactComparable(existing.contact)) {
+    return true;
+  }
   if (body.file_paths !== undefined && pathsComparable(body.file_paths) !== pathsComparable(existing.file_paths)) {
     return true;
   }
@@ -586,7 +637,29 @@ async function syncSofRenameToAllPeers(conn, oldSof, newSof) {
   await syncSofRenameOnSiteLocations(conn, oldTrim, newTrim);
 }
 
-/** แพร่ฟิลด์สัญญาไปทุก sites_location ที่ SOF ตรงกัน (ยกเว้นแถวที่แก้) */
+/** บันทึกประวัติ SOF ให้ทุก SLid ในรายการ (ยกเว้น excludeSlid ถ้าระบุ) */
+async function recordSofChangeHistoryForSlids(
+  conn,
+  slids,
+  { oldSof, newSof },
+  { excludeSlid = null, action = slc.HIST_ACTION.SOF_CHANGE } = {}
+) {
+  const oldT = oldSof != null ? String(oldSof).trim() : '';
+  const newT = newSof != null ? String(newSof).trim() : '';
+  if (!oldT || !newT || oldT === newT) return;
+  const excludeNum =
+    excludeSlid != null && !Number.isNaN(parseInt(excludeSlid, 10))
+      ? parseInt(excludeSlid, 10)
+      : null;
+  for (const slid of slids) {
+    const id = parseInt(slid, 10);
+    if (Number.isNaN(id)) continue;
+    if (excludeNum != null && id === excludeNum) continue;
+    await slc.insertSiteLocationHistory(conn, id, action, { oldSof: oldT, newSof: newT });
+  }
+}
+
+/** แพร่ฟิลด์สัญญาไปทุก sites_location ที่ SOF ตรงกัน (ยกเว้นแถวที่แก้) — บันทึกประวัติก่อนอัปเดตแต่ละแถว */
 async function propagateContractFieldsToSameSofPeers(
   conn,
   matchSof,
@@ -596,7 +669,14 @@ async function propagateContractFieldsToSameSofPeers(
 ) {
   const peerSlids = await findSlidsWithMatchingSof(conn, matchSof, excludeSlid);
   for (const slid of peerSlids) {
-    await applyContractFieldsToSlid(conn, slid, body, contractStatus, { persistContractName: false });
+    const peerRow = await slc.fetchSiteLocationRow(conn, slid);
+    if (peerRow) {
+      const peerOldSof = peerRow.SOF != null ? String(peerRow.SOF).trim() : null;
+      await slc.insertSiteLocationHistory(conn, slid, slc.HIST_ACTION.UPDATE, { oldSof: peerOldSof });
+    }
+    await applyContractFieldsToSlid(conn, slid, bodyWithoutContact(body), contractStatus, {
+      persistContractName: false,
+    });
   }
 }
 
@@ -617,50 +697,66 @@ function shouldPropagateContractFields(
 }
 
 async function applyContractFieldsToSlid(conn, slid, body, contractStatus, options = {}) {
-  const { persistContractName = true } = options;
-  const sofValue =
-    body.sof_id != null && body.sof_id !== ''
-      ? String(body.sof_id).trim()
-      : body.sof_name && String(body.sof_name).trim()
-        ? body.sof_name.trim()
+  const { persistContractName = true, contact: contactOverride } = options;
+  const fields = { status: contractStatus };
+
+  if (body.sof_name !== undefined || body.sof_id !== undefined) {
+    const sofValue =
+      body.sof_id != null && body.sof_id !== ''
+        ? String(body.sof_id).trim()
+        : body.sof_name && String(body.sof_name).trim()
+          ? body.sof_name.trim()
+          : null;
+    fields.sof_name = sofValue;
+  }
+  if (persistContractName && body.contract_name !== undefined) {
+    fields.contract_name =
+      body.contract_name != null && String(body.contract_name).trim() !== ''
+        ? String(body.contract_name).trim()
         : null;
-  const pmRaw = body.pm_time_per_year != null ? String(body.pm_time_per_year).trim() : '';
-  const pmEnum = ['1', '2', '3', '4', '5'].includes(pmRaw) ? pmRaw : '2';
-  const slaTermInt = (() => {
+  }
+  if (body.start_date !== undefined) fields.start_date = body.start_date || null;
+  if (body.end_date !== undefined) fields.end_date = body.end_date || null;
+  if (body.sla_term !== undefined) {
     const v =
       body.sla_term != null && String(body.sla_term).trim() !== ''
         ? parseInt(String(body.sla_term).trim(), 10)
         : NaN;
-    return isNaN(v) ? 2 : v;
-  })();
-
-  await slc.updateSiteLocationContract(conn, slid, {
-    sof_name: sofValue,
-    ...(persistContractName && body.contract_name !== undefined
-      ? {
-          contract_name:
-            body.contract_name != null && String(body.contract_name).trim() !== ''
-              ? String(body.contract_name).trim()
-              : null,
-        }
-      : {}),
-    start_date: body.start_date || null,
-    end_date: body.end_date || null,
-    sla_term: slaTermInt,
-    assigned_service:
+    fields.sla_term = isNaN(v) ? 2 : v;
+  }
+  if (body.assigned_service !== undefined) {
+    fields.assigned_service =
       body.assigned_service && String(body.assigned_service).trim()
         ? body.assigned_service.trim()
-        : '',
-    sale_account: body.sale_account?.trim() || null,
-    tel_acc: body.tel_acc != null && String(body.tel_acc).trim() !== '' ? String(body.tel_acc).trim() : null,
-    email_acc:
-      body.email_acc != null && String(body.email_acc).trim() !== '' ? String(body.email_acc).trim() : '',
-    coverage_scope: body.coverage_scope?.trim() || null,
-    file_paths: jsonPaths(body.file_paths),
-    image_paths: jsonPaths(body.image_paths),
-    pm_time_per_year: pmEnum,
-    status: contractStatus,
-  });
+        : '';
+  }
+  if (body.sale_account !== undefined) {
+    fields.sale_account = body.sale_account?.trim() || null;
+  }
+  if (body.tel_acc !== undefined) {
+    fields.tel_acc =
+      body.tel_acc != null && String(body.tel_acc).trim() !== '' ? String(body.tel_acc).trim() : null;
+  }
+  if (body.email_acc !== undefined) {
+    fields.email_acc =
+      body.email_acc != null && String(body.email_acc).trim() !== '' ? String(body.email_acc).trim() : '';
+  }
+  if (body.coverage_scope !== undefined) {
+    fields.coverage_scope = body.coverage_scope?.trim() || null;
+  }
+  if (contactOverride !== undefined) {
+    fields.contact = jsonContact(contactOverride);
+  } else if (body.contact !== undefined) {
+    fields.contact = jsonContact(body.contact);
+  }
+  if (body.file_paths !== undefined) fields.file_paths = jsonPaths(body.file_paths);
+  if (body.image_paths !== undefined) fields.image_paths = jsonPaths(body.image_paths);
+  if (body.pm_time_per_year !== undefined) {
+    const pmRaw = body.pm_time_per_year != null ? String(body.pm_time_per_year).trim() : '';
+    fields.pm_time_per_year = ['1', '2', '3', '4', '5'].includes(pmRaw) ? pmRaw : '2';
+  }
+
+  await slc.updateSiteLocationContract(conn, slid, fields);
 }
 
 const createContract = async (req, res) => {
@@ -729,6 +825,10 @@ const createContract = async (req, res) => {
         return res.status(404).json({ success: false, message: 'Contract not found for renew' });
       }
       const oldSof = existing.SOF != null ? String(existing.SOF).trim() : null;
+      /** จับคู่ก่อนเปลี่ยน SOF/วันที่ — ใช้ sync วันที่ไปทุก location ที่ SOF เดิม */
+      const renewPeerSlids = oldSof
+        ? await findSlidsWithMatchingSof(conn, oldSof, primarySlid)
+        : [];
 
       await slc.insertSiteLocationHistory(conn, primarySlid, slc.HIST_ACTION.RENEW, {
         oldSof,
@@ -736,7 +836,23 @@ const createContract = async (req, res) => {
       });
       renewHistorySaved = true;
 
-      await applyContractFieldsToSlid(conn, primarySlid, body, contractStatus);
+      await applyContractFieldsToSlid(conn, primarySlid, bodyWithoutContact(body), contractStatus, {
+        contact: pairContactForSlid(pairs, primarySlid),
+      });
+
+      for (const slid of renewPeerSlids) {
+        const peerRow = await slc.fetchSiteLocationRow(conn, slid);
+        if (!peerRow) continue;
+        const peerOldSof = peerRow.SOF != null ? String(peerRow.SOF).trim() : null;
+        await slc.insertSiteLocationHistory(conn, slid, slc.HIST_ACTION.RENEW, {
+          oldSof: peerOldSof,
+          newSof: sofValue,
+        });
+        await applyContractFieldsToSlid(conn, slid, bodyWithoutContact(body), contractStatus, {
+          persistContractName: false,
+          contact: pairContactForSlid(pairs, slid),
+        });
+      }
 
       if (sofValue && oldSof && oldSof !== sofValue) {
         await syncSofRenameToAllPeers(conn, oldSof, sofValue);
@@ -744,25 +860,6 @@ const createContract = async (req, res) => {
 
       for (const p of pairs) {
         if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id, p.device_ids);
-      }
-
-      const effStatus = contractStatus;
-      if (
-        oldSof &&
-        shouldPropagateContractFields(body, existing, {
-          sofChangeHistory:
-            sofValue && oldSof !== sofValue ? { oldSof, newSof: sofValue } : null,
-          otherEdits: true,
-          isTransitionToNotRenewing: false,
-        })
-      ) {
-        await propagateContractFieldsToSameSofPeers(
-          conn,
-          oldSof,
-          primarySlid,
-          body,
-          effStatus
-        );
       }
     } else {
       const targetPairs = pairs.length ? pairs : [];
@@ -772,46 +869,59 @@ const createContract = async (req, res) => {
       }
 
       primarySlid = targetPairs[0].site_id;
-      const firstEx = await slc.fetchSiteLocationRow(conn, primarySlid);
-      const oldSofOnCreate =
-        firstEx?.SOF != null && String(firstEx.SOF).trim() !== ''
-          ? String(firstEx.SOF).trim()
-          : '';
+      const bodySiteId =
+        body.site_id != null && body.site_id !== '' ? parseInt(body.site_id, 10) : NaN;
+      /** Create = สัญญา/SOF ใหม่ — INSERT SLid ใหม่ต่อ location (ไม่ทับสัญญาเดิม) */
+      const createdSlidByRef = new Map();
       for (const p of targetPairs) {
-        const ex = await slc.fetchSiteLocationRow(conn, p.site_id);
-        if (!ex) continue;
-        await applyContractFieldsToSlid(conn, p.site_id, body, contractStatus);
-        if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id, p.device_ids);
+        const refSlid = p.site_id;
+        const ex = await slc.fetchSiteLocationRow(conn, refSlid);
+        if (!ex) {
+          await conn.rollback();
+          return res.status(400).json({
+            success: false,
+            message: `Site location not found (SLid ${refSlid})`,
+          });
+        }
+        const prevSof = ex.SOF != null ? String(ex.SOF).trim() : null;
+        const newSlid = await slc.insertSiteLocationContract(conn, ex.Sid, ex.lid, {});
+        createdSlidByRef.set(refSlid, newSlid);
+
+        await applyContractFieldsToSlid(conn, newSlid, bodyWithoutContact(body), contractStatus, {
+          contact: p.contact,
+        });
+        await slc.insertSiteLocationHistory(conn, newSlid, slc.HIST_ACTION.UPDATE, {
+          oldSof: prevSof || null,
+          newSof: sofValue,
+        });
+
+        if (p.device_ids.length) {
+          try {
+            await slc.assignDevicesFromBangnaToSlid(conn, newSlid, p.device_ids);
+          } catch (assignErr) {
+            await conn.rollback();
+            if (assignErr.code === 'DEVICES_NOT_AT_BANGNA') {
+              return res.status(400).json({
+                success: false,
+                message: assignErr.message,
+                device_ids: assignErr.device_ids,
+              });
+            }
+            throw assignErr;
+          }
+          if (contractStatus === 'official') {
+            await slc.reconcileInStoreDevicesAtSlid(conn, newSlid, p.device_ids);
+          }
+        }
       }
 
-      if (sofValue && oldSofOnCreate && oldSofOnCreate !== sofValue) {
-        await syncSofRenameToAllPeers(conn, oldSofOnCreate, sofValue);
-      }
-
+      primarySlid = createdSlidByRef.get(targetPairs[0].site_id) ?? targetPairs[0].site_id;
       if (
-        oldSofOnCreate &&
-        shouldPropagateContractFields(body, firstEx, {
-          sofChangeHistory:
-            sofValue && oldSofOnCreate !== sofValue
-              ? { oldSof: oldSofOnCreate, newSof: sofValue }
-              : null,
-          otherEdits: true,
-          isTransitionToNotRenewing: false,
-        })
+        !Number.isNaN(bodySiteId) &&
+        targetPairs.some((p) => p.site_id === bodySiteId) &&
+        createdSlidByRef.has(bodySiteId)
       ) {
-        await propagateContractFieldsToSameSofPeers(
-          conn,
-          oldSofOnCreate,
-          primarySlid,
-          body,
-          contractStatus
-        );
-      } else if (contractStatus !== 'draft' && sofValue) {
-        await syncSofOnSiteLocations(
-          conn,
-          sofValue,
-          targetPairs.map((p) => p.site_id)
-        );
+        primarySlid = createdSlidByRef.get(bodySiteId);
       }
     }
 
@@ -905,8 +1015,14 @@ const updateContract = async (req, res) => {
     const otherEdits = hasOtherContractEdits(existing, body, {
       skipNotRenewingStatus: isTransitionToNotRenewing,
     });
+    const existingSofForHistory =
+      existing.SOF != null && String(existing.SOF).trim() !== ''
+        ? String(existing.SOF).trim()
+        : null;
     if (otherEdits && !sofChangeHistory) {
-      await slc.insertSiteLocationHistory(conn, cid, slc.HIST_ACTION.UPDATE);
+      await slc.insertSiteLocationHistory(conn, cid, slc.HIST_ACTION.UPDATE, {
+        oldSof: existingSofForHistory,
+      });
     }
 
     const contractStatus =
@@ -922,7 +1038,14 @@ const updateContract = async (req, res) => {
       peerSlidsWithOldSof = await findSlidsWithMatchingSof(conn, oldSofForPeers);
     }
 
-    await applyContractFieldsToSlid(conn, cid, body, effStatus);
+    const pairs = parsePairsFromBody(body, contractStatus || prevDbStatus);
+    const primaryContact = pairContactForSlid(pairs, cid);
+
+    await applyContractFieldsToSlid(conn, cid, bodyWithoutContact(body), effStatus, {
+      ...(primaryContact != null && jsonContact(primaryContact) != null
+        ? { contact: primaryContact }
+        : {}),
+    });
 
     const syncAllPeersOnSofRename =
       syncSofRenameAll &&
@@ -931,17 +1054,26 @@ const updateContract = async (req, res) => {
       sofChangeHistory.oldSof !== sofChangeHistory.newSof;
 
     if (syncAllPeersOnSofRename) {
+      await recordSofChangeHistoryForSlids(
+        conn,
+        peerSlidsWithOldSof,
+        {
+          oldSof: sofChangeHistory.oldSof,
+          newSof: sofChangeHistory.newSof,
+        },
+        { excludeSlid: cid }
+      );
       for (const slid of peerSlidsWithOldSof) {
         if (slid === cid) continue;
-        await applyContractFieldsToSlid(conn, slid, body, effStatus, {
+        await applyContractFieldsToSlid(conn, slid, bodyWithoutContact(body), effStatus, {
           persistContractName: false,
         });
       }
     } else {
       const peerBody =
         sofChangeHistory && !syncSofRenameAll
-          ? { ...body, sof_name: undefined, sof_id: undefined }
-          : body;
+          ? bodyWithoutContact({ ...body, sof_name: undefined, sof_id: undefined })
+          : bodyWithoutContact(body);
 
       if (
         oldSofForPeers &&
@@ -961,16 +1093,22 @@ const updateContract = async (req, res) => {
       }
     }
 
-    const pairs = parsePairsFromBody(body, contractStatus || prevDbStatus);
     if (body.site_device_pairs !== undefined && pairs.length > 0) {
       for (const p of pairs) {
-        if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id ?? cid, p.device_ids);
+        const targetSlid = p.site_id ?? cid;
+        if (p.contact != null && jsonContact(p.contact) != null) {
+          await applyContractFieldsToSlid(conn, targetSlid, {}, effStatus, {
+            contact: p.contact,
+          });
+        }
+        if (p.device_ids.length) await slc.assignDevicesToSlid(conn, targetSlid, p.device_ids);
       }
     }
 
     if (body.status !== undefined && isTransitionToNotRenewing) {
       await slc.insertSiteLocationHistory(conn, cid, slc.HIST_ACTION.TERMINATED, {
         terminatedReason: terminationReason,
+        oldSof: existingSofForHistory,
       });
     }
 

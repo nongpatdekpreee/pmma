@@ -31,6 +31,7 @@ import {
   PHONE_EXT_MAX_DIGITS,
   PHONE_MAIN_MAX_DIGITS,
   validateEmployeePhoneSubmit,
+  validateOptionalEmployeePhoneSubmit,
 } from '@/lib/phoneFormat';
 import { MAX_VISIBLE_SELECTED_DEVICES_PER_ENTRY } from '@/lib/contractLimits';
 import { randomUUID } from '@/lib/utils';
@@ -57,6 +58,54 @@ import type { SiteLocation, DeviceItem, ContractSiteRow } from './types';
 const inputBase =
   'w-full rounded-xl border border-border/90 bg-card p-3 text-sm text-foreground shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-muted-foreground focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
 
+function ymdFromDbDate(raw: unknown): string {
+  if (raw == null || raw === '') return '';
+  return String(raw).split('T')[0];
+}
+
+function parseYmdLocal(ymd: string): Date {
+  const [y, m, d] = ymdFromDbDate(ymd).split('-').map((x) => parseInt(x, 10));
+  return new Date(y, m - 1, d);
+}
+
+function formatYmdLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function addDaysToYmd(ymd: string, days: number): string {
+  const d = parseYmdLocal(ymd);
+  d.setDate(d.getDate() + days);
+  return formatYmdLocal(d);
+}
+
+/** วันสิ้นสุดแบบ inclusive: start + N เดือน − 1 วัน */
+function inclusiveEndYmdFromStartMonths(startYmd: string, months: number): string {
+  const start = parseYmdLocal(startYmd);
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + months);
+  end.setDate(end.getDate() - 1);
+  return formatYmdLocal(end);
+}
+
+function monthsBetweenInclusiveYmd(startYmd: string, endYmd: string): number {
+  const end = parseYmdLocal(endYmd);
+  if (Number.isNaN(parseYmdLocal(startYmd).getTime()) || Number.isNaN(end.getTime())) return 0;
+  if (end < parseYmdLocal(startYmd)) return 0;
+  let best = 0;
+  for (let m = 1; m <= 120; m++) {
+    const candidateEnd = parseYmdLocal(inclusiveEndYmdFromStartMonths(startYmd, m));
+    if (candidateEnd <= end) {
+      best = m;
+    } else {
+      break;
+    }
+  }
+  return best;
+}
+
 /** Sale contact — เหมือน Contract name (inputBase) + ที่ว่างปุ่มล้าง */
 const saleContactInputClass = `${inputBase} box-border pr-9`;
 
@@ -65,15 +114,55 @@ function referSofManualDigitsOnly(v: string): string {
   return v.replace(/\D/g, '');
 }
 
+type SiteContactRow = { id: string; name: string; tel: string };
+
+const MAX_SITE_CONTACT_ROWS = 2;
+
 type SiteEntry = {
   id: string;
   selectedSid?: string;
   siteId: string;
   siteLabel: string;
   devices: Array<{ id: string; label: string; role?: string; slid?: number }>;
+  siteContactRows: SiteContactRow[];
 };
 
-type SiteDevicePair = { site_id: number; device_ids: number[] };
+type SiteDevicePair = {
+  site_id: number;
+  device_ids: number[];
+  contact?: Record<string, unknown> | null;
+};
+
+/** สร้างแถว Site & Devices จาก locations ที่ใช้ SOF เดียวกัน + devices แยกตาม SLid */
+function buildSiteEntriesFromPeerLocations(
+  peerSites: SiteLocation[],
+  allDevices: DeviceItem[],
+): SiteEntry[] {
+  const devicesBySLid = new Map<number, DeviceItem[]>();
+  allDevices.forEach((device) => {
+    const slid = device.contract_SLid ?? device.SLid;
+    if (slid == null) return;
+    const list = devicesBySLid.get(slid) ?? [];
+    list.push(device);
+    devicesBySLid.set(slid, list);
+  });
+
+  return peerSites.map((site) => {
+    const slid = site.SLid;
+    const devices = devicesBySLid.get(slid) ?? [];
+    return createEmptySiteEntry({
+      selectedSid: site.Sid != null ? String(site.Sid) : undefined,
+      siteId: String(slid),
+      siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
+      devices: devices.map((d) => ({
+        id: String(d.Did),
+        label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
+        role: d.roleName || undefined,
+        slid: d.contract_SLid ?? d.SLid ?? slid,
+      })),
+    });
+  });
+}
 
 function resolveDeviceScope(entry: SiteEntry): { sid?: string; slid?: string } {
   // เลือก Location แล้ว (siteId = SLid) → ดึง device เฉพาะ site+location นั้น (ไม่ใช่ทั้ง Sid)
@@ -120,6 +209,53 @@ function entryViewKey(entry: SiteEntry): string | null {
   return null;
 }
 
+function physicalLocationKey(row: Pick<SiteLocation, 'Sid' | 'lid'>): string {
+  return `${row.Sid ?? ''}:${row.lid ?? ''}`;
+}
+
+/** Create: หนึ่งตัวเลือกต่อที่ตั้งจริง (Sid+lid) — site_id ส่งเป็น SLid อ้างอิง */
+function dedupeSiteLocationsPhysical(rows: SiteLocation[]): SiteLocation[] {
+  const map = new Map<string, SiteLocation>();
+  for (const row of rows) {
+    const key = physicalLocationKey(row);
+    const existing = map.get(key);
+    if (!existing || (row.SLid ?? 0) < (existing.SLid ?? 0)) {
+      map.set(key, row);
+    }
+  }
+  return [...map.values()];
+}
+
+function takenPhysicalKeysExcludingEntry(
+  excludeEntryId: string,
+  siteEntries: SiteEntry[],
+  sitesLocation: SiteLocation[],
+): Set<string> {
+  const set = new Set<string>();
+  for (const e of siteEntries) {
+    if (e.id === excludeEntryId || !e.siteId) continue;
+    const row = sitesLocation.find((r) => String(r.SLid) === e.siteId);
+    if (row) set.add(physicalLocationKey(row));
+  }
+  return set;
+}
+
+function entryConflictsPhysicalLocation(
+  entryId: string,
+  refSlid: string,
+  siteEntries: SiteEntry[],
+  sitesLocation: SiteLocation[],
+): boolean {
+  const row = sitesLocation.find((r) => String(r.SLid) === refSlid);
+  if (!row) return false;
+  const key = physicalLocationKey(row);
+  return siteEntries.some((e) => {
+    if (e.id === entryId || !e.siteId) return false;
+    const other = sitesLocation.find((r) => String(r.SLid) === e.siteId);
+    return other != null && physicalLocationKey(other) === key;
+  });
+}
+
 function locationRowsForSid(sid: string, sitesLocation: SiteLocation[]): SiteLocation[] {
   return sitesLocation.filter((s) => s.Sid != null && String(s.Sid) === sid);
 }
@@ -150,13 +286,27 @@ function isSidOptionAvailableForEntry(
   sid: string,
   entry: SiteEntry,
   siteEntries: SiteEntry[],
-  sitesLocation: SiteLocation[]
+  sitesLocation: SiteLocation[],
+  options?: { physicalSlots?: boolean; pickerSites?: SiteLocation[] },
 ): boolean {
-  const locRows = locationRowsForSid(sid, sitesLocation);
+  const picker = options?.pickerSites ?? sitesLocation;
+  const locRows = locationRowsForSid(sid, picker);
   const locCount = locRows.length;
   if (locCount === 0) return false;
 
   if (entryUsesSid(entry, sid, sitesLocation)) return true;
+
+  if (options?.physicalSlots) {
+    const takenKeys = takenPhysicalKeysExcludingEntry(entry.id, siteEntries, sitesLocation);
+    const freeLocs = locRows.filter((r) => !takenKeys.has(physicalLocationKey(r)));
+    if (locCount === 1) {
+      const otherReserved = siteEntries.some(
+        (e) => e.id !== entry.id && e.selectedSid?.trim() === sid && !e.siteId,
+      );
+      return freeLocs.length > 0 && !otherReserved;
+    }
+    return freeLocs.length > 0;
+  }
 
   const takenSlids = takenSlidsExcludingEntry(entry.id, siteEntries);
   const freeLocs = locRows.filter((r) => !takenSlids.has(String(r.SLid)));
@@ -178,10 +328,11 @@ function uniqueSiteOptionsForEntry(
   entry: SiteEntry,
   siteEntries: SiteEntry[],
   sitesLocation: SiteLocation[],
-  uniqueSites: Array<{ sid: string; name: string }>
+  uniqueSites: Array<{ sid: string; name: string }>,
+  options?: { physicalSlots?: boolean; pickerSites?: SiteLocation[] },
 ): Array<{ sid: string; name: string }> {
   return uniqueSites.filter((u) =>
-    isSidOptionAvailableForEntry(u.sid, entry, siteEntries, sitesLocation)
+    isSidOptionAvailableForEntry(u.sid, entry, siteEntries, sitesLocation, options),
   );
 }
 
@@ -189,10 +340,19 @@ function uniqueSiteOptionsForEntry(
 function siteLocationRowsForEntry(
   entry: SiteEntry,
   siteEntries: SiteEntry[],
-  sitesLocation: SiteLocation[]
+  sitesLocation: SiteLocation[],
+  options?: { physicalSlots?: boolean; pickerSites?: SiteLocation[] },
 ): SiteLocation[] {
+  const picker = options?.pickerSites ?? sitesLocation;
+  if (options?.physicalSlots) {
+    const takenKeys = takenPhysicalKeysExcludingEntry(entry.id, siteEntries, sitesLocation);
+    return picker.filter((s) => {
+      if (entry.siteId && String(s.SLid) === entry.siteId) return true;
+      return !takenKeys.has(physicalLocationKey(s));
+    });
+  }
   const takenSlids = takenSlidsExcludingEntry(entry.id, siteEntries);
-  return sitesLocation.filter((s) => {
+  return picker.filter((s) => {
     if (entry.siteId && String(s.SLid) === entry.siteId) return true;
     return !takenSlids.has(String(s.SLid));
   });
@@ -203,19 +363,49 @@ function locationsForSidForEntry(
   entry: SiteEntry,
   sid: string,
   siteEntries: SiteEntry[],
-  sitesLocation: SiteLocation[]
+  sitesLocation: SiteLocation[],
+  options?: { physicalSlots?: boolean; pickerSites?: SiteLocation[] },
 ): SiteLocation[] {
+  const picker = options?.pickerSites ?? sitesLocation;
+  if (options?.physicalSlots) {
+    const takenKeys = takenPhysicalKeysExcludingEntry(entry.id, siteEntries, sitesLocation);
+    return locationRowsForSid(sid, picker).filter(
+      (r) =>
+        !takenKeys.has(physicalLocationKey(r)) ||
+        (entry.siteId && String(r.SLid) === entry.siteId),
+    );
+  }
   const takenSlids = takenSlidsExcludingEntry(entry.id, siteEntries);
-  return locationRowsForSid(sid, sitesLocation).filter(
-    (r) => !takenSlids.has(String(r.SLid)) || String(r.SLid) === entry.siteId
+  return locationRowsForSid(sid, picker).filter(
+    (r) => !takenSlids.has(String(r.SLid)) || String(r.SLid) === entry.siteId,
   );
 }
 
-function sitePairsFromEntries(entries: SiteEntry[]): SiteDevicePair[] {
+function sitePairsFromEntries(
+  entries: SiteEntry[],
+  options?: { includeEmptyDeviceSites?: boolean; includeContactOnlySites?: boolean },
+): SiteDevicePair[] {
   const map = new Map<number, number[]>();
+  const contactBySlid = new Map<number, SiteContactRow[]>();
   for (const e of entries) {
     const parsedRowSlid = e.siteId?.trim() ? parseInt(e.siteId.trim(), 10) : NaN;
     const rowSlid = !Number.isNaN(parsedRowSlid) ? parsedRowSlid : null;
+    const entryContactRows = e.siteContactRows ?? [];
+    if (rowSlid != null) {
+      if (siteContactRowsHaveData(entryContactRows)) {
+        contactBySlid.set(rowSlid, entryContactRows);
+      }
+      if (options?.includeEmptyDeviceSites && e.devices.length === 0 && !map.has(rowSlid)) {
+        map.set(rowSlid, []);
+      } else if (
+        options?.includeContactOnlySites &&
+        siteContactRowsHaveData(e.siteContactRows) &&
+        e.devices.length === 0 &&
+        !map.has(rowSlid)
+      ) {
+        map.set(rowSlid, []);
+      }
+    }
     for (const d of e.devices) {
       // บันทึก contract_device.SLid ตาม Site/Location ที่เลือกในแถว ไม่ใช้ devices.SLid เป็นหลัก
       const slidRaw =
@@ -226,16 +416,23 @@ function sitePairsFromEntries(entries: SiteEntry[]): SiteDevicePair[] {
             : NaN;
       const slid = typeof slidRaw === 'number' && !Number.isNaN(slidRaw) ? slidRaw : NaN;
       if (Number.isNaN(slid)) continue;
+      if (siteContactRowsHaveData(entryContactRows)) {
+        contactBySlid.set(slid, entryContactRows);
+      }
       const did = parseInt(d.id, 10);
       if (Number.isNaN(did)) continue;
       if (!map.has(slid)) map.set(slid, []);
       map.get(slid)!.push(did);
     }
   }
-  return [...map.entries()].map(([site_id, ids]) => ({
-    site_id,
-    device_ids: [...new Set(ids)],
-  }));
+  return [...map.entries()].map(([site_id, ids]) => {
+    const serialized = serializeSiteContactRows(contactBySlid.get(site_id) ?? []);
+    return {
+      site_id,
+      device_ids: [...new Set(ids)],
+      ...(serialized ? { contact: serialized } : {}),
+    };
+  });
 }
 
 /** SLid จากแถวแรกที่เลือก Site/Location — บันทึกเป็น contract.site_id */
@@ -250,6 +447,106 @@ function primaryContractSiteIdFromEntries(entries: SiteEntry[]): number | null {
 }
 
 type SaleContactRow = { id: string; name: string; email: string; tel: string; telExt: string };
+
+function newEmptySiteContactRow(): SiteContactRow {
+  return { id: randomUUID(), name: '', tel: '' };
+}
+
+function siteContactRowsHaveData(rows: SiteContactRow[] | undefined): boolean {
+  return (rows ?? []).some((r) => r.name.trim() || r.tel.trim());
+}
+
+function parseSiteContactPerson(raw: unknown): Pick<SiteContactRow, 'name' | 'tel'> {
+  if (!raw || typeof raw !== 'object') return { name: '', tel: '' };
+  const o = raw as Record<string, unknown>;
+  const parsed = parseTelLineFromDb(o.tel != null ? String(o.tel) : '');
+  return {
+    name: o.name != null ? String(o.name) : '',
+    tel: formatTenDigitUsDisplay(parsed.tel),
+  };
+}
+
+function siteContactRowsFromDb(raw: unknown): SiteContactRow[] {
+  if (raw == null || raw === '') return [];
+  let obj: Record<string, unknown>;
+  try {
+    obj =
+      typeof raw === 'string' ? (JSON.parse(raw) as Record<string, unknown>) : (raw as Record<string, unknown>);
+  } catch {
+    return [];
+  }
+  const rows: SiteContactRow[] = [];
+  const pushPerson = (personRaw: unknown) => {
+    const p = parseSiteContactPerson(personRaw);
+    if (p.name.trim() || p.tel.trim()) {
+      rows.push({ id: randomUUID(), ...p });
+    }
+  };
+  if (obj.site_contact_1 != null) pushPerson(obj.site_contact_1);
+  else if (obj.site_l1 != null) pushPerson(obj.site_l1);
+  if (obj.site_contact_2 != null) pushPerson(obj.site_contact_2);
+  else if (obj.site_l2 != null) pushPerson(obj.site_l2);
+  return rows.slice(0, MAX_SITE_CONTACT_ROWS);
+}
+
+function serializeSiteContactRows(rows: SiteContactRow[]): Record<string, unknown> | null {
+  const keys = ['site_contact_1', 'site_contact_2'] as const;
+  const out: Record<string, unknown> = {};
+  rows.slice(0, MAX_SITE_CONTACT_ROWS).forEach((row, i) => {
+    if (row.name.trim() || row.tel.trim()) {
+      const telDb = formatTelLineForDb(row.tel, '');
+      out[keys[i]] = {
+        name: row.name.trim(),
+        ...(telDb ? { tel: telDb } : {}),
+      };
+    }
+  });
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+function createEmptySiteEntry(partial?: Partial<Omit<SiteEntry, 'siteContactRows'>>): SiteEntry {
+  return {
+    id: randomUUID(),
+    siteId: '',
+    siteLabel: '',
+    devices: [],
+    siteContactRows: [],
+    ...partial,
+  };
+}
+
+/** โหลด contact จาก sites_location ต่อ SLid */
+async function loadSiteContactsBySlids(slids: number[]): Promise<Map<number, SiteContactRow[]>> {
+  const unique = [...new Set(slids.filter((n) => !Number.isNaN(n) && n > 0))];
+  const map = new Map<number, SiteContactRow[]>();
+  await Promise.all(
+    unique.map(async (slid) => {
+      try {
+        const res = await fetch(apiUrl(`/api/contracts/${slid}`));
+        const json = await res.json();
+        if (res.ok && json.data) {
+          map.set(slid, siteContactRowsFromDb(json.data.contact));
+        }
+      } catch {
+        /* skip failed SLid */
+      }
+    }),
+  );
+  return map;
+}
+
+function attachContactsToSiteEntries(
+  entries: SiteEntry[],
+  contacts: Map<number, SiteContactRow[]>,
+): SiteEntry[] {
+  return entries.map((e) => {
+    const slid = e.siteId?.trim() ? parseInt(e.siteId.trim(), 10) : NaN;
+    if (!Number.isNaN(slid) && contacts.has(slid)) {
+      return { ...e, siteContactRows: contacts.get(slid)! };
+    }
+    return { ...e, siteContactRows: e.siteContactRows ?? [] };
+  });
+}
 
 /** โหลดจาก DB: หลายบรรทัดใน sale_account / email_acc / tel_acc = หลายคน (แถวเดียวกัน) */
 function saleContactsFromDb(
@@ -361,9 +658,7 @@ function AddContractPageContent() {
   // SOF from devices + Site & Device (หลาย site, แต่ละ site หลาย device)
   const [referSOFList, setReferSOFList] = useState<string[]>([]);
   const [sitesLocation, setSitesLocation] = useState<SiteLocation[]>([]);
-  const [siteEntries, setSiteEntries] = useState<SiteEntry[]>([
-    { id: randomUUID(), siteId: '', siteLabel: '', devices: [] },
-  ]);
+  const [siteEntries, setSiteEntries] = useState<SiteEntry[]>(() => [createEmptySiteEntry()]);
   const [activeSiteEntryId, setActiveSiteEntryId] = useState('');
   const [devicesBySite, setDevicesBySite] = useState<DeviceItem[]>([]);
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
@@ -411,6 +706,7 @@ function AddContractPageContent() {
   const { toasts, removeToast, error: toastError, warning: toastWarning } = useToast();
   /** แจ้งเตือนเต็ม/เกินหลักต่อผู้ติดต่อ — key = row.id */
   const saleTelOverflowWarned = useRef<Map<string, { main?: boolean; ext?: boolean }>>(new Map());
+  const siteTelOverflowWarned = useRef<Map<string, boolean>>(new Map());
 
   /** SOF แรกที่เลือกและมีใน DB (ใช้กับ locations-by-sof / by-sof-and-site เท่านั้น) */
   const referSofInDb = useMemo(() => {
@@ -427,6 +723,13 @@ function AddContractPageContent() {
 
   const sofExistsInDb = referSofInDb != null;
 
+  /** SOF สร้างใหม่ที่พิมพ์เอง — ยังไม่อยู่ใน refer SOF dropdown */
+  const isManualNewContractSof = useMemo(() => {
+    if (!isNewContractFlow) return false;
+    const t = (sourceSofs[0] ?? '').trim();
+    return t !== '' && !referSOFList.includes(t);
+  }, [isNewContractFlow, sourceSofs, referSOFList]);
+
   /** ตัวเลือก SOF ตอนแก้ไข — รวมเลข SOF เดิมที่โหลดมา (แม้ไม่อยู่ใน referSOFList ปัจจุบัน) */
   const editReferSofOptions = useMemo(() => {
     const set = new Set(referSOFList);
@@ -437,7 +740,8 @@ function AddContractPageContent() {
 
   const showSiteDeviceSection = isNewContractFlow
     ? sourceSofs.length > 0
-    : Boolean(selectedSOF?.trim());
+    : Boolean(selectedSOF?.trim()) ||
+      Boolean(renewContractId && oldContractSOF?.trim());
 
   /** SOF ที่ส่งไปบันทึกสัญญา (สร้างใหม่) — ใช้ตัวแรกในรายการที่เลือก (ลำดับการเลือก) */
   const getEffectiveNewContractSof = () => {
@@ -558,7 +862,7 @@ function AddContractPageContent() {
     prevNewContractReferSofKeyRef.current = key;
     if (prev !== '' && key !== prev) {
       closeSiteLocationPicker();
-      setSiteEntries([{ id: randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
+      setSiteEntries([createEmptySiteEntry()]);
       setActiveSiteEntryId('');
       setDevicesBySite([]);
       setIsDeviceModalOpen(false);
@@ -583,44 +887,16 @@ function AddContractPageContent() {
     const s = startVal ?? startDate;
     const d = durVal ?? duration;
     if (s && d) {
-      const start = new Date(s);
       const months = parseInt(d, 10);
       if (!isNaN(months) && months > 0) {
-        const end = new Date(start);
-        // Inclusive: count the first day, so endDate = addMonths(start, months) - 1 day
-        end.setUTCMonth(end.getUTCMonth() + months);
-        end.setUTCDate(end.getUTCDate() - 1);
-        setEndDate(end.toISOString().split('T')[0]);
+        setEndDate(inclusiveEndYmdFromStartMonths(s, months));
       }
     }
   };
 
   // คำนวณ Duration จาก Start และ End (เมื่อแก้ End Date)
   const calcMonthsBetween = (startStr: string, endStr: string): number => {
-    const start = new Date(startStr);
-    const end = new Date(endStr);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-    if (end < start) return 0;
-
-    // Inclusive inverse:
-    // We want the largest `m` such that inclusiveEnd(start, m) <= end,
-    // where inclusiveEnd = addMonths(start, m) - 1 day.
-    const maxMonths = 120; // safety upper-bound
-    let best = 0;
-
-    for (let m = 1; m <= maxMonths; m++) {
-      const candidateEnd = new Date(start);
-      candidateEnd.setUTCMonth(candidateEnd.getUTCMonth() + m);
-      candidateEnd.setUTCDate(candidateEnd.getUTCDate() - 1);
-
-      if (candidateEnd <= end) {
-        best = m;
-      } else {
-        break; // monotonic in practice for month increments
-      }
-    }
-
-    return best;
+    return monthsBetweenInclusiveYmd(startStr, endStr);
   };
 
   // โหลด Refer SOF list จาก devices
@@ -737,61 +1013,133 @@ function AddContractPageContent() {
           } catch {}
         }
 
-        // สร้าง site entries จาก sites และใส่ devices ตาม SLid (รองรับ draft ที่มีแค่ site ไม่มี device)
-        const devicesBySLid = new Map<number, DeviceItem[]>();
-        if (contract.devices && contract.devices.length > 0) {
-          contract.devices.forEach((device: DeviceItem) => {
-            const slid = device.contract_SLid ?? device.SLid;
-            if (slid) {
-              if (!devicesBySLid.has(slid)) {
-                devicesBySLid.set(slid, []);
-              }
-              devicesBySLid.get(slid)!.push(device);
-            }
-          });
+        // สร้าง site entries — ทุก sites_location ที่ใช้ SOF เดียวกัน (ไม่ใช่แค่ SLid ที่กด Edit)
+        const contractSof =
+          contract.sof_name != null && String(contract.sof_name).trim() !== ''
+            ? String(contract.sof_name).trim()
+            : '';
+
+        let peerSites: SiteLocation[] = [];
+        if (contractSof) {
+          const locRes = await fetch(
+            apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(contractSof)}`),
+          );
+          const locJson = await locRes.json();
+          if (locRes.ok && Array.isArray(locJson.data)) {
+            peerSites = locJson.data as SiteLocation[];
+          }
         }
 
-        if (contract.sites && contract.sites.length > 0) {
-          const newSiteEntries: SiteEntry[] = contract.sites.map((site: ContractSiteRow) => {
-            const slid = site.SLid;
-            const sl = currentSites.find((s) => s.SLid === slid);
-            const devices = devicesBySLid.get(slid) || [];
-            return {
-              id: randomUUID(),
-              selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
-              siteId: String(slid),
-              siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
-              devices: devices.map((d) => ({
-                id: String(d.Did),
-                label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
-                role: d.roleName || undefined,
-                slid: d.contract_SLid ?? d.SLid ?? slid,
-              })),
-            };
+        const editSlid = parseInt(String(editContractId), 10);
+        const slidsToLoad =
+          peerSites.length > 0
+            ? peerSites.map((s) => s.SLid)
+            : Number.isFinite(editSlid)
+              ? [editSlid]
+              : [];
+
+        const deviceBatches = await Promise.all(
+          slidsToLoad.map(async (slid) => {
+            try {
+              const devicesRes = await fetch(apiUrl(`/api/contracts/${slid}/devices`));
+              const devicesJson = await devicesRes.json();
+              if (devicesRes.ok && Array.isArray(devicesJson.data)) {
+                return devicesJson.data as DeviceItem[];
+              }
+            } catch {
+              /* skip failed SLid */
+            }
+            return [];
+          }),
+        );
+        const allDevices = deviceBatches.flat();
+
+        if (peerSites.length > 0) {
+          setSitesLocation(peerSites);
+          const peerEntries = buildSiteEntriesFromPeerLocations(peerSites, allDevices);
+          const contacts = await loadSiteContactsBySlids(peerSites.map((s) => s.SLid));
+          setSiteEntries(attachContactsToSiteEntries(peerEntries, contacts));
+        } else if (allDevices.length > 0 || slidsToLoad.length > 0) {
+          const fallbackPeerSites = slidsToLoad.map((slid) => {
+            const match = currentSites.find((s) => s.SLid === slid);
+            return (
+              match ?? {
+                SLid: slid,
+                Sid: 0,
+                lid: 0,
+                SiteName: `Site ${slid}`,
+                Location2: '',
+              }
+            );
           });
-          setSiteEntries(newSiteEntries);
-        } else if (devicesBySLid.size > 0) {
-          const newSiteEntries: SiteEntry[] = [];
-          devicesBySLid.forEach((devices, slid) => {
-            const site = currentSites.find((s) => s.SLid === slid) || contract.sites?.find((s: ContractSiteRow) => s.SLid === slid);
-            const siteLabel = site
-              ? `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`
-              : `Site ${slid}`;
-            const sl = currentSites.find((s) => s.SLid === slid);
-            newSiteEntries.push({
-              id: randomUUID(),
-              selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
-              siteId: String(slid),
-              siteLabel,
-              devices: devices.map((d) => ({
-                id: String(d.Did),
-                label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
-                role: d.roleName || undefined,
-                slid: d.contract_SLid ?? d.SLid ?? slid,
-              })),
+          const fallbackEntries = buildSiteEntriesFromPeerLocations(fallbackPeerSites, allDevices);
+          const contacts = await loadSiteContactsBySlids(slidsToLoad);
+          setSiteEntries(attachContactsToSiteEntries(fallbackEntries, contacts));
+        } else {
+          // ไม่มี SOF / ไม่มี peer — ใช้ข้อมูลจาก contract response เดิม
+          const devicesBySLid = new Map<number, DeviceItem[]>();
+          if (contract.devices && contract.devices.length > 0) {
+            contract.devices.forEach((device: DeviceItem) => {
+              const slid = device.contract_SLid ?? device.SLid;
+              if (slid) {
+                if (!devicesBySLid.has(slid)) {
+                  devicesBySLid.set(slid, []);
+                }
+                devicesBySLid.get(slid)!.push(device);
+              }
             });
-          });
-          setSiteEntries(newSiteEntries);
+          }
+
+          if (contract.sites && contract.sites.length > 0) {
+            const newSiteEntries: SiteEntry[] = contract.sites.map((site: ContractSiteRow) => {
+              const slid = site.SLid;
+              const sl = currentSites.find((s) => s.SLid === slid);
+              const devices = devicesBySLid.get(slid) || [];
+              return createEmptySiteEntry({
+                selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
+                siteId: String(slid),
+                siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
+                devices: devices.map((d) => ({
+                  id: String(d.Did),
+                  label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
+                  role: d.roleName || undefined,
+                  slid: d.contract_SLid ?? d.SLid ?? slid,
+                })),
+              });
+            });
+            const contacts = await loadSiteContactsBySlids(
+              newSiteEntries.map((e) => parseInt(e.siteId, 10)).filter((n) => !Number.isNaN(n)),
+            );
+            setSiteEntries(attachContactsToSiteEntries(newSiteEntries, contacts));
+          } else if (devicesBySLid.size > 0) {
+            const newSiteEntries: SiteEntry[] = [];
+            devicesBySLid.forEach((devices, slid) => {
+              const site =
+                currentSites.find((s) => s.SLid === slid) ||
+                contract.sites?.find((s: ContractSiteRow) => s.SLid === slid);
+              const siteLabel = site
+                ? `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`
+                : `Site ${slid}`;
+              const sl = currentSites.find((s) => s.SLid === slid);
+              newSiteEntries.push(
+                createEmptySiteEntry({
+                  selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
+                  siteId: String(slid),
+                  siteLabel,
+                  devices: devices.map((d) => ({
+                    id: String(d.Did),
+                    label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
+                    role: d.roleName || undefined,
+                    slid: d.contract_SLid ?? d.SLid ?? slid,
+                  })),
+                }),
+              );
+            });
+            const contacts = await loadSiteContactsBySlids(
+              newSiteEntries.map((e) => parseInt(e.siteId, 10)).filter((n) => !Number.isNaN(n)),
+            );
+            setSiteEntries(attachContactsToSiteEntries(newSiteEntries, contacts));
+          }
         }
       } catch (e) {
         setFetchError(e instanceof Error ? e.message : 'Load contract data failed');
@@ -803,31 +1151,25 @@ function AddContractPageContent() {
     loadContractForEdit();
   }, [editContractId]);
 
-  // โหลดข้อมูลสัญญาเก่าเมื่อมี renewContractId
+  // โหลดข้อมูลสัญญาเก่าเมื่อมี renewContractId — ดึงทุก site/location/device ที่ใช้ SOF เดียวกัน
   useEffect(() => {
     if (!renewContractId || editContractId) return;
-    
+
     const loadOldContract = async () => {
       setLoadingOldContract(true);
       setFetchError('');
       try {
-        // โหลด sitesLocation ก่อน
-        let currentSites: SiteLocation[] = [];
-        const sitesRes = await fetch(apiUrl('/api/sites/locations'));
-        const sitesJson = await sitesRes.json();
-        if (sitesRes.ok && sitesJson.data) {
-          currentSites = sitesJson.data as SiteLocation[];
-          setSitesLocation(currentSites);
-        }
-
-        // ดึงข้อมูลสัญญาเต็ม (รวม email_acc / tel_acc สำหรับหลายผู้ติดต่อ)
         const contractRes = await fetch(apiUrl(`/api/contracts/${renewContractId}`));
         const contractJson = await contractRes.json();
         const contract = contractRes.ok && contractJson.data ? contractJson.data : null;
 
         if (contract) {
-          if (contract.sof_name) {
-            setOldContractSOF(contract.sof_name);
+          const oldSof =
+            contract.sof_name != null && String(contract.sof_name).trim() !== ''
+              ? String(contract.sof_name).trim()
+              : '';
+          if (oldSof) {
+            setOldContractSOF(oldSof);
           }
           if (contract.contract_name) {
             setContractName(contract.contract_name);
@@ -841,37 +1183,99 @@ function AddContractPageContent() {
           if (contract.coverage_scope) {
             setCoverageScope(contract.coverage_scope);
           }
-          // คำนวณวันที่ใหม่ (วันสิ้นสุดเก่า + 1 วัน เป็นวันเริ่มต้นใหม่)
-          if (contract.end_date) {
-            const oldEndDate = new Date(contract.end_date);
-            const newStartDate = new Date(oldEndDate);
-            newStartDate.setDate(newStartDate.getDate() + 1);
-            const newStartStr = newStartDate.toISOString().split('T')[0];
+          if (contract.sla_term != null) {
+            setSlaTerm(String(contract.sla_term));
+          }
+          if (contract.pm_time_per_year != null) {
+            setPmTimePerYear(String(contract.pm_time_per_year));
+          }
+          // คำนวณวันที่ใหม่ (วันสิ้นสุดเก่า + 1 วัน เป็นวันเริ่มต้นใหม่) — ใช้ local date ไม่ใช้ UTC
+          const oldEndYmd = ymdFromDbDate(contract.end_date);
+          const oldStartYmd = ymdFromDbDate(contract.start_date);
+          if (oldEndYmd) {
+            const newStartStr = addDaysToYmd(oldEndYmd, 1);
             setStartDate(newStartStr);
-            // คำนวณ end date จาก start date + duration เดิม (ถ้ามี)
-            if (contract.start_date && contract.end_date) {
-              const oldStart = new Date(contract.start_date);
-              const oldEnd = new Date(contract.end_date);
-              const monthsDiff = (oldEnd.getFullYear() - oldStart.getFullYear()) * 12 + 
-                                 (oldEnd.getMonth() - oldStart.getMonth());
+            if (oldStartYmd) {
+              const monthsDiff = monthsBetweenInclusiveYmd(oldStartYmd, oldEndYmd);
               if (monthsDiff > 0) {
                 setDuration(String(monthsDiff));
-                const endDateCalc = new Date(newStartDate);
-                endDateCalc.setMonth(endDateCalc.getMonth() + monthsDiff);
-                setEndDate(endDateCalc.toISOString().split('T')[0]);
+                setEndDate(inclusiveEndYmdFromStartMonths(newStartStr, monthsDiff));
               }
             }
           }
-        }
 
-        // ดึง devices จากสัญญาเก่า
-        const devicesRes = await fetch(apiUrl(`/api/contracts/${renewContractId}/devices`));
-        const devicesJson = await devicesRes.json();
-        if (devicesRes.ok && devicesJson.data) {
-          setOldContractDevices(devicesJson.data);
-          // เลือก devices ทั้งหมดโดยอัตโนมัติ
-          const allDeviceIds = new Set<number>(devicesJson.data.map((d: DeviceItem) => d.Did));
-          setSelectedOldDevices(allDeviceIds);
+          // ทุก sites_location ที่ใช้เลข SOF เดียวกัน (ไม่ใช่แค่ contract_id ที่กด Renew)
+          let peerSites: SiteLocation[] = [];
+          if (oldSof) {
+            const locRes = await fetch(
+              apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(oldSof)}`),
+            );
+            const locJson = await locRes.json();
+            if (locRes.ok && Array.isArray(locJson.data)) {
+              peerSites = locJson.data as SiteLocation[];
+            }
+          }
+
+          const renewSlid = parseInt(String(renewContractId), 10);
+          const slidsToLoad =
+            peerSites.length > 0
+              ? peerSites.map((s) => s.SLid)
+              : Number.isFinite(renewSlid)
+                ? [renewSlid]
+                : [];
+
+          const deviceBatches = await Promise.all(
+            slidsToLoad.map(async (slid) => {
+              try {
+                const devicesRes = await fetch(apiUrl(`/api/contracts/${slid}/devices`));
+                const devicesJson = await devicesRes.json();
+                if (devicesRes.ok && Array.isArray(devicesJson.data)) {
+                  return devicesJson.data as DeviceItem[];
+                }
+              } catch {
+                /* skip failed SLid */
+              }
+              return [];
+            }),
+          );
+          const allDevices = deviceBatches.flat();
+
+          setOldContractDevices(allDevices);
+          setSelectedOldDevices(new Set(allDevices.map((d) => d.Did)));
+
+          if (peerSites.length > 0) {
+            setSitesLocation(peerSites);
+            const peerEntries = buildSiteEntriesFromPeerLocations(peerSites, allDevices);
+            const contacts = await loadSiteContactsBySlids(peerSites.map((s) => s.SLid));
+            setSiteEntries(attachContactsToSiteEntries(peerEntries, contacts));
+          } else if (allDevices.length > 0) {
+            const fallbackSitesRes = await fetch(apiUrl('/api/sites/locations'));
+            const fallbackSitesJson = await fallbackSitesRes.json();
+            const fallbackSites =
+              fallbackSitesRes.ok && Array.isArray(fallbackSitesJson.data)
+                ? (fallbackSitesJson.data as SiteLocation[])
+                : [];
+            if (fallbackSites.length > 0) {
+              setSitesLocation(fallbackSites);
+            }
+            const fallbackPeerSites = slidsToLoad.map((slid) => {
+              const match = fallbackSites.find((s) => s.SLid === slid);
+              return (
+                match ?? {
+                  SLid: slid,
+                  Sid: 0,
+                  lid: 0,
+                  SiteName: `Site ${slid}`,
+                  Location2: '',
+                }
+              );
+            });
+            const fallbackEntries = buildSiteEntriesFromPeerLocations(fallbackPeerSites, allDevices);
+            const contacts = await loadSiteContactsBySlids(slidsToLoad);
+            setSiteEntries(attachContactsToSiteEntries(fallbackEntries, contacts));
+          }
+        } else {
+          throw new Error(contractJson.message || 'Load old contract failed');
         }
       } catch (e) {
         setFetchError(e instanceof Error ? e.message : 'Load old contract data failed');
@@ -879,64 +1283,9 @@ function AddContractPageContent() {
         setLoadingOldContract(false);
       }
     };
-    
+
     loadOldContract();
   }, [renewContractId, editContractId]);
-
-  // สร้าง site entries จาก devices เก่าเมื่อ sitesLocation และ oldContractDevices โหลดเสร็จแล้ว
-  useEffect(() => {
-    if (!renewContractId || oldContractDevices.length === 0) return;
-    
-    // รอ sitesLocation โหลดเสร็จ (ถ้ายังไม่มีให้โหลด)
-    const setupSiteEntries = async () => {
-      let currentSites: SiteLocation[] = [];
-      const sitesRes = await fetch(apiUrl('/api/sites/locations'));
-      const sitesJson = await sitesRes.json();
-      if (sitesRes.ok && sitesJson.data) {
-        currentSites = sitesJson.data as SiteLocation[];
-        setSitesLocation(currentSites);
-      }
-
-      if (currentSites.length === 0) return;
-      
-      // จัดกลุ่ม devices ตาม SLid และสร้าง site entries
-      const devicesBySLid = new Map<number, DeviceItem[]>();
-      oldContractDevices.forEach((device) => {
-        const slid = device.SLid;
-        if (slid) {
-          if (!devicesBySLid.has(slid)) {
-            devicesBySLid.set(slid, []);
-          }
-          devicesBySLid.get(slid)!.push(device);
-        }
-      });
-
-      // สร้าง site entries จาก devices เก่า
-      const newSiteEntries: SiteEntry[] = [];
-      devicesBySLid.forEach((devices, slid) => {
-        const site = currentSites.find((s) => s.SLid === slid);
-        const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : `Site ${slid}`;
-        newSiteEntries.push({
-          id: randomUUID(),
-          selectedSid: site?.Sid != null ? String(site.Sid) : undefined,
-          siteId: String(slid),
-          siteLabel,
-          devices: devices.map((d) => ({
-            id: String(d.Did),
-            label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
-            role: d.roleName || undefined,
-            slid: d.SLid ?? slid,
-          })),
-        });
-      });
-      
-      if (newSiteEntries.length > 0) {
-        setSiteEntries(newSiteEntries);
-      }
-    };
-    
-    setupSiteEntries();
-  }, [renewContractId, oldContractDevices]);
 
   // โหลด Sites: สัญญาใหม่ = Refer SOF เดียว; แก้ไข/ต่อ = ใช้ selectedSOF เดิม
   useEffect(() => {
@@ -963,12 +1312,9 @@ function AddContractPageContent() {
           url = existsInDb
             ? apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(sofTrim)}`)
             : apiUrl('/api/sites/locations');
-        } else if (!referSofInDb) {
-          url = apiUrl('/api/sites/locations');
         } else {
-          url = apiUrl(
-            `/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(referSofInDb)}`
-          );
+          // Create = สัญญา/SOF ใหม่ — เลือก site location ใดก็ได้ (ไม่ผูกกับ SOF เก่าในระบบ)
+          url = apiUrl('/api/sites/locations');
         }
         const res = await fetch(url);
         const json = await res.json();
@@ -1004,7 +1350,7 @@ function AddContractPageContent() {
     const allDevices: DeviceItem[] = [];
 
     if (editContractId) {
-      // Edit contract: ต้องเห็น device ที่ยังไม่มี SOF + In Store + SLid=2 เสมอ (ไม่ผูกกับ site ที่เลือก)
+      // Edit contract: device In Store + no SOF จากคลัง Bangna (ไม่ hardcode SLid)
       const res = await fetch(
         apiUrl(`/api/devices/no-sof-in-store?contract_id=${encodeURIComponent(editContractId)}`)
       );
@@ -1028,6 +1374,15 @@ function AddContractPageContent() {
           throw new Error(json2.message || 'Load Devices failed');
         }
       }
+    } else if (isNewContractFlow) {
+      // Create = SOF ใหม่เสมอ — device In Store จากคลัง Bangna ที่ยังไม่ผูกสัญญา
+      const res = await fetch(apiUrl('/api/devices/by-site-no-sof'));
+      const json = await res.json();
+      if (res.ok && json.data) {
+        allDevices.push(...json.data);
+      } else {
+        throw new Error(json.message || 'Load Devices failed');
+      }
     } else if (sofExistsInDb && referSofInDb) {
       const sofParam = `refer_sof=${encodeURIComponent(referSofInDb)}`;
       const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?${sofParam}&${siteQs}`));
@@ -1038,7 +1393,6 @@ function AddContractPageContent() {
         throw new Error(json.message || 'Load Devices failed');
       }
     } else {
-      // SOF ใหม่: เฉพาะ device ที่อยู่ SLid ใต้ Sid=2 + ไม่มี SOF/Not Assigned (+ In Store, ไม่มี contract) ตาม backend
       const res = await fetch(apiUrl('/api/devices/by-site-no-sof'));
       const json = await res.json();
       if (res.ok && json.data) {
@@ -1108,7 +1462,7 @@ function AddContractPageContent() {
   };
 
   const addSiteEntry = () => {
-    setSiteEntries((prev) => [...prev, { id: randomUUID(), siteId: '', siteLabel: '', devices: [] }]);
+    setSiteEntries((prev) => [...prev, createEmptySiteEntry()]);
   };
 
   const removeSiteEntry = (entryId: string) => {
@@ -1142,7 +1496,9 @@ function AddContractPageContent() {
     const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : '';
     const selectedSid = site?.Sid != null ? String(site.Sid) : undefined;
     setSiteEntries((prev) => {
-      const conflict = prev.some((e) => e.id !== entryId && e.siteId === trimmed);
+      const conflict = isNewContractFlow
+        ? entryConflictsPhysicalLocation(entryId, trimmed, prev, sitesLocation)
+        : prev.some((e) => e.id !== entryId && e.siteId === trimmed);
       if (conflict) return prev;
       return prev.map((e) =>
         e.id === entryId ? { ...e, selectedSid, siteId: trimmed, siteLabel, devices: [] } : e
@@ -1154,14 +1510,16 @@ function AddContractPageContent() {
     const sidTrim = sid?.trim();
     setSiteEntries((prev) => {
       if (sidTrim) {
-        const locRows = locationRowsForSid(sidTrim, sitesLocation);
+        const locRows = locationRowsForSid(sidTrim, pickerSitesLocation);
         if (locRows.length === 1) {
           const slid = String(locRows[0].SLid);
-          const otherTookSlid = prev.some((e) => e.id !== entryId && e.siteId === slid);
+          const otherConflict = isNewContractFlow
+            ? entryConflictsPhysicalLocation(entryId, slid, prev, sitesLocation)
+            : prev.some((e) => e.id !== entryId && e.siteId === slid);
           const otherReserved = prev.some(
             (e) => e.id !== entryId && e.selectedSid?.trim() === sidTrim && !e.siteId
           );
-          if (otherTookSlid || otherReserved) return prev;
+          if (otherConflict || otherReserved) return prev;
         }
       }
       return prev.map((e) =>
@@ -1175,6 +1533,46 @@ function AddContractPageContent() {
     devices: Array<{ id: string; label: string; role?: string; slid?: number }>
   ) => {
     setSiteEntries((prev) => prev.map((e) => (e.id === entryId ? { ...e, devices } : e)));
+  };
+
+  const addSiteContactRow = (entryId: string) => {
+    setSiteEntries((prev) =>
+      prev.map((e) => {
+        if (e.id !== entryId) return e;
+        if (e.siteContactRows.length >= MAX_SITE_CONTACT_ROWS) return e;
+        return { ...e, siteContactRows: [...e.siteContactRows, newEmptySiteContactRow()] };
+      }),
+    );
+  };
+
+  const removeSiteContactRow = (entryId: string, rowId: string) => {
+    siteTelOverflowWarned.current.delete(rowId);
+    setSiteEntries((prev) =>
+      prev.map((e) =>
+        e.id === entryId
+          ? { ...e, siteContactRows: e.siteContactRows.filter((r) => r.id !== rowId) }
+          : e,
+      ),
+    );
+  };
+
+  const updateSiteContactRow = (
+    entryId: string,
+    rowId: string,
+    patch: Partial<Pick<SiteContactRow, 'name' | 'tel'>>,
+  ) => {
+    setSiteEntries((prev) =>
+      prev.map((e) =>
+        e.id === entryId
+          ? {
+              ...e,
+              siteContactRows: e.siteContactRows.map((r) =>
+                r.id === rowId ? { ...r, ...patch } : r,
+              ),
+            }
+          : e,
+      ),
+    );
   };
 
   const removeDeviceFromEntry = (entryId: string, deviceId: string) => {
@@ -1194,9 +1592,22 @@ function AddContractPageContent() {
 
 
   // เลือกตาม Sid ก่อน แล้วค่อยเลือก lid (Location) ที่ตรงกัน → ได้ SLid
+  const pickerSitesLocation = useMemo(
+    () => (isNewContractFlow ? dedupeSiteLocationsPhysical(sitesLocation) : sitesLocation),
+    [isNewContractFlow, sitesLocation],
+  );
+  const sitePickerOptions = useMemo(
+    () =>
+      isNewContractFlow
+        ? { physicalSlots: true as const, pickerSites: pickerSitesLocation }
+        : undefined,
+    [isNewContractFlow, pickerSitesLocation],
+  );
+
   const uniqueSites = (() => {
+    const src = isNewContractFlow ? pickerSitesLocation : sitesLocation;
     const seen = new Set<number>();
-    return sitesLocation
+    return src
       .filter((s) => s.Sid != null && !seen.has(s.Sid) && (seen.add(s.Sid), true))
       .map((s) => ({ sid: String(s.Sid), name: s.SiteName }));
   })();
@@ -1209,14 +1620,16 @@ function AddContractPageContent() {
         e.id === entryId ? { ...e, selectedSid: undefined, siteId: '', siteLabel: '', devices: [] } : e
       );
     }
-    const locRows = locationRowsForSid(sid, sitesLocation);
+    const locRows = locationRowsForSid(sid, pickerSitesLocation);
     if (locRows.length === 1) {
       const slid = String(locRows[0].SLid);
-      const otherTookSlid = prev.some((e) => e.id !== entryId && e.siteId === slid);
+      const otherConflict = isNewContractFlow
+        ? entryConflictsPhysicalLocation(entryId, slid, prev, sitesLocation)
+        : prev.some((e) => e.id !== entryId && e.siteId === slid);
       const otherReserved = prev.some(
         (e) => e.id !== entryId && e.selectedSid?.trim() === sid && !e.siteId
       );
-      if (otherTookSlid || otherReserved) return prev;
+      if (otherConflict || otherReserved) return prev;
     }
     return prev.map((e) =>
       e.id === entryId ? { ...e, selectedSid: sid, siteId: '', siteLabel: '', devices: [] } : e
@@ -1228,7 +1641,13 @@ function AddContractPageContent() {
     setSiteEntries((prev) => {
       const entry = prev.find((e) => e.id === entryId);
       if (!entry || draftSids.length === 0) return prev;
-      const siteRowsAllowed = uniqueSiteOptionsForEntry(entry, prev, sitesLocation, uniqueSites);
+      const siteRowsAllowed = uniqueSiteOptionsForEntry(
+        entry,
+        prev,
+        sitesLocation,
+        uniqueSites,
+        sitePickerOptions,
+      );
       const allowed = new Set(siteRowsAllowed.map((i) => i.sid));
       const ordered: string[] = [];
       for (const s of draftSids) {
@@ -1245,15 +1664,12 @@ function AddContractPageContent() {
 
       for (let i = 1; i < ordered.length; i++) {
         const sid = ordered[i];
-        const nid = randomUUID();
-        const newRow: SiteEntry = {
-          id: nid,
+        const newRow = createEmptySiteEntry({
           siteId: '',
           siteLabel: '',
-          devices: [],
           selectedSid: sid,
-        };
-        if (!isSidOptionAvailableForEntry(sid, newRow, next, sitesLocation)) continue;
+        });
+        if (!isSidOptionAvailableForEntry(sid, newRow, next, sitesLocation, sitePickerOptions)) continue;
         next = [...next, newRow];
       }
       return next;
@@ -1268,7 +1684,7 @@ function AddContractPageContent() {
       if (!entry || draftSlids.length === 0) return prev;
       const sid = entry.selectedSid?.trim();
       if (!sid) return prev;
-      const locRows = locationsForSidForEntry(entry, sid, prev, sitesLocation);
+      const locRows = locationsForSidForEntry(entry, sid, prev, sitesLocation, sitePickerOptions);
       const allowed = new Set(locRows.map((s) => String(s.SLid)));
       const ordered: string[] = [];
       for (const s of draftSlids) {
@@ -1281,7 +1697,9 @@ function AddContractPageContent() {
       const first = ordered[0];
       const siteFirst = sitesLocation.find((s) => String(s.SLid) === first);
       if (!siteFirst) return prev;
-      if (next.some((e) => e.id !== entryId && e.siteId === first)) return prev;
+      if (isNewContractFlow) {
+        if (entryConflictsPhysicalLocation(entryId, first, next, sitesLocation)) return prev;
+      } else if (next.some((e) => e.id !== entryId && e.siteId === first)) return prev;
 
       next = next.map((e) =>
         e.id === entryId
@@ -1297,18 +1715,18 @@ function AddContractPageContent() {
 
       for (let i = 1; i < ordered.length; i++) {
         const slid = ordered[i];
-        if (next.some((e) => e.siteId === slid)) continue;
+        if (isNewContractFlow) {
+          if (entryConflictsPhysicalLocation('', slid, next, sitesLocation)) continue;
+        } else if (next.some((e) => e.siteId === slid)) continue;
         const sl = sitesLocation.find((s) => String(s.SLid) === slid);
         if (!sl) continue;
         next = [
           ...next,
-          {
-            id: randomUUID(),
+          createEmptySiteEntry({
             selectedSid: sl.Sid != null ? String(sl.Sid) : sid,
             siteId: slid,
             siteLabel: `${sl.SiteName} – ${sl.Location2}`,
-            devices: [],
-          },
+          }),
         ];
       }
       return next;
@@ -1346,9 +1764,12 @@ function AddContractPageContent() {
      
   }, [siteLocationPicker, siteSidMultiDraft, locationSlidMultiDraft]);
 
-  /** แถว site สูงสุดเท่าจำนวน location (SLid) ในระบบ */
+  /** แถว site สูงสุดเท่าจำนวน location ในระบบ (Create = ต่อที่ตั้งจริง Sid+lid) */
+  const physicalLocationCount = isNewContractFlow
+    ? pickerSitesLocation.length
+    : sitesLocation.length;
   const allLocationSlotsClaimed =
-    sitesLocation.length > 0 && siteEntries.length >= sitesLocation.length;
+    physicalLocationCount > 0 && siteEntries.length >= physicalLocationCount;
 
   const activeEntry = siteEntries.find((e) => e.id === activeSiteEntryId);
   const activeEntryDevices = activeEntry?.devices ?? [];
@@ -1455,7 +1876,7 @@ function AddContractPageContent() {
       if (isNewContractFlow) {
         const effSof = getEffectiveNewContractSof();
         if (!effSof) {
-          const msg = 'Please select at least one Refer SOF from the dropdown';
+          const msg = 'Please select Refer SOF from the list or type a new SOF (digits only)';
           setSaveError(msg);
           toastError(msg);
           return;
@@ -1499,6 +1920,21 @@ function AddContractPageContent() {
       }
     }
 
+    for (const entry of siteEntries) {
+      for (let ci = 0; ci < entry.siteContactRows.length; ci++) {
+        const row = entry.siteContactRows[ci];
+        if (!row.tel.replace(/\D/g, '')) continue;
+        const telErr = validateOptionalEmployeePhoneSubmit(row.tel, '');
+        if (telErr) {
+          const siteLabel = entry.siteLabel?.trim() || entry.siteId || 'site';
+          const msg = `Site contact (${siteLabel}) row ${ci + 1}: ${telErr}`;
+          setSaveError(msg);
+          toastError(msg);
+          return;
+        }
+      }
+    }
+
     const saleFields = serializeSaleContacts(saleContacts);
 
     // รวม devices จากสัญญาเก่าที่เลือกไว้
@@ -1533,10 +1969,15 @@ function AddContractPageContent() {
       });
 
       // สร้าง site_device_pairs จาก devices เก่า
-      const pairsFromOld = Array.from(devicesBySLid.entries()).map(([slid, deviceIds]) => ({
-        site_id: slid,
-        device_ids: deviceIds,
-      }));
+      const pairsFromOld = Array.from(devicesBySLid.entries()).map(([slid, deviceIds]) => {
+        const entry = siteEntries.find((e) => e.siteId === String(slid));
+        const serialized = serializeSiteContactRows(entry?.siteContactRows ?? []);
+        return {
+          site_id: slid,
+          device_ids: deviceIds,
+          ...(serialized ? { contact: serialized } : {}),
+        };
+      });
 
       if (pairsFromOld.length > 0) {
         setSaveLoadingMode('submit');
@@ -1605,7 +2046,19 @@ function AddContractPageContent() {
     setSaveLoadingMode(isDraft ? 'draft' : 'submit');
     try {
       // รวม devices จากสัญญาเก่าเข้ากับ site_device_pairs
-      const allPairs: SiteDevicePair[] = sitePairsFromEntries(validPairs);
+      const entriesForPairs = siteEntries.filter(
+        (e) =>
+          entryHasSiteScope(e) &&
+          (!sofExistsInDb || entryHasSlidForSofDevicePick(e)) &&
+          (isDraft ||
+            e.devices.length > 0 ||
+            (Boolean(editContractId) && siteContactRowsHaveData(e.siteContactRows))),
+      );
+
+      const allPairs: SiteDevicePair[] = sitePairsFromEntries(entriesForPairs, {
+        includeEmptyDeviceSites: isDraft,
+        includeContactOnlySites: Boolean(editContractId) || !isDraft,
+      });
       
       // เพิ่ม devices จากสัญญาเก่าที่ยังไม่มีใน site entries
       if (oldDeviceIds.length > 0) {
@@ -1633,10 +2086,13 @@ function AddContractPageContent() {
             // รวม devices เข้ากับ pair ที่มีอยู่
             existingPair.device_ids = [...new Set([...existingPair.device_ids, ...deviceIds])];
           } else {
-            // สร้าง pair ใหม่
+            const serialized = serializeSiteContactRows(
+              siteEntries.find((ent) => ent.siteId === String(slid))?.siteContactRows ?? [],
+            );
             allPairs.push({
               site_id: slid,
               device_ids: deviceIds,
+              ...(serialized ? { contact: serialized } : {}),
             });
           }
         });
@@ -1647,6 +2103,7 @@ function AddContractPageContent() {
         device_ids: Array.isArray(e.device_ids) 
           ? e.device_ids.filter((n: number) => !isNaN(n))
           : [],
+        ...(e.contact != null ? { contact: e.contact } : {}),
       })) : [];
 
       const primaryContractSlid = primaryContractSiteIdFromEntries(validPairs);
@@ -1671,13 +2128,17 @@ function AddContractPageContent() {
         status: isDraft ? 'draft' : 'official',
       };
 
-      // เพิ่ม site_device_pairs
-      // ถ้าเป็นการสร้างใหม่หรือต่อสัญญา: ส่งเสมอ
-      // ถ้าเป็นการแก้ไข: ส่งเฉพาะเมื่อมีการเปลี่ยนแปลง devices (มี site_device_pairs)
-      if (!editContractId || site_device_pairs.length > 0) {
+      if (isNewContractFlow && !editContractId) {
+        body.create_with_new_sof = true;
+      }
+
+      // site_device_pairs รวม contact ต่อ SLid — ส่งเมื่อสร้าง/แก้ไขและมี pair หรือมี contact ในแถว site
+      const hasSiteContactPayload = entriesForPairs.some((e) =>
+        siteContactRowsHaveData(e.siteContactRows),
+      );
+      if (!editContractId || site_device_pairs.length > 0 || hasSiteContactPayload) {
         body.site_device_pairs = site_device_pairs;
       }
-      // ถ้าเป็นการแก้ไขและไม่ส่ง site_device_pairs หมายความว่าไม่ต้องการเปลี่ยน devices
 
       // เพิ่ม old_contract_id และ old_sof เฉพาะเมื่อต่อสัญญา
       if (renewContractId) {
@@ -2073,6 +2534,12 @@ function AddContractPageContent() {
                       }
                     />
                     {referSOFLoading && <p className="mt-1 text-xs text-muted-foreground">Loading...</p>}
+                    {isNewContractFlow && (
+                      <p className="mt-1 text-xs text-amber-700">
+                        Create — new contract (new SOF) at the site location you pick; existing
+                        contracts at that location are kept. Assign In Store devices from Bangna only.
+                      </p>
+                    )}
                   </FormField>
                 </>
               )}
@@ -2380,6 +2847,8 @@ function AddContractPageContent() {
             </div>
           </FormSection>
 
+   
+
           {/* Section 2: ระยะเวลาสัญญา */}
           <FormSection
             title="Contract Period"
@@ -2497,8 +2966,10 @@ function AddContractPageContent() {
             title="Site and Devices"
             description={
               isNewContractFlow
-                ? 'Add source SOFs and Contract SOF above, then pick site and devices'
-                : 'Select SOF first, then select Site and Device'
+                ? 'Pick site location and Bangna warehouse devices — creates a new contract without overwriting existing ones'
+                : renewContractId
+                  ? 'Loaded all sites/locations under the old SOF — enter new SOF above, then review devices'
+                  : 'Select SOF first, then select Site and Device'
             }
             icon={Building2}
             gradient="from-emerald-50 to-teal-50"
@@ -2511,7 +2982,9 @@ function AddContractPageContent() {
                 <span>
                   {isNewContractFlow
                     ? 'Select SOF'
-                    : 'Please select or enter SOF'}
+                    : renewContractId && oldContractSOF?.trim()
+                      ? 'Enter new SOF above (sites from old SOF are loaded below)'
+                      : 'Please select or enter SOF'}
                 </span>
               </div>
             ) : (
@@ -2635,20 +3108,23 @@ function AddContractPageContent() {
                       entry,
                       siteEntries,
                       sitesLocation,
-                      uniqueSites
+                      uniqueSites,
+                      sitePickerOptions,
                     ).map(({ sid, name }) => ({ value: sid, label: name }));
                     const locationItems = sidForLocationList
                       ? locationsForSidForEntry(
                           entry,
                           sidForLocationList,
                           siteEntries,
-                          sitesLocation
+                          sitesLocation,
+                          sitePickerOptions,
                         ).map((s) => ({ value: String(s.SLid), label: s.Location2 }))
                       : [];
                     const flatItems = siteLocationRowsForEntry(
                       entry,
                       siteEntries,
-                      sitesLocation
+                      sitesLocation,
+                      sitePickerOptions,
                     ).map((s) => ({
                       value: String(s.SLid),
                       label: `${s.SiteName} – ${s.Location2}`,
@@ -2987,6 +3463,140 @@ function AddContractPageContent() {
                           </div>
                         )}
                       </div>
+                      {entry.siteId ? (
+                        <div className="space-y-3 rounded-xl border border-border/80 bg-muted/20 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-foreground">
+                              Site Contact
+                              {(combinedFlatLabel || entry.siteLabel) && (
+                                <span className="ml-1 font-normal text-muted-foreground">
+                                  ({combinedFlatLabel || entry.siteLabel})
+                                </span>
+                              )}
+                            </p>
+                            {entry.siteContactRows.length === 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => addSiteContactRow(entry.id)}
+                                title="Add site contact"
+                                aria-label="Add site contact"
+                                className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-indigo-500 px-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-600"
+                              >
+                                <UserPlus size={18} strokeWidth={2} />
+                                Add contact
+                              </button>
+                            ) : null}
+                          </div>
+                          {entry.siteContactRows.map((contactRow, contactIndex) => (
+                            <div key={contactRow.id} className="space-y-3 border-t border-border/60 pt-3 first:border-t-0 first:pt-0">
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                                <FormField label={`Site Contact ${contactIndex + 1}`}>
+                                  <div className="relative">
+                                    <input
+                                      type="text"
+                                      value={contactRow.name}
+                                      onChange={(e) =>
+                                        updateSiteContactRow(entry.id, contactRow.id, {
+                                          name: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Name"
+                                      className={saleContactInputClass}
+                                    />
+                                    {contactRow.name ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          updateSiteContactRow(entry.id, contactRow.id, { name: '' })
+                                        }
+                                        className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                                        title="Clear"
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </FormField>
+                                <FormField label="Telephone">
+                                  <div className="relative">
+                                    <input
+                                      type="text"
+                                      inputMode="tel"
+                                      value={contactRow.tel}
+                                      onChange={(e) => {
+                                        const raw = e.target.value;
+                                        const n = raw.replace(/\D/g, '').length;
+                                        const map = siteTelOverflowWarned.current;
+                                        if (n > PHONE_MAIN_MAX_DIGITS) {
+                                          if (!map.get(contactRow.id)) {
+                                            map.set(contactRow.id, true);
+                                            toastWarning(
+                                              `Site contact ${contactIndex + 1}: Phone must be at most ${PHONE_MAIN_MAX_DIGITS} digits (already full)`,
+                                              2600,
+                                            );
+                                          }
+                                        } else {
+                                          map.set(contactRow.id, false);
+                                        }
+                                        updateSiteContactRow(entry.id, contactRow.id, {
+                                          tel: formatTenDigitUsDisplay(raw),
+                                        });
+                                      }}
+                                      placeholder="0xx-xxx-xxxx"
+                                      autoComplete="tel"
+                                      className={`${saleContactInputClass} tabular-nums`}
+                                    />
+                                    {contactRow.tel ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          updateSiteContactRow(entry.id, contactRow.id, { tel: '' })
+                                        }
+                                        className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                                        title="Clear"
+                                      >
+                                        <X size={14} />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </FormField>
+                                <div className="flex flex-col sm:w-11 sm:shrink-0">
+                                  <span
+                                    className="mb-1.5 hidden text-xs font-semibold uppercase tracking-wider text-transparent sm:block"
+                                    aria-hidden
+                                  >
+                                    &nbsp;
+                                  </span>
+                                  {contactIndex === 0 &&
+                                  entry.siteContactRows.length < MAX_SITE_CONTACT_ROWS ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => addSiteContactRow(entry.id)}
+                                      title="Add another site contact"
+                                      aria-label="Add another site contact"
+                                      className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-500 text-white shadow-sm transition-colors hover:bg-indigo-600 sm:ml-0"
+                                    >
+                                      <UserPlus size={22} strokeWidth={2} />
+                                    </button>
+                                  ) : (
+                                    <div className="hidden h-11 w-11 shrink-0 sm:block" aria-hidden />
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => removeSiteContactRow(entry.id, contactRow.id)}
+                                  className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 hover:underline"
+                                >
+                                  <Trash2 size={14} />
+                                  Remove this contact
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       {entry.devices.length > 0 && (() => {
                         const listExpanded = expandedSelectedDeviceEntries.has(entry.id);
                         const total = entry.devices.length;

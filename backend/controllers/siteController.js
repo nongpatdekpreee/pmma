@@ -130,7 +130,17 @@ const getSitesLocationWithContracts = async (req, res) => {
       ORDER BY S.Name, L.Location2
     `;
     const [rows] = await db.execute(sql, siteIds);
-    res.status(200).json({ success: true, data: rows || [] });
+    const list = rows || [];
+    /** หนึ่งแถวต่อที่ตั้งจริง (Sid+lid) — ใช้ SLid ล่าสุดเป็นตัวแทน */
+    const byPhysical = new Map();
+    for (const row of list) {
+      const key = `${row.Sid}:${row.lid}`;
+      const prev = byPhysical.get(key);
+      if (!prev || row.SLid > prev.SLid) {
+        byPhysical.set(key, row);
+      }
+    }
+    res.status(200).json({ success: true, data: [...byPhysical.values()] });
   } catch (error) {
     console.error('Error getting sites-location with contracts:', error);
     res.status(200).json({
@@ -300,7 +310,8 @@ const updateSitesLocationSof = async (req, res) => {
 
     const oldSof = rows[0].SOF != null ? String(rows[0].SOF).trim() : '';
     const newSof = sofValue != null ? String(sofValue).trim() : '';
-    if (oldSof && newSof && oldSof !== newSof) {
+    const renameAllPeers = Boolean(req.body && req.body.rename_all_peers);
+    if (renameAllPeers && oldSof && newSof && oldSof !== newSof) {
       await syncSofRenameOnSiteLocations(db, oldSof, newSof);
     } else {
       await applyReferSofToSiteLocation(db, slid, sofValue);

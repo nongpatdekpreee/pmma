@@ -35,18 +35,19 @@ async function waitForImages(container: HTMLElement): Promise<void> {
 /** ขนาด A4 ที่ 96dpi */
 const A4_WIDTH_PX = 794;
 
-/** scale สูง + PNG — ตัวอักษรไทยคมชัด ไม่เพี้ยนจาก JPEG */
-const PDF_CAPTURE_SCALE = 3;
+/** scale 2 + JPEG — ลดขนาด PDF ให้เล็กพออัปโหลด/แชร์ (ตัวอักษรไทยยังอ่านได้ชัดที่ A4) */
+const PDF_CAPTURE_SCALE = 2;
+const PDF_JPEG_QUALITY = 0.88;
 
 function preparePagesForPdfCapture(pages: HTMLElement[]): number {
-  let captureWidth = A4_WIDTH_PX;
   for (const pageEl of pages) {
+    pageEl.style.width = `${A4_WIDTH_PX}px`;
+    pageEl.style.maxWidth = `${A4_WIDTH_PX}px`;
     pageEl.style.margin = '0';
     pageEl.style.overflow = 'hidden';
     pageEl.style.boxSizing = 'border-box';
-    captureWidth = Math.max(captureWidth, pageEl.offsetWidth || 0);
   }
-  return captureWidth;
+  return A4_WIDTH_PX;
 }
 
 function addCanvasToPdfPage(
@@ -63,7 +64,7 @@ function addCanvasToPdfPage(
     renderW = (canvas.width * renderH) / canvas.height;
   }
   const x = (pageW - renderW) / 2;
-  pdf.addImage(imgData, 'PNG', x, 0, renderW, renderH);
+  pdf.addImage(imgData, 'JPEG', x, 0, renderW, renderH, undefined, 'FAST');
 }
 
 /**
@@ -177,7 +178,7 @@ export async function downloadMaWorkOrderPdf(
           }
         },
       });
-      const imgData = canvas.toDataURL('image/png');
+      const imgData = canvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
       if (i > 0) pdf.addPage();
       addCanvasToPdfPage(pdf, canvas, imgData, pageW, pageH);
     }

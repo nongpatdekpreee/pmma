@@ -6,6 +6,7 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { apiUrl, postMaReport, getTasks, getMaReportedTaskIds, uploadMaReportFile } from '@/lib/api';
+import { formatFileSize, prepareReportUploadFile } from '@/lib/prepareReportUploadFile';
 import { asRecord } from '@/lib/unknownUtil';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
 import {
@@ -718,18 +719,37 @@ function AddMAReportPageContent() {
         if (m) return m[0];
         return type === 'pdf' ? '.pdf' : '.jpg';
       };
-      // อัปโหลดไฟล์ก่อน — ตั้งชื่อเป็น Site_Location_วันที่_ลำดับ เพื่อแยกตาม site และมี location
+      // อัปโหลดไฟล์ก่อน — บีบอัด PDF/รูปให้ต่ำกว่า 30MB แล้วตั้งชื่อ Site_Location_วันที่_ลำดับ
       const filesWithPath: Array<{ name: string; type: string; path?: string }> = [];
       for (let i = 0; i < uploadedFiles.length; i++) {
         const f = uploadedFiles[i];
-        const uploadRes = await uploadMaReportFile(f.file);
         const ext = getExt(f.name, f.type);
         const displayName = `${safeForName(siteName)}_${safeForName(locationName)}_${maDate}_${i + 1}${ext}`;
-        if (uploadRes.success && uploadRes.path) {
-          filesWithPath.push({ name: displayName, type: f.type, path: uploadRes.path });
-        } else {
-          filesWithPath.push({ name: displayName, type: f.type });
+
+        let fileToUpload: File;
+        try {
+          if (f.type === 'pdf' && f.file.size > 28 * 1024 * 1024) {
+            toastWarning(`Compressing PDF (${formatFileSize(f.file.size)}) before upload…`);
+          }
+          fileToUpload = await prepareReportUploadFile(f.file, f.type);
+        } catch (compressErr) {
+          const msg =
+            compressErr instanceof Error
+              ? compressErr.message
+              : 'Failed to prepare file for upload';
+          toastError(`${f.name}: ${msg}`);
+          return;
         }
+
+        const uploadRes = await uploadMaReportFile(fileToUpload);
+        if (!uploadRes.success || !uploadRes.path) {
+          toastError(
+            uploadRes.message ||
+              `Upload failed: ${displayName}${fileToUpload.size ? ` (${formatFileSize(fileToUpload.size)})` : ''}`
+          );
+          return;
+        }
+        filesWithPath.push({ name: displayName, type: f.type, path: uploadRes.path });
       }
 
       const reportData = {

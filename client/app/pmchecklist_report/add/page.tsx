@@ -346,6 +346,14 @@ function AddPMReportPageContent() {
     return availablePMTasks.find((t) => taskIdNum(t) === Number(selectedTaskId)) ?? null;
   }, [availablePMTasks, selectedTaskId]);
 
+  const selectedTaskContractId = useMemo((): number | null => {
+    if (!selectedTask) return null;
+    const raw = selectedTask.contractId ?? selectedTask.contract_id;
+    if (raw == null || raw === '') return null;
+    const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [selectedTask]);
+
   const selectedDevice = useMemo(() => {
     if (!selectedDeviceId) return null;
     const fromAllowed = allowedDevices.find((d) => String(d.Did) === String(selectedDeviceId));
@@ -528,7 +536,9 @@ function AddPMReportPageContent() {
               <h2 className="text-lg font-bold text-foreground">Tasks to Report</h2>
             </div>
             <p className="text-sm text-muted-foreground mb-4">
-              Select completed tasks that do not yet have a report to auto-fill the form. Filter by SOF (from contract) to work on one service order at a time.
+              Select completed tasks that do not yet have a report to auto-fill the form. Each plan
+              with a different SOF is a separate task — mark both done to see two rows here. Filter
+              by SOF to work on one service order at a time.
             </p>
             <div className="flex flex-col lg:flex-row gap-3 mb-4 flex-wrap">
               <div className="relative flex-1 min-w-[200px]">
@@ -600,6 +610,11 @@ function AddPMReportPageContent() {
                           </span>
                         </span>
                       </span>
+                      {tid > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          Task #{tid}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1.5 text-muted-foreground">
                         <Calendar size={16} className="text-muted-foreground" />
                         {startRaw ? new Date(startRaw).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'}
@@ -675,6 +690,7 @@ function AddPMReportPageContent() {
             <PmReportWizard
               ref={wizardRef}
               selectedTaskId={selectedTaskId}
+              contractId={selectedTaskContractId}
               technicianName={technicianName}
               pmDate={pmDate}
               siteName={selectedSiteDisplayName}

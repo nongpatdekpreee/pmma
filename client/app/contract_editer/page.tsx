@@ -7,6 +7,7 @@ import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
 import { apiUrl, getSitesLocation, syncContractsFromReferSof } from '@/lib/api';
+import { isDefaultInStoreSiteName } from '@/lib/inStoreSite';
 import { asRecord, getErrorMessage, readString } from '@/lib/unknownUtil';
 import * as XLSX from 'xlsx';
 import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearchListDropdown';
@@ -439,6 +440,31 @@ function mergeHistoryDetailOntoBase(
     history_id: historyDetail.history_id,
     history_detail: true,
   };
+}
+
+/** เปรียบเทียบเลข SOF (ตัด leading zero) */
+function normalizeSofCompareKey(sof: string | null | undefined): string {
+  const t = (sof ?? '').trim();
+  if (!t) return '';
+  return t.replace(/^0+/, '') || '0';
+}
+
+/** แถวประวัติที่เลข SOF เปลี่ยนจริง (old ≠ new) */
+function isSofChangeHistoryRow(row: ContractHistoryRow): boolean {
+  const oldS = normalizeSofCompareKey(row.old_sof);
+  const newS = normalizeSofCompareKey(row.new_sof);
+  return oldS !== '' && newS !== '' && oldS !== newS;
+}
+
+function filterSofChangeHistoryRows(rows: ContractHistoryRow[]): ContractHistoryRow[] {
+  return rows.filter(isSofChangeHistoryRow);
+}
+
+/** ข้อความแสดงในรายการประวัติสัญญา (modal รายละเอียด) — เฉพาะเลข SOF */
+function formatContractHistorySofLine(row: ContractHistoryRow): string {
+  const oldS = row.old_sof?.trim() || '—';
+  const newS = row.new_sof?.trim() || '—';
+  return `${oldS} → ${newS}`;
 }
 
 /** ช่วงก่อนวันสิ้นสุดที่ถือว่า "ใกล้หมดอายุ" / เปิด Renew ได้ (เดือนปฏิทิน — สอดคล้องกับคอลัมน์ Incoming) */
@@ -1756,7 +1782,7 @@ function ContractEditorPageContent() {
       let histRows: ContractHistoryRow[] = [];
       if (histJson?.success && Array.isArray(histJson.data)) {
         // API กรอง contract_id / old_contract_id แล้ว — ใช้ผลลัพธ์ตรงๆ
-        histRows = histJson.data as ContractHistoryRow[];
+        histRows = filterSofChangeHistoryRows(histJson.data as ContractHistoryRow[]);
       }
 
       if (res.ok && json.data) {
@@ -2031,8 +2057,11 @@ function ContractEditorPageContent() {
             SiteName: data.Sitename ?? data.SiteName ?? null,
             Location2: data.Location2 ?? data.location2 ?? null,
           };
-          // Check if device is assigned to site (SLid not null and not 2 which is warehouse)
-          const isAssigned = (data.SLid ?? data.slid) != null && (data.SLid ?? data.slid) !== 2;
+          // ถือว่า assign แล้วเมื่อมี SLid และไม่ใช่ location ใต้ site คลัง Bangna
+          const deviceSlid = data.SLid ?? data.slid ?? null;
+          const deviceSiteName = data.Sitename ?? data.SiteName ?? null;
+          const isAssigned =
+            deviceSlid != null && !isDefaultInStoreSiteName(String(deviceSiteName ?? ''));
           assignedStatus[String(d.Did)] = isAssigned;
         } else {
           deviceDetails[String(d.Did)] = {};
@@ -3637,34 +3666,29 @@ function ContractEditorPageContent() {
 
                       </div>
 
-                      {/* ประวัติ SOF จาก contract_history — กรองเฉพาะ contract_id เดียวกับสัญญา; คลิกเปิดรายละเอียด snapshot */}
+                      {/* ประวัติการเปลี่ยนเลข SOF — เฉพาะแถวที่ old ≠ new */}
                       <div className="mt-6 pt-6 border-t border-border">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-3">
                           <History className="w-4 h-4 text-muted-foreground shrink-0" />
-                          <span className="text-sm font-semibold text-foreground">Contract history</span>
+                          <span className="text-sm font-semibold text-foreground">SOF change history</span>
                           <span className="text-xs text-muted-foreground">
-                            contract_id {fullContractDetails.contract_id} 
+                            contract_id {fullContractDetails.contract_id}
                           </span>
                         </div>
                         {detailModalHistoryRows.length === 0 ? (
                           <p className="text-sm text-muted-foreground">
-                            ยังไม่มีประวัติ — ระบบบันทึกเมื่อ{' '}
-                            <span className="font-medium text-muted-foreground">เปลี่ยนเลข SOF</span>,{' '}
-                            <span className="font-medium text-muted-foreground">ต่อสัญญา (Renew)</span> หรือ{' '}
-                            <span className="font-medium text-muted-foreground">ไม่ต่อสัญญา (Do not renew)</span>
+                            ยังไม่มีประวัติการเปลี่ยนเลข SOF
                           </p>
                         ) : (
-                          <ul className="space-y-2">
+                          <div className="max-h-56 overflow-y-auto overscroll-contain pr-1">
+                            <ul className="space-y-2">
                             {detailModalHistoryRows.map((row) => {
                               const when = row.renewed_at || row.created_at;
                               const activeSnap =
                                 fullContractDetails.history_detail === true &&
                                 fullContractDetails.history_id != null &&
                                 Number(fullContractDetails.history_id) === Number(row.history_id);
-                              const oldS = row.old_sof?.trim() || '—';
-                              const newS = row.new_sof?.trim() || '—';
-                              const st = row.status_history?.trim();
-                              const terminateReason = row.terminated_reason?.trim();
+                              const sofLine = formatContractHistorySofLine(row);
                               return (
                                 <li key={row.history_id}>
                                   <button
@@ -3676,7 +3700,7 @@ function ContractEditorPageContent() {
                                         buildContractForHistorySnapshot(currentContract, row),
                                       );
                                     }}
-                                    className={`w-full flex items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+                                    className={`w-full flex items-start gap-3 rounded-lg border px-4 py-2.5 text-left transition-colors ${
                                       activeSnap
                                         ? 'border-blue-300 bg-blue-50/70 cursor-default'
                                         : 'border-border bg-card hover:border-blue-400 hover:bg-muted cursor-pointer'
@@ -3684,24 +3708,12 @@ function ContractEditorPageContent() {
                                   >
                                     <Clock className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                                     <div className="flex-1 min-w-0">
-                                      <div className="text-xs text-muted-foreground mb-1">
+                                      <div className="text-xs text-muted-foreground mb-0.5">
                                         {when ? formatDateThai(String(when)) : '—'}
                                       </div>
-                                      <div className="text-sm text-foreground">
-                                        <span className="text-muted-foreground">Old SOF</span>{' '}
-                                        <span className="font-medium text-foreground">{oldS}</span>
-                                        <span className="text-muted-foreground mx-1.5">→</span>
-                                        <span className="text-muted-foreground">New SOF</span>{' '}
-                                        <span className="font-medium text-blue-700">{newS}</span>
+                                      <div className="text-sm font-medium text-foreground font-mono tabular-nums">
+                                        {sofLine}
                                       </div>
-                                      {st ? (
-                                        <div className="mt-1 text-xs text-muted-foreground">Status: {st}</div>
-                                      ) : null}
-                                      {terminateReason ? (
-                                        <div className="mt-1 text-xs text-muted-foreground">
-                                          Reason: {terminateReason}
-                                        </div>
-                                      ) : null}
                                     </div>
                                     {!activeSnap ? (
                                       <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" aria-hidden />
@@ -3710,7 +3722,8 @@ function ContractEditorPageContent() {
                                 </li>
                               );
                             })}
-                          </ul>
+                            </ul>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -4548,7 +4561,10 @@ function ContractEditorPageContent() {
                             contractSlid != null &&
                             Number(slid) === Number(contractSlid);
                           const statusLabel = slid != null
-                            ? (loc2 || (slid === 2 ? 'Warehouse' : null))
+                            ? (loc2 ||
+                              (isDefaultInStoreSiteName(detail?.SiteName ?? device.SiteName)
+                                ? 'Warehouse'
+                                : null))
                             : null;
                           const deviceLabel = device.CI_Name || device.Asset_Number || `Device ${device.Did}`;
                           const isSelected = assignDeviceSelected.has(String(device.Did));

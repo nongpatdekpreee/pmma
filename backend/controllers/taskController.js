@@ -5,6 +5,7 @@ const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
 const { isProjectOwenSnsPlan } = require('../utils/projectOwenSns');
 const { notifyTeamsPlanCreated } = require('../services/teamsPlanNotification');
 const { MA_BROKEN_DEVICE_ASSET_STATE_SET } = require('../config/maBrokenAssetState');
+const { assignDeviceToInStoreWarehouse } = require('../config/inStoreSite');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
@@ -574,7 +575,7 @@ const applyMaBrokenAssetStatesOnDone = async (assets) => {
     const state = resolveMaBrokenAssetStateForDone(asset);
     await updateDeviceAssetState(deviceId, state);
     if (state === 'In Store') {
-      await db.execute('UPDATE devices SET SLid = 2 WHERE Did = ?', [deviceId]);
+      await assignDeviceToInStoreWarehouse(db, deviceId);
     }
   }
 };
@@ -1045,7 +1046,7 @@ const updateTask = async (req, res) => {
           const oldOriginalDeviceId = typeof oldFirstAsset === 'object' ? (oldFirstAsset.id || oldFirstAsset.Did || oldFirstAsset) : oldFirstAsset;
           if (oldOriginalDeviceId && oldOriginalDeviceId !== newOriginalDeviceId) {
             await updateDeviceAssetState(oldOriginalDeviceId, 'In Store');
-            await db.execute('UPDATE devices SET SLid = 2 WHERE Did = ?', [oldOriginalDeviceId]);
+            await assignDeviceToInStoreWarehouse(db, oldOriginalDeviceId);
           }
         }
         

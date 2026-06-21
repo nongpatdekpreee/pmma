@@ -4,6 +4,8 @@
     lid?: number;
     SiteName: string;
     Location2: string;
+    SOF?: string | null;
+    Refer_SOF?: string | null;
   }
 
 export interface DeviceItem {

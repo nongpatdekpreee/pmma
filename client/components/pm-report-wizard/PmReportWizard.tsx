@@ -13,8 +13,10 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { PmWorkOrderDocument } from '@/components/pm-work-order';
-import { postPmReport, uploadReportFile } from '@/lib/api';
+import { getContractById, postPmReport, uploadReportFile } from '@/lib/api';
+import { parseSiteContact1FromContractContact } from '@/lib/contractSiteContact';
 import { compressImageFile } from '@/lib/compressImage';
+import { prepareReportUploadFile } from '@/lib/prepareReportUploadFile';
 import {
   type PmBackupRecord,
   type PmFullDocument,
@@ -62,6 +64,8 @@ type Props = {
   siteName?: string;
   /** PM ครั้งที่ (จากลำดับ task PM ของ site ในปี) */
   pmNo?: string;
+  /** contract_id จาก task (= SLid) — โหลด site_contact_1 อัตโนมัติ */
+  contractId?: number | null;
   allowedDevices: Device[];
   loadingDevices: boolean;
   toastSuccess: (msg: string, ms?: number) => void;
@@ -79,6 +83,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     pmDate,
     siteName = '',
     pmNo = '1',
+    contractId = null,
     allowedDevices,
     loadingDevices,
     toastSuccess,
@@ -126,8 +131,6 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
 
   /** เปลี่ยน task ด้านบน → รีเซ็ต backup/photos ใน wizard */
   useEffect(() => {
-    setContactName('');
-    setContactTel('');
     setBackupRecords([]);
     setBackupFileName('');
     setBackupError('');
@@ -137,6 +140,38 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     setMaintenanceRows([]);
     setStep(1);
   }, [selectedTaskId]);
+
+  /** โหลด Contact Name / Tel จาก site_contact_1 ของสัญญา */
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedTaskId == null || contractId == null || contractId <= 0) {
+      setContactName('');
+      setContactTel('');
+      return;
+    }
+    void (async () => {
+      try {
+        const res = await getContractById(contractId);
+        if (cancelled) return;
+        if (!res.success || !res.data) {
+          setContactName('');
+          setContactTel('');
+          return;
+        }
+        const { name, tel } = parseSiteContact1FromContractContact(res.data.contact);
+        setContactName(name);
+        setContactTel(tel.replace(/\D/g, '').slice(0, 15));
+      } catch {
+        if (!cancelled) {
+          setContactName('');
+          setContactTel('');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTaskId, contractId]);
 
   const fullDocument = useMemo((): PmFullDocument | null => {
     if (!backupMapped || allowedDevices.length === 0) return null;
@@ -356,7 +391,19 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       );
 
       onSavePhase?.('uploading-pdf');
-      const pdfUp = await uploadReportFile(pdfFile);
+      let uploadPdfFile: File;
+      try {
+        uploadPdfFile = await prepareReportUploadFile(pdfFile, 'pdf');
+      } catch (compressErr) {
+        console.error(compressErr);
+        toastError(
+          compressErr instanceof Error
+            ? compressErr.message
+            : 'Failed to compress PM report PDF before upload.'
+        );
+        return;
+      }
+      const pdfUp = await uploadReportFile(uploadPdfFile);
       if (!pdfUp.success || !pdfUp.path) {
         toastError('Failed to upload PM report PDF.');
         return;
