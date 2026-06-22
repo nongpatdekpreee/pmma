@@ -592,37 +592,37 @@ GET /api/devices/1/history?action=ASSET_STATE_CHANGE
 
 ### 1. ดึง Devices ทั้งหมด
 ```bash
-curl -X GET "http://localhost:5000/api/devices?page=1&limit=50"
+curl -X GET "http://192.168.60.114:5000/api/devices?page=1&limit=50"
 ```
 
 ### 2. ค้นหา Devices
 ```bash
-curl -X GET "http://localhost:5000/api/devices?search=Dell&page=1&limit=20"
+curl -X GET "http://192.168.60.114:5000/api/devices?search=Dell&page=1&limit=20"
 ```
 
 ### 3. ดึง Device ตาม ID
 ```bash
-curl -X GET "http://localhost:5000/api/devices/1"
+curl -X GET "http://192.168.60.114:5000/api/devices/1"
 ```
 
 ### 4. Dashboard Statistics
 ```bash
-curl -X GET "http://localhost:5000/api/devices/dashboard"
+curl -X GET "http://192.168.60.114:5000/api/devices/dashboard"
 ```
 
 ### 5. Devices แยกตาม Model
 ```bash
-curl -X GET "http://localhost:5000/api/devices/by-model"
+curl -X GET "http://192.168.60.114:5000/api/devices/by-model"
 ```
 
 ### 6. ประวัติ Devices
 ```bash
-curl -X GET "http://localhost:5000/api/devices/history?action=UPDATE&page=1&limit=20"
+curl -X GET "http://192.168.60.114:5000/api/devices/history?action=UPDATE&page=1&limit=20"
 ```
 
 ### 7. ประวัติ Device ตาม ID
 ```bash
-curl -X GET "http://localhost:5000/api/devices/1/history"
+curl -X GET "http://192.168.60.114:5000/api/devices/1/history"
 ```
 
 ---
@@ -631,21 +631,21 @@ curl -X GET "http://localhost:5000/api/devices/1/history"
 
 ### 1. ดึง Devices ทั้งหมด
 ```javascript
-const response = await fetch('http://localhost:5000/api/devices?page=1&limit=50');
+const response = await fetch('http://192.168.60.114:5000/api/devices?page=1&limit=50');
 const data = await response.json();
 console.log(data);
 ```
 
 ### 2. ค้นหา Devices
 ```javascript
-const response = await fetch('http://localhost:5000/api/devices?search=Dell&page=1&limit=20');
+const response = await fetch('http://192.168.60.114:5000/api/devices?search=Dell&page=1&limit=20');
 const data = await response.json();
 console.log(data);
 ```
 
 ### 3. Dashboard Statistics
 ```javascript
-const response = await fetch('http://localhost:5000/api/devices/dashboard');
+const response = await fetch('http://192.168.60.114:5000/api/devices/dashboard');
 const data = await response.json();
 console.log(data.data);
 ```
@@ -653,7 +653,7 @@ console.log(data.data);
 ### 4. ประวัติ Device
 ```javascript
 const deviceId = 1;
-const response = await fetch(`http://localhost:5000/api/devices/${deviceId}/history`);
+const response = await fetch(`http://192.168.60.114:5000/api/devices/${deviceId}/history`);
 const data = await response.json();
 console.log(data.data);
 ```
