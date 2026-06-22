@@ -14,6 +14,8 @@ const {
   findSlidsWithMatchingSof,
 } = require('../config/deviceSof');
 const slc = require('../lib/siteLocationContract');
+const { notifyTeamsContractEvent } = require('../services/teamsContractNotification');
+const { notifyContractExpiringOnChange } = require('../jobs/contractExpiringReminder');
 
 const EMAIL_LINE_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -759,6 +761,25 @@ async function applyContractFieldsToSlid(conn, slid, body, contractStatus, optio
   await slc.updateSiteLocationContract(conn, slid, fields);
 }
 
+async function maybeNotifyTeamsContract(slid, { event, meta = {} }) {
+  try {
+    const slRow = await slc.fetchSiteLocationRow(db, slid);
+    if (!slRow) return;
+    const [devicesRows] = await db.execute(slc.DEVICES_BY_SLID_SQL, [slid]);
+    await notifyTeamsContractEvent({
+      event,
+      contract: slc.mapSlRowToContractDetail(slRow),
+      devices: devicesRows,
+      meta,
+    });
+    void notifyContractExpiringOnChange(slid).catch((err) => {
+      console.error('[contract] Expiring Teams notification failed:', err?.message || err);
+    });
+  } catch (err) {
+    console.error('[contract] Teams notification failed:', err?.message || err);
+  }
+}
+
 const createContract = async (req, res) => {
   const conn = await db.getConnection();
   try {
@@ -926,6 +947,10 @@ const createContract = async (req, res) => {
     }
 
     await conn.commit();
+
+    void maybeNotifyTeamsContract(primarySlid, {
+      event: oldContractIdVal ? 'renewed' : 'created',
+    });
 
     return res.status(201).json({
       success: true,
@@ -1124,6 +1149,22 @@ const updateContract = async (req, res) => {
     }
 
     await conn.commit();
+
+    let notifyEvent = 'updated';
+    const notifyMeta = {};
+    if (isTransitionToNotRenewing) {
+      notifyEvent = 'terminated';
+      notifyMeta.terminationReason = terminationReason;
+    } else if (sofChangeHistory) {
+      notifyEvent = 'sof_changed';
+      notifyMeta.oldSof = sofChangeHistory.oldSof;
+      notifyMeta.newSof = sofChangeHistory.newSof;
+    }
+    void maybeNotifyTeamsContract(cid, {
+      event: notifyEvent,
+      meta: notifyMeta,
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Contract updated successfully',

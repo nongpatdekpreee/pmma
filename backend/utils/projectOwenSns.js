@@ -101,8 +101,19 @@ async function isProjectOwenSnsPlan({ assets = [], replacementDeviceId, contract
   return false;
 }
 
+/** สัญญานี้เกี่ยวกับ Project_Owen SNS หรือไม่ (จาก device ในคำขอหรือ SLid หลังบันทึก) */
+async function isProjectOwenSnsContract({ contractId, deviceIds = [] }) {
+  const ids = (Array.isArray(deviceIds) ? deviceIds : [])
+    .map((id) => parsePositiveDeviceId(id))
+    .filter((id) => id != null);
+  if (await hasSnsDeviceByIds(ids)) return true;
+  if (await hasSnsDeviceByContractId(contractId)) return true;
+  return false;
+}
+
 module.exports = {
   PROJECT_OWEN_SNS,
   collectDeviceIdsFromAssets,
   isProjectOwenSnsPlan,
+  isProjectOwenSnsContract,
 };

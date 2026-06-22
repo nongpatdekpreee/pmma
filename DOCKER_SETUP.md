@@ -52,7 +52,7 @@ docker-compose logs -f nginx
 ## Access Points
 
 - **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:5000
+- **Backend API**: http://192.168.60.114:5000
 - **Nginx (All traffic)**: http://localhost
 - **MySQL**: localhost:3306
 

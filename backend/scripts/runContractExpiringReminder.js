@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * รัน manual: node scripts/runSnsUpcomingReminder.js
- * ตรวจ PM/MA ที่เริ่มภายใน 30 วัน แล้วส่ง Teams webhook
+ * รัน manual: node scripts/runContractExpiringReminder.js
+ * แจ้ง Teams สัญญา official ที่จะหมดภายใน 30 วัน (ตั้งแต่วันนี้จนวันหมดอายุ)
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('../config/database');
 
-const { runSnsUpcomingPlansReminder } = require('../jobs/snsUpcomingPlansReminder');
+const { runContractExpiringReminder } = require('../jobs/contractExpiringReminder');
 
-runSnsUpcomingPlansReminder()
+runContractExpiringReminder()
   .then((result) => {
     console.log('Done:', result);
     process.exit(result.sent === false && result.reason === 'no_webhook' ? 1 : 0);

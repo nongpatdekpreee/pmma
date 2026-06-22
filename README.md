@@ -54,7 +54,7 @@ npm install
 npm run dev
 ```
 
-API ตัวอย่าง: `http://localhost:5000/` จะคืน JSON ชื่อ MA/PM Plan API
+API ตัวอย่าง: `http://192.168.60.114:5000/` จะคืน JSON ชื่อ MA/PM Plan API
 
 เส้นทาง API หลัก (prefix `/api`):
 
@@ -79,7 +79,7 @@ API ตัวอย่าง: `http://localhost:5000/` จะคืน JSON ช�
 
 ```env
 # client/.env.local (ตัวอย่าง)
-NEXT_PUBLIC_API_URL=http://localhost:5000
+NEXT_PUBLIC_API_URL=http://192.168.60.114:5000
 ```
 
 ถ้าไม่ตั้งค่า โค้ดอาจ fallback ไปที่ค่าเริ่มต้นใน `client/lib/api.ts` — ควรกำหนด `NEXT_PUBLIC_API_URL` ให้ตรงกับสภาพแวดล้อมของคุณ

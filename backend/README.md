@@ -34,7 +34,7 @@ npm start
 npm run dev
 ```
 
-Server จะทำงานที่: `http://localhost:5000`
+Server จะทำงานที่: `http://192.168.60.114:5000`
 
 ## 📁 โครงสร้างโปรเจค
 
@@ -83,7 +83,7 @@ Backend/
 ### สร้างสินค้าใหม่ (POST)
 
 ```json
-POST http://localhost:5000/api/products
+POST http://192.168.60.114:5000/api/products
 Content-Type: application/json
 
 {
@@ -98,7 +98,7 @@ Content-Type: application/json
 ### อัพเดทสินค้า (PUT)
 
 ```json
-PUT http://localhost:5000/api/products/1
+PUT http://192.168.60.114:5000/api/products/1
 Content-Type: application/json
 
 {
@@ -113,13 +113,13 @@ Content-Type: application/json
 ### ดึงข้อมูลสินค้าทั้งหมด (GET)
 
 ```
-GET http://localhost:5000/api/products
+GET http://192.168.60.114:5000/api/products
 ```
 
 ### ลบสินค้า (DELETE)
 
 ```
-DELETE http://localhost:5000/api/products/1
+DELETE http://192.168.60.114:5000/api/products/1
 ```
 
 ## ⚙️ การตั้งค่า Environment (.env)

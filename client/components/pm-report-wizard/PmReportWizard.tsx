@@ -11,6 +11,8 @@ import {
   Trash2,
   CheckCircle2,
   ChevronDown,
+  FileText,
+  X,
 } from 'lucide-react';
 import { PmWorkOrderDocument } from '@/components/pm-work-order';
 import { getContractById, postPmReport, uploadReportFile } from '@/lib/api';
@@ -33,9 +35,10 @@ import {
 } from '@/lib/pmWorkOrder';
 
 const STEPS = [
-  { id: 1, label: 'Backup' },
-  { id: 2, label: 'Photos' },
-  { id: 3, label: 'Preview' },
+  { id: 1, label: 'Upload PDF' },
+  { id: 2, label: 'Backup' },
+  { id: 3, label: 'Photos' },
+  { id: 4, label: 'Preview' },
 ] as const;
 
 export type PmSavePhase = 'generating-pdf' | 'uploading-pdf' | 'saving-report' | null;
@@ -45,6 +48,7 @@ export type PmReportWizardHandle = {
   save: () => Promise<void>;
   isPdfPreparing: () => boolean;
   isPdfReady: () => boolean;
+  isExternalPdfMode: () => boolean;
 };
 
 type Device = {
@@ -73,6 +77,7 @@ type Props = {
   toastWarning: (msg: string) => void;
   onSavePhase?: (phase: PmSavePhase) => void;
   onPdfPrepareState?: (state: { preparing: boolean; ready: boolean }) => void;
+  onExternalPdfModeChange?: (active: boolean) => void;
 };
 
 
@@ -91,6 +96,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     toastWarning,
     onSavePhase,
     onPdfPrepareState,
+    onExternalPdfModeChange,
   },
   ref
 ) {
@@ -107,6 +113,8 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   const [backupByDid, setBackupByDid] = useState<Map<number, PmBackupRecord | null>>(new Map());
   const [backupMapped, setBackupMapped] = useState(false);
   const [mappedPreviewExpanded, setMappedPreviewExpanded] = useState(false);
+  const [externalPdfFile, setExternalPdfFile] = useState<File | null>(null);
+  const externalPdfInputRef = useRef<HTMLInputElement>(null);
 
   const [maintenanceRows, setMaintenanceRows] = useState<PmMaintenanceItemDraft[]>([]);
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -137,6 +145,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     setBackupByDid(new Map());
     setBackupMapped(false);
     setMappedPreviewExpanded(false);
+    setExternalPdfFile(null);
     setMaintenanceRows([]);
     setStep(1);
   }, [selectedTaskId]);
@@ -173,6 +182,10 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     };
   }, [selectedTaskId, contractId]);
 
+  useEffect(() => {
+    onExternalPdfModeChange?.(Boolean(externalPdfFile));
+  }, [externalPdfFile, onExternalPdfModeChange]);
+
   const fullDocument = useMemo((): PmFullDocument | null => {
     if (!backupMapped || allowedDevices.length === 0) return null;
     return buildPmFullDocumentMulti(baseTaskContext, allowedDevices, maintenanceRows, backupByDid);
@@ -194,7 +207,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
 
   /** Pre-generate PDF ตอน Step 3 — กด Save แล้วไม่ต้องรอสร้างใหม่ */
   useEffect(() => {
-    if (step !== 3 || !fullDocument) {
+    if (step !== 4 || !fullDocument) {
       pdfCacheRef.current = null;
       setPdfPreparing(false);
       setPdfReady(false);
@@ -340,10 +353,27 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     }
   };
 
-  const canGoStep2 = Boolean(
+  const canGoStep3 = Boolean(
     selectedTaskId && allowedDevices.length > 0 && backupMapped && allDevicesMatched
   );
-  const canGoStep3 = maintenanceRows.length > 0 && maintenanceRows.every((r) => r.beforePreview && r.afterPreview);
+  const canGoStep4 =
+    maintenanceRows.length > 0 && maintenanceRows.every((r) => r.beforePreview && r.afterPreview);
+
+  const handleExternalPdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      toastWarning('Please upload a PDF file.');
+      return;
+    }
+    if (!selectedTaskId) {
+      toastWarning('Please select a task in Tasks to Report first.');
+      return;
+    }
+    setExternalPdfFile(file);
+    toastSuccess('PM PDF ready — click Save PM Report below to submit.');
+  };
 
   const handleDownloadPdf = async () => {
     if (!fullDocument) return;
@@ -365,16 +395,77 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   };
 
   const handleSave = useCallback(async () => {
-    if (!selectedTaskId || !fullDocument || allowedDevices.length === 0) {
-      toastWarning('Complete all steps before saving.');
+    if (!selectedTaskId || allowedDevices.length === 0) {
+      toastWarning('Please select a task with devices before saving.');
+      return;
+    }
+
+    const site = baseTaskContext.siteName || 'Unknown';
+    const primaryDeviceId = String(allowedDevices[0].Did);
+    const filesWithPath: Array<{ name: string; type: string; path?: string; slot?: string }> = [];
+
+    if (externalPdfFile) {
+      try {
+        onSavePhase?.('uploading-pdf');
+        let uploadPdfFile: File;
+        try {
+          uploadPdfFile = await prepareReportUploadFile(externalPdfFile, 'pdf');
+        } catch (compressErr) {
+          console.error(compressErr);
+          toastError(
+            compressErr instanceof Error
+              ? compressErr.message
+              : 'Failed to compress PM report PDF before upload.'
+          );
+          return;
+        }
+        const pdfUp = await uploadReportFile(uploadPdfFile);
+        if (!pdfUp.success || !pdfUp.path) {
+          toastError('Failed to upload PM report PDF.');
+          return;
+        }
+        filesWithPath.push({
+          name: externalPdfFile.name,
+          type: 'pdf',
+          path: pdfUp.path,
+          slot: 'pm_report_pdf',
+        });
+
+        onSavePhase?.('saving-report');
+        const res = await postPmReport({
+          taskId: selectedTaskId,
+          deviceId: primaryDeviceId,
+          device: allowedDevices[0] ?? undefined,
+          checklistItems: [],
+          uploadedFiles: filesWithPath,
+          comment: '',
+          technicianName,
+          pmDate,
+          pmResult: 'pass',
+          createdAt: new Date().toISOString(),
+        });
+
+        if (res.success) {
+          toastSuccess(res.message || 'PM report saved successfully', 3200);
+          window.setTimeout(() => router.push('/pmchecklist_report'), 1200);
+        } else {
+          toastError(res.message || 'Failed to submit report');
+        }
+      } catch (e) {
+        console.error(e);
+        toastError('Error submitting report.');
+      } finally {
+        onSavePhase?.(null);
+      }
+      return;
+    }
+
+    if (!fullDocument) {
+      toastWarning('Upload a finished PDF in Step 1, or complete backup and photos.');
       return;
     }
     try {
       onSavePhase?.('generating-pdf');
-      const site = baseTaskContext.siteName || 'Unknown';
-      const primaryDeviceId = String(allowedDevices[0].Did);
-
-      const filesWithPath: Array<{ name: string; type: string; path?: string; slot?: string }> = [];
 
       let pdfBlob: Blob;
       if (pdfCacheRef.current?.doc === fullDocument) {
@@ -462,9 +553,11 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     toastWarning,
     onSavePhase,
     router,
+    externalPdfFile,
   ]);
 
-  const canSaveReport = Boolean(
+  const canSaveExternalPdf = Boolean(selectedTaskId && allowedDevices.length > 0 && externalPdfFile);
+  const canSaveWizard = Boolean(
     selectedTaskId &&
       backupMapped &&
       allDevicesMatched &&
@@ -472,6 +565,15 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       maintenanceRows.every((r) => r.beforePreview && r.afterPreview) &&
       fullDocument
   );
+  const canSaveReport = canSaveExternalPdf || canSaveWizard;
+
+  const isStepComplete = (id: number) => {
+    if (id === 1) return Boolean(externalPdfFile);
+    if (id === 2) return canGoStep3;
+    if (id === 3) return canGoStep4;
+    if (id === 4) return pdfReady || Boolean(fullDocument);
+    return false;
+  };
 
   useImperativeHandle(
     ref,
@@ -480,8 +582,9 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       save: handleSave,
       isPdfPreparing: () => pdfPreparing,
       isPdfReady: () => pdfReady,
+      isExternalPdfMode: () => Boolean(externalPdfFile),
     }),
-    [canSaveReport, handleSave, pdfPreparing, pdfReady]
+    [canSaveReport, handleSave, pdfPreparing, pdfReady, externalPdfFile]
   );
 
   return (
@@ -493,14 +596,15 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             key={s.id}
             type="button"
             onClick={() => {
-              if (s.id === 2 && !canGoStep2) return;
+              if (s.id === 2 && !selectedTaskId) return;
               if (s.id === 3 && !canGoStep3) return;
+              if (s.id === 4 && !canGoStep4) return;
               setStep(s.id);
             }}
             className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
               step === s.id
                 ? 'bg-blue-600 text-white'
-                : step > s.id
+                : isStepComplete(s.id)
                   ? 'bg-emerald-100 text-emerald-800'
                   : 'bg-muted text-muted-foreground'
             }`}
@@ -511,10 +615,84 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
         ))}
       </div>
 
-      {/* Step 1 — Backup (all devices in task) */}
+      {/* Step 1 — Finished PM PDF (quick submit) */}
       {step === 1 && (
+        <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6">
+          <h2 className="text-lg font-bold">Step 1 — Upload finished PM PDF</h2>
+          <p className="text-sm text-muted-foreground">
+            If you already have the PM report PDF, upload it here and click <strong>Save PM Report</strong> below — no
+            need to go through backup and photos.
+          </p>
+          {!selectedTaskId ? (
+            <p className="text-sm text-muted-foreground">
+              Please select a task in <strong>Tasks to Report</strong> above first.
+            </p>
+          ) : loadingDevices ? (
+            <p className="text-sm text-muted-foreground">Loading devices...</p>
+          ) : allowedDevices.length === 0 ? (
+            <p className="text-sm text-amber-700">No devices linked to this task.</p>
+          ) : (
+            <>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => externalPdfInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    externalPdfInputRef.current?.click();
+                  }
+                }}
+                className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center cursor-pointer hover:border-emerald-400 hover:bg-muted/80 transition-colors"
+              >
+                <input
+                  ref={externalPdfInputRef}
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  className="sr-only"
+                  onChange={handleExternalPdfChange}
+                  disabled={backupLoading}
+                />
+                <FileText size={32} className="mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm font-medium">Drop PDF here or click to browse</p>
+                {externalPdfFile && (
+                  <p className="mt-2 text-xs text-emerald-800 font-medium">{externalPdfFile.name}</p>
+                )}
+              </div>
+              {externalPdfFile && (
+                <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
+                  <span className="flex items-center gap-2 text-emerald-800">
+                    <CheckCircle2 size={18} />
+                    PDF ready — use Save PM Report at the bottom of the page
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setExternalPdfFile(null)}
+                    className="flex items-center gap-1 text-red-600 hover:text-red-800 text-xs font-medium"
+                  >
+                    <X size={14} /> Remove
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+          <div className="flex justify-end border-t border-emerald-200/60 pt-4">
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              disabled={!selectedTaskId || allowedDevices.length === 0}
+              className="rounded-xl border border-border bg-card px-5 py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+            >
+              Or create report from backup →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2 — Backup (all devices in task) */}
+      {step === 2 && (
         <div className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50/40 p-6">
-          <h2 className="text-lg font-bold">Step 1 — Upload Backup & Map All Devices</h2>
+          <h2 className="text-lg font-bold">Step 2 — Upload Backup & Map All Devices</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-bold text-muted-foreground">Contact Name</label>
@@ -642,33 +820,42 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             {backupError && (
               <p className="text-xs text-amber-700">Fix backup mapping before continuing to photos.</p>
             )}
-            <button
-              type="button"
-              disabled={!canGoStep2}
-              onClick={() => {
-                if (!canGoStep2) {
-                  toastWarning(
-                    backupError
-                      ? 'All devices must match the backup file (Model + Serial) before continuing.'
-                      : 'Upload a backup file and map all devices first.'
-                  );
-                  return;
-                }
-                setStep(2);
-              }}
-              className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next: Maintenance Photos
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="rounded-xl border px-4 py-2.5 text-sm"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                disabled={!canGoStep3}
+                onClick={() => {
+                  if (!canGoStep3) {
+                    toastWarning(
+                      backupError
+                        ? 'All devices must match the backup file (Model + Serial) before continuing.'
+                        : 'Upload a backup file and map all devices first.'
+                    );
+                    return;
+                  }
+                  setStep(3);
+                }}
+                className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next: Maintenance Photos
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Step 2 — Photos */}
-      {step === 2 && (
+      {/* Step 3 — Photos */}
+      {step === 3 && (
         <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold">Step 2 — Maintenance Items (Before / After)</h2>
+            <h2 className="text-lg font-bold">Step 3 — Maintenance Items (Before / After)</h2>
             <button
               type="button"
               onClick={() =>
@@ -765,18 +952,18 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             ))}
           </div>
           <div className="flex justify-between">
-            <button type="button" onClick={() => setStep(1)} className="rounded-xl border px-4 py-2 text-sm">Back</button>
-            <button type="button" disabled={!canGoStep3} onClick={() => setStep(3)} className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+            <button type="button" onClick={() => setStep(2)} className="rounded-xl border px-4 py-2 text-sm">Back</button>
+            <button type="button" disabled={!canGoStep4} onClick={() => setStep(4)} className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">
               Next: Preview
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 3 — Preview */}
-      {step === 3 && fullDocument && (
+      {/* Step 4 — Preview */}
+      {step === 4 && fullDocument && (
         <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
-          <h2 className="text-lg font-bold">Step 3 — Preview & Download PDF</h2>
+          <h2 className="text-lg font-bold">Step 4 — Preview & Download PDF</h2>
           <div className="overflow-auto rounded-xl border border-border">
             <PmWorkOrderDocument data={fullDocument} withPreviewShell />
           </div>
@@ -785,7 +972,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               <Download size={18} />
               {generatingPdf ? 'Generating...' : 'Download PDF'}
             </button>
-            <button type="button" onClick={() => setStep(2)} className="flex items-center gap-2 rounded-xl border px-5 py-2.5 text-sm">
+            <button type="button" onClick={() => setStep(3)} className="flex items-center gap-2 rounded-xl border px-5 py-2.5 text-sm">
               <Eye size={18} /> Edit Photos
             </button>
           </div>

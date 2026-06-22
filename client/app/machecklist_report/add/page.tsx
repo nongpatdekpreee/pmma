@@ -270,6 +270,8 @@ function AddMAReportPageContent() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [finishedPdfFile, setFinishedPdfFile] = useState<File | null>(null);
+  const finishedPdfInputRef = useRef<HTMLInputElement>(null);
   const maResult = 'pass' as const;
   const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
@@ -596,6 +598,7 @@ function AddMAReportPageContent() {
   useEffect(() => {
     if (selectedTaskId == null) {
       setSelectedDeviceId('');
+      setFinishedPdfFile(null);
       return;
     }
     if (selectedDeviceId && allowedDevices.length > 0 && !allowedDevices.some((d) => d.Did.toString() === selectedDeviceId)) {
@@ -629,6 +632,22 @@ function AddMAReportPageContent() {
     applyTaskToForm(task);
      
   }, [selectedTaskId, doneMATasks]);
+
+  const handleFinishedPdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      toastWarning('Please upload a PDF file.');
+      return;
+    }
+    if (!selectedTaskId) {
+      toastWarning('Please select a task before uploading the MA PDF.');
+      return;
+    }
+    setFinishedPdfFile(file);
+    toastSuccess('MA PDF ready — enter Uptime and click Save MA Report.');
+  };
 
   // Handle file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -709,6 +728,18 @@ function AddMAReportPageContent() {
       allowedDevices.find((d) => d.Did.toString() === selectedDeviceId) ??
       devices.find((d) => d.Did.toString() === selectedDeviceId);
 
+    const attachmentSources: Array<{ file: File; type: UploadedFile['type']; name: string }> = [];
+    if (finishedPdfFile) {
+      attachmentSources.push({ file: finishedPdfFile, type: 'pdf', name: finishedPdfFile.name });
+    }
+    for (const f of uploadedFiles) {
+      attachmentSources.push({ file: f.file, type: f.type, name: f.name });
+    }
+    if (attachmentSources.length === 0) {
+      toastWarning('Upload a finished MA PDF in Step 1, or attach files below.');
+      return;
+    }
+
     setSaving(true);
     try {
       const siteName = (selectedDevice?.Sitename ?? '').toString().trim() || 'Unknown';
@@ -719,10 +750,9 @@ function AddMAReportPageContent() {
         if (m) return m[0];
         return type === 'pdf' ? '.pdf' : '.jpg';
       };
-      // อัปโหลดไฟล์ก่อน — บีบอัด PDF/รูปให้ต่ำกว่า 30MB แล้วตั้งชื่อ Site_Location_วันที่_ลำดับ
       const filesWithPath: Array<{ name: string; type: string; path?: string }> = [];
-      for (let i = 0; i < uploadedFiles.length; i++) {
-        const f = uploadedFiles[i];
+      for (let i = 0; i < attachmentSources.length; i++) {
+        const f = attachmentSources[i];
         const ext = getExt(f.name, f.type);
         const displayName = `${safeForName(siteName)}_${safeForName(locationName)}_${maDate}_${i + 1}${ext}`;
 
@@ -1018,6 +1048,73 @@ function AddMAReportPageContent() {
 
         {/* Main Form */}
         <div className="bg-card/95 backdrop-blur-sm p-6 rounded-2xl border border-border shadow-sm">
+          {/* Step 1 — Finished MA PDF */}
+          <div className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
+                1
+              </span>
+              <h2 className="text-lg font-bold text-foreground">Upload finished MA PDF</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              If you already have the MA report PDF, upload it here — then enter Uptime below and click{' '}
+              <strong>Save MA Report</strong>. No need to attach files again in Step 2.
+            </p>
+            {!selectedTaskId ? (
+              <p className="text-sm text-muted-foreground">Select a task above first.</p>
+            ) : (
+              <>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => finishedPdfInputRef.current?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      finishedPdfInputRef.current?.click();
+                    }
+                  }}
+                  className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center cursor-pointer hover:border-emerald-400 transition-colors"
+                >
+                  <input
+                    ref={finishedPdfInputRef}
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    className="sr-only"
+                    onChange={handleFinishedPdfChange}
+                  />
+                  <FileText size={32} className="mx-auto text-muted-foreground mb-2" />
+                  <p className="text-sm font-medium">Drop PDF here or click to browse</p>
+                  {finishedPdfFile && (
+                    <p className="mt-2 text-xs text-emerald-800 font-medium">{finishedPdfFile.name}</p>
+                  )}
+                </div>
+                {finishedPdfFile && (
+                  <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
+                    <span className="flex items-center gap-2 text-emerald-800">
+                      <CheckCircle2 size={18} />
+                      PDF ready — fill Uptime and save below
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFinishedPdfFile(null)}
+                      className="flex items-center gap-1 text-red-600 hover:text-red-800 text-xs font-medium"
+                    >
+                      <X size={14} /> Remove
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="mb-2 flex items-center gap-2">
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+              2
+            </span>
+            <h2 className="text-lg font-bold text-foreground">Report details & attachments</h2>
+          </div>
+
           {/* Device Selection */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-muted-foreground mb-3">
@@ -1345,7 +1442,7 @@ function AddMAReportPageContent() {
           {/* File Upload Section */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-muted-foreground mb-3">
-              Upload Images / Documents / MA Results
+              Additional images / documents {finishedPdfFile ? '(optional)' : ''}
             </label>
             <div className="border-2 border-dashed border-border rounded-xl p-6 bg-muted">
               <input
@@ -1446,7 +1543,12 @@ function AddMAReportPageContent() {
           </div>
 
           {/* Save Button */}
-          <div className="flex justify-end">
+          <div className="flex flex-col items-end gap-2">
+            {finishedPdfFile && (
+              <p className="text-xs text-muted-foreground text-right max-w-md">
+                Finished PDF uploaded in Step 1 — enter Uptime and click Save to submit.
+              </p>
+            )}
             <button
               onClick={handleSave}
               disabled={saving}

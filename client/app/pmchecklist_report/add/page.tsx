@@ -128,6 +128,7 @@ function AddPMReportPageContent() {
   const [saving, setSaving] = useState(false);
   const [savePhase, setSavePhase] = useState<PmSavePhase>(null);
   const [pdfPreparing, setPdfPreparing] = useState(false);
+  const [externalPdfMode, setExternalPdfMode] = useState(false);
   const [hasDonePMTasks, setHasDonePMTasks] = useState(false);
   const [donePMTasks, setDonePMTasks] = useState<ApiTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
@@ -445,7 +446,9 @@ function AddPMReportPageContent() {
       return;
     }
     if (!wizardRef.current?.canSave()) {
-      toastWarning('Complete the PM Document wizard: upload backup and add before/after photos for every device.');
+      toastWarning(
+        'Upload a finished PDF in Step 1, or complete backup and before/after photos for every device.'
+      );
       return;
     }
     setSaving(true);
@@ -682,9 +685,9 @@ function AddPMReportPageContent() {
           {/* PM Document Wizard — Backup + Before/After photos + PDF */}
           <div className="mb-8">
             <div className="mb-4">
-              <h2 className="text-lg font-bold text-foreground">PM Document Report (Backup → PDF)</h2>
+              <h2 className="text-lg font-bold text-foreground">PM Document Report</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Upload device backup, attach before/after photos, and generate a TCC PM document PDF.
+                Step 1: upload a finished PDF to submit immediately — or create a new report from backup and photos.
               </p>
             </div>
             <PmReportWizard
@@ -702,6 +705,7 @@ function AddPMReportPageContent() {
               toastWarning={toastWarning}
               onSavePhase={setSavePhase}
               onPdfPrepareState={({ preparing }) => setPdfPreparing(preparing)}
+              onExternalPdfModeChange={setExternalPdfMode}
             />
           </div>
 
@@ -735,11 +739,13 @@ function AddPMReportPageContent() {
           {/* Save — อัปโหลด PDF สำเร็จรูปจาก wizard อัตโนมัติ */}
           <div className="flex flex-col items-end gap-2">
             <p className="text-xs text-muted-foreground text-right max-w-md">
-              After completing the wizard above, save here. The finished PM PDF is uploaded automatically — Download PDF is optional for your own copy.
+              {externalPdfMode
+                ? 'Finished PDF uploaded in Step 1 — click Save to upload and submit the report.'
+                : 'After completing backup and photos, save here. The PM PDF is generated and uploaded automatically.'}
             </p>
             <button
               onClick={() => void handleSave()}
-              disabled={saving || pdfPreparing}
+              disabled={saving || (pdfPreparing && !externalPdfMode)}
               className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-8 py-3.5 rounded-xl font-bold hover:from-blue-600 hover:to-blue-700 transition-all shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:shadow-blue-500/25"
             >
               <Save size={18} />

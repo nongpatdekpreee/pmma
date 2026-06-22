@@ -10,7 +10,8 @@ const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS || "192.168.60.69")
 const nextConfig: NextConfig = {
   output: "standalone",
   /** ให้เครื่องอื่นใน LAN โหลด /_next/* ตอน dev (ไม่งั้นหน้าเปล่า/พัง) */
-  allowedDevOrigins: ["localhost", "127.0.0.1", ...allowedDevOrigins],
+  allowedDevOrigins: ["localhost", "127.0.0.1","192.168.60.114", "http://192.168.60.114:3000",
+    "http://localhost:3000", ...allowedDevOrigins],
   experimental: {
     /** Dev proxy (/api → Express): default 10MB truncates uploads; match backend multer (30MB) */
     proxyClientMaxBodySize: "30mb",

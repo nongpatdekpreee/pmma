@@ -100,7 +100,7 @@ function buildPlansMarkdown(plans, label, emoji) {
   return lines.join('\n\n') + more;
 }
 
-function buildUpcomingMessageCard({ plans, windowDays, projectOwen }) {
+function buildUpcomingMessageCard({ plans, windowDays }) {
   const pmPlans = plans.filter((p) => String(p.taskType || '').toUpperCase() === 'PM');
   const maPlans = plans.filter((p) => String(p.taskType || '').toUpperCase() === 'MA');
   const total = plans.length;
@@ -127,13 +127,13 @@ function buildUpcomingMessageCard({ plans, windowDays, projectOwen }) {
   const sections = [
     withCardImage(
       {
-        activityTitle: '📆 Upcoming SNS Plans',
-        activitySubtitle: `Project Owen **${projectOwen}** · Daily check ${runLabel}`,
+        activityTitle: '📆 Upcoming PM/MA Plans',
+        activitySubtitle: `Weekly summary · ${runLabel}`,
         markdown: true,
         text:
           total > 0
             ? `Found **${total}** open plan(s) starting between **${todayStr}** and **${windowEnd}** (next **${windowDays}** days).`
-            : `No open **PM** or **MA** plans for **${projectOwen}** starting in the next **${windowDays}** days.`,
+            : `No open **PM** or **MA** plans starting in the next **${windowDays}** days.`,
       },
       'upcoming',
       { hero: true }
@@ -175,12 +175,12 @@ function buildUpcomingMessageCard({ plans, windowDays, projectOwen }) {
     '@type': 'MessageCard',
     '@context': 'https://schema.org/extensions',
     themeColor,
-    summary: `Upcoming SNS Plans: ${total} in ${windowDays} days`,
+    summary: `Upcoming PM/MA Plans: ${total} in ${windowDays} days`,
     sections,
   };
 }
 
-async function notifyTeamsUpcomingPlans({ plans, windowDays, projectOwen }) {
+async function notifyTeamsUpcomingPlans({ plans, windowDays }) {
   const webhookUrl = getWebhookUrl();
   if (!webhookUrl) {
     console.warn(
@@ -189,7 +189,7 @@ async function notifyTeamsUpcomingPlans({ plans, windowDays, projectOwen }) {
     return { sent: false, reason: 'no_webhook' };
   }
 
-  const payload = buildUpcomingMessageCard({ plans, windowDays, projectOwen });
+  const payload = buildUpcomingMessageCard({ plans, windowDays });
 
   try {
     const res = await fetch(webhookUrl, {

@@ -1,5 +1,4 @@
 const db = require('../config/database');
-const { isProjectOwenSnsPlan, PROJECT_OWEN_SNS } = require('../utils/projectOwenSns');
 const {
   notifyTeamsUpcomingPlans,
 } = require('../services/teamsUpcomingPlansNotification');
@@ -76,37 +75,27 @@ async function fetchTasksStartingWithinDays(days) {
   return rows;
 }
 
-/**
- * ดึง PM/MA ของ Project_Owen SNS ที่เริ่มภายใน 30 วันข้างหน้า (ยังไม่ Done)
- */
-async function fetchUpcomingSnsPlans(days = UPCOMING_DAYS) {
+/** PM/MA ที่เริ่มภายใน N วันข้างหน้า (ยังไม่ Done) */
+async function fetchUpcomingPlans(days = UPCOMING_DAYS) {
   const rows = await fetchTasksStartingWithinDays(days);
-  const plans = [];
-  for (const row of rows) {
-    const mapped = mapTaskRow(row);
-    const sns = await isProjectOwenSnsPlan({
-      assets: mapped.assets,
-      replacementDeviceId: mapped.replacementDeviceId,
-      contractId: mapped.contractId,
-      siteId: mapped.siteId,
-    });
-    if (sns) plans.push(mapped);
-  }
-  return plans;
+  return rows.map(mapTaskRow);
 }
 
+/** @deprecated alias */
+const fetchUpcomingSnsPlans = fetchUpcomingPlans;
+
 async function runSnsUpcomingPlansReminder() {
-  const plans = await fetchUpcomingSnsPlans(UPCOMING_DAYS);
+  const plans = await fetchUpcomingPlans(UPCOMING_DAYS);
   const result = await notifyTeamsUpcomingPlans({
     plans,
     windowDays: UPCOMING_DAYS,
-    projectOwen: PROJECT_OWEN_SNS,
   });
   return { planCount: plans.length, ...result };
 }
 
 module.exports = {
   UPCOMING_DAYS,
+  fetchUpcomingPlans,
   fetchUpcomingSnsPlans,
   runSnsUpcomingPlansReminder,
 };

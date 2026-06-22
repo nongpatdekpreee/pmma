@@ -2,7 +2,6 @@ const path = require('path');
 const fs = require('fs');
 const db = require('../config/database');
 const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
-const { isProjectOwenSnsPlan } = require('../utils/projectOwenSns');
 const { notifyTeamsPlanCreated } = require('../services/teamsPlanNotification');
 const { MA_BROKEN_DEVICE_ASSET_STATE_SET } = require('../config/maBrokenAssetState');
 const { assignDeviceToInStoreWarehouse } = require('../config/inStoreSite');
@@ -738,21 +737,9 @@ const createTask = async (req, res) => {
     );
     const createdTask = mapTaskRow(rows[0]);
 
-    try {
-      const snsPlan = await isProjectOwenSnsPlan({
-        assets,
-        replacementDeviceId: safeParseInt(replacementDeviceId),
-        contractId: safeParseInt(contractId),
-        siteId: safeParseInt(siteId),
-      });
-      if (snsPlan) {
-        notifyTeamsPlanCreated(createdTask).catch((err) => {
-          console.error('[createTask] Teams notification failed:', err?.message || err);
-        });
-      }
-    } catch (notifyErr) {
-      console.error('[createTask] SNS plan check/notify error:', notifyErr?.message || notifyErr);
-    }
+    notifyTeamsPlanCreated(createdTask).catch((err) => {
+      console.error('[createTask] Teams notification failed:', err?.message || err);
+    });
 
     return res.status(201).json({
       success: true,

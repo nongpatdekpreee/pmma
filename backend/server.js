@@ -72,7 +72,7 @@ app.use((req, res) => {
   res.status(404).type('txt').send('Not found');
 });
 
-// Cron jobs (SNS upcoming plans reminder @ 15:40 daily)
+// Cron jobs (PM/MA plans @ Mon 09:00, contract expiring @ daily 09:00)
 const { startCronJobs } = require('./cron/scheduler');
 startCronJobs();
 

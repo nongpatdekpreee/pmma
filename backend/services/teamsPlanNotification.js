@@ -1,4 +1,3 @@
-const { PROJECT_OWEN_SNS } = require('../utils/projectOwenSns');
 const { withCardImage } = require('./teamsCardImages');
 
 const WEBHOOK_ENV = 'TEAMS_WEBHOOK_PROJECT_OWEN_SNS';
@@ -116,7 +115,6 @@ function buildMessageCard(task) {
 
   const overviewFacts = [
     fact('Task ID', `#${task.id}`),
-    fact('Project Owen', PROJECT_OWEN_SNS),
     fact('Site', site),
     fact('Contract / SOF', sof),
     fact('Schedule', schedule),
@@ -142,9 +140,9 @@ function buildMessageCard(task) {
     withCardImage(
       {
         activityTitle: `${meta.emoji} New ${meta.accent}`,
-        activitySubtitle: `${meta.label} · Project Owen **${PROJECT_OWEN_SNS}** · ${buildCreatedSubtitle()}`,
+        activitySubtitle: `${meta.label} · PM/MA Plan · ${buildCreatedSubtitle()}`,
         markdown: true,
-        text: `A new **${meta.type}** schedule has been created for the **${PROJECT_OWEN_SNS}** project portfolio.`,
+        text: `A new **${meta.type}** schedule has been created.`,
       },
       meta.imageKey,
       { hero: true }
@@ -191,7 +189,7 @@ function buildMessageCard(task) {
     '@type': 'MessageCard',
     '@context': 'https://schema.org/extensions',
     themeColor: meta.themeColor,
-    summary: `${meta.emoji} New ${meta.type} Plan · ${PROJECT_OWEN_SNS} · ${site}`,
+    summary: `${meta.emoji} New ${meta.type} Plan · ${site}`,
     sections,
   };
 }
@@ -204,7 +202,7 @@ async function notifyTeamsPlanCreated(task) {
   const webhookUrl = getWebhookUrl();
   if (!webhookUrl) {
     console.warn(
-      `[teamsPlanNotification] skip: set ${WEBHOOK_ENV} in backend/.env for Project Owen SNS alerts`
+      `[teamsPlanNotification] skip: set ${WEBHOOK_ENV} in backend/.env for Teams plan alerts`
     );
     return { sent: false, reason: 'no_webhook' };
   }
