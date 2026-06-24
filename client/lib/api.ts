@@ -48,7 +48,7 @@ export function uploadAssetUrl(path: string): string {
   const p = raw.startsWith('/') ? raw : `/${raw}`;
   if (API_BASE) return `${API_BASE}${p}`;
   if (typeof window !== 'undefined') return p;
-  const target = (process.env.API_PROXY_TARGET || 'http://127.0.0.1:5000').replace(/\/$/, '');
+  const target = (process.env.API_PROXY_TARGET || 'http://localhost:5000').replace(/\/$/, '');
   if (process.env.NODE_ENV === 'development') return `${target}${p}`;
   return p;
 }
@@ -849,7 +849,7 @@ export async function deleteMaReport(reportId: string | number): Promise<{ succe
 }
 
 /** POST /api/ma-reports/upload - อัปโหลดไฟล์ Report */
-export async function uploadMaReportFile(file: File): Promise<{ success: boolean; path?: string; name?: string }> {
+export async function uploadMaReportFile(file: File): Promise<{ success: boolean; path?: string; name?: string ;message?: string }> {
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch(apiUrl('/api/ma-reports/upload'), { method: 'POST', body: fd });

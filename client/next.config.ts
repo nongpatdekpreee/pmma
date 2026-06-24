@@ -1,17 +1,38 @@
 import path from "path";
 import type { NextConfig } from "next";
 
-/** LAN dev — ใส่ใน client/.env เช่น ALLOWED_DEV_ORIGINS=192.168.60.69 */
-const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS || "192.168.60.69")
+/** แปลง IP / URL เป็น host ที่ Next ใช้ใน allowedDevOrigins (เช่น 10.4.52.7:3000) */
+function toDevOriginHost(entry: string, port = "3000"): string {
+  const raw = entry.trim();
+  if (!raw) return "";
+  try {
+    if (/^https?:\/\//i.test(raw)) return new URL(raw).host;
+  } catch {
+    /* fall through */
+  }
+  if (raw.includes(":")) return raw;
+  return `${raw}:${port}`;
+}
+
+/** LAN dev — ใส่ใน client/.env.local เช่น ALLOWED_DEV_ORIGINS=10.4.52.7,10.3.231.120 */
+const extraDevOrigins = (process.env.ALLOWED_DEV_ORIGINS || "")
   .split(",")
-  .map((s) => s.trim())
+  .map((s) => toDevOriginHost(s))
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
   output: "standalone",
   /** ให้เครื่องอื่นใน LAN โหลด /_next/* ตอน dev (ไม่งั้นหน้าเปล่า/พัง) */
-  allowedDevOrigins: ["localhost", "127.0.0.1","192.168.60.114", "http://192.168.60.114:3000",
-    "http://localhost:3000", ...allowedDevOrigins],
+  allowedDevOrigins: [
+    "localhost:3000",
+    "192.168.60.75:3000",
+    "192.168.60.75",
+    "127.0.0.1:3000",
+    "localhost",
+    "127.0.0.1",
+    
+    ...extraDevOrigins,
+  ],
   experimental: {
     /** Dev proxy (/api → Express): default 10MB truncates uploads; match backend multer (30MB) */
     proxyClientMaxBodySize: "30mb",
