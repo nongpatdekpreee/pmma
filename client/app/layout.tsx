@@ -3,6 +3,7 @@ import { Geist_Mono, Noto_Sans_Thai, Plus_Jakarta_Sans } from "next/font/google"
 import "./globals.css";
 import { SidebarProvider } from "@/components/sidebar/SidebarContext";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { AuthProvider } from "@/lib/auth/AuthProvider";
 
 const plusJakarta = Plus_Jakarta_Sans({
   variable: "--font-plus-jakarta",
@@ -45,9 +46,11 @@ export default function RootLayout({
         className={`${plusJakarta.variable} ${notoSansThai.variable} ${geistMono.variable} font-sans antialiased`}
       >
         <ThemeProvider>
-          <SidebarProvider>
-            {children}
-          </SidebarProvider>
+          <AuthProvider>
+            <SidebarProvider>
+              {children}
+            </SidebarProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

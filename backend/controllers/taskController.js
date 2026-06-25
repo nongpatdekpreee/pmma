@@ -2,7 +2,9 @@ const path = require('path');
 const fs = require('fs');
 const db = require('../config/database');
 const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
-const { notifyTeamsPlanCreated } = require('../services/teamsPlanNotification');
+const { notifyTeamsPlanCreated, notifyTeamsPlanUpdated } = require('../services/teamsPlanNotification');
+const { getTeamsActor } = require('../utils/teamsActor');
+const { collectTaskChanges } = require('../utils/taskChangeSummary');
 const { MA_BROKEN_DEVICE_ASSET_STATE_SET } = require('../config/maBrokenAssetState');
 const { assignDeviceToInStoreWarehouse } = require('../config/inStoreSite');
 
@@ -737,7 +739,7 @@ const createTask = async (req, res) => {
     );
     const createdTask = mapTaskRow(rows[0]);
 
-    notifyTeamsPlanCreated(createdTask).catch((err) => {
+    notifyTeamsPlanCreated(createdTask, { actor: getTeamsActor(req.user) }).catch((err) => {
       console.error('[createTask] Teams notification failed:', err?.message || err);
     });
 
@@ -972,6 +974,8 @@ const updateTask = async (req, res) => {
       }
     }
 
+    const taskChanges = collectTaskChanges(existing[0], req.body);
+
     if (updates.length === 0) {
         return res.status(400).json({ success: false, message: 'No data to update' });
     }
@@ -1071,10 +1075,21 @@ const updateTask = async (req, res) => {
     }
 
     const [rows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
+    const updatedTask = mapTaskRow(rows[0]);
+
+    if (taskChanges.length > 0) {
+      notifyTeamsPlanUpdated(updatedTask, {
+        actor: getTeamsActor(req.user),
+        changes: taskChanges,
+      }).catch((err) => {
+        console.error('[updateTask] Teams notification failed:', err?.message || err);
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Task updated successfully',
-      data: mapTaskRow(rows[0]),
+      data: updatedTask,
     });
   } catch (error) {
     console.error('Error updating task:', error);

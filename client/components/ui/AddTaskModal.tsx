@@ -20,8 +20,7 @@ import {
   checkEngineerConflict,
   uploadMaReportFile,
   getAssignedServices,
-  type ApiTask,
-} from '@/lib/api';
+  type ApiTask, apiFetch} from '@/lib/api';
 import { prepareReportUploadFile } from '@/lib/prepareReportUploadFile';
 import { randomUUID } from '@/lib/utils';
 import { getEmployees } from '@/data/employee.mock';
@@ -446,7 +445,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     if (!replacementWarehouseInflightRef.current) {
       replacementWarehouseInflightRef.current = (async () => {
         try {
-          const res = await fetch(apiUrl('/api/devices/replacement'));
+          const res = await apiFetch(apiUrl('/api/devices/replacement'));
           const json = await res.json();
           if (!res.ok || !json.data) {
             return [];
@@ -725,7 +724,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
           const fetchReplacementDetails = async (repId: string | number | null | undefined): Promise<Device | null> => {
             if (repId == null) return null;
             try {
-              const res = await fetch(apiUrl(`/api/devices/${repId}`));
+              const res = await apiFetch(apiUrl(`/api/devices/${repId}`));
               const json = await res.json();
               if (json.success && json.data) {
                 return mapDeviceFromApi(json.data, 'available');
@@ -738,7 +737,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
           const fetchDeviceDetails = async (deviceId: string | number): Promise<Device> => {
             try {
-              const res = await fetch(apiUrl(`/api/devices/${deviceId}`));
+              const res = await apiFetch(apiUrl(`/api/devices/${deviceId}`));
               const json = await res.json();
               if (json.success && json.data) {
                 return mapDeviceFromApi(json.data, 'site');
@@ -875,7 +874,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
     const loadManufacturers = async () => {
       setLoadingManufacturers(true);
       try {
-        const res = await fetch(apiUrl('/api/manufacturers'));
+        const res = await apiFetch(apiUrl('/api/manufacturers'));
         const json = await res.json();
         if (res.ok && json.success && json.data) {
           setManufacturers(json.data);
@@ -889,7 +888,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
     const loadDeviceRoles = async () => {
       try {
-        const res = await fetch(apiUrl('/api/device-roles'));
+        const res = await apiFetch(apiUrl('/api/device-roles'));
         const json = await res.json();
         if (res.ok && json.success && json.data) {
           setDeviceRoles(json.data);
@@ -901,7 +900,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
 
     const loadDeviceTypes = async () => {
       try {
-        const res = await fetch(apiUrl('/api/device-types'));
+        const res = await apiFetch(apiUrl('/api/device-types'));
         const json = await res.json();
         if (res.ok && json.success && json.data) {
           setDeviceTypes(json.data);

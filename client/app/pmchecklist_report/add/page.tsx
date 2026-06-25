@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getTasks, getPmReportedTaskIds, type ApiTask } from '@/lib/api';
+import { apiUrl, getTasks, getPmReportedTaskIds, type ApiTask, apiFetch} from '@/lib/api';
 import { apiTaskString } from '@/lib/apiTask';
 import { asRecord, readString } from '@/lib/unknownUtil';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
@@ -283,7 +283,7 @@ function AddPMReportPageContent() {
     const fetchDevices = async () => {
       setLoadingDevices(true);
       try {
-        const response = await fetch(apiUrl('/api/devices?limit=1000'));
+        const response = await apiFetch(apiUrl('/api/devices?limit=1000'));
         const data = await response.json();
         if (data.success && data.data) {
           setDevices(data.data);

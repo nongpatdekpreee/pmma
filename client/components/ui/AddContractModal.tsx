@@ -2,7 +2,7 @@
 import Image from 'next/image';
 import { X, Loader2, Paperclip, ImageIcon, Plus, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch} from '@/lib/api';
 import { MAX_VISIBLE_SELECTED_DEVICES_PER_ENTRY } from '@/lib/contractLimits';
 import { randomUUID } from '@/lib/utils';
 import { DeviceSelectModal } from '@/components/ui/DeviceSelectModal';
@@ -115,7 +115,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setReferSOFLoading(true);
       setFetchError('');
       try {
-        const res = await fetch(apiUrl('/api/devices/refer-sof'));
+        const res = await apiFetch(apiUrl('/api/devices/refer-sof'));
         const json = await res.json();
         if (res.ok && json.data) setReferSOFList(json.data);
         else if (!res.ok) throw new Error(json.message || 'ดึง Refer_SOF ไม่ได้');
@@ -139,7 +139,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
       setDataLoading(true);
       setFetchError('');
       try {
-        const res = await fetch(apiUrl('/api/sites/locations'));
+        const res = await apiFetch(apiUrl('/api/sites/locations'));
         const json = await res.json();
         if (res.ok && json.data) setSitesLocation(json.data);
         else if (!res.ok) throw new Error(json.message || 'ดึง sites_Location ไม่ได้');
@@ -155,7 +155,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   // โหลด devices สำหรับ site ที่เลือก (เมื่อเปิด modal เลือก device)
   const loadDevicesForSite = async (siteId: string): Promise<DeviceItem[]> => {
     if (!selectedReferSOF || !siteId) return [];
-    const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedReferSOF)}&site_id=${siteId}`));
+    const res = await apiFetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(selectedReferSOF)}&site_id=${siteId}`));
     const json = await res.json();
     if (res.ok && json.data) return json.data;
     throw new Error(json.message || 'ดึง Devices ไม่ได้');
@@ -213,7 +213,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
   const uploadFile = async (file: File): Promise<string> => {
     const fd = new FormData();
     fd.append('file', file);
-    const res = await fetch(apiUrl('/api/contracts/upload'), { method: 'POST', body: fd });
+    const res = await apiFetch(apiUrl('/api/contracts/upload'), { method: 'POST', body: fd });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || 'อัปโหลดไม่สำเร็จ');
     return json.path;
@@ -277,7 +277,7 @@ export function AddContractModal({ isOpen, onClose, onSuccess }: Props) {
         file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
         image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
       };
-      const res = await fetch(apiUrl('/api/contracts'), {
+      const res = await apiFetch(apiUrl('/api/contracts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

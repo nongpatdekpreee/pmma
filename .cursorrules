@@ -1,0 +1,131 @@
+You are helping build a production-ready authentication and authorization system.
+Current Status:
+React frontend
+Express backend
+MySQL database
+Argon2 password hashing
+JWT authentication
+Existing users table already exists
+No Login page exists
+No Register page exists
+No Protected Routes exist yet
+No Role-Based Access Control exists yet
+Requirements:
+Roles:
+USER
+ADMIN
+Application Rules:
+Every user must login before accessing the application.
+The default landing page after login is /calendar.
+Public Pages:
+/login
+/register
+Protected Pages:
+/calendar
+/profile
+Admin Only Pages:
+/schedule-management
+/user-management
+Authorization Rules:
+USER:
+Can access all authenticated pages except:
+/schedule-management
+/user-management
+ADMIN:
+Can access all pages.
+Authentication Rules:
+Unauthenticated users may only access:
+/login
+/register
+Unauthenticated users attempting to access any protected page must be redirected to /login.
+Authenticated users visiting /login or /register must be redirected to /calendar.
+Security Rules:
+Use Argon2 for password hashing.
+Use JWT access tokens.
+Use Refresh Token Rotation.
+Use HttpOnly Secure Cookies for refresh tokens.
+Never store refresh tokens in localStorage.
+Never store access tokens in localStorage unless explicitly required.
+Validate all request inputs.
+Use generic authentication error messages.
+Implement backend authorization checks.
+Implement frontend route guards.
+Never trust frontend role data.
+Verify JWT on every protected request.
+Load permissions from authenticated user context.
+Log authentication and authorization failures.
+Reuse the existing users table.
+Explain security decisions before coding.
+Development Rules:
+Before generating code:
+Analyze the existing implementation.
+Analyze the existing users table.
+Analyze the current JWT implementation.
+Explain the architecture.
+Explain security considerations.
+Provide an implementation plan.
+Do not generate code immediately.
+Wait for approval before modifying files.
+TypeScript Rules
+Use TypeScript strict mode.
+Never use any type.
+Never use @ts-ignore unless explicitly approved.
+Prefer explicit types over implicit types.
+Create interfaces or types for API requests and responses.
+Type all React component props.
+Type all Express request and response objects.
+Type all custom hooks.
+Type all service functions.
+React Rules
+Use functional components only.
+Use hooks instead of class components.
+Keep components small and reusable.
+Avoid duplicate code.
+Extract reusable logic into custom hooks.
+Use React Router for navigation.
+Use lazy loading where appropriate.
+Show loading states for async operations.
+Handle error states properly.
+Express Rules
+Use controller/service architecture.
+Keep business logic out of route files.
+Validate request input before reaching controllers.
+Use centralized error handling.
+Use middleware for authentication and authorization.
+Never expose internal errors to API consumers.
+Database Rules
+Reuse existing database schema whenever possible.
+Do not create duplicate tables.
+Do not rename columns without approval.
+Use parameterized queries.
+Prevent SQL injection.
+Add indexes only when necessary.
+Explain schema changes before applying them.
+Security Rules
+Never store passwords in plaintext.
+Use Argon2 for password hashing.
+Never expose password hashes.
+Never trust frontend authorization.
+Validate all user input.
+Sanitize user-controlled data.
+Use generic authentication errors.
+Verify JWT on every protected request.
+Store secrets in environment variables.
+Never hardcode secrets.
+Never commit secrets to source control.
+Code Quality Rules
+Follow SOLID principles.
+Follow DRY principles.
+Avoid code duplication.
+Prefer composition over inheritance.
+Write maintainable code.
+Write production-ready code only.
+Explain breaking changes before implementation.
+Explain security implications before implementation.
+Show affected files before making modifications.
+Refactoring Rules
+Analyze existing code before refactoring.
+Do not rewrite working code without justification.
+Preserve backward compatibility whenever possible.
+Explain risks before changing authentication logic.
+Wait for approval before major architectural changes.

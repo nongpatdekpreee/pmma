@@ -14,7 +14,7 @@ import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, getTasks, type HolidayItem } from '@/lib/api';
+import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, getTasks, type HolidayItem, apiFetch} from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import { getErrorMessage, readNumber, readString } from '@/lib/unknownUtil';
@@ -699,7 +699,7 @@ function CalendarPageContent() {
       if (reason) {
         body.rescheduleNote = reason;
       }
-      const res = await fetch(apiUrl(`/api/tasks/${taskId}`), {
+      const res = await apiFetch(apiUrl(`/api/tasks/${taskId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -885,7 +885,7 @@ function CalendarPageContent() {
     // Update backend — MA uptime กรอกตอนส่ง MA checklist report (ไม่ตั้งอัตโนมัติตอน Done)
     let serverTask: Record<string, unknown> | null = null;
     try {
-      const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
+      const res = await apiFetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

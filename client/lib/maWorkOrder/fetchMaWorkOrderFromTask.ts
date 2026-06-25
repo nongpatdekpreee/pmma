@@ -1,4 +1,4 @@
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch} from '@/lib/api';
 import { mapTaskToMaWorkOrder } from './mapTaskToMaWorkOrder';
 import type { MaWorkOrderData, MaWorkOrderMapContext, MaWorkOrderTaskInput } from './types';
 
@@ -79,7 +79,7 @@ function taskRecordToInput(task: Record<string, unknown>): MaWorkOrderTaskInput 
 async function fetchReferSof(contractId: unknown): Promise<string> {
   if (contractId == null || !String(contractId).trim()) return '';
   try {
-    const res = await fetch(apiUrl(`/api/contracts/${contractId}`));
+    const res = await apiFetch(apiUrl(`/api/contracts/${contractId}`));
     const json = await res.json();
     if (!res.ok || !json?.data) return '';
     return (
@@ -107,7 +107,7 @@ async function fetchDeviceMapsFromTask(
       const id = asset.id;
       if (id == null) return;
       try {
-        const res = await fetch(apiUrl(`/api/devices/${id}`));
+        const res = await apiFetch(apiUrl(`/api/devices/${id}`));
         const json = await res.json();
         if (res.ok && json.data) {
           const d = json.data;
@@ -132,7 +132,7 @@ async function fetchDeviceMapsFromTask(
   await Promise.all(
     [...repIds].map(async (repId) => {
       try {
-        const res = await fetch(apiUrl(`/api/devices/${repId}`));
+        const res = await apiFetch(apiUrl(`/api/devices/${repId}`));
         const json = await res.json();
         if (res.ok && json.data) {
           const d = json.data;
@@ -161,7 +161,7 @@ async function fetchLocationFromSiteId(siteId: unknown): Promise<string> {
   if (siteId == null || !String(siteId).trim()) return '';
   try {
     if (!sitesLocationCache) {
-      const res = await fetch(apiUrl('/api/sites/locations'));
+      const res = await apiFetch(apiUrl('/api/sites/locations'));
       const json = await res.json();
       if (!res.ok || !Array.isArray(json.data)) return '';
       sitesLocationCache = json.data;

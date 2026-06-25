@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, postMaReport, getTasks, getMaReportedTaskIds, uploadMaReportFile } from '@/lib/api';
+import { apiUrl, postMaReport, getTasks, getMaReportedTaskIds, uploadMaReportFile, apiFetch} from '@/lib/api';
 import { formatFileSize, prepareReportUploadFile } from '@/lib/prepareReportUploadFile';
 import { asRecord } from '@/lib/unknownUtil';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
@@ -469,7 +469,7 @@ function AddMAReportPageContent() {
     const fetchDevices = async () => {
       setLoadingDevices(true);
       try {
-        const response = await fetch(apiUrl('/api/devices?limit=1000'));
+        const response = await apiFetch(apiUrl('/api/devices?limit=1000'));
         const data = await response.json();
         if (data.success && data.data) {
           setDevices(
@@ -510,7 +510,7 @@ function AddMAReportPageContent() {
       const rows = await Promise.all(
         missing.map(async (id) => {
           try {
-            const res = await fetch(apiUrl(`/api/devices/${id}`));
+            const res = await apiFetch(apiUrl(`/api/devices/${id}`));
             const data = await res.json();
             if (data?.success && data.data) return normalizeApiDevice(data.data as Record<string, unknown>);
           } catch (e) {

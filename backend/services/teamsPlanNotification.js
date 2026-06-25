@@ -1,4 +1,5 @@
 const { withCardImage } = require('./teamsCardImages');
+const { formatChangesMarkdown } = require('../utils/teamsMessageFormat');
 
 const WEBHOOK_ENV = 'TEAMS_WEBHOOK_PROJECT_OWEN_SNS';
 
@@ -88,7 +89,7 @@ function fact(name, value) {
   return { name, value: dash(value) };
 }
 
-function buildCreatedSubtitle() {
+function buildTimestampSubtitle() {
   const now = new Date();
   const date = now.toLocaleDateString('en-US', {
     weekday: 'short',
@@ -104,7 +105,7 @@ function buildCreatedSubtitle() {
   return `${date} · ${time}`;
 }
 
-function buildMessageCard(task) {
+function buildPlanSections(task, { event = 'created', actor = null, changes = [] } = {}) {
   const meta = planMeta(task.taskType || task.task_type);
   const site = dash(task.siteName || task.site_name);
   const sof = dash(task.sofName || task.contract_sof_name);
@@ -112,6 +113,12 @@ function buildMessageCard(task) {
   const engineers = formatEngineers(task.engineers);
   const status = formatStatus(task.status);
   const assetsMd = formatAssetsMarkdown(task.assets);
+
+  const isUpdate = event === 'updated';
+  const heroTitle = isUpdate ? `${meta.emoji} ${meta.accent} Updated` : `${meta.emoji} New ${meta.accent}`;
+  const heroText = isUpdate
+    ? `**${meta.type}** plan **#${task.id}** was updated.`
+    : `A new **${meta.type}** schedule has been created.`;
 
   const overviewFacts = [
     fact('Task ID', `#${task.id}`),
@@ -121,32 +128,36 @@ function buildMessageCard(task) {
     fact('Status', status),
   ];
 
-  const teamFacts = [fact('Assigned engineers', engineers)];
-
-  const detailFacts = [];
-  if (meta.type === 'MA') {
-    const vendor = dash(task.vendorName || task.vendor_name);
-    const assigned = dash(task.assignedService ?? task.assigned_service);
-    if (vendor !== '—') detailFacts.push(fact('Vendor', vendor));
-    if (assigned !== '—') detailFacts.push(fact('Assigned service', assigned));
-  } else {
-    const coverage = dash(task.coverageScope || task.coverage_scope);
-    const vendor = dash(task.vendorName || task.vendor_name);
-    if (coverage !== '—') detailFacts.push(fact('Coverage scope', coverage));
-    if (vendor !== '—') detailFacts.push(fact('Vendor', vendor));
-  }
-
   const sections = [
     withCardImage(
       {
-        activityTitle: `${meta.emoji} New ${meta.accent}`,
-        activitySubtitle: `${meta.label} · PM/MA Plan · ${buildCreatedSubtitle()}`,
+        activityTitle: heroTitle,
+        activitySubtitle: `${meta.label} · PM/MA Plan · ${buildTimestampSubtitle()}`,
         markdown: true,
-        text: `A new **${meta.type}** schedule has been created.`,
+        text: heroText,
       },
       meta.imageKey,
       { hero: true }
     ),
+  ];
+
+  if (actor?.display) {
+    sections.push({
+      title: isUpdate ? 'Updated by' : 'Created by',
+      markdown: true,
+      facts: [fact(isUpdate ? 'Updated by' : 'Created by', actor.display)],
+    });
+  }
+
+  if (isUpdate && changes.length > 0) {
+    sections.push({
+      title: 'What changed',
+      markdown: true,
+      text: formatChangesMarkdown(changes),
+    });
+  }
+
+  sections.push(
     withCardImage(
       {
         title: 'Overview',
@@ -158,23 +169,14 @@ function buildMessageCard(task) {
     {
       title: 'Team',
       markdown: true,
-      facts: teamFacts,
+      facts: [fact('Assigned engineers', engineers)],
     },
-  ];
-
-  if (detailFacts.length > 0) {
-    sections.push({
-      title: meta.type === 'MA' ? 'Service details' : 'Plan details',
+    {
+      title: 'Assets',
       markdown: true,
-      facts: detailFacts,
-    });
-  }
-
-  sections.push({
-    title: 'Assets',
-    markdown: true,
-    text: assetsMd,
-  });
+      text: assetsMd,
+    }
+  );
 
   const notes = dash(task.notes);
   if (notes !== '—') {
@@ -185,29 +187,26 @@ function buildMessageCard(task) {
     });
   }
 
+  return { sections, meta, site, isUpdate };
+}
+
+function buildMessageCard(task, options = {}) {
+  const { sections, meta, site } = buildPlanSections(task, options);
   return {
     '@type': 'MessageCard',
     '@context': 'https://schema.org/extensions',
     themeColor: meta.themeColor,
-    summary: `${meta.emoji} New ${meta.type} Plan · ${site}`,
+    summary: `${meta.emoji} ${options.event === 'updated' ? 'Updated' : 'New'} ${meta.type} Plan · ${site}`,
     sections,
   };
 }
 
-/**
- * ส่งแจ้งเตือน Teams (ไม่ throw — log อย่างเดียวถ้าล้มเหลว)
- * @param {object} task — ผลจาก mapTaskRow หลังสร้างงาน
- */
-async function notifyTeamsPlanCreated(task) {
+async function postTeamsCard(payload, logTag) {
   const webhookUrl = getWebhookUrl();
   if (!webhookUrl) {
-    console.warn(
-      `[teamsPlanNotification] skip: set ${WEBHOOK_ENV} in backend/.env for Teams plan alerts`
-    );
+    console.warn(`[${logTag}] skip: set ${WEBHOOK_ENV} in backend/.env for Teams plan alerts`);
     return { sent: false, reason: 'no_webhook' };
   }
-
-  const payload = buildMessageCard(task);
 
   try {
     const res = await fetch(webhookUrl, {
@@ -218,21 +217,38 @@ async function notifyTeamsPlanCreated(task) {
 
     const text = await res.text().catch(() => '');
     if (!res.ok) {
-      console.error(
-        `[teamsPlanNotification] HTTP ${res.status}: ${text.slice(0, 500)}`
-      );
+      console.error(`[${logTag}] HTTP ${res.status}: ${text.slice(0, 500)}`);
       return { sent: false, reason: 'http_error', status: res.status };
     }
 
     return { sent: true };
   } catch (err) {
-    console.error('[teamsPlanNotification] request failed:', err.message);
+    console.error(`[${logTag}] request failed:`, err.message);
     return { sent: false, reason: 'network_error' };
   }
 }
 
+/**
+ * @param {object} task
+ * @param {{ actor?: object }} [options]
+ */
+async function notifyTeamsPlanCreated(task, options = {}) {
+  const card = buildMessageCard(task, { event: 'created', ...options });
+  return postTeamsCard(card, 'teamsPlanNotification');
+}
+
+/**
+ * @param {object} task
+ * @param {{ actor?: object, changes?: Array }} [options]
+ */
+async function notifyTeamsPlanUpdated(task, options = {}) {
+  const card = buildMessageCard(task, { event: 'updated', ...options });
+  return postTeamsCard(card, 'teamsPlanNotification');
+}
+
 module.exports = {
   notifyTeamsPlanCreated,
+  notifyTeamsPlanUpdated,
   buildMessageCard,
   getWebhookUrl,
 };

@@ -16,8 +16,7 @@ import {
   absoluteUrlForHyperlink,
   deletePmReport,
   deleteMaReport,
-  type ApiTask,
-} from '@/lib/api';
+  type ApiTask, apiFetch} from '@/lib/api';
 import { apiTaskString } from '@/lib/apiTask';
 import { asRecord, readString } from '@/lib/unknownUtil';
 import JSZip from 'jszip';
@@ -651,7 +650,7 @@ function ReportPageContent() {
       await Promise.all(
         Array.from(repIds).map(async (rid) => {
           try {
-            const res = await fetch(apiUrl(`/api/devices/${rid}`));
+            const res = await apiFetch(apiUrl(`/api/devices/${rid}`));
             const json = await res.json();
             if (!cancelled && res.ok && json.data) {
               const d = json.data as Record<string, unknown>;
@@ -703,7 +702,7 @@ function ReportPageContent() {
       await Promise.all(
         Array.from(ids).map(async (did) => {
           try {
-            const res = await fetch(apiUrl(`/api/devices/${did}`));
+            const res = await apiFetch(apiUrl(`/api/devices/${did}`));
             const json = await res.json();
             if (!cancelled && res.ok && json.data) {
               const d = json.data as Record<string, unknown>;
@@ -755,7 +754,7 @@ function ReportPageContent() {
       await Promise.all(
         Array.from(ids).map(async (did) => {
           try {
-            const res = await fetch(apiUrl(`/api/devices/${did}`));
+            const res = await apiFetch(apiUrl(`/api/devices/${did}`));
             const json = await res.json();
             if (res.ok && json.data) {
               const d = json.data as Record<string, unknown>;
@@ -939,7 +938,7 @@ function ReportPageContent() {
     await Promise.all(
       Array.from(ids).map(async (id) => {
         try {
-          const res = await fetch(apiUrl(`/api/devices/${id}`));
+          const res = await apiFetch(apiUrl(`/api/devices/${id}`));
           const json = await res.json();
           if (res.ok && json.data) {
             const d = json.data as Record<string, unknown>;
@@ -1278,7 +1277,7 @@ function ReportPageContent() {
       await Promise.all(
         Array.from(repIds).map(async (rid) => {
           try {
-            const res = await fetch(apiUrl(`/api/devices/${rid}`));
+            const res = await apiFetch(apiUrl(`/api/devices/${rid}`));
             const json = await res.json();
             if (res.ok && json.data) {
               const d = json.data as Record<string, unknown>;
@@ -1327,7 +1326,7 @@ function ReportPageContent() {
       await Promise.all(
         Array.from(brokenIds).map(async (did) => {
           try {
-            const res = await fetch(apiUrl(`/api/devices/${did}`));
+            const res = await apiFetch(apiUrl(`/api/devices/${did}`));
             const json = await res.json();
             if (res.ok && json.data) {
               const d = json.data as Record<string, unknown>;
@@ -1782,7 +1781,7 @@ function ReportPageContent() {
   ) => {
     setViewingUploadedFileKey(itemKey);
     try {
-      const res = await fetch(apiUrl(path));
+      const res = await apiFetch(apiUrl(path));
       if (!res.ok) {
         toastWarning(
           displayName
@@ -1904,7 +1903,7 @@ function ReportPageContent() {
         const n = roundMap.get(f) ?? 1;
         const roundSuffix = `รอบที่${n}`;
         try {
-          const res = await fetch(apiUrl(f.path));
+          const res = await apiFetch(apiUrl(f.path));
           if (res.ok) {
             const blob = await res.blob();
             const ext = getExt(f.name, f.type);
@@ -2231,7 +2230,7 @@ function ReportPageContent() {
             const visitDate = getNormalizedVisitDate(f.visitRound, y);
             const n = roundMap.get(f) ?? 1;
             try {
-              const res = await fetch(apiUrl(f.path));
+              const res = await apiFetch(apiUrl(f.path));
               if (res.ok) {
                 const blob = await res.blob();
                 const ext = getExt(f.name, f.type);

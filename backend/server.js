@@ -1,7 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
 const path = require('path');
+const loginRoutes = require('./routes/loginRoutes');
+const { authenticateToken } = require('./middleware/authMiddleware');
+const { requireSession } = require('./middleware/requireSession');
 require('dotenv').config();
 
 // โหลด config database เพื่อทดสอบการเชื่อมต่อตอน start server
@@ -11,47 +15,49 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
-// Serve uploaded files (employee photos, reports, contracts)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/public', express.static(path.join(__dirname, 'public')));
+app.use(cors({ origin: true, credentials: true }));
+app.use(cookieParser());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
+app.use('/api/auth', loginRoutes);
+// Serve uploaded files — ต้องมี session (refresh cookie)
+app.use('/uploads', requireSession, express.static(path.join(__dirname, 'uploads')));
+app.use('/public', express.static(path.join(__dirname, 'public')));
 
 // Routes
 const siteRoutes = require('./routes/siteRoutes');
-app.use('/api/sites', siteRoutes);
+app.use('/api/sites', authenticateToken, siteRoutes);
 
 const manufacturerRoutes = require('./routes/manufacturerRoutes');
-app.use('/api/manufacturers', manufacturerRoutes);
+app.use('/api/manufacturers', authenticateToken, manufacturerRoutes);
 
 const deviceRoleRoutes = require('./routes/deviceRoleRoutes');
-app.use('/api/device-roles', deviceRoleRoutes);
+app.use('/api/device-roles', authenticateToken, deviceRoleRoutes);
 
 const deviceTypeRoutes = require('./routes/deviceTypeRoutes');
-app.use('/api/device-types', deviceTypeRoutes);
+app.use('/api/device-types', authenticateToken, deviceTypeRoutes);
 
 const deviceRoutes = require('./routes/deviceRoutes');
-app.use('/api/devices', deviceRoutes);
+app.use('/api/devices', authenticateToken, deviceRoutes);
 
 const employeeRoutes = require('./routes/employeeRoutes');
-app.use('/api/employees', employeeRoutes);
+app.use('/api/employees', authenticateToken, employeeRoutes);
 
 const contractRoutes = require('./routes/contractRoutes');
-app.use('/api/contracts', contractRoutes);
+app.use('/api/contracts', authenticateToken, contractRoutes);
 
 const taskRoutes = require('./routes/taskRoutes');
-app.use('/api/tasks', taskRoutes);
+app.use('/api/tasks', authenticateToken, taskRoutes);
 
 const reportRoutes = require('./routes/reportRoutes');
-app.use('/api/pm-reports', reportRoutes);
-app.use('/api/ma-reports', reportRoutes);
+app.use('/api/pm-reports', authenticateToken, reportRoutes);
+app.use('/api/ma-reports', authenticateToken, reportRoutes);
 
 const analyticsRoutes = require('./routes/analyticsRoutes');
-app.use('/api/analytics', analyticsRoutes);
+app.use('/api/analytics', authenticateToken, analyticsRoutes);
 
 const holidayRoutes = require('./routes/holidayRoutes');
-app.use('/api/holidays', holidayRoutes);
+app.use('/api/holidays', authenticateToken, holidayRoutes);
 
 app.get('/', (req, res) => {
   res.json({

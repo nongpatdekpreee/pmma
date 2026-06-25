@@ -3,6 +3,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
+import { useAuth } from '@/lib/auth/AuthProvider';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -18,6 +19,7 @@ import {
   FileText,
   X,
   AlertTriangle,
+  UserCog,
 } from 'lucide-react';
 import { useSidebar } from './SidebarContext';
 import { LucideIcon } from 'lucide-react';
@@ -26,21 +28,32 @@ type MenuItem =
   | { type: 'section'; label: string }
   | { type?: never; icon: LucideIcon; label: string; href: string };
 
-const menuItems: MenuItem[] = [
+const baseMenuItems: MenuItem[] = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
   { icon: BarChart3, label: 'Report & Analytics', href: '/report' },
   { icon: FileText, label: 'Contract', href: '/contract_editer' },
   { icon: Users, label: 'Employee', href: '/employee' },
   { icon: Calendar, label: 'Calendar', href: '/calendar' },
-  { icon: CalendarCog, label: 'Schedule Management', href: '/schedule_management' },
-  
   { icon: MessageSquare, label: 'Report', href: '/pmchecklist_report' },
   { icon: Monitor, label: 'Asset & Site', href: '/asset_site_database' },
 ];
 
+const adminMenuItems: MenuItem[] = [
+  { icon: CalendarCog, label: 'Schedule Management', href: '/schedule_management' },
+  { icon: UserCog, label: 'User Management', href: '/user-management' },
+];
+
 export function Sidebar() {
   const pathname = usePathname();
+  const { isAdmin, logout } = useAuth();
   const { isCollapsed, isMobileOpen, isHovered, setIsHovered, closeMobile } = useSidebar();
+  const menuItems = isAdmin
+    ? [
+        ...baseMenuItems.slice(0, 5),
+        ...adminMenuItems,
+        ...baseMenuItems.slice(5),
+      ]
+    : baseMenuItems;
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const mounted = useSyncExternalStore(
     () => () => {},
@@ -64,43 +77,14 @@ export function Sidebar() {
     };
   }, [logoutModalOpen]);
 
-  const performLogout = () => {
-    // Logout is a client-only action: clear local user info then redirect to the login system
-    let currentUser: string | null = null;
-    let authToken: string | null = null;
-    try {
-      currentUser = localStorage.getItem('currentUser');
-      authToken = localStorage.getItem('authToken');
-    } catch {
-      // ignore
-    }
-
-    try {
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('authToken');
-    } catch {
-      // ignore
-    }
-
+  const confirmLogout = () => {
+    setLogoutModalOpen(false);
     closeMobile();
-
-    const baseUrl = (process.env.NEXT_PUBLIC_LOGIN_URL || 'http://10.4.102.212')
-      .trim()
-      .replace(/\/$/, '');
-    const qs = new URLSearchParams();
-    if (currentUser) qs.set('currentUser', currentUser);
-    if (authToken) qs.set('authToken', authToken);
-    const redirectUrl = qs.toString() ? `${baseUrl}?${qs.toString()}` : baseUrl;
-
-    window.location.href = redirectUrl;
+    void logout();
   };
 
   const openLogoutModal = () => setLogoutModalOpen(true);
   const closeLogoutModal = () => setLogoutModalOpen(false);
-  const confirmLogout = () => {
-    setLogoutModalOpen(false);
-    performLogout();
-  };
 
   const logoutModal =
     mounted &&

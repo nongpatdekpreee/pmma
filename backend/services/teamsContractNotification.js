@@ -1,13 +1,14 @@
 const { withCardImage } = require('./teamsCardImages');
+const { formatChangesMarkdown } = require('../utils/teamsMessageFormat');
 
 const WEBHOOK_ENV = 'TEAMS_WEBHOOK_PROJECT_OWEN_SNS';
 
 const EVENT_META = {
-  created: { emoji: '📄', title: 'New Contract', themeColor: '059669' },
-  renewed: { emoji: '🔄', title: 'Contract Renewed', themeColor: '0D9488' },
-  updated: { emoji: '✏️', title: 'Contract Updated', themeColor: '2563EB' },
-  sof_changed: { emoji: '🔢', title: 'SOF Changed', themeColor: 'D97706' },
-  terminated: { emoji: '⛔', title: 'Contract Not Renewing', themeColor: 'DC2626' },
+  created: { emoji: '📄', title: 'New Contract', themeColor: '059669', actorLabel: 'Created by' },
+  renewed: { emoji: '🔄', title: 'Contract Renewed', themeColor: '0D9488', actorLabel: 'Renewed by' },
+  updated: { emoji: '✏️', title: 'Contract Updated', themeColor: '2563EB', actorLabel: 'Updated by' },
+  sof_changed: { emoji: '🔢', title: 'SOF Changed', themeColor: 'D97706', actorLabel: 'Updated by' },
+  terminated: { emoji: '⛔', title: 'Contract Not Renewing', themeColor: 'DC2626', actorLabel: 'Updated by' },
 };
 
 function getWebhookUrl() {
@@ -65,6 +66,8 @@ function buildMessageCard({ event, contract, devices = [], meta = {} }) {
   const site = dash(contract?.site_name);
   const location = dash(contract?.site_location);
   const siteLine = location !== '—' ? `${site} — ${location}` : site;
+  const actor = meta.actor;
+  const changes = Array.isArray(meta.changes) ? meta.changes : [];
 
   const overviewFacts = [
     fact('Contract ID', contract?.contract_id != null ? `#${contract.contract_id}` : '—'),
@@ -88,6 +91,25 @@ function buildMessageCard({ event, contract, devices = [], meta = {} }) {
       'sns',
       { hero: true }
     ),
+  ];
+
+  if (actor?.display) {
+    sections.push({
+      title: ev.actorLabel || 'Updated by',
+      markdown: true,
+      facts: [fact(ev.actorLabel || 'Updated by', actor.display)],
+    });
+  }
+
+  if (event !== 'created' && changes.length > 0) {
+    sections.push({
+      title: 'What changed',
+      markdown: true,
+      text: formatChangesMarkdown(changes),
+    });
+  }
+
+  sections.push(
     withCardImage(
       {
         title: 'Overview',
@@ -100,8 +122,8 @@ function buildMessageCard({ event, contract, devices = [], meta = {} }) {
       title: 'Devices',
       markdown: true,
       text: formatDevicesMarkdown(devices),
-    },
-  ];
+    }
+  );
 
   if (event === 'sof_changed' && (meta.oldSof != null || meta.newSof != null)) {
     sections.push({
@@ -123,7 +145,7 @@ function buildMessageCard({ event, contract, devices = [], meta = {} }) {
     '@type': 'MessageCard',
     '@context': 'https://schema.org/extensions',
     themeColor: ev.themeColor,
-    summary: `${ev.emoji} ${ev.title} · ${site}`,
+    summary: `${ev.emoji} ${ev.title} · ${site}${actor?.display ? ` · ${actor.display}` : ''}`,
     sections,
   };
 }
@@ -167,4 +189,5 @@ module.exports = {
   notifyTeamsContractEvent,
   buildMessageCard,
   getWebhookUrl,
+  formatChangesMarkdown,
 };

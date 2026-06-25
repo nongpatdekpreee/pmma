@@ -23,7 +23,7 @@ import { PageCatLoader } from '@/components/ui/CatLoader';
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { apiUrl, getAssignedServices } from '@/lib/api';
+import { apiUrl, getAssignedServices, apiFetch} from '@/lib/api';
 import {
   formatTelLineForDb,
   formatTenDigitUsDisplay,
@@ -522,7 +522,7 @@ async function loadSiteContactsBySlids(slids: number[]): Promise<Map<number, Sit
   await Promise.all(
     unique.map(async (slid) => {
       try {
-        const res = await fetch(apiUrl(`/api/contracts/${slid}`));
+        const res = await apiFetch(apiUrl(`/api/contracts/${slid}`));
         const json = await res.json();
         if (res.ok && json.data) {
           map.set(slid, siteContactRowsFromDb(json.data.contact));
@@ -905,7 +905,7 @@ function AddContractPageContent() {
       setReferSOFLoading(true);
       setFetchError('');
       try {
-        const res = await fetch(apiUrl('/api/devices/refer-sof'));
+        const res = await apiFetch(apiUrl('/api/devices/refer-sof'));
         const json = await res.json();
         if (res.ok && json.data) setReferSOFList(json.data);
         else if (!res.ok) throw new Error(json.message || 'Load Refer SOF failed');
@@ -940,7 +940,7 @@ function AddContractPageContent() {
       setFetchError('');
       try {
         // โหลด referSOFList ก่อน
-        const referSOFRes = await fetch(apiUrl('/api/devices/refer-sof'));
+        const referSOFRes = await apiFetch(apiUrl('/api/devices/refer-sof'));
         const referSOFJson = await referSOFRes.json();
         if (referSOFRes.ok && referSOFJson.data) {
           setReferSOFList(referSOFJson.data);
@@ -948,7 +948,7 @@ function AddContractPageContent() {
 
         // โหลด sitesLocation ก่อน (ใช้ตัวแปร local — อย่าใส่ sitesLocation ใน deps ของ effect นี้)
         let currentSites: SiteLocation[] = [];
-        const sitesRes = await fetch(apiUrl('/api/sites/locations'));
+        const sitesRes = await apiFetch(apiUrl('/api/sites/locations'));
         const sitesJson = await sitesRes.json();
         if (sitesRes.ok && sitesJson.data) {
           currentSites = sitesJson.data as SiteLocation[];
@@ -956,7 +956,7 @@ function AddContractPageContent() {
         }
 
         // ดึงข้อมูลสัญญา
-        const contractRes = await fetch(apiUrl(`/api/contracts/${editContractId}`));
+        const contractRes = await apiFetch(apiUrl(`/api/contracts/${editContractId}`));
         const contractJson = await contractRes.json();
         
         if (!contractRes.ok || !contractJson.data) {
@@ -1021,7 +1021,7 @@ function AddContractPageContent() {
 
         let peerSites: SiteLocation[] = [];
         if (contractSof) {
-          const locRes = await fetch(
+          const locRes = await apiFetch(
             apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(contractSof)}`),
           );
           const locJson = await locRes.json();
@@ -1041,7 +1041,7 @@ function AddContractPageContent() {
         const deviceBatches = await Promise.all(
           slidsToLoad.map(async (slid) => {
             try {
-              const devicesRes = await fetch(apiUrl(`/api/contracts/${slid}/devices`));
+              const devicesRes = await apiFetch(apiUrl(`/api/contracts/${slid}/devices`));
               const devicesJson = await devicesRes.json();
               if (devicesRes.ok && Array.isArray(devicesJson.data)) {
                 return devicesJson.data as DeviceItem[];
@@ -1159,7 +1159,7 @@ function AddContractPageContent() {
       setLoadingOldContract(true);
       setFetchError('');
       try {
-        const contractRes = await fetch(apiUrl(`/api/contracts/${renewContractId}`));
+        const contractRes = await apiFetch(apiUrl(`/api/contracts/${renewContractId}`));
         const contractJson = await contractRes.json();
         const contract = contractRes.ok && contractJson.data ? contractJson.data : null;
 
@@ -1207,7 +1207,7 @@ function AddContractPageContent() {
           // ทุก sites_location ที่ใช้เลข SOF เดียวกัน (ไม่ใช่แค่ contract_id ที่กด Renew)
           let peerSites: SiteLocation[] = [];
           if (oldSof) {
-            const locRes = await fetch(
+            const locRes = await apiFetch(
               apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(oldSof)}`),
             );
             const locJson = await locRes.json();
@@ -1227,7 +1227,7 @@ function AddContractPageContent() {
           const deviceBatches = await Promise.all(
             slidsToLoad.map(async (slid) => {
               try {
-                const devicesRes = await fetch(apiUrl(`/api/contracts/${slid}/devices`));
+                const devicesRes = await apiFetch(apiUrl(`/api/contracts/${slid}/devices`));
                 const devicesJson = await devicesRes.json();
                 if (devicesRes.ok && Array.isArray(devicesJson.data)) {
                   return devicesJson.data as DeviceItem[];
@@ -1249,7 +1249,7 @@ function AddContractPageContent() {
             const contacts = await loadSiteContactsBySlids(peerSites.map((s) => s.SLid));
             setSiteEntries(attachContactsToSiteEntries(peerEntries, contacts));
           } else if (allDevices.length > 0) {
-            const fallbackSitesRes = await fetch(apiUrl('/api/sites/locations'));
+            const fallbackSitesRes = await apiFetch(apiUrl('/api/sites/locations'));
             const fallbackSitesJson = await fallbackSitesRes.json();
             const fallbackSites =
               fallbackSitesRes.ok && Array.isArray(fallbackSitesJson.data)
@@ -1316,7 +1316,7 @@ function AddContractPageContent() {
           // Create = สัญญา/SOF ใหม่ — เลือก site location ใดก็ได้ (ไม่ผูกกับ SOF เก่าในระบบ)
           url = apiUrl('/api/sites/locations');
         }
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         const json = await res.json();
         if (res.ok && json.data) setSitesLocation(json.data);
         else if (!res.ok) throw new Error(json.message || 'Load Sites failed');
@@ -1351,7 +1351,7 @@ function AddContractPageContent() {
 
     if (editContractId) {
       // Edit contract: device In Store + no SOF จากคลัง Bangna (ไม่ hardcode SLid)
-      const res = await fetch(
+      const res = await apiFetch(
         apiUrl(`/api/devices/no-sof-in-store?contract_id=${encodeURIComponent(editContractId)}`)
       );
       const json = await res.json();
@@ -1364,7 +1364,7 @@ function AddContractPageContent() {
       // เฉพาะกรณี SOF มีในระบบ: ค่อยดึง devices ตาม SOF+Sid/SLid เพิ่ม
       if (sofExistsInDb && referSofInDb) {
         const sofParam = `refer_sof=${encodeURIComponent(referSofInDb)}`;
-        const res2 = await fetch(apiUrl(`/api/devices/by-sof-and-site?${sofParam}&${siteQs}`));
+        const res2 = await apiFetch(apiUrl(`/api/devices/by-sof-and-site?${sofParam}&${siteQs}`));
         const json2 = await res2.json();
         if (res2.ok && json2.data) {
           const existingIds = new Set(allDevices.map((d) => d.Did));
@@ -1376,7 +1376,7 @@ function AddContractPageContent() {
       }
     } else if (isNewContractFlow) {
       // Create = SOF ใหม่เสมอ — device In Store จากคลัง Bangna ที่ยังไม่ผูกสัญญา
-      const res = await fetch(apiUrl('/api/devices/by-site-no-sof'));
+      const res = await apiFetch(apiUrl('/api/devices/by-site-no-sof'));
       const json = await res.json();
       if (res.ok && json.data) {
         allDevices.push(...json.data);
@@ -1385,7 +1385,7 @@ function AddContractPageContent() {
       }
     } else if (sofExistsInDb && referSofInDb) {
       const sofParam = `refer_sof=${encodeURIComponent(referSofInDb)}`;
-      const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?${sofParam}&${siteQs}`));
+      const res = await apiFetch(apiUrl(`/api/devices/by-sof-and-site?${sofParam}&${siteQs}`));
       const json = await res.json();
       if (res.ok && json.data) {
         allDevices.push(...json.data);
@@ -1393,7 +1393,7 @@ function AddContractPageContent() {
         throw new Error(json.message || 'Load Devices failed');
       }
     } else {
-      const res = await fetch(apiUrl('/api/devices/by-site-no-sof'));
+      const res = await apiFetch(apiUrl('/api/devices/by-site-no-sof'));
       const json = await res.json();
       if (res.ok && json.data) {
         allDevices.push(...json.data);
@@ -1409,7 +1409,7 @@ function AddContractPageContent() {
     if (missingSelected.length > 0) {
       const results = await Promise.allSettled(
         missingSelected.map(async (id) => {
-          const res = await fetch(apiUrl(`/api/devices/${encodeURIComponent(id)}`));
+          const res = await apiFetch(apiUrl(`/api/devices/${encodeURIComponent(id)}`));
           const json = await res.json();
           if (res.ok && json?.data) return json.data;
           return null;
@@ -1819,7 +1819,7 @@ function AddContractPageContent() {
   const uploadFile = async (file: File): Promise<string> => {
     const fd = new FormData();
     fd.append('file', file);
-    const res = await fetch(apiUrl('/api/contracts/upload'), { method: 'POST', body: fd });
+    const res = await apiFetch(apiUrl('/api/contracts/upload'), { method: 'POST', body: fd });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || 'Upload failed');
     return json.path;
@@ -2006,7 +2006,7 @@ function AddContractPageContent() {
             old_sof: renewContractId && oldContractSOF ? oldContractSOF : null,
             status: isDraft ? 'draft' : 'official',
           };
-          const res = await fetch(apiUrl('/api/contracts'), {
+          const res = await apiFetch(apiUrl('/api/contracts'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -2162,7 +2162,7 @@ function AddContractPageContent() {
         : apiUrl('/api/contracts');
       const method = editContractId ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

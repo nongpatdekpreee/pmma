@@ -16,6 +16,8 @@ const {
 const slc = require('../lib/siteLocationContract');
 const { notifyTeamsContractEvent } = require('../services/teamsContractNotification');
 const { notifyContractExpiringOnChange } = require('../jobs/contractExpiringReminder');
+const { getTeamsActor } = require('../utils/teamsActor');
+const { collectContractChanges } = require('../utils/contractChangeSummary');
 
 const EMAIL_LINE_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -761,7 +763,7 @@ async function applyContractFieldsToSlid(conn, slid, body, contractStatus, optio
   await slc.updateSiteLocationContract(conn, slid, fields);
 }
 
-async function maybeNotifyTeamsContract(slid, { event, meta = {} }) {
+async function maybeNotifyTeamsContract(slid, { event, meta = {}, actor = null, changes = [] }) {
   try {
     const slRow = await slc.fetchSiteLocationRow(db, slid);
     if (!slRow) return;
@@ -770,7 +772,7 @@ async function maybeNotifyTeamsContract(slid, { event, meta = {} }) {
       event,
       contract: slc.mapSlRowToContractDetail(slRow),
       devices: devicesRows,
-      meta,
+      meta: { ...meta, actor, changes },
     });
     void notifyContractExpiringOnChange(slid).catch((err) => {
       console.error('[contract] Expiring Teams notification failed:', err?.message || err);
@@ -950,6 +952,7 @@ const createContract = async (req, res) => {
 
     void maybeNotifyTeamsContract(primarySlid, {
       event: oldContractIdVal ? 'renewed' : 'created',
+      actor: getTeamsActor(req.user),
     });
 
     return res.status(201).json({
@@ -1160,9 +1163,14 @@ const updateContract = async (req, res) => {
       notifyMeta.oldSof = sofChangeHistory.oldSof;
       notifyMeta.newSof = sofChangeHistory.newSof;
     }
+    const contractChanges = collectContractChanges(existing, body, {
+      skipNotRenewingStatus: isTransitionToNotRenewing,
+    });
     void maybeNotifyTeamsContract(cid, {
       event: notifyEvent,
       meta: notifyMeta,
+      actor: getTeamsActor(req.user),
+      changes: contractChanges,
     });
 
     return res.status(200).json({

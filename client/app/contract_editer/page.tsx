@@ -6,7 +6,7 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
-import { apiUrl, getSitesLocation, syncContractsFromReferSof } from '@/lib/api';
+import { apiUrl, getSitesLocation, syncContractsFromReferSof, apiFetch} from '@/lib/api';
 import { isDefaultInStoreSiteName } from '@/lib/inStoreSite';
 import { asRecord, getErrorMessage, readString } from '@/lib/unknownUtil';
 import * as XLSX from 'xlsx';
@@ -1171,7 +1171,7 @@ function ContractEditorPageContent() {
   const mergeTerminatedHistoryRows = async (list: Contract[]): Promise<Contract[]> => {
     const ids = list.map((c) => parseInt(c.id, 10)).filter((n) => !Number.isNaN(n));
     try {
-      const hres = await fetch(apiUrl('/api/contracts/history-display-rows'), {
+      const hres = await apiFetch(apiUrl('/api/contracts/history-display-rows'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1193,7 +1193,7 @@ function ContractEditorPageContent() {
   };
 
   const fetchAndSetContracts = useCallback(async (cancelled: () => boolean) => {
-    const res = await fetch(contractsListApiUrl(siteIdFilter));
+    const res = await apiFetch(contractsListApiUrl(siteIdFilter));
     const json = await res.json();
     if (cancelled()) return false;
     if (!json.success || !Array.isArray(json.data)) {
@@ -1413,7 +1413,7 @@ function ContractEditorPageContent() {
         const apiCid = contractRowApiId(c);
         if (seenApiIds.has(apiCid)) continue;
         seenApiIds.add(apiCid);
-        const res = await fetch(apiUrl(`/api/contracts/${apiCid}`));
+        const res = await apiFetch(apiUrl(`/api/contracts/${apiCid}`));
         const json = await res.json();
         const detail = json?.data;
         const devices = (detail?.devices || []) as Array<{ contract_SLid?: number | null; SLid?: number | null; SiteName?: string | null; Location2?: string | null; CI_Name?: string | null; serial?: string | null }>;
@@ -1772,11 +1772,11 @@ function ContractEditorPageContent() {
     const cid = Number(contractRowApiId(contract));
     const historyListPromise =
       Number.isFinite(cid) && cid > 0
-        ? fetch(apiUrl(`/api/contracts/${cid}/history`)).then((r) => r.json())
+        ? apiFetch(apiUrl(`/api/contracts/${cid}/history`)).then((r) => r.json())
         : Promise.resolve({ success: false, data: [] as ContractHistoryRow[] });
 
     try {
-      const [res, histJson] = await Promise.all([fetch(url), historyListPromise]);
+      const [res, histJson] = await Promise.all([apiFetch(url), historyListPromise]);
       const json = await res.json();
 
       let histRows: ContractHistoryRow[] = [];
@@ -1857,7 +1857,7 @@ function ContractEditorPageContent() {
     setIsSubmittingTerminate(true);
     try {
       const nextDbStatus: Contract['contractStatus'] = 'not_renewing';
-      const res = await fetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`), {
+      const res = await apiFetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: nextDbStatus, termination_reason: reason }),
@@ -1901,7 +1901,7 @@ function ContractEditorPageContent() {
 
   const applyUndoTerminated = async (contract: Contract) => {
     try {
-      const res = await fetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`), {
+      const res = await apiFetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'official' }),
@@ -2020,7 +2020,7 @@ function ContractEditorPageContent() {
     setAssignDeviceSelected(new Set());
     setAssignModalSelectedSiteSlid(null);
     try {
-      const res = await fetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`));
+      const res = await apiFetch(apiUrl(`/api/contracts/${contractRowApiId(contract)}`));
       const json = await res.json();
       if (!res.ok || !json.data) {
         toastError(json.message || 'Failed to load contract');
@@ -2035,13 +2035,13 @@ function ContractEditorPageContent() {
         setShowAssignSiteModal(false);
         return;
       }
-      const sitesRes = await fetch(apiUrl('/api/sites/locations'));
+      const sitesRes = await apiFetch(apiUrl('/api/sites/locations'));
       const sitesJson = await sitesRes.json();
       if (sitesRes.ok && sitesJson.data) setSitesLocation(sitesJson.data);
       const deviceDetails: Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }> = {};
       const results = await Promise.allSettled(
         devices.map(async (d: { Did: number }) => {
-          const r = await fetch(apiUrl(`/api/devices/${d.Did}`));
+          const r = await apiFetch(apiUrl(`/api/devices/${d.Did}`));
           const j = await r.json();
           return { data: r.ok && j.data ? j.data : null };
         })
@@ -2110,7 +2110,7 @@ function ContractEditorPageContent() {
       for (const d of toUpdate) {
         const slid = resolveSlidFromDropdowns(String(d.Did));
         if (slid == null || Number.isNaN(slid)) continue;
-        const res = await fetch(apiUrl(`/api/devices/${d.Did}`), {
+        const res = await apiFetch(apiUrl(`/api/devices/${d.Did}`), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ Asset_State: 'In Use', SLid: slid }),
@@ -2189,7 +2189,7 @@ function ContractEditorPageContent() {
 
   const fetchDevicesBySofAndSite = async (sofName: string, siteId: number, location?: string | null) => {
     try {
-      const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sofName)}&site_id=${siteId}`));
+      const res = await apiFetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sofName)}&site_id=${siteId}`));
       const json = await res.json();
       if (!json.success || !json.data) return [];
       let devices = json.data;
@@ -2214,7 +2214,7 @@ function ContractEditorPageContent() {
     const ids = [...numericIds];
     if (serials.length > 0) {
       try {
-        const res = await fetch(apiUrl(`/api/devices/by-serials?serials=${serials.map((s: string) => encodeURIComponent(s)).join(',')}`));
+        const res = await apiFetch(apiUrl(`/api/devices/by-serials?serials=${serials.map((s: string) => encodeURIComponent(s)).join(',')}`));
         const json = await res.json();
         if (json.success && Array.isArray(json.data)) {
           const found = json.data as { Did: number; serial?: string }[];
@@ -2470,7 +2470,7 @@ function ContractEditorPageContent() {
           site_device_pairs: row.site_device_pairs || [],
           status: asDraft ? 'draft' : 'official',
         };
-        const res = await fetch(apiUrl('/api/contracts'), {
+        const res = await apiFetch(apiUrl('/api/contracts'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -2504,7 +2504,7 @@ function ContractEditorPageContent() {
 
   const loadContracts = async () => {
     try {
-      const res = await fetch(contractsListApiUrl(siteIdFilter));
+      const res = await apiFetch(contractsListApiUrl(siteIdFilter));
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         const list = json.data.map((c: Parameters<typeof mapApiRowToContract>[0]) => mapApiRowToContract(c));

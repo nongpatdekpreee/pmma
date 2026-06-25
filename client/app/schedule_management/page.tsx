@@ -26,7 +26,7 @@ import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
-import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocationWithContracts, getEmployees, getContractsBySite, syncContractsFromReferSof, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem } from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocationWithContracts, getEmployees, getContractsBySite, syncContractsFromReferSof, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem, apiFetch} from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import { getErrorMessage, asRecord, readNumber, readString } from '@/lib/unknownUtil';
@@ -422,11 +422,15 @@ function scheduleInProcessTitleText(ev: CalendarEvent): string {
   return `${base} · ${short}`;
 }
 
+import { RequireAdmin } from '@/components/auth/RequireAdmin';
+
 export default function ScheduleManagement() {
   return (
-    <Suspense fallback={null}>
-      <ScheduleManagementContent />
-    </Suspense>
+    <RequireAdmin>
+      <Suspense fallback={null}>
+        <ScheduleManagementContent />
+      </Suspense>
+    </RequireAdmin>
   );
 }
 
@@ -1338,7 +1342,7 @@ function ScheduleManagementContent() {
       if (reason) {
         body.rescheduleNote = reason;
       }
-      const res = await fetch(apiUrl(`/api/tasks/${taskId}`), {
+      const res = await apiFetch(apiUrl(`/api/tasks/${taskId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -1614,7 +1618,7 @@ function ScheduleManagementContent() {
           photos: item.photos ?? editingEvent?.photos ?? [],
         };
 
-        const res = await fetch(
+        const res = await apiFetch(
           apiUrl(editingEvent ? `/api/tasks/${editingEvent.id}` : '/api/tasks'),
           {
             method: editingEvent ? 'PUT' : 'POST',
@@ -1653,7 +1657,7 @@ function ScheduleManagementContent() {
   };
 
   const deleteTaskById = async (taskId: string) => {
-    const res = await fetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
+    const res = await apiFetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
     const json = await responseJsonOrThrow<{ success: boolean; message?: string }>(
       res,
       'Delete task failed: server returned non-JSON (check API URL).'
@@ -1811,13 +1815,13 @@ function ScheduleManagementContent() {
     
     const doFetchByContract = async () => {
       if (!contractId) return [];
-      const res = await fetch(apiUrl(`/api/devices/by-contract-and-site?contract_id=${contractId}&slid=${siteId}`));
+      const res = await apiFetch(apiUrl(`/api/devices/by-contract-and-site?contract_id=${contractId}&slid=${siteId}`));
       const json = await responseJsonSafe<{ success?: boolean; data?: unknown[] }>(res);
       if (!json || !json.success || !json.data) return [];
       return json.data;
     };
     const doFetchBySof = async (sof: string) => {
-      const res = await fetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sof)}&site_id=${siteId}`));
+      const res = await apiFetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sof)}&site_id=${siteId}`));
       const json = await responseJsonSafe<{ success?: boolean; data?: unknown[] }>(res);
       if (!json || !json.success || !json.data) return [];
       return json.data;
@@ -2730,7 +2734,7 @@ function ScheduleManagementContent() {
             const slid = Number(task.Sid) || null;
             const devicePromises = task.deviceIds.map(async (did: number) => {
               try {
-                const res = await fetch(apiUrl(`/api/devices/${did}`));
+                const res = await apiFetch(apiUrl(`/api/devices/${did}`));
                 const json = await responseJsonSafe<{ success?: boolean; data?: Record<string, unknown> }>(res);
                 if (json?.success && json.data) {
                   return apiDeviceJsonToImportedAsset(json.data, did, siteLabel, slid);
@@ -2791,7 +2795,7 @@ function ScheduleManagementContent() {
         };
 
         // Call API directly to match database requirements
-        const res = await fetch(apiUrl('/api/tasks'), {
+        const res = await apiFetch(apiUrl('/api/tasks'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -2866,7 +2870,7 @@ function ScheduleManagementContent() {
     }
     let serverTask: Record<string, unknown> | null = null;
     try {
-      const res = await fetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
+      const res = await apiFetch(apiUrl(`/api/tasks/${updatedTask.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

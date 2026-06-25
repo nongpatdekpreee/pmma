@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Search } from 'lucide-react';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch} from '@/lib/api';
 
 export interface DeviceSelectModalDevice {
   id: string;
@@ -58,7 +58,7 @@ export function DeviceSelectModal({
       const loadManufacturers = async () => {
         setLoadingManufacturers(true);
         try {
-          const res = await fetch(apiUrl('/api/manufacturers'));
+          const res = await apiFetch(apiUrl('/api/manufacturers'));
           const json = await res.json();
           if (res.ok && json.success && json.data) {
             setManufacturers(json.data);

@@ -3,7 +3,7 @@
 import { X, CheckCircle2, Trash2, FileText, Download, Paperclip, Clock3, Calendar, MoreHorizontal } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { apiUrl } from '@/lib/api';
+import { apiUrl, apiFetch} from '@/lib/api';
 import { DEFAULT_IN_STORE_SITE_NAME } from '@/lib/inStoreSite';
 import { parseRescheduleNoteOrigin } from '@/lib/rescheduleNote';
 import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
@@ -212,7 +212,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
       await Promise.all(
         task.assets!.map(async (asset) => {
           try {
-            const res = await fetch(apiUrl(`/api/devices/${asset.id}`));
+            const res = await apiFetch(apiUrl(`/api/devices/${asset.id}`));
             const json = await res.json();
             if (!cancelled && res.ok && json.data) {
               const d = json.data;
@@ -264,7 +264,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
       await Promise.all(
         Array.from(repIds).map(async (rid) => {
           try {
-            const res = await fetch(apiUrl(`/api/devices/${rid}`));
+            const res = await apiFetch(apiUrl(`/api/devices/${rid}`));
             const json = await res.json();
             if (!cancelled && res.ok && json.data) {
               const d = json.data;

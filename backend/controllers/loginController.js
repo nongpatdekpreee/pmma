@@ -1,12 +1,21 @@
 const db = require('../config/database');
 const argon2 = require('argon2');
-const jwt = require('jsonwebtoken');
-const { JWT_SECRET } = require('../middleware/authMiddleware');
+const { signAccessToken } = require('../services/tokenService');
+const {
+  createRefreshToken,
+  rotateRefreshToken,
+  revokeRefreshToken,
+  findValidToken,
+  setRefreshCookie,
+  clearRefreshCookie,
+  REFRESH_TOKEN_COOKIE_NAME,
+} = require('../services/refreshTokenService');
+const { normalizeRole, toDbRole } = require('../utils/roleUtils');
 
 // POST - สร้าง user ใหม่
 const createUser = async (req, res) => {
   try {
-    const { Username, Password, Role } = req.body;
+    const { Username, Password } = req.body;
 
     // ตรวจสอบข้อมูลที่จำเป็น
     if (!Username || !Password) {
@@ -35,7 +44,7 @@ const createUser = async (req, res) => {
     // INSERT user
     const [result] = await db.execute(
       'INSERT INTO user (Username, Password, Role) VALUES (?, ?, ?)',
-      [Username, hashedPassword, Role || 'user']
+      [Username, hashedPassword, 'user']
     );
 
     res.status(201).json({
@@ -44,7 +53,7 @@ const createUser = async (req, res) => {
       data: {
         id: result.insertId,
         Username: Username,
-        Role: Role || 'user'
+        Role: 'user'
       }
     });
   } catch (error) {
@@ -95,24 +104,22 @@ const login = async (req, res) => {
       });
     }
 
-    // สร้าง JWT Token
-    const token = jwt.sign(
-      {
-        id: user.User_id ,
-        Username: user.Username,
-        Role: user.Role
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+    const role = normalizeRole(user.Role);
+    const token = signAccessToken({
+      id: user.User_id,
+      Username: user.Username,
+      Role: role,
+    });
+    const refreshToken = await createRefreshToken(user.User_id);
+    setRefreshCookie(res, refreshToken);
 
     res.status(200).json({
       success: true,
       message: 'Login สำเร็จ',
       data: {
-        id: user.User_id ,
+        id: user.User_id,
         Username: user.Username,
-        Role: user.Role,
+        Role: role,
         token: token
       }
     });
@@ -122,6 +129,174 @@ const login = async (req, res) => {
       success: false,
       message: 'เกิดข้อผิดพลาดในการ Login',
       error: error.message
+    });
+  }
+};
+
+// GET - ดึงข้อมูลผู้ใช้ที่ Login อยู่ (อ่าน Role จาก DB ล่าสุด)
+const getMe = async (req, res) => {
+  try {
+    const [users] = await db.execute(
+      'SELECT User_id, Username, Role FROM user WHERE User_id = ?',
+      [req.user.id]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบผู้ใช้',
+      });
+    }
+
+    const user = users[0];
+    res.status(200).json({
+      success: true,
+      data: {
+        id: user.User_id,
+        Username: user.Username,
+        Role: normalizeRole(user.Role),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching current user:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลผู้ใช้',
+      error: error.message,
+    });
+  }
+};
+
+// GET - ตรวจ session จาก refresh cookie (ไม่หมุน token) — สำหรับ middleware
+const checkSession = async (req, res) => {
+  try {
+    const raw = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
+    if (!raw) {
+      return res.status(401).json({
+        success: false,
+        message: 'ไม่พบ session',
+      });
+    }
+
+    const row = await findValidToken(raw);
+    if (!row) {
+      return res.status(401).json({
+        success: false,
+        message: 'session หมดอายุ',
+      });
+    }
+
+    const [users] = await db.execute(
+      'SELECT User_id, Username, Role FROM user WHERE User_id = ?',
+      [row.user_id]
+    );
+
+    if (users.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: 'ไม่พบผู้ใช้',
+      });
+    }
+
+    const user = users[0];
+    res.status(200).json({
+      success: true,
+      data: {
+        id: user.User_id,
+        Username: user.Username,
+        Role: normalizeRole(user.Role),
+      },
+    });
+  } catch (error) {
+    console.error('Error checking session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการตรวจสอบ session',
+      error: error.message,
+    });
+  }
+};
+
+// POST - ต่ออายุ access token ด้วย refresh cookie (rotation)
+const refresh = async (req, res) => {
+  try {
+    const raw = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
+    if (!raw) {
+      return res.status(401).json({
+        success: false,
+        message: 'ไม่พบ refresh token กรุณา Login ใหม่',
+      });
+    }
+
+    const rotated = await rotateRefreshToken(raw);
+    if (!rotated) {
+      clearRefreshCookie(res);
+      return res.status(401).json({
+        success: false,
+        message: 'refresh token ไม่ถูกต้องหรือหมดอายุ กรุณา Login ใหม่',
+      });
+    }
+
+    const [users] = await db.execute(
+      'SELECT User_id, Username, Role FROM user WHERE User_id = ?',
+      [rotated.userId]
+    );
+
+    if (users.length === 0) {
+      clearRefreshCookie(res);
+      return res.status(401).json({
+        success: false,
+        message: 'ไม่พบผู้ใช้ กรุณา Login ใหม่',
+      });
+    }
+
+    const user = users[0];
+    const role = normalizeRole(user.Role);
+    const token = signAccessToken({
+      id: user.User_id,
+      Username: user.Username,
+      Role: role,
+    });
+    setRefreshCookie(res, rotated.refreshToken);
+
+    res.status(200).json({
+      success: true,
+      message: 'ต่ออายุ token สำเร็จ',
+      data: {
+        id: user.User_id,
+        Username: user.Username,
+        Role: role,
+        token,
+      },
+    });
+  } catch (error) {
+    console.error('Error refreshing token:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการต่ออายุ token',
+      error: error.message,
+    });
+  }
+};
+
+// POST - Logout (revoke refresh token + clear cookie)
+const logout = async (req, res) => {
+  try {
+    const raw = req.cookies?.[REFRESH_TOKEN_COOKIE_NAME];
+    if (raw) {
+      await revokeRefreshToken(raw);
+    }
+    clearRefreshCookie(res);
+    res.status(200).json({
+      success: true,
+      message: 'Logout สำเร็จ',
+    });
+  } catch (error) {
+    console.error('Error logging out:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการ Logout',
+      error: error.message,
     });
   }
 };
@@ -136,7 +311,11 @@ const getAllUsers = async (req, res) => {
     res.status(200).json({
       success: true,
       count: users.length,
-      data: users
+      data: users.map((u) => ({
+        id: u.User_id,
+        Username: u.Username,
+        Role: normalizeRole(u.Role),
+      })),
     });
   } catch (error) {
     console.error('Error fetching users:', error);
@@ -152,7 +331,7 @@ const getAllUsers = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { Username, Password } = req.body;
+    const { Username, Password, Role } = req.body;
 
     // ตรวจสอบว่ามี user อยู่หรือไม่
     const [existing] = await db.execute(
@@ -168,10 +347,22 @@ const updateUser = async (req, res) => {
     }
 
     // ต้องมีอย่างน้อย 1 ฟิลด์ที่จะอัปเดต
-    if (!Username && !Password) {
+    if (!Username && !Password && Role === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณาระบุ Username หรือ Password ที่ต้องการเปลี่ยน'
+        message: 'กรุณาระบุ Username, Password หรือ Role ที่ต้องการเปลี่ยน'
+      });
+    }
+
+    // ห้าม ADMIN ลดสิทธิ์ตัวเอง
+    if (
+      Role !== undefined &&
+      Number(id) === Number(req.user.id) &&
+      normalizeRole(Role) !== 'ADMIN'
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'ไม่สามารถลดสิทธิ์บัญชีของตัวเองได้',
       });
     }
 
@@ -205,6 +396,11 @@ const updateUser = async (req, res) => {
       values.push(hashedPassword);
     }
 
+    if (Role !== undefined) {
+      updates.push('Role = ?');
+      values.push(toDbRole(Role));
+    }
+
     values.push(id);
 
     await db.execute(
@@ -217,7 +413,8 @@ const updateUser = async (req, res) => {
       message: 'อัปเดต user สำเร็จ',
       data: {
         id: parseInt(id),
-        Username: Username || existing[0].Username
+        Username: Username || existing[0].Username,
+        Role: Role !== undefined ? normalizeRole(Role) : normalizeRole(existing[0].Role),
       }
     });
   } catch (error) {
@@ -271,6 +468,10 @@ const deleteUser = async (req, res) => {
 module.exports = {
   createUser,
   login,
+  getMe,
+  checkSession,
+  refresh,
+  logout,
   getAllUsers,
   updateUser,
   deleteUser

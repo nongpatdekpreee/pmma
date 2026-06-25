@@ -54,24 +54,53 @@ export function uploadAssetUrl(path: string): string {
 }
 
 /**
- * Fetch ไปยัง API — ใส่ Accept: application/json เพื่อลดโอกาสที่ proxy ส่งหน้า HTML
- * และให้สอดคล้องกับ Content-Type JSON เมื่อส่ง body (ยกเว้น FormData)
+ * Fetch ไปยัง API — ใส่ Accept: application/json, Bearer token, credentials สำหรับ refresh cookie
+ * และ auto-refresh เมื่อได้ 401 (ยกเว้น auth login/register)
  */
-export function apiFetch(input: string | URL, init?: RequestInit): Promise<Response> {
-  const next = init ?? {};
-  const headers = new Headers(next.headers);
-  if (!headers.has('Accept')) headers.set('Accept', 'application/json');
-  const method = String(next.method || 'GET').toUpperCase();
-  if (
-    method !== 'GET' &&
-    method !== 'HEAD' &&
-    next.body != null &&
-    !(next.body instanceof FormData) &&
-    !headers.has('Content-Type')
-  ) {
-    headers.set('Content-Type', 'application/json');
+export async function apiFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+  const { getAccessToken } = await import('@/lib/auth/tokenStore');
+  const { ensureAuthSession, recoverAuthSession } = await import('@/lib/auth/session');
+
+  const url = String(input);
+  const isAuthPublic =
+    url.includes('/api/auth/login') ||
+    url.includes('/api/auth/register') ||
+    url.includes('/api/auth/refresh') ||
+    url.includes('/api/auth/logout');
+
+  if (!isAuthPublic && !getAccessToken()) {
+    await ensureAuthSession();
   }
-  return fetch(input, { ...next, headers });
+
+  const doFetch = async (): Promise<Response> => {
+    const next = init ?? {};
+    const headers = new Headers(next.headers);
+    if (!headers.has('Accept')) headers.set('Accept', 'application/json');
+    const method = String(next.method || 'GET').toUpperCase();
+    if (
+      method !== 'GET' &&
+      method !== 'HEAD' &&
+      next.body != null &&
+      !(next.body instanceof FormData) &&
+      !headers.has('Content-Type')
+    ) {
+      headers.set('Content-Type', 'application/json');
+    }
+    const token = getAccessToken();
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
+    return fetch(input, { ...next, headers, credentials: 'include' });
+  };
+
+  let res = await doFetch();
+  if (res.status === 401 && !isAuthPublic) {
+    await recoverAuthSession();
+    if (getAccessToken()) {
+      res = await doFetch();
+    }
+  }
+  return res;
 }
 
 /** URL เปิดไฟล์ MA repair notice ตาม task + ชื่อไฟล์ (basename) — ต้องสอดคล้อง route backend */
@@ -203,7 +232,7 @@ export async function getSitesLocation(): Promise<{
   success: boolean;
   data: { SLid: number; Sid: number; lid: number; SiteName: string; Location2: string; SOF?: string; Refer_SOF?: string }[];
 }> {
-  const res = await fetch(apiUrl('/api/sites/locations'));
+  const res = await apiFetch(apiUrl('/api/sites/locations'));
   return jsonWithFallback(res, { success: false, data: [] });
 }
 
@@ -212,7 +241,7 @@ export async function updateSitesLocationSof(
   slid: number | string,
   sof: string
 ): Promise<{ success: boolean; data?: { SLid: number; SOF?: string; Refer_SOF?: string }; message?: string }> {
-  const res = await fetch(apiUrl(`/api/sites/locations/${encodeURIComponent(String(slid))}/sof`), {
+  const res = await apiFetch(apiUrl(`/api/sites/locations/${encodeURIComponent(String(slid))}/sof`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ SOF: sof }),
@@ -226,19 +255,19 @@ export async function getSiteRegistryCounts(): Promise<{
   data?: { siteCount: number; locationCount: number };
   message?: string;
 }> {
-  const res = await fetch(apiUrl('/api/sites/registry-counts'));
+  const res = await apiFetch(apiUrl('/api/sites/registry-counts'));
   return res.json();
 }
 
 /** GET /api/sites/locations-with-contracts — dropdown Site สำหรับสร้างแพลน (draft + official) */
 export async function getSitesLocationWithContracts(): Promise<{ success: boolean; data: { SLid: number; SiteName: string; Location2?: string }[] }> {
-  const res = await fetch(apiUrl('/api/sites/locations-with-contracts'));
+  const res = await apiFetch(apiUrl('/api/sites/locations-with-contracts'));
   return jsonWithFallback(res, { success: false, data: [] });
 }
 
 /** GET /api/devices/by-site?site_id= - Devices ตาม SLid */
 export async function getDevicesBySite(siteId: number | string): Promise<{ success: boolean; data: { Did: number; CI_Name?: string; Asset_Number?: string }[] }> {
-  const res = await fetch(apiUrl(`/api/devices/by-site?site_id=${encodeURIComponent(String(siteId))}`));
+  const res = await apiFetch(apiUrl(`/api/devices/by-site?site_id=${encodeURIComponent(String(siteId))}`));
   return res.json();
 }
 
@@ -251,13 +280,13 @@ export async function getImportLocation2HintsByContractAndSof(
     contract_id: String(contractId),
     refer_sof: String(referSof).trim(),
   });
-  const res = await fetch(apiUrl(`/api/devices/import-location2-hints?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/devices/import-location2-hints?${q.toString()}`));
   return jsonWithFallback(res, { success: false, data: [] });
 }
 
 /** GET /api/devices/assigned-services - รายการ Assigned_Service (DISTINCT จาก devices สำหรับ Add Contract) */
 export async function getAssignedServices(): Promise<{ success: boolean; data: string[] }> {
-  const res = await fetch(apiUrl('/api/devices/assigned-services'));
+  const res = await apiFetch(apiUrl('/api/devices/assigned-services'));
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
@@ -285,7 +314,7 @@ export async function syncContractsFromReferSof(options?: {
     }>;
   };
 }> {
-  const res = await fetch(apiUrl('/api/contracts/sync-from-refer-sof'), {
+  const res = await apiFetch(apiUrl('/api/contracts/sync-from-refer-sof'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options ?? {}),
@@ -299,7 +328,7 @@ export async function getContractsBySite(siteId?: number | string | null): Promi
   data: { contract_id: number; contract_name?: string; start_date?: string; end_date?: string; site_id?: number; site_name?: string; sla_term?: string }[];
 }> {
   const url = siteId ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteId))}`) : apiUrl('/api/contracts');
-  const res = await fetch(url);
+  const res = await apiFetch(url);
   return jsonWithFallback(res, { success: false, data: [] });
 }
 
@@ -308,7 +337,7 @@ export async function getSitesByContract(contractId: number | string): Promise<{
   success: boolean;
   data: { SLid: number; SiteName: string; Location2?: string }[];
 }> {
-  const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/sites`));
+  const res = await apiFetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/sites`));
   return res.json();
 }
 
@@ -322,7 +351,7 @@ export async function getContractById(contractId: number | string): Promise<{
     contact?: unknown;
   };
 }> {
-  const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}`));
+  const res = await apiFetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}`));
   return jsonWithFallback(res, { success: false });
 }
 
@@ -332,7 +361,7 @@ export async function getDevicesByContract(contractId: number | string, siteId?:
   data: { Did: number; contract_id?: number; CI_Name?: string; Asset_Number?: string; serial?: string; Asset_State?: string; Sid?: number; SiteName?: string }[];
 }> {
   const q = siteId != null && siteId !== '' ? `?site_id=${encodeURIComponent(String(siteId))}` : '';
-  const res = await fetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/devices${q}`));
+  const res = await apiFetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/devices${q}`));
   return jsonWithFallback(res, { success: false, data: [] });
 }
 
@@ -341,7 +370,7 @@ export async function getVendorStatistics(): Promise<{
   success: boolean;
   data: { name: string; value: number; deviceCount: number; siteCount: number; total: number }[];
 }> {
-  const res = await fetch(apiUrl('/api/contracts/statistics/vendor'));
+  const res = await apiFetch(apiUrl('/api/contracts/statistics/vendor'));
   return res.json();
 }
 
@@ -365,7 +394,7 @@ export async function getTopSitesByContractDevice(params?: { limit?: number }): 
   const q = new URLSearchParams();
   if (params?.limit != null) q.set('limit', String(params.limit));
   const qs = q.toString();
-  const res = await fetch(apiUrl(`/api/contracts/statistics/top-sites${qs ? `?${qs}` : ''}`));
+  const res = await apiFetch(apiUrl(`/api/contracts/statistics/top-sites${qs ? `?${qs}` : ''}`));
   return res.json();
 }
 
@@ -399,7 +428,7 @@ export async function getTopSitesHeatmap(params?: {
   if (params?.period_start) q.set('period_start', params.period_start);
   if (params?.period_end_exclusive) q.set('period_end_exclusive', params.period_end_exclusive);
   const qs = q.toString();
-  const res = await fetch(apiUrl(`/api/contracts/statistics/top-sites-heatmap${qs ? `?${qs}` : ''}`));
+  const res = await apiFetch(apiUrl(`/api/contracts/statistics/top-sites-heatmap${qs ? `?${qs}` : ''}`));
   return res.json();
 }
 
@@ -418,7 +447,7 @@ export async function getMaPmAnalytics(params?: { months?: number }): Promise<{
 }> {
   const q = new URLSearchParams();
   if (params?.months != null) q.set('months', String(params.months));
-  const res = await fetch(apiUrl(`/api/analytics/ma-pm?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/analytics/ma-pm?${q.toString()}`));
   return res.json();
 }
 
@@ -427,7 +456,7 @@ export async function getDeviceRoles(): Promise<{
   success: boolean;
   data?: { DeRoleid: number; name: string; slug?: string; color?: string; device_count?: number }[];
 }> {
-  const res = await fetch(apiUrl('/api/device-roles'));
+  const res = await apiFetch(apiUrl('/api/device-roles'));
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
@@ -436,7 +465,7 @@ export async function getDeviceTypes(): Promise<{
   success: boolean;
   data?: { Dtypeid: number; model: string; slug?: string; u_height?: number; Mid?: number; manufacturer_name?: string; device_count?: number }[];
 }> {
-  const res = await fetch(apiUrl('/api/device-types'));
+  const res = await apiFetch(apiUrl('/api/device-types'));
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
@@ -516,7 +545,7 @@ export async function getMaDashboard(params?: {
   if (params?.slId != null) q.set('sl_id', String(params.slId));
   const query = q.toString();
   const url = query ? `/api/analytics/ma-dashboard?${query}` : '/api/analytics/ma-dashboard';
-  const res = await fetch(apiUrl(url));
+  const res = await apiFetch(apiUrl(url));
   return res.json();
 }
 
@@ -574,7 +603,7 @@ export async function getPmDashboard(params?: { months?: number; year?: number; 
   if (params?.year != null) q.set('year', String(params.year));
   if (params?.month != null) q.set('month', String(params.month));
   if (params?.endMonth != null) q.set('end_month', String(params.endMonth));
-  const res = await fetch(apiUrl(`/api/analytics/pm-dashboard?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/analytics/pm-dashboard?${q.toString()}`));
   return res.json();
 }
 
@@ -594,7 +623,7 @@ export async function getSlaAnalytics(params?: { months?: number }): Promise<{
 }> {
   const q = new URLSearchParams();
   if (params?.months != null) q.set('months', String(params.months));
-  const res = await fetch(apiUrl(`/api/analytics/sla?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/analytics/sla?${q.toString()}`));
   return res.json();
 }
 
@@ -618,7 +647,7 @@ export async function getSlaContracts(params?: { months?: number }): Promise<{
 }> {
   const q = new URLSearchParams();
   if (params?.months != null) q.set('months', String(params.months));
-  const res = await fetch(apiUrl(`/api/analytics/sla/contracts?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/analytics/sla/contracts?${q.toString()}`));
   return res.json();
 }
 
@@ -669,7 +698,7 @@ export async function getOverdueTasks(
   q.set('task_type', taskType);
   if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
   if (filters?.lid != null && filters.lid !== '') q.set('lid', String(filters.lid));
-  const res = await fetch(apiUrl(`/api/tasks/overdue?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/tasks/overdue?${q.toString()}`));
   return res.json();
 }
 
@@ -682,7 +711,7 @@ export async function getCompletedTasks(
   q.set('task_type', taskType);
   if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
   if (filters?.lid != null && filters.lid !== '') q.set('lid', String(filters.lid));
-  const res = await fetch(apiUrl(`/api/tasks/completed?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/tasks/completed?${q.toString()}`));
   return res.json();
 }
 
@@ -695,7 +724,7 @@ export async function getInprocessTasks(
   q.set('task_type', taskType);
   if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
   if (filters?.lid != null && filters.lid !== '') q.set('lid', String(filters.lid));
-  const res = await fetch(apiUrl(`/api/tasks/inprocess?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/tasks/inprocess?${q.toString()}`));
   return res.json();
 }
 
@@ -708,7 +737,7 @@ export async function getPendingTasks(
   q.set('task_type', taskType);
   if (filters?.sid != null && filters.sid !== '') q.set('sid', String(filters.sid));
   if (filters?.lid != null && filters.lid !== '') q.set('lid', String(filters.lid));
-  const res = await fetch(apiUrl(`/api/tasks/pending?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/tasks/pending?${q.toString()}`));
   return res.json();
 }
 
@@ -734,13 +763,13 @@ export async function checkEngineerConflict(params: {
   if (params.endDate) q.set('endDate', params.endDate);
   if (params.excludeTaskId) q.set('excludeTaskId', String(params.excludeTaskId));
   
-  const res = await fetch(apiUrl(`/api/tasks/check-conflict?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/tasks/check-conflict?${q.toString()}`));
   return res.json();
 }
 
 /** GET /api/pm-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getPmReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
-  const res = await fetch(apiUrl('/api/pm-reports/reported-task-ids'));
+  const res = await apiFetch(apiUrl('/api/pm-reports/reported-task-ids'));
   return parseJsonResponse(res, { success: false, taskIds: [] });
 }
 
@@ -763,13 +792,13 @@ export async function getPmReports(params?: { limit?: number; offset?: number })
   const q = new URLSearchParams();
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
-  const res = await fetch(apiUrl(`/api/pm-reports?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/pm-reports?${q.toString()}`));
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
 /** DELETE /api/pm-reports/:id — id = report_id */
 export async function deletePmReport(reportId: string | number): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch(apiUrl(`/api/pm-reports/${encodeURIComponent(String(reportId))}`), {
+  const res = await apiFetch(apiUrl(`/api/pm-reports/${encodeURIComponent(String(reportId))}`), {
     method: 'DELETE',
   });
   return parseJsonResponse(res, { success: false });
@@ -779,7 +808,7 @@ export async function deletePmReport(reportId: string | number): Promise<{ succe
 export async function uploadReportFile(file: File): Promise<{ success: boolean; path?: string; name?: string }> {
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch(apiUrl('/api/pm-reports/upload'), { method: 'POST', body: fd });
+  const res = await apiFetch(apiUrl('/api/pm-reports/upload'), { method: 'POST', body: fd });
   return parseJsonResponse(res, { success: false });
 }
 
@@ -801,7 +830,7 @@ export async function postPmReport(body: {
   data?: object;
   list?: Array<{ id: string; task: string; status: string; notes?: string }>;
 }> {
-  const res = await fetch(apiUrl('/api/pm-reports'), {
+  const res = await apiFetch(apiUrl('/api/pm-reports'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -811,7 +840,7 @@ export async function postPmReport(body: {
 
 /** GET /api/ma-reports/reported-task-ids - ดึง task_id ที่มี report แล้ว (จาก table report) */
 export async function getMaReportedTaskIds(): Promise<{ success: boolean; taskIds?: number[] }> {
-  const res = await fetch(apiUrl('/api/ma-reports/reported-task-ids'));
+  const res = await apiFetch(apiUrl('/api/ma-reports/reported-task-ids'));
   return parseJsonResponse(res, { success: false, taskIds: [] });
 }
 
@@ -836,13 +865,13 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
   const q = new URLSearchParams();
   if (params?.limit) q.set('limit', String(params.limit));
   if (params?.offset) q.set('offset', String(params.offset));
-  const res = await fetch(apiUrl(`/api/ma-reports?${q.toString()}`));
+  const res = await apiFetch(apiUrl(`/api/ma-reports?${q.toString()}`));
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
 /** DELETE /api/ma-reports/:id — id = report_id */
 export async function deleteMaReport(reportId: string | number): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch(apiUrl(`/api/ma-reports/${encodeURIComponent(String(reportId))}`), {
+  const res = await apiFetch(apiUrl(`/api/ma-reports/${encodeURIComponent(String(reportId))}`), {
     method: 'DELETE',
   });
   return parseJsonResponse(res, { success: false });
@@ -852,7 +881,7 @@ export async function deleteMaReport(reportId: string | number): Promise<{ succe
 export async function uploadMaReportFile(file: File): Promise<{ success: boolean; path?: string; name?: string ;message?: string }> {
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch(apiUrl('/api/ma-reports/upload'), { method: 'POST', body: fd });
+  const res = await apiFetch(apiUrl('/api/ma-reports/upload'), { method: 'POST', body: fd });
   return parseJsonResponse(res, { success: false });
 }
 
@@ -881,7 +910,7 @@ export async function postMaReport(body: {
   data?: object;
   list?: Array<{ id: string; task: string; status: string; notes?: string }>;
 }> {
-  const res = await fetch(apiUrl('/api/ma-reports'), {
+  const res = await apiFetch(apiUrl('/api/ma-reports'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -926,7 +955,7 @@ export async function getDevicesWithPM(params?: { search?: string; deviceRole?: 
   if (params?.site) q.set('site', params.site);
   
   try {
-    const res = await fetch(apiUrl(`/api/devices/with-pm?${q.toString()}`));
+    const res = await apiFetch(apiUrl(`/api/devices/with-pm?${q.toString()}`));
     
     const data = await res.json();
     
@@ -954,7 +983,7 @@ export async function getDevicesWithPM(params?: { search?: string; deviceRole?: 
 export async function uploadEmployeePhoto(file: File): Promise<{ success: boolean; path?: string; message?: string }> {
   const fd = new FormData();
   fd.append('file', file);
-  const res = await fetch(apiUrl('/api/employees/upload'), { method: 'POST', body: fd });
+  const res = await apiFetch(apiUrl('/api/employees/upload'), { method: 'POST', body: fd });
   let data: { success?: boolean; path?: string; message?: string } = {};
   try {
     data = await res.json();
@@ -997,7 +1026,7 @@ export async function getEmployees(params?: { limit?: number; page?: number; sea
   if (params?.search) q.set('search', params.search);
   
   try {
-    const res = await fetch(apiUrl(`/api/employees?${q.toString()}`));
+    const res = await apiFetch(apiUrl(`/api/employees?${q.toString()}`));
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       return {
@@ -1026,7 +1055,7 @@ export async function createEmployee(body: {
   employmentType?: string;
   photo?: string | null;
 }): Promise<{ success: boolean; data?: object; message?: string }> {
-  const res = await fetch(apiUrl('/api/employees'), {
+  const res = await apiFetch(apiUrl('/api/employees'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1046,7 +1075,7 @@ export async function updateEmployee(
     photo?: string | null;
   }
 ): Promise<{ success: boolean; data?: object; message?: string }> {
-  const res = await fetch(apiUrl(`/api/employees/${encodeURIComponent(id)}`), {
+  const res = await apiFetch(apiUrl(`/api/employees/${encodeURIComponent(id)}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1056,7 +1085,7 @@ export async function updateEmployee(
 
 /** DELETE /api/employees/:id - ลบ Employee */
 export async function deleteEmployee(id: string): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch(apiUrl(`/api/employees/${encodeURIComponent(id)}`), { method: 'DELETE' });
+  const res = await apiFetch(apiUrl(`/api/employees/${encodeURIComponent(id)}`), { method: 'DELETE' });
   return res.json();
 }
 
@@ -1068,7 +1097,7 @@ export async function importEmployees(employees: Array<{
   positionType?: string;
   employmentType?: string;
 }>): Promise<{ success: boolean; message?: string; data?: { created: number; failed: number; errors?: Array<{ row: number; message: string }> } }> {
-  const res = await fetch(apiUrl('/api/employees/import'), {
+  const res = await apiFetch(apiUrl('/api/employees/import'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ employees }),
@@ -1089,7 +1118,7 @@ export interface HolidayItem {
 export async function getHolidays(year?: number): Promise<{ success: boolean; data?: HolidayItem[] }> {
   const path =
     typeof year === 'number' ? `/api/holidays?year=${encodeURIComponent(String(year))}` : '/api/holidays';
-  const res = await fetch(apiUrl(path));
+  const res = await apiFetch(apiUrl(path));
   return parseJsonResponse(res, { success: false, data: [] });
 }
 
@@ -1109,18 +1138,18 @@ export async function addHoliday(body: { date: string; name: string }): Promise<
 
 /** DELETE /api/holidays/[id] */
 export async function deleteHoliday(id: string): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch(apiUrl(`/api/holidays/${encodeURIComponent(id)}`), { method: 'DELETE' });
+  const res = await apiFetch(apiUrl(`/api/holidays/${encodeURIComponent(id)}`), { method: 'DELETE' });
   return parseJsonResponse(res, { success: false, message: 'Invalid response' });
 }
 
 /** POST /api/holidays/restore-official - clear hidden official holiday overrides */
 export async function restoreOfficialHolidays(): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch(apiUrl('/api/holidays/restore-official'), { method: 'POST' });
+  const res = await apiFetch(apiUrl('/api/holidays/restore-official'), { method: 'POST' });
   return parseJsonResponse(res, { success: false, message: 'Invalid response' });
 }
 
 /** POST /api/holidays/clear-custom - delete all custom holidays */
 export async function clearCustomHolidays(): Promise<{ success: boolean; message?: string }> {
-  const res = await fetch(apiUrl('/api/holidays/clear-custom'), { method: 'POST' });
+  const res = await apiFetch(apiUrl('/api/holidays/clear-custom'), { method: 'POST' });
   return parseJsonResponse(res, { success: false, message: 'Invalid response' });
 }
