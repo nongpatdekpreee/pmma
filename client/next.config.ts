@@ -25,8 +25,8 @@ const nextConfig: NextConfig = {
   /** ให้เครื่องอื่นใน LAN โหลด /_next/* ตอน dev (ไม่งั้นหน้าเปล่า/พัง) */
   allowedDevOrigins: [
     "localhost:3000",
-    "192.168.60.75:3000",
-    "192.168.60.75",
+    "192.168.60.58:3000",
+    "192.168.60.58",
     "127.0.0.1:3000",
     "localhost",
     "127.0.0.1",
@@ -49,14 +49,27 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  /** Dev: เรียก `/api` และ `/uploads` ที่ Next แล้วส่งต่อไป Express */
+  /**
+   * Proxy `/api` และ `/uploads` ไป Express
+   * - dev: default http://127.0.0.1:5000
+   * - Docker frontend (:3000): ตั้ง API_PROXY_TARGET=http://backend:5000 ตอน build
+   */
   async rewrites() {
-    if (process.env.NODE_ENV !== "development") return [];
-    const target = (process.env.API_PROXY_TARGET || "http://127.0.0.1:5000").replace(/\/$/, "");
-    return [
-      { source: "/api/:path*", destination: `${target}/api/:path*` },
-      { source: "/uploads/:path*", destination: `${target}/uploads/:path*` },
-    ];
+    const target = (process.env.API_PROXY_TARGET || "").replace(/\/$/, "");
+    const devTarget = target || "http://127.0.0.1:5000";
+    if (process.env.NODE_ENV === "development") {
+      return [
+        { source: "/api/:path*", destination: `${devTarget}/api/:path*` },
+        { source: "/uploads/:path*", destination: `${devTarget}/uploads/:path*` },
+      ];
+    }
+    if (target) {
+      return [
+        { source: "/api/:path*", destination: `${target}/api/:path*` },
+        { source: "/uploads/:path*", destination: `${target}/uploads/:path*` },
+      ];
+    }
+    return [];
   },
 };
 

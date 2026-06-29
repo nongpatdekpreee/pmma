@@ -1,5 +1,43 @@
 /** PM Inspection document — backup map + maintenance photo checklist */
 
+/** Row from Location Excel (asset register) */
+export interface PmLocationRecord {
+  serialNumber: string;
+  model: string;
+  ipAddress: string;
+  hostname?: string;
+  vendor?: string;
+  assetTag?: string;
+  serviceTag?: string;
+  locationLevel?: string;
+  roomNameLevel?: string;
+  roomNumber?: string;
+  cabinetRackName?: string;
+  rackUnit?: string;
+  ru?: string;
+  slot?: string;
+  rackSide?: string;
+  subLocation?: string;
+  unitName?: string;
+  status?: string;
+}
+
+/** Row from monitoring / backup Excel (field readings) */
+export interface PmMonitoringBackupRecord {
+  serialNumber: string;
+  model: string;
+  ipAddress?: string;
+  equipmentName?: string;
+  manufacturer?: string;
+  temperature?: string;
+  remark?: string;
+  backupReference?: string;
+  operatingStatus?: string;
+  gps?: string;
+  substation?: string;
+  installationDate?: string;
+}
+
 export interface PmBackupRecord {
   serialNumber: string;
   equipmentType?: string;

@@ -271,6 +271,54 @@ export async function getDevicesBySite(siteId: number | string): Promise<{ succe
   return res.json();
 }
 
+const DEVICE_FETCH_CONCURRENCY = 8;
+
+/** Run async work over items with a fixed concurrency cap (avoids browser ERR_INSUFFICIENT_RESOURCES). */
+export async function runWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) break;
+      await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: limit }, () => worker()));
+}
+
+/** GET /api/devices/:id for many IDs — batched to avoid hundreds of parallel fetches. */
+export async function fetchDeviceRecordsByIds(
+  ids: Iterable<string>,
+  concurrency = DEVICE_FETCH_CONCURRENCY
+): Promise<Record<string, Record<string, unknown>>> {
+  const unique = [
+    ...new Set(
+      Array.from(ids)
+        .map((id) => String(id).trim())
+        .filter(Boolean)
+    ),
+  ];
+  const out: Record<string, Record<string, unknown>> = {};
+  await runWithConcurrency(unique, concurrency, async (id) => {
+    try {
+      const res = await apiFetch(apiUrl(`/api/devices/${encodeURIComponent(id)}`));
+      const json = await res.json();
+      if (res.ok && json.data) {
+        out[id] = json.data as Record<string, unknown>;
+      }
+    } catch {
+      /* ignore per-device failures */
+    }
+  });
+  return out;
+}
+
 /** GET /api/devices/import-location2-hints — SLid + Location2 on contract where sites_location.SOF matches SOF (import hints) */
 export async function getImportLocation2HintsByContractAndSof(
   contractId: number,

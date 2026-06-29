@@ -2,12 +2,43 @@ export type {
   PmBackupRecord,
   PmFullDocument,
   PmInspectionSection,
+  PmLocationRecord,
   PmMaintenanceChecklistSection,
   PmMaintenanceItemDraft,
   PmMaintenanceItemRow,
+  PmMonitoringBackupRecord,
   PmTaskContext,
 } from './types';
-export { parseBackupFile, findBackupBySerial, findBackupForDevice, backupModelMatchesDevice, normalizeSerial } from './parseBackupFile';
+export {
+  normalizeSerial,
+  normalizeModel,
+  normalizeIp,
+  modelsMatch,
+  ipsMatch,
+  serialsMatch,
+  deviceModelKey,
+} from './normalizeMatch';
+export { parseSpreadsheetFile, pickField } from './parseSpreadsheet';
+export {
+  parseLocationFile,
+  buildLocationDisplayText,
+  buildRackDisplayText,
+  findLocationForDevice,
+  findLocationByIpAndModel,
+} from './parseLocationFile';
+export {
+  parsePmMonitoringBackupFile,
+  findMonitoringForLocation,
+  monitoringToPmBackupRecord,
+} from './parsePmMonitoringBackupFile';
+export {
+  mapLocationRecordsToDevices,
+  mapMonitoringBackupToDevices,
+  buildMaintenanceRowsFromMaps,
+  allDevicesMapped,
+  type PmWizardDevice,
+} from './mapPmExcelFiles';
+export { parseBackupFile, findBackupBySerial, findBackupForDevice, backupModelMatchesDevice } from './parseBackupFile';
 export {
   applyBackupToInspection,
   buildDeviceTaskContext,

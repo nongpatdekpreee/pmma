@@ -447,7 +447,7 @@ function AddPMReportPageContent() {
     }
     if (!wizardRef.current?.canSave()) {
       toastWarning(
-        'Upload a finished PDF in Step 1, or complete backup and before/after photos for every device.'
+        'Upload a finished PDF in Step 1, or complete location file, backup file, and before/after photos for every device.'
       );
       return;
     }
@@ -687,7 +687,7 @@ function AddPMReportPageContent() {
             <div className="mb-4">
               <h2 className="text-lg font-bold text-foreground">PM Document Report</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Step 1: upload a finished PDF to submit immediately — or create a new report from backup and photos.
+                Step 1: upload a finished PDF to submit immediately — or create a report from location Excel, backup Excel, and photos.
               </p>
             </div>
             <PmReportWizard
@@ -741,7 +741,7 @@ function AddPMReportPageContent() {
             <p className="text-xs text-muted-foreground text-right max-w-md">
               {externalPdfMode
                 ? 'Finished PDF uploaded in Step 1 — click Save to upload and submit the report.'
-                : 'After completing backup and photos, save here. The PM PDF is generated and uploaded automatically.'}
+                : 'After location + backup files and photos, save here. The PM PDF is generated and uploaded automatically.'}
             </p>
             <button
               onClick={() => void handleSave()}

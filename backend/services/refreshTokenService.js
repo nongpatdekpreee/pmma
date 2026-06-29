@@ -9,11 +9,11 @@ function hashToken(raw) {
 }
 
 function cookieOptions() {
-  const isProd = process.env.NODE_ENV === 'production';
   const sameSite = process.env.COOKIE_SAME_SITE || 'lax';
+  const secure = process.env.COOKIE_SECURE === 'true';
   return {
     httpOnly: true,
-    secure: process.env.COOKIE_SECURE === 'true' || isProd,
+    secure,
     sameSite,
     path: '/',
     maxAge: REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000,
@@ -27,7 +27,7 @@ function setRefreshCookie(res, rawToken) {
 function clearRefreshCookie(res) {
   res.clearCookie(REFRESH_TOKEN_COOKIE_NAME, {
     httpOnly: true,
-    secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
+    secure: process.env.COOKIE_SECURE === 'true',
     sameSite: process.env.COOKIE_SAME_SITE || 'lax',
     path: '/',
   });

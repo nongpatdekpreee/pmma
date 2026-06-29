@@ -16,7 +16,10 @@ import {
   absoluteUrlForHyperlink,
   deletePmReport,
   deleteMaReport,
-  type ApiTask, apiFetch} from '@/lib/api';
+  type ApiTask,
+  apiFetch,
+  fetchDeviceRecordsByIds,
+} from '@/lib/api';
 import { apiTaskString } from '@/lib/apiTask';
 import { asRecord, readString } from '@/lib/unknownUtil';
 import JSZip from 'jszip';
@@ -930,30 +933,23 @@ function ReportPageContent() {
     return ids;
   };
 
-  const fetchDeviceDetailMapForExport = async (
+  const fetchDeviceDetailMapForExport = (
     ids: Set<string>,
-    base: Record<string, { Sitename?: string; Location2?: string; Refer_SOF?: string; Vendor?: string }>
+    base: Record<string, { Sitename?: string; Location2?: string; Refer_SOF?: string; Vendor?: string }>,
+    deviceRecords: Record<string, Record<string, unknown>>
   ) => {
     const map = { ...base };
-    await Promise.all(
-      Array.from(ids).map(async (id) => {
-        try {
-          const res = await apiFetch(apiUrl(`/api/devices/${id}`));
-          const json = await res.json();
-          if (res.ok && json.data) {
-            const d = json.data as Record<string, unknown>;
-            map[id] = {
-              Sitename: String(d.Sitename ?? d.SiteName ?? d.sitename ?? '').trim() || undefined,
-              Location2: String(d.Location2 ?? d.location2 ?? '').trim() || undefined,
-              Refer_SOF: String(d.Refer_SOF ?? d.refer_sof ?? '').trim() || undefined,
-              Vendor: String(d.Vendor ?? d.vendor ?? '').trim() || undefined,
-            };
-          }
-        } catch {
-          /* ignore */
-        }
-      })
-    );
+    for (const id of ids) {
+      if (map[id]) continue;
+      const d = deviceRecords[id];
+      if (!d) continue;
+      map[id] = {
+        Sitename: String(d.Sitename ?? d.SiteName ?? d.sitename ?? '').trim() || undefined,
+        Location2: String(d.Location2 ?? d.location2 ?? '').trim() || undefined,
+        Refer_SOF: String(d.Refer_SOF ?? d.refer_sof ?? '').trim() || undefined,
+        Vendor: String(d.Vendor ?? d.vendor ?? '').trim() || undefined,
+      };
+    }
     return map;
   };
 
@@ -1245,12 +1241,8 @@ function ReportPageContent() {
     const exportDeviceIds = new Set<string>();
     sourceReports.forEach((r) => collectDeviceIdsFromExportRow(r).forEach((id) => exportDeviceIds.add(id)));
     pendingExport.forEach((t) => collectDeviceIdsFromExportRow(t).forEach((id) => exportDeviceIds.add(id)));
-    const exportDeviceDetailMap =
-      exportDeviceIds.size > 0
-        ? await fetchDeviceDetailMapForExport(exportDeviceIds, pmDeviceDetailMap)
-        : pmDeviceDetailMap;
 
-    // สำหรับ MA: ดึง replacement device (serial, model, asset #, location, site)
+    // สำหรับ MA: รวม replacement + broken device IDs แล้วดึงครั้งเดียว (จำกัด concurrent)
     type ReplacementInfo = {
       serial: string;
       model: string;
@@ -1270,51 +1262,11 @@ function ReportPageContent() {
       const taskRepId = rowRec.replacementDeviceId ?? rowRec.replacement_device_id;
       if (taskRepId != null && String(taskRepId).trim() !== '') repIds.add(String(taskRepId));
     };
+    const repIds = new Set<string>();
+    const brokenIds = new Set<string>();
     if (tab === 'ma') {
-      const repIds = new Set<string>();
       sourceReports.forEach((r: PMReport | MAReport) => addReplacementIdsFromRow(r, repIds));
       pendingExport.forEach((t) => addReplacementIdsFromRow(t, repIds));
-      await Promise.all(
-        Array.from(repIds).map(async (rid) => {
-          try {
-            const res = await apiFetch(apiUrl(`/api/devices/${rid}`));
-            const json = await res.json();
-            if (res.ok && json.data) {
-              const d = json.data as Record<string, unknown>;
-              const serial = readString(d, 'serial') ?? readString(d, 'serialNumber') ?? '';
-              const model = readString(d, 'model') ?? readString(d, 'type') ?? '';
-              const assetNum = readString(d, 'Asset_Number') ?? readString(d, 'assetNumber') ?? '';
-              const siteDb = String(readString(d, 'Sitename') ?? readString(d, 'SiteName') ?? readString(d, 'sitename') ?? '').trim();
-              const locDb = String((d.Location2 ?? d.location2 ?? '') as string).trim();
-              replacementPlaceMap[rid] = {
-                serial: String(serial || '').trim() || '-',
-                model: String(model || '').trim() || '-',
-                assetNumber: String(assetNum || '').trim() || '-',
-                location: locDb || '-',
-                site: siteDb || '-',
-              };
-            } else {
-              replacementPlaceMap[rid] = {
-                serial: '-',
-                model: '-',
-                assetNumber: '-',
-                location: '-',
-                site: '-',
-              };
-            }
-          } catch {
-            replacementPlaceMap[rid] = {
-              serial: '-',
-              model: '-',
-              assetNumber: '-',
-              location: '-',
-              site: '-',
-            };
-          }
-        })
-      );
-
-      const brokenIds = new Set<string>();
       const addBrokenIdsFromRow = (row: PMReport | MAReport | ApiTask) => {
         for (const a of assetsFromRow(row)) {
           const bid = a.id ?? a.Did ?? a.did;
@@ -1323,26 +1275,58 @@ function ReportPageContent() {
       };
       sourceReports.forEach((r: PMReport | MAReport) => addBrokenIdsFromRow(r));
       pendingExport.forEach((t) => addBrokenIdsFromRow(t));
-      await Promise.all(
-        Array.from(brokenIds).map(async (did) => {
-          try {
-            const res = await apiFetch(apiUrl(`/api/devices/${did}`));
-            const json = await res.json();
-            if (res.ok && json.data) {
-              const d = json.data as Record<string, unknown>;
-              const site = String(d.Sitename ?? (d as { SiteName?: string }).SiteName ?? '')
-                .trim();
-              const location = String(d.Location2 ?? d.location2 ?? '').trim();
-              brokenDeviceExportDetails[did] = {
-                ...(site ? { site } : {}),
-                ...(location ? { location } : {}),
-              };
-            }
-          } catch {
-            /* ignore */
-          }
-        })
-      );
+    }
+
+    const allDeviceFetchIds = new Set<string>([...exportDeviceIds, ...repIds, ...brokenIds]);
+    const deviceRecords =
+      allDeviceFetchIds.size > 0 ? await fetchDeviceRecordsByIds(allDeviceFetchIds) : {};
+
+    const exportDeviceDetailMap = fetchDeviceDetailMapForExport(
+      exportDeviceIds,
+      pmDeviceDetailMap,
+      deviceRecords
+    );
+
+    if (tab === 'ma') {
+      const emptyReplacement = (): ReplacementInfo => ({
+        serial: '-',
+        model: '-',
+        assetNumber: '-',
+        location: '-',
+        site: '-',
+      });
+      for (const rid of repIds) {
+        const d = deviceRecords[rid];
+        if (d) {
+          const serial = readString(d, 'serial') ?? readString(d, 'serialNumber') ?? '';
+          const model = readString(d, 'model') ?? readString(d, 'type') ?? '';
+          const assetNum = readString(d, 'Asset_Number') ?? readString(d, 'assetNumber') ?? '';
+          const siteDb = String(
+            readString(d, 'Sitename') ?? readString(d, 'SiteName') ?? readString(d, 'sitename') ?? ''
+          ).trim();
+          const locDb = String((d.Location2 ?? d.location2 ?? '') as string).trim();
+          replacementPlaceMap[rid] = {
+            serial: String(serial || '').trim() || '-',
+            model: String(model || '').trim() || '-',
+            assetNumber: String(assetNum || '').trim() || '-',
+            location: locDb || '-',
+            site: siteDb || '-',
+          };
+        } else {
+          replacementPlaceMap[rid] = emptyReplacement();
+        }
+      }
+
+      for (const did of brokenIds) {
+        const d = deviceRecords[did];
+        if (!d) continue;
+        const site = String(d.Sitename ?? (d as { SiteName?: string }).SiteName ?? '').trim();
+        const location = String(d.Location2 ?? d.location2 ?? '').trim();
+        brokenDeviceExportDetails[did] = {
+          ...(site ? { site } : {}),
+          ...(location ? { location } : {}),
+        };
+      }
     }
 
     const taskById = new Map<

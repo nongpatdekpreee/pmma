@@ -92,21 +92,13 @@ function rowToBackupRecord(row: Record<string, unknown>): PmBackupRecord | null 
   return record;
 }
 
-export function normalizeSerial(serial: string): string {
-  return serial.trim().toUpperCase().replace(/[\s-]+/g, '');
-}
+import { normalizeSerial, deviceModelKey } from './normalizeMatch';
 
 function normalizeLabel(value: string): string {
   return value.trim().toUpperCase().replace(/[\s_-]+/g, '');
 }
 
-function deviceModelKey(device: { CI_Name?: string; model?: string }): string | null {
-  const raw = (device.CI_Name ?? device.model ?? '').trim();
-  if (!raw) return null;
-  return normalizeLabel(raw);
-}
-
-/** Task CI_Name/model must match backup Model column */
+/** Task model/CI_Name must match backup Model column */
 export function backupModelMatchesDevice(
   device: { CI_Name?: string; model?: string },
   backup: PmBackupRecord
@@ -114,7 +106,7 @@ export function backupModelMatchesDevice(
   const deviceModel = deviceModelKey(device);
   const backupModel = (backup.model ?? '').trim();
   if (!deviceModel || !backupModel) return false;
-  return deviceModel === normalizeLabel(backupModel);
+  return normalizeLabel(deviceModel) === normalizeLabel(backupModel);
 }
 
 export function findBackupBySerial(
@@ -132,7 +124,8 @@ export function findBackupForDevice(
   device: { serial?: string; CI_Name?: string; model?: string }
 ): PmBackupRecord | undefined {
   const serial = (device.serial ?? '').trim();
-  if (!serial || !deviceModelKey(device)) return undefined;
+  const modelKey = deviceModelKey(device);
+  if (!serial || !modelKey) return undefined;
 
   const targetSerial = normalizeSerial(serial);
   return records.find(

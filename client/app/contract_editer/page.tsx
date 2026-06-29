@@ -678,7 +678,7 @@ function getContractExpiryIncomingLabel(
   return { text: diffDays === 1 ? 'In 1 day' : `In ${diffDays} days`, tone: 'future' };
 }
 
-/** เรียงแถวสัญญา + แถวประวัติ Terminated ในตารางหลัก */
+/** เรียงแถวสัญญา + แถวประวัติ Terminated — วันเริ่มสัญญาก่อน (เก่า → ใหม่) */
 function contractRowSortTimestamp(c: Contract): number {
   if (c.isHistorySnapshotRow) {
     const ra = c.renewHistAt ? new Date(c.renewHistAt).getTime() : NaN;
@@ -686,6 +686,8 @@ function contractRowSortTimestamp(c: Contract): number {
     const e = c.endDate ? new Date(c.endDate).getTime() : NaN;
     return Number.isNaN(e) ? 0 : e;
   }
+  const startTs = c.startDate ? new Date(c.startDate).getTime() : NaN;
+  if (!Number.isNaN(startTs)) return startTs;
   const createdAtTs = c.createdAt ? new Date(c.createdAt).getTime() : NaN;
   if (!Number.isNaN(createdAtTs)) return createdAtTs;
   const e = c.endDate ? new Date(c.endDate).getTime() : NaN;
@@ -694,14 +696,15 @@ function contractRowSortTimestamp(c: Contract): number {
   return base + (Number.isNaN(id) ? 0 : id / 1e9);
 }
 
+/** เรียงจากวันที่เก่าก่อน → ใหม่หลัง */
 function sortMergedContractList(merged: Contract[]): Contract[] {
   return [...merged].sort((a, b) => {
-    const tb = contractRowSortTimestamp(b);
     const ta = contractRowSortTimestamp(a);
-    if (tb !== ta) return tb - ta;
+    const tb = contractRowSortTimestamp(b);
+    if (ta !== tb) return ta - tb;
     const ida = a.isHistorySnapshotRow ? a.historyId ?? 0 : parseInt(a.id, 10) || 0;
     const idb = b.isHistorySnapshotRow ? b.historyId ?? 0 : parseInt(b.id, 10) || 0;
-    return idb - ida;
+    return ida - idb;
   });
 }
 
@@ -719,6 +722,20 @@ function contractSofGroupKey(c: Contract): string | null {
   return normalizeSofSearchKey(sof);
 }
 
+/** ช่วงวันที่สัญญา — ใช้แยกกลุ่ม SOF เมื่อ start/end ไม่ตรงกัน */
+function contractSofDateSignature(c: Contract): string {
+  const start = (c.startDate || '').trim() || '_';
+  const end = (c.endDate || '').trim() || '_';
+  return `${start}|${end}`;
+}
+
+/** คีย์รวมแถว: SOF เดียวกัน + วันเริ่ม/สิ้นสุดเดียวกันเท่านั้น */
+function contractSofGroupBucketKey(c: Contract): string | null {
+  const sofKey = contractSofGroupKey(c);
+  if (sofKey == null) return null;
+  return `${sofKey}|${contractSofDateSignature(c)}`;
+}
+
 function pickGroupListStatus(members: Contract[]): Contract['status'] {
   return members.reduce((worst, m) => {
     const wp = CONTRACT_STATUS_PRIORITY[worst] ?? 0;
@@ -731,12 +748,6 @@ function pickGroupContractStatus(members: Contract[]): Contract['contractStatus'
   if (members.some((m) => m.contractStatus === 'draft')) return 'draft';
   if (members.some((m) => m.contractStatus === 'not_renewing')) return 'not_renewing';
   return 'official';
-}
-
-function formatGroupedDateLabel(members: Contract[], field: 'formattedStartDate' | 'formattedEndDate'): string {
-  const labels = [...new Set(members.map((m) => m[field]).filter(Boolean))] as string[];
-  if (labels.length <= 1) return labels[0] ?? '—';
-  return `${labels[0]} … (+${labels.length - 1})`;
 }
 
 function contractListPrimaryMember(c: Contract): Contract {
@@ -757,16 +768,16 @@ function contractListDisplaySiteLocation(c: Contract): string {
 }
 
 function buildSofGroupRepresentative(members: Contract[]): Contract {
-  const sorted = [...members].sort((a, b) => contractRowSortTimestamp(b) - contractRowSortTimestamp(a));
+  const sorted = [...members].sort((a, b) => contractRowSortTimestamp(a) - contractRowSortTimestamp(b));
   const primary = sorted[0];
-  const groupKey = contractSofGroupKey(primary);
   const groupStatus = pickGroupListStatus(sorted);
   const groupContractStatus = pickGroupContractStatus(sorted);
   const primarySiteName = (primary.contractSiteName ?? primary.siteName ?? '').trim();
   const primarySiteLocation = (primary.contractSiteLocation ?? primary.siteLocation ?? '').trim();
+  const bucketKey = contractSofGroupBucketKey(primary);
   return {
     ...primary,
-    id: groupKey != null ? `sof-group-${groupKey}` : primary.id,
+    id: bucketKey != null ? `sof-group-${bucketKey}` : primary.id,
     isSofGroupRow: true,
     sofGroupMembers: sorted,
     sofGroupSize: members.length,
@@ -776,33 +787,33 @@ function buildSofGroupRepresentative(members: Contract[]): Contract {
     siteLocation: primarySiteLocation || undefined,
     status: groupStatus,
     contractStatus: groupContractStatus,
-    formattedStartDate: formatGroupedDateLabel(sorted, 'formattedStartDate'),
-    formattedEndDate: formatGroupedDateLabel(sorted, 'formattedEndDate'),
+    formattedStartDate: primary.formattedStartDate,
+    formattedEndDate: primary.formattedEndDate,
     deviceCount: sorted.reduce((sum, m) => sum + (m.deviceCount ?? 0), 0),
     devicesSlidAligned: sorted.every((m) => m.devicesSlidAligned),
   };
 }
 
-/** รวมแถวที่ SOF เดียวกันเป็นหนึ่งรายการ — ใช้เมื่อไม่ได้ค้นหา */
+/** รวมแถวที่ SOF + ช่วงวันที่เดียวกัน — คนละวันแสดงแยกแถว (ใช้เมื่อไม่ได้ค้นหา) */
 function groupContractsBySof(rows: Contract[]): Contract[] {
   const historyRows: Contract[] = [];
   const ungrouped: Contract[] = [];
-  const bySof = new Map<string, Contract[]>();
+  const byBucket = new Map<string, Contract[]>();
 
   for (const row of rows) {
-    const key = contractSofGroupKey(row);
+    const key = contractSofGroupBucketKey(row);
     if (key == null) {
       if (row.isHistorySnapshotRow) historyRows.push(row);
       else ungrouped.push(row);
       continue;
     }
-    const bucket = bySof.get(key) ?? [];
+    const bucket = byBucket.get(key) ?? [];
     bucket.push(row);
-    bySof.set(key, bucket);
+    byBucket.set(key, bucket);
   }
 
   const grouped: Contract[] = [];
-  for (const members of bySof.values()) {
+  for (const members of byBucket.values()) {
     grouped.push(members.length === 1 ? members[0] : buildSofGroupRepresentative(members));
   }
 
@@ -1049,7 +1060,7 @@ function ContractEditorPageContent() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractsLoading, setContractsLoading] = useState(true);
   const [contractsError, setContractsError] = useState('');
-  const [activeFilter, setActiveFilter] = useState('All');
+  const [activeFilter, setActiveFilter] = useState('Active');
   const [searchTerm, setSearchTerm] = useState('');
   /** วันเริ่มสัญญา ≥ ค่านี้ (อิง contract.start_date) */
   const [startDateFilter, setStartDateFilter] = useState('');
@@ -1294,9 +1305,9 @@ function ContractEditorPageContent() {
     return true;
   });
 
-  const listForDisplay = searchTerm.trim()
-    ? filteredContracts
-    : groupContractsBySof(filteredContracts);
+  const listForDisplay = sortMergedContractList(
+    searchTerm.trim() ? filteredContracts : groupContractsBySof(filteredContracts),
+  );
 
   const totalContracts = listForDisplay.length;
   const cardTotalPages = Math.max(1, Math.ceil(totalContracts / CONTRACT_CARD_PAGE_SIZE));

@@ -1,3 +1,5 @@
+import { parseSiteContactPersonFromRecord } from '@/lib/legacySiteContact';
+
 /** site_contact_1 จาก sites_location.contact (JSON บนสัญญา) */
 export function parseSiteContact1FromContractContact(
   raw: unknown,
@@ -12,9 +14,5 @@ export function parseSiteContact1FromContractContact(
   }
   const person = obj.site_contact_1 ?? obj.site_l1;
   if (!person || typeof person !== 'object') return { name: '', tel: '' };
-  const o = person as Record<string, unknown>;
-  return {
-    name: o.name != null ? String(o.name).trim() : '',
-    tel: o.tel != null ? String(o.tel).trim() : '',
-  };
+  return parseSiteContactPersonFromRecord(person as Record<string, unknown>);
 }

@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../config/database');
 const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
+const { fetchTaskSlaTerm } = require('../lib/taskContractJoin');
 
 async function updateTaskUptimeColumns(taskId, endD, timeSql) {
   try {
@@ -156,14 +157,10 @@ const submitReport = async (req, res) => {
       }
     }
 
-    // PM/MA: ดึง sla_term จาก sites_location (task.contract_id === SLid) เพื่อใช้เป็นเกณฑ์ Pass/Fail
+    // PM/MA: ดึง sla_term จาก contract / sites_location เพื่อใช้เป็นเกณฑ์ Pass/Fail
     let slaThreshold = 70;
     try {
-      const [rows] = await db.execute(
-        'SELECT sl.sla_term FROM tasks t INNER JOIN sites_location sl ON t.contract_id = sl.SLid WHERE t.id = ?',
-        [taskId]
-      );
-      const st = rows[0]?.sla_term;
+      const st = await fetchTaskSlaTerm(taskId);
       if (st != null && String(st).trim() !== '') {
         const n = parseInt(String(st).trim(), 10);
         if (!Number.isNaN(n)) slaThreshold = n;

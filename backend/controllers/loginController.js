@@ -44,7 +44,7 @@ const createUser = async (req, res) => {
     // INSERT user
     const [result] = await db.execute(
       'INSERT INTO user (Username, Password, Role) VALUES (?, ?, ?)',
-      [Username, hashedPassword, 'user']
+      [Username, hashedPassword, toDbRole('user')]
     );
 
     res.status(201).json({
@@ -331,7 +331,7 @@ const getAllUsers = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { Username, Password, Role } = req.body;
+    const { Username, Password, Role, adminPassword } = req.body;
 
     // ตรวจสอบว่ามี user อยู่หรือไม่
     const [existing] = await db.execute(
@@ -354,6 +354,14 @@ const updateUser = async (req, res) => {
       });
     }
 
+    // เปลี่ยนรหัสผ่านได้เฉพาะบัญชีตัวเอง
+    if (Password && Number(id) !== Number(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'ไม่สามารถเปลี่ยนรหัสผ่านของผู้อื่นได้',
+      });
+    }
+
     // ห้าม ADMIN ลดสิทธิ์ตัวเอง
     if (
       Role !== undefined &&
@@ -364,6 +372,37 @@ const updateUser = async (req, res) => {
         success: false,
         message: 'ไม่สามารถลดสิทธิ์บัญชีของตัวเองได้',
       });
+    }
+
+    // เปลี่ยน Role ต้องยืนยันรหัสผ่านของ admin ที่กำลังทำรายการ
+    if (Role !== undefined) {
+      const nextRole = normalizeRole(Role);
+      const curRole = normalizeRole(existing[0].Role);
+      if (nextRole !== curRole) {
+        if (!adminPassword || String(adminPassword).trim() === '') {
+          return res.status(400).json({
+            success: false,
+            message: 'กรุณายืนยันรหัสผ่านของคุณก่อนเปลี่ยน Role',
+          });
+        }
+        const [actorRows] = await db.execute(
+          'SELECT Password FROM user WHERE User_id = ?',
+          [req.user.id]
+        );
+        if (actorRows.length === 0) {
+          return res.status(401).json({
+            success: false,
+            message: 'ไม่พบบัญชีผู้ดำเนินการ',
+          });
+        }
+        const passwordOk = await argon2.verify(actorRows[0].Password, adminPassword);
+        if (!passwordOk) {
+          return res.status(403).json({
+            success: false,
+            message: 'รหัสผ่านยืนยันไม่ถูกต้อง',
+          });
+        }
+      }
     }
 
     // ถ้าเปลี่ยน Username ต้องตรวจสอบว่าไม่ซ้ำ
@@ -442,6 +481,13 @@ const deleteUser = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'ไม่พบ user ที่ต้องการลบ'
+      });
+    }
+
+    if (Number(id) === Number(req.user.id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ไม่สามารถลบบัญชีของตัวเองได้',
       });
     }
 

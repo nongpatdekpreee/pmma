@@ -10,7 +10,6 @@ import {
   Plus,
   Trash2,
   CheckCircle2,
-  ChevronDown,
   FileText,
   X,
 } from 'lucide-react';
@@ -22,23 +21,31 @@ import { prepareReportUploadFile } from '@/lib/prepareReportUploadFile';
 import {
   type PmBackupRecord,
   type PmFullDocument,
+  type PmLocationRecord,
   type PmMaintenanceItemDraft,
+  type PmMonitoringBackupRecord,
   type PmTaskContext,
   buildPmFullDocumentMulti,
   buildPmWorkOrderFilename,
+  buildMaintenanceRowsFromMaps,
+  buildRackDisplayText,
   createDefaultMaintenanceDrafts,
   downloadPmWorkOrderPdf,
-  findBackupForDevice,
-  findBackupBySerial,
   generatePmWorkOrderPdfBlob,
-  parseBackupFile,
+  mapLocationRecordsToDevices,
+  mapMonitoringBackupToDevices,
+  findMonitoringForLocation,
+  monitoringToPmBackupRecord,
+  parseLocationFile,
+  parsePmMonitoringBackupFile,
 } from '@/lib/pmWorkOrder';
 
 const STEPS = [
   { id: 1, label: 'Upload PDF' },
-  { id: 2, label: 'Backup' },
-  { id: 3, label: 'Photos' },
-  { id: 4, label: 'Preview' },
+  { id: 2, label: 'Location' },
+  { id: 3, label: 'Backup' },
+  { id: 4, label: 'Photos' },
+  { id: 5, label: 'Preview' },
 ] as const;
 
 export type PmSavePhase = 'generating-pdf' | 'uploading-pdf' | 'saving-report' | null;
@@ -106,7 +113,14 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   const [contactName, setContactName] = useState('');
   const [contactTel, setContactTel] = useState('');
 
-  const [backupRecords, setBackupRecords] = useState<PmBackupRecord[]>([]);
+  const [locationRecords, setLocationRecords] = useState<PmLocationRecord[]>([]);
+  const [locationFileName, setLocationFileName] = useState('');
+  const [locationError, setLocationError] = useState('');
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationByDid, setLocationByDid] = useState<Map<number, PmLocationRecord | null>>(new Map());
+  const [locationMapped, setLocationMapped] = useState(false);
+
+  const [monitoringRecords, setMonitoringRecords] = useState<PmMonitoringBackupRecord[]>([]);
   const [backupFileName, setBackupFileName] = useState('');
   const [backupError, setBackupError] = useState('');
   const [backupLoading, setBackupLoading] = useState(false);
@@ -137,9 +151,14 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     };
   }, [selectedTaskId, siteName, allowedDevices, pmDate, pmNo, technicianName, contactName, contactTel]);
 
-  /** เปลี่ยน task ด้านบน → รีเซ็ต backup/photos ใน wizard */
+  /** เปลี่ยน task ด้านบน → รีเซ็ต location/backup/photos ใน wizard */
   useEffect(() => {
-    setBackupRecords([]);
+    setLocationRecords([]);
+    setLocationFileName('');
+    setLocationError('');
+    setLocationByDid(new Map());
+    setLocationMapped(false);
+    setMonitoringRecords([]);
     setBackupFileName('');
     setBackupError('');
     setBackupByDid(new Map());
@@ -201,13 +220,17 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     });
   }, [fullDocument, allowedDevices, backupByDid]);
 
-  const mappedDeviceCount = matchedInspections.length;
-  const allDevicesMatched =
-    backupMapped && mappedDeviceCount === allowedDevices.length && allowedDevices.length > 0;
+  const locationMappedCount = allowedDevices.filter((d) => locationByDid.get(d.Did)).length;
+  const allLocationMatched =
+    locationMapped && locationMappedCount === allowedDevices.length && allowedDevices.length > 0;
 
-  /** Pre-generate PDF ตอน Step 3 — กด Save แล้วไม่ต้องรอสร้างใหม่ */
+  const backupMappedCount = matchedInspections.length;
+  const allBackupMatched =
+    backupMapped && backupMappedCount === allowedDevices.length && allowedDevices.length > 0;
+
+  /** Pre-generate PDF ตอน Step 5 — กด Save แล้วไม่ต้องรอสร้างใหม่ */
   useEffect(() => {
-    if (step !== 4 || !fullDocument) {
+    if (step !== 5 || !fullDocument) {
       pdfCacheRef.current = null;
       setPdfPreparing(false);
       setPdfReady(false);
@@ -243,7 +266,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     };
   }, [step, fullDocument]);
 
-  const handleBackupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLocationUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
@@ -255,77 +278,112 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       toastWarning('No devices linked to this task.');
       return;
     }
+    setLocationLoading(true);
+    setLocationError('');
+    try {
+      const records = await parseLocationFile(file);
+      if (!records.length) {
+        setLocationError('No rows with Serial Number and Model found in location file.');
+        setLocationRecords([]);
+        setLocationFileName('');
+        setLocationByDid(new Map());
+        setLocationMapped(false);
+        return;
+      }
+
+      const { locationByDid: nextLoc, mappedCount, unmapped } = mapLocationRecordsToDevices(
+        allowedDevices,
+        records
+      );
+
+      setLocationRecords(records);
+      setLocationFileName(file.name);
+      setLocationByDid(nextLoc);
+      setLocationMapped(true);
+      setMonitoringRecords([]);
+      setBackupFileName('');
+      setBackupError('');
+      setBackupByDid(new Map());
+      setBackupMapped(false);
+      setMaintenanceRows([]);
+
+      if (unmapped.length) {
+        setLocationError(
+          `Could not map ${unmapped.length} device(s) — Serial + Model must match location file. ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? `; +${unmapped.length - 5} more` : ''}`
+        );
+      } else {
+        setLocationError('');
+      }
+      toastSuccess(`Mapped location for ${mappedCount} of ${allowedDevices.length} device(s)`);
+    } catch (err) {
+      setLocationError(err instanceof Error ? err.message : 'Failed to parse location file');
+      setLocationRecords([]);
+      setLocationByDid(new Map());
+      setLocationMapped(false);
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  const handleMonitoringBackupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!selectedTaskId) {
+      toastWarning('Please select a task in Tasks to Report first.');
+      return;
+    }
+    if (!allLocationMatched) {
+      toastWarning('Upload and map the location file first.');
+      return;
+    }
     setBackupLoading(true);
     setBackupError('');
     try {
-      const records = await parseBackupFile(file);
+      const records = await parsePmMonitoringBackupFile(file);
       if (!records.length) {
-        setBackupError('No records found in backup file.');
-        setBackupRecords([]);
+        setBackupError('No rows found in backup file.');
+        setMonitoringRecords([]);
         setBackupFileName('');
         setBackupByDid(new Map());
         setBackupMapped(false);
         return;
       }
 
-      const nextBackupByDid = new Map<number, PmBackupRecord | null>();
-      const unmapped: string[] = [];
-      let mappedCount = 0;
+      const { backupByDid: nextBackup, mappedCount, unmapped } = mapMonitoringBackupToDevices(
+        allowedDevices,
+        locationByDid,
+        records
+      );
 
-      for (const device of allowedDevices) {
-        const serial = (device.serial ?? '').trim();
-        const label = device.CI_Name || device.model || `Device ${device.Did}`;
-        let backup: PmBackupRecord | null = null;
-
-        if (!serial) {
-          unmapped.push(`${label}: no serial in task`);
-        } else if (!device.CI_Name?.trim() && !device.model?.trim()) {
-          unmapped.push(`${label} (${serial}): no model/CI_Name in task`);
-        } else {
-          const serialHit = findBackupBySerial(records, serial);
-          backup = findBackupForDevice(records, device) ?? null;
-          if (backup) {
-            mappedCount += 1;
-          } else if (!serialHit) {
-            unmapped.push(`${label} (${serial}): serial not in backup`);
-          } else {
-            unmapped.push(`${label} (${serial}): model does not match backup Model column`);
-          }
-        }
-        nextBackupByDid.set(device.Did, backup);
-      }
-
-      setBackupRecords(records);
+      setMonitoringRecords(records);
       setBackupFileName(file.name);
-      setBackupByDid(nextBackupByDid);
+      setBackupByDid(nextBackup);
       setBackupMapped(true);
 
+      const monitoringByDid = new Map<number, PmMonitoringBackupRecord | null>();
+      for (const device of allowedDevices) {
+        const loc = locationByDid.get(device.Did);
+        monitoringByDid.set(
+          device.Did,
+          loc ? findMonitoringForLocation(records, loc) ?? null : null
+        );
+      }
       setMaintenanceRows(
-        allowedDevices.map((d) => {
-          const backup = nextBackupByDid.get(d.Did);
-          return {
-            id: `row-${d.Did}`,
-            deviceDid: d.Did,
-            deviceLabel: d.CI_Name || d.serial || `Device ${d.Did}`,
-            location: '',
-            rack: backup?.rackRu || '',
-            remark: '',
-            technicianNote: '',
-          };
-        })
+        buildMaintenanceRowsFromMaps(allowedDevices, locationByDid, nextBackup, monitoringByDid)
       );
 
       if (unmapped.length) {
         setBackupError(
-          `Could not map ${unmapped.length} device(s) — Model and Serial Number must both match. ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? `; +${unmapped.length - 5} more` : ''}`
+          `Could not map ${unmapped.length} device(s) — backup row must match location IP + Model. ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? `; +${unmapped.length - 5} more` : ''}`
         );
       } else {
         setBackupError('');
       }
       toastSuccess(`Mapped backup for ${mappedCount} of ${allowedDevices.length} device(s)`);
     } catch (err) {
-      setBackupError(err instanceof Error ? err.message : 'Failed to parse backup');
-      setBackupRecords([]);
+      setBackupError(err instanceof Error ? err.message : 'Failed to parse backup file');
+      setMonitoringRecords([]);
       setBackupByDid(new Map());
       setBackupMapped(false);
     } finally {
@@ -354,9 +412,12 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   };
 
   const canGoStep3 = Boolean(
-    selectedTaskId && allowedDevices.length > 0 && backupMapped && allDevicesMatched
+    selectedTaskId && allowedDevices.length > 0 && locationMapped && allLocationMatched
   );
-  const canGoStep4 =
+  const canGoStep4 = Boolean(
+    selectedTaskId && backupMapped && allBackupMatched
+  );
+  const canGoStep5 =
     maintenanceRows.length > 0 && maintenanceRows.every((r) => r.beforePreview && r.afterPreview);
 
   const handleExternalPdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -559,8 +620,10 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   const canSaveExternalPdf = Boolean(selectedTaskId && allowedDevices.length > 0 && externalPdfFile);
   const canSaveWizard = Boolean(
     selectedTaskId &&
+      locationMapped &&
+      allLocationMatched &&
       backupMapped &&
-      allDevicesMatched &&
+      allBackupMatched &&
       maintenanceRows.length > 0 &&
       maintenanceRows.every((r) => r.beforePreview && r.afterPreview) &&
       fullDocument
@@ -569,9 +632,10 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
 
   const isStepComplete = (id: number) => {
     if (id === 1) return Boolean(externalPdfFile);
-    if (id === 2) return canGoStep3;
-    if (id === 3) return canGoStep4;
-    if (id === 4) return pdfReady || Boolean(fullDocument);
+    if (id === 2) return allLocationMatched;
+    if (id === 3) return allBackupMatched;
+    if (id === 4) return canGoStep5;
+    if (id === 5) return pdfReady || Boolean(fullDocument);
     return false;
   };
 
@@ -599,6 +663,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               if (s.id === 2 && !selectedTaskId) return;
               if (s.id === 3 && !canGoStep3) return;
               if (s.id === 4 && !canGoStep4) return;
+              if (s.id === 5 && !canGoStep5) return;
               setStep(s.id);
             }}
             className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
@@ -683,16 +748,16 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               disabled={!selectedTaskId || allowedDevices.length === 0}
               className="rounded-xl border border-border bg-card px-5 py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
             >
-              Or create report from backup →
+              Or create report from location + backup files →
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 2 — Backup (all devices in task) */}
+      {/* Step 2 — Location Excel */}
       {step === 2 && (
-        <div className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50/40 p-6">
-          <h2 className="text-lg font-bold">Step 2 — Upload Backup & Map All Devices</h2>
+        <div className="space-y-4 rounded-2xl border border-violet-200 bg-violet-50/40 p-6">
+          <h2 className="text-lg font-bold">Step 2 — Upload Location Excel</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-bold text-muted-foreground">Contact Name</label>
@@ -701,7 +766,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
                 value={contactName}
                 onChange={(e) => setContactName(e.target.value)}
                 placeholder="Enter contact name for PM document"
-                className="w-full rounded-xl border border-border bg-card p-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-xl border border-border bg-card p-3 text-sm outline-none focus:ring-2 focus:ring-violet-500"
               />
             </div>
             <div>
@@ -713,7 +778,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
                 value={contactTel}
                 onChange={(e) => setContactTel(e.target.value.replace(/\D/g, '').slice(0, 15))}
                 placeholder="Numbers only, max 15 digits"
-                className="w-full rounded-xl border border-border bg-card p-3 text-sm tabular-nums outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-xl border border-border bg-card p-3 text-sm tabular-nums outline-none focus:ring-2 focus:ring-violet-500"
               />
             </div>
           </div>
@@ -728,134 +793,189 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                <strong className="text-foreground">{allowedDevices.length}</strong> device(s) in this task — matched
-                when <strong className="text-foreground">Model</strong> (CI_Name ↔ Model column) and{' '}
-                <strong className="text-foreground">Serial Number</strong> both match the backup file.
+                <strong className="text-foreground">{allowedDevices.length}</strong> device(s) in this task — map
+                when <strong className="text-foreground">Serial Number</strong> and{' '}
+                <strong className="text-foreground">Model</strong> match the location file. Rack and room data
+                will auto-fill on the photo step.
               </p>
               <div className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center">
-                <input type="file" id="pm-backup-upload" accept=".json,.csv,.xlsx,.xls" className="sr-only" onChange={handleBackupUpload} disabled={backupLoading} />
+                <input
+                  type="file"
+                  id="pm-location-upload"
+                  accept=".json,.csv,.xlsx,.xls"
+                  className="sr-only"
+                  onChange={handleLocationUpload}
+                  disabled={locationLoading}
+                />
+                <label htmlFor="pm-location-upload" className="flex cursor-pointer flex-col items-center gap-2">
+                  <Upload size={32} className="text-muted-foreground" />
+                  <span className="text-sm font-medium">
+                    {locationLoading ? 'Parsing...' : 'Select location Excel file'}
+                  </span>
+                  {locationFileName && <span className="text-xs text-muted-foreground">{locationFileName}</span>}
+                  {locationMapped && locationRecords.length > 0 && (
+                    <span className="text-xs text-muted-foreground">{locationRecords.length} row(s) in file</span>
+                  )}
+                </label>
+              </div>
+              {locationError && <p className="text-sm text-amber-700">{locationError}</p>}
+              {locationMapped && locationMappedCount > 0 && (
+                <div
+                  className={`rounded-xl border p-4 ${
+                    allLocationMatched ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'
+                  }`}
+                >
+                  <p
+                    className={`text-sm font-semibold ${allLocationMatched ? 'text-emerald-800' : 'text-amber-900'}`}
+                  >
+                    <CheckCircle2 size={18} className="mr-1 inline" />
+                    Location mapped {locationMappedCount} of {allowedDevices.length} device(s)
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {allowedDevices.slice(0, 5).map((d) => {
+                      const loc = locationByDid.get(d.Did);
+                      return (
+                        <li key={d.Did}>
+                          {d.CI_Name || d.model || d.serial || d.Did}:{' '}
+                          {loc
+                            ? `IP ${loc.ipAddress || '—'} · Rack ${buildRackDisplayText(loc) || '—'}`
+                            : 'not matched'}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setStep(1)} className="rounded-xl border px-4 py-2.5 text-sm">
+              Back
+            </button>
+            <button
+              type="button"
+              disabled={!canGoStep3}
+              onClick={() => {
+                if (!canGoStep3) {
+                  toastWarning('Map all devices in the location file before continuing.');
+                  return;
+                }
+                setStep(3);
+              }}
+              className="rounded-xl bg-violet-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+            >
+              Next: Backup file
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3 — Backup / monitoring Excel */}
+      {step === 3 && (
+        <div className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50/40 p-6">
+          <h2 className="text-lg font-bold">Step 3 — Upload Backup Excel</h2>
+          {!selectedTaskId ? (
+            <p className="text-sm text-muted-foreground">Select a task first.</p>
+          ) : !allLocationMatched ? (
+            <p className="text-sm text-amber-700">Complete Step 2 (location file) first.</p>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Match backup rows to location using <strong className="text-foreground">IP Address + Model</strong>{' '}
+                (falls back to Serial + Model if backup has no IP). Temperature and remarks come from this file.
+              </p>
+              <div className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center">
+                <input
+                  type="file"
+                  id="pm-backup-upload"
+                  accept=".json,.csv,.xlsx,.xls"
+                  className="sr-only"
+                  onChange={handleMonitoringBackupUpload}
+                  disabled={backupLoading}
+                />
                 <label htmlFor="pm-backup-upload" className="flex cursor-pointer flex-col items-center gap-2">
                   <Upload size={32} className="text-muted-foreground" />
-                  <span className="text-sm font-medium">{backupLoading ? 'Parsing...' : 'Select backup file'}</span>
+                  <span className="text-sm font-medium">
+                    {backupLoading ? 'Parsing...' : 'Select backup Excel file'}
+                  </span>
                   {backupFileName && <span className="text-xs text-muted-foreground">{backupFileName}</span>}
-                  {backupMapped && backupRecords.length > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {backupRecords.length} row(s) in backup file
-                    </span>
+                  {backupMapped && monitoringRecords.length > 0 && (
+                    <span className="text-xs text-muted-foreground">{monitoringRecords.length} row(s) in file</span>
                   )}
                 </label>
               </div>
               {backupError && <p className="text-sm text-amber-700">{backupError}</p>}
-              {backupMapped && mappedDeviceCount > 0 && (
+              {backupMapped && backupMappedCount > 0 && (
                 <div
                   className={`rounded-xl border p-4 ${
-                    allDevicesMatched
-                      ? 'border-emerald-200 bg-emerald-50'
-                      : 'border-amber-200 bg-amber-50'
+                    allBackupMatched ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'
                   }`}
                 >
                   <p
                     className={`mb-2 flex items-center gap-2 text-sm font-semibold ${
-                      allDevicesMatched ? 'text-emerald-800' : 'text-amber-900'
+                      allBackupMatched ? 'text-emerald-800' : 'text-amber-900'
                     }`}
                   >
                     <CheckCircle2 size={18} />
-                    Matched {mappedDeviceCount} of {allowedDevices.length} task device(s)
-                    {backupRecords.length > 0 && (
-                      <span className="font-normal">
-                        {' '}
-                        — backup file has {backupRecords.length} row(s); at most {backupRecords.length} can match
-                      </span>
-                    )}
+                    Backup matched {backupMappedCount} of {allowedDevices.length} device(s)
                   </p>
-                  {(mappedPreviewExpanded ? matchedInspections : matchedInspections.slice(0, 3)).length >
-                    0 && (
-                    <div
-                      className={`space-y-0 ${mappedPreviewExpanded && matchedInspections.length > 5 ? 'max-h-52 overflow-y-auto' : ''}`}
-                    >
-                      {(mappedPreviewExpanded
-                        ? matchedInspections
-                        : matchedInspections.slice(0, 3)
-                      ).map((insp, idx) => (
-                        <div
-                          key={`${insp.serialNumber}-${insp.model}-${idx}`}
-                          className={`grid grid-cols-2 gap-2 border-t py-2 text-xs first:border-t-0 first:pt-0 ${
-                            allDevicesMatched ? 'border-emerald-200/60' : 'border-amber-200/60'
-                          }`}
-                        >
-                          <span className="col-span-2 font-medium">{insp.serialNumber || '—'}</span>
-                          <span>Model: {insp.model || '—'}</span>
-                          <span>Hostname: {insp.hostname || '—'}</span>
-                        </div>
-                      ))}
+                  {(mappedPreviewExpanded ? matchedInspections : matchedInspections.slice(0, 3)).length > 0 && (
+                    <div className="space-y-0">
+                      {(mappedPreviewExpanded ? matchedInspections : matchedInspections.slice(0, 3)).map(
+                        (insp, idx) => (
+                          <div
+                            key={`${insp.serialNumber}-${insp.model}-${idx}`}
+                            className="grid grid-cols-2 gap-2 border-t py-2 text-xs first:border-t-0"
+                          >
+                            <span className="col-span-2 font-medium">{insp.serialNumber || '—'}</span>
+                            <span>Model: {insp.model || '—'}</span>
+                            <span>IP: {insp.ipAddress || '—'}</span>
+                            <span>Temp: {insp.temperature || '—'}</span>
+                          </div>
+                        )
+                      )}
                     </div>
                   )}
                   {matchedInspections.length > 3 && (
                     <button
                       type="button"
                       onClick={() => setMappedPreviewExpanded((v) => !v)}
-                      className={`mt-2 flex w-full items-center justify-center gap-1 text-xs font-medium hover:underline ${
-                        allDevicesMatched ? 'text-emerald-800' : 'text-amber-900'
-                      }`}
+                      className="mt-2 text-xs font-medium hover:underline"
                     >
-                      {mappedPreviewExpanded
-                        ? 'Show less'
-                        : `Show matched devices (+${matchedInspections.length - 3} more)`}
-                      <ChevronDown
-                        size={14}
-                        className={`transition-transform ${mappedPreviewExpanded ? 'rotate-180' : ''}`}
-                      />
+                      {mappedPreviewExpanded ? 'Show less' : `Show more (+${matchedInspections.length - 3})`}
                     </button>
                   )}
                 </div>
               )}
-              {backupMapped && mappedDeviceCount === 0 && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-                  No devices matched the backup file. Check Model and Serial Number columns.
-                </div>
-              )}
             </>
           )}
-          <div className="flex flex-col items-end gap-1">
-            {backupError && (
-              <p className="text-xs text-amber-700">Fix backup mapping before continuing to photos.</p>
-            )}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="rounded-xl border px-4 py-2.5 text-sm"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                disabled={!canGoStep3}
-                onClick={() => {
-                  if (!canGoStep3) {
-                    toastWarning(
-                      backupError
-                        ? 'All devices must match the backup file (Model + Serial) before continuing.'
-                        : 'Upload a backup file and map all devices first.'
-                    );
-                    return;
-                  }
-                  setStep(3);
-                }}
-                className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next: Maintenance Photos
-              </button>
-            </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setStep(2)} className="rounded-xl border px-4 py-2.5 text-sm">
+              Back
+            </button>
+            <button
+              type="button"
+              disabled={!canGoStep4}
+              onClick={() => {
+                if (!canGoStep4) {
+                  toastWarning('Map backup file (IP + Model) for all devices before continuing.');
+                  return;
+                }
+                setStep(4);
+              }}
+              className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+            >
+              Next: Maintenance Photos
+            </button>
           </div>
         </div>
       )}
 
-      {/* Step 3 — Photos */}
-      {step === 3 && (
+      {/* Step 4 — Photos */}
+      {step === 4 && (
         <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold">Step 3 — Maintenance Items (Before / After)</h2>
+            <h2 className="text-lg font-bold">Step 4 — Maintenance Items (Before / After)</h2>
             <button
               type="button"
               onClick={() =>
@@ -869,6 +989,9 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               <Plus size={16} /> Add row
             </button>
           </div>
+          <p className="text-sm text-muted-foreground">
+            Location and rack are filled from the location file. Edit if needed, then upload before/after photos.
+          </p>
           <div className="space-y-4">
             {maintenanceRows.map((row, idx) => (
               <div key={row.id} className="rounded-xl border border-border p-4">
@@ -952,18 +1075,18 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             ))}
           </div>
           <div className="flex justify-between">
-            <button type="button" onClick={() => setStep(2)} className="rounded-xl border px-4 py-2 text-sm">Back</button>
-            <button type="button" disabled={!canGoStep4} onClick={() => setStep(4)} className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+            <button type="button" onClick={() => setStep(3)} className="rounded-xl border px-4 py-2 text-sm">Back</button>
+            <button type="button" disabled={!canGoStep5} onClick={() => setStep(5)} className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">
               Next: Preview
             </button>
           </div>
         </div>
       )}
 
-      {/* Step 4 — Preview */}
-      {step === 4 && fullDocument && (
+      {/* Step 5 — Preview */}
+      {step === 5 && fullDocument && (
         <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
-          <h2 className="text-lg font-bold">Step 4 — Preview & Download PDF</h2>
+          <h2 className="text-lg font-bold">Step 5 — Preview & Download PDF</h2>
           <div className="overflow-auto rounded-xl border border-border">
             <PmWorkOrderDocument data={fullDocument} withPreviewShell />
           </div>
@@ -972,7 +1095,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               <Download size={18} />
               {generatingPdf ? 'Generating...' : 'Download PDF'}
             </button>
-            <button type="button" onClick={() => setStep(3)} className="flex items-center gap-2 rounded-xl border px-5 py-2.5 text-sm">
+            <button type="button" onClick={() => setStep(4)} className="flex items-center gap-2 rounded-xl border px-5 py-2.5 text-sm">
               <Eye size={18} /> Edit Photos
             </button>
           </div>

@@ -95,7 +95,7 @@ function buildMessageCard({ event, contract, devices = [], meta = {} }) {
 
   if (actor?.display) {
     sections.push({
-      title: ev.actorLabel || 'Updated by',
+      // title: ev.actorLabel || 'Updated by',
       markdown: true,
       facts: [fact(ev.actorLabel || 'Updated by', actor.display)],
     });

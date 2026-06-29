@@ -7,6 +7,7 @@ const { getTeamsActor } = require('../utils/teamsActor');
 const { collectTaskChanges } = require('../utils/taskChangeSummary');
 const { MA_BROKEN_DEVICE_ASSET_STATE_SET } = require('../config/maBrokenAssetState');
 const { assignDeviceToInStoreWarehouse } = require('../config/inStoreSite');
+const { resolveTaskContractJoin } = require('../lib/taskContractJoin');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
@@ -732,9 +733,10 @@ const createTask = async (req, res) => {
       await syncMaReferTicketOnDevices(assets, ticket, safeParseInt(replacementDeviceId));
     }
 
+    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
     const [rows] = await db.execute(
-      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
-       FROM tasks t LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid WHERE t.id = ?`,
+      `SELECT t.*, ${contractSelect}
+       FROM tasks t ${contractJoin} WHERE t.id = ?`,
       [finalTaskId]
     );
     const createdTask = mapTaskRow(rows[0]);
@@ -764,10 +766,11 @@ const createTask = async (req, res) => {
 // GET /api/tasks
 const getTasks = async (_req, res) => {
   try {
+    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
     const [rows] = await db.execute(
-      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
+      `SELECT t.*, ${contractSelect}
        FROM tasks t
-       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
+       ${contractJoin}
        ORDER BY t.start_date DESC, t.id DESC`
     );
     res.status(200).json({
@@ -789,10 +792,11 @@ const getTasks = async (_req, res) => {
 const getTaskById = async (req, res) => {
   try {
     const { id } = req.params;
+    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
     const [rows] = await db.execute(
-      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
+      `SELECT t.*, ${contractSelect}
        FROM tasks t
-       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
+       ${contractJoin}
        WHERE t.id = ?`,
       [id]
     );
@@ -1236,10 +1240,11 @@ const getOverdueTasks = async (req, res) => {
         message: 'Please specify sid/lid as a number',
       });
     }
+    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
     const [rows] = await db.execute(
-      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
+      `SELECT t.*, ${contractSelect}
        FROM tasks t
-       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
+       ${contractJoin}
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.status = 'not-started' AND t.end_date < CURRENT_DATE AND t.task_type = ?
          AND (? IS NULL OR sl.Sid = ?)
@@ -1280,10 +1285,11 @@ const getCompletedTasks = async (req, res) => {
         message: 'Please specify sid/lid as a number',
       });
     }
+    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
     const [rows] = await db.execute(
-      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
+      `SELECT t.*, ${contractSelect}
        FROM tasks t
-       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
+       ${contractJoin}
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.status = 'done' AND t.task_type = ?
          AND (? IS NULL OR sl.Sid = ?)
@@ -1325,10 +1331,11 @@ const getInprocessTasks = async (req, res) => {
         message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
       });
     }
+    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
     const [rows] = await db.execute(
-      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
+      `SELECT t.*, ${contractSelect}
        FROM tasks t
-       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
+       ${contractJoin}
        LEFT JOIN report r ON r.id = t.id
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.task_type = ?
@@ -1372,10 +1379,11 @@ const getPendingTasks = async (req, res) => {
         message: 'Please specify sid/lid as a number',
       });
     }
+    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
     const [rows] = await db.execute(
-      `SELECT t.*, sl_contract.sla_term AS contract_sla_term, sl_contract.SOF AS contract_sof_name
+      `SELECT t.*, ${contractSelect}
        FROM tasks t
-       LEFT JOIN sites_location sl_contract ON t.contract_id = sl_contract.SLid
+       ${contractJoin}
        LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.task_type = ?
          AND LOWER(t.status) NOT IN ('done', 'working')

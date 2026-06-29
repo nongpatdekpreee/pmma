@@ -14,7 +14,7 @@ async function tableExists(conn, table) {
   return rows.length > 0;
 }
 
-async function main() {
+async function ensureRefreshTokensTable() {
   const conn = await mysql.createConnection({
     host: process.env.DB_HOST,
     user: process.env.DB_USER || 'root',
@@ -24,11 +24,10 @@ async function main() {
     multipleStatements: true,
   });
 
-  console.log('Connected to', process.env.DB_NAME || 'app_db');
-
-  if (await tableExists(conn, 'refresh_tokens')) {
-    console.log('refresh_tokens already exists — skip');
-  } else {
+  try {
+    if (await tableExists(conn, 'refresh_tokens')) {
+      return;
+    }
     await conn.query(`
       CREATE TABLE refresh_tokens (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -44,13 +43,22 @@ async function main() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     console.log('+ refresh_tokens table created');
+  } finally {
+    await conn.end();
   }
+}
 
-  await conn.end();
+async function main() {
+  console.log('Connected to', process.env.DB_NAME || 'app_db');
+  await ensureRefreshTokensTable();
   console.log('Done.');
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = { ensureRefreshTokensTable };

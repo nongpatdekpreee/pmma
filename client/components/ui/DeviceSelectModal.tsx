@@ -151,10 +151,10 @@ export function DeviceSelectModal({
 
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card/95 shadow-2xl shadow-slate-900/20 ring-1 ring-white/60 backdrop-blur-md">
-        <div className="flex items-center justify-between border-b border-border/70 bg-gradient-to-r from-white via-sky-50/30 to-indigo-50/25 px-6 py-4">
+      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card/95 shadow-2xl shadow-slate-900/20 ring-1 ring-white/60 backdrop-blur-md dark:bg-card dark:shadow-black/40 dark:ring-white/10">
+        <div className="flex items-center justify-between border-b border-border/70 bg-gradient-to-r from-white via-sky-50/30 to-indigo-50/25 px-6 py-4 dark:from-card dark:via-muted/40 dark:to-muted/30">
           <h3 className="flex items-center gap-2 text-lg font-bold tracking-tight text-foreground">
-            <span className="text-xl">📱</span>
+          
             <span>{title}</span>
           </h3>
           <button
@@ -165,7 +165,7 @@ export function DeviceSelectModal({
             <X size={18} />
           </button>
         </div>
-        <div className="flex items-center justify-between border-b border-border/70 px-6 py-3 bg-gradient-to-r from-sky-50/50 via-white to-indigo-50/40">
+        <div className="flex items-center justify-between border-b border-border/70 bg-gradient-to-r from-sky-50/50 via-white to-indigo-50/40 px-6 py-3 dark:from-muted/40 dark:via-card dark:to-muted/30">
           <div className="flex items-center gap-2">
             {(() => {
               const allSelected = filteredDevices.length > 0 && filteredDevices.every((d) => selectedIds.includes(d.id));
@@ -211,13 +211,13 @@ export function DeviceSelectModal({
             const selectedFilteredCount = filteredDevices.filter((d) => selectedIds.includes(d.id)).length;
             return (
               <span className="flex items-center justify-center gap-1.5 rounded-full border border-border bg-card/90 px-4 py-2 text-xs font-semibold text-muted-foreground shadow-sm ring-1 ring-border">
-                <span className="text-sky-600">📋</span>
+                <span className="text-sky-600 dark:text-sky-400">📋</span>
                 <span>{selectedFilteredCount} / {filteredDevices.length} items</span>
               </span>
             );
           })()}
         </div>
-        <div className="space-y-3 border-b border-border/70 bg-muted/40 px-6 py-3">
+        <div className="space-y-3 border-b border-border/70 bg-muted/40 px-6 py-3 dark:bg-muted/25">
           <div className="relative">
             <Search size={18} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -234,10 +234,10 @@ export function DeviceSelectModal({
               <select
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value)}
-                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm ${
+                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm text-foreground outline-none transition-all shadow-sm ${
                   selectedRole
-                    ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80'
-                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
+                    ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80 dark:border-sky-500 dark:bg-sky-500/15 dark:ring-sky-500/25'
+                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15 dark:focus:border-sky-500'
                 }`}
               >
                 <option value="">All Role</option>
@@ -253,10 +253,10 @@ export function DeviceSelectModal({
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
-                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm ${
+                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm text-foreground outline-none transition-all shadow-sm ${
                   selectedModel
-                    ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80'
-                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
+                    ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80 dark:border-sky-500 dark:bg-sky-500/15 dark:ring-sky-500/25'
+                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15 dark:focus:border-sky-500'
                 }`}
               >
                 <option value="">All Model</option>
@@ -273,10 +273,10 @@ export function DeviceSelectModal({
                 value={selectedManufacturer}
                 onChange={(e) => setSelectedManufacturer(e.target.value)}
                 disabled={loadingManufacturers}
-                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm outline-none transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`w-full rounded-xl border bg-card pl-9 pr-3 py-2 text-sm text-foreground outline-none transition-all shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${
                   selectedManufacturer
-                    ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80'
-                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15'
+                    ? 'border-sky-400 bg-sky-50/60 ring-2 ring-sky-200/80 dark:border-sky-500 dark:bg-sky-500/15 dark:ring-sky-500/25'
+                    : 'border-border/90 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15 dark:focus:border-sky-500'
                 }`}
               >
                 <option value="">All Manufacturer</option>
@@ -293,7 +293,7 @@ export function DeviceSelectModal({
             </div>
           </div>
         </div>
-        <div className="flex-1 space-y-2 overflow-y-auto bg-gradient-to-b from-white to-slate-50/30 px-6 py-4">
+        <div className="flex-1 space-y-2 overflow-y-auto bg-gradient-to-b from-white to-slate-50/30 px-6 py-4 dark:from-card dark:to-muted/30">
           {filteredDevices.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               {filter ? 'No devices found matching the search' : 'No devices'}
@@ -306,8 +306,8 @@ export function DeviceSelectModal({
                   key={d.id}
                   className={`flex cursor-pointer items-center justify-between rounded-xl border p-4 shadow-sm transition-all ${
                     isSelected
-                      ? 'border-sky-400 bg-sky-50/40 shadow-md ring-2 ring-sky-200/70'
-                      : 'border-border bg-card/90 hover:border-sky-300 hover:bg-sky-50/25 hover:shadow-md'
+                      ? 'border-sky-400 bg-sky-50/40 shadow-md ring-2 ring-sky-200/70 dark:border-sky-500 dark:bg-sky-500/15 dark:ring-sky-500/30'
+                      : 'border-border bg-card/90 hover:border-sky-300 hover:bg-sky-50/25 hover:shadow-md dark:bg-card dark:hover:border-sky-600 dark:hover:bg-sky-500/10'
                   }`}
                 >
                   <div className="flex-1">
@@ -317,15 +317,15 @@ export function DeviceSelectModal({
                       {d.serialNumber && 
                        d.name && 
                        !d.name.includes(d.serialNumber) && (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">
-                          <span className="text-sm">📱</span>
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/30">
+                         
                           <span className="font-semibold">Model/Serial:</span>
                           <span className="font-mono">{[d.type, d.serialNumber].filter(Boolean).join(' / ')}</span>
                         </span>
                       )}
                       {/* Model only badge */}
                       {!d.serialNumber && d.type && d.name && !d.name.includes(d.type) && (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-600/20">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-600/20 dark:bg-purple-500/15 dark:text-purple-300 dark:ring-purple-500/30">
                           <span className="text-sm">🔧</span>
                           <span className="font-semibold">Model:</span>
                           <span>{d.type}</span>
@@ -335,32 +335,32 @@ export function DeviceSelectModal({
                       {d.role && (() => {
                         const roleLower = d.role.toLowerCase();
                         let emoji = '⚙️'; // default
-                        let className = 'bg-muted text-muted-foreground ring-slate-600/20';
+                        let className = 'bg-muted text-muted-foreground ring-slate-600/20 dark:bg-muted/80 dark:text-muted-foreground dark:ring-border';
                         
                         if (roleLower.includes('router')) {
                           emoji = '🌐';
-                          className = 'bg-orange-50 text-orange-700 ring-orange-600/20';
+                          className = 'bg-orange-50 text-orange-700 ring-orange-600/20 dark:bg-orange-500/15 dark:text-orange-300 dark:ring-orange-500/30';
                         } else if (roleLower.includes('switch')) {
                           emoji = '🔀';
-                          className = 'bg-indigo-50 text-indigo-700 ring-indigo-600/20';
+                          className = 'bg-indigo-50 text-indigo-700 ring-indigo-600/20 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30';
                         } else if (roleLower.includes('server')) {
                           emoji = '🖥️';
-                          className = 'bg-green-50 text-green-700 ring-green-600/20';
+                          className = 'bg-green-50 text-green-700 ring-green-600/20 dark:bg-green-500/15 dark:text-green-300 dark:ring-green-500/30';
                         } else if (roleLower.includes('access point') || roleLower.includes('ap')) {
                           emoji = '📡';
-                          className = 'bg-cyan-50 text-cyan-700 ring-cyan-600/20';
+                          className = 'bg-cyan-50 text-cyan-700 ring-cyan-600/20 dark:bg-cyan-500/15 dark:text-cyan-300 dark:ring-cyan-500/30';
                         } else if (roleLower.includes('firewall')) {
                           emoji = '🛡️';
-                          className = 'bg-red-50 text-red-700 ring-red-600/20';
+                          className = 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/15 dark:text-red-300 dark:ring-red-500/30';
                         } else if (roleLower.includes('storage') || roleLower.includes('nas')) {
                           emoji = '💾';
-                          className = 'bg-purple-50 text-purple-700 ring-purple-600/20';
+                          className = 'bg-purple-50 text-purple-700 ring-purple-600/20 dark:bg-purple-500/15 dark:text-purple-300 dark:ring-purple-500/30';
                         } else if (roleLower.includes('ups') || roleLower.includes('power')) {
                           emoji = '🔌';
-                          className = 'bg-yellow-50 text-yellow-700 ring-yellow-600/20';
+                          className = 'bg-yellow-50 text-yellow-700 ring-yellow-600/20 dark:bg-yellow-500/15 dark:text-yellow-300 dark:ring-yellow-500/30';
                         } else if (roleLower.includes('printer')) {
                           emoji = '🖨️';
-                          className = 'bg-pink-50 text-pink-700 ring-pink-600/20';
+                          className = 'bg-pink-50 text-pink-700 ring-pink-600/20 dark:bg-pink-500/15 dark:text-pink-300 dark:ring-pink-500/30';
                         }
                         
                         return (
@@ -373,7 +373,7 @@ export function DeviceSelectModal({
                       })()}
                       {/* Manufacturer badge */}
                       {d.manufacturer && (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30">
                           <span className="text-sm">🏭</span>
             
                           <span className="font-bold">{d.manufacturer}</span>
@@ -381,7 +381,7 @@ export function DeviceSelectModal({
                       )}
                       {/* Asset badge */}
                       {d.assetNumber && (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/30">
                           <span className="text-sm">🏷️</span>
                           <span className="font-semibold">Asset:</span>
                           <span className="font-mono font-bold">{d.assetNumber}</span>
@@ -389,7 +389,7 @@ export function DeviceSelectModal({
                       )}
                       {/* Site badge */}
                       {d.site && (
-                        <span className="inline-flex items-center gap-1.5 rounded-md bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 ring-1 ring-inset ring-teal-600/20">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-teal-50 px-2.5 py-1 text-xs font-medium text-teal-700 ring-1 ring-inset ring-teal-600/20 dark:bg-teal-500/15 dark:text-teal-300 dark:ring-teal-500/30">
                           <span className="text-sm">📍</span>
                           <span className="font-semibold">Site:</span>
                           <span>{d.site}</span>
@@ -408,7 +408,7 @@ export function DeviceSelectModal({
             })
           )}
         </div>
-        <div className="flex items-center justify-end gap-3 border-t border-border/70 bg-gradient-to-r from-slate-50/80 via-white to-sky-50/30 px-6 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-border/70 bg-gradient-to-r from-slate-50/80 via-white to-sky-50/30 px-6 py-4 dark:from-muted/40 dark:via-card dark:to-muted/30">
           <button
             type="button"
             onClick={onClose}

@@ -2,7 +2,7 @@ const cron = require('node-cron');
 const { runSnsUpcomingPlansReminder } = require('../jobs/snsUpcomingPlansReminder');
 const { runContractExpiringReminder } = require('../jobs/contractExpiringReminder');
 
-const PLANS_CRON_EXPR = '0 9 * * 1'; // จันทร์ 09:00
+const PLANS_CRON_EXPR = '0 9 * * *'; // จันทร์ 09:00
 const CONTRACT_EXPIRING_CRON_EXPR = '0 9 * * *'; // ทุกวัน 09:00
 const TZ = process.env.CRON_TIMEZONE || 'Asia/Bangkok';
 

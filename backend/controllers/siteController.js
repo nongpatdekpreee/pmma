@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { applyReferSofToSiteLocation, syncSofRenameOnSiteLocations } = require('../config/deviceSof');
+const { resolveSlSofSchema } = require('../lib/slSofSchema');
 
 // POST - สร้าง Site ใหม่
 const createSite = async (req, res) => {
@@ -38,8 +39,9 @@ const createSite = async (req, res) => {
 // GET - ดึง Sites_Location (สำหรับ contract.site_id = SLid, dropdown Site)
 const getSitesLocation = async (req, res) => {
   try {
+    const slSof = await resolveSlSofSchema();
     const sql = `
-      SELECT SL.SLid, SL.Sid, SL.lid, SL.SOF, SL.SOF AS Refer_SOF,
+      SELECT SL.SLid, SL.Sid, SL.lid, ${slSof.locationSofSelect('SL')},
              S.Name AS SiteName, L.Location2
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
@@ -69,15 +71,16 @@ const getSitesLocationBySOF = async (req, res) => {
       });
     }
     const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
+    const slSof = await resolveSlSofSchema();
     const sql = `
       SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
-      WHERE (SL.SOF = ? OR TRIM(LEADING '0' FROM COALESCE(SL.SOF, '')) = ?)
+      WHERE ${slSof.sofMatchWhere('SL')}
       ORDER BY S.Name, L.Location2
     `;
-    const [rows] = await db.execute(sql, [referSOF, referSOFTrim]);
+    const [rows] = await db.execute(sql, slSof.sofMatchParams(referSOF, referSOFTrim));
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting sites-location by SOF:', error);
@@ -94,19 +97,10 @@ const getSitesLocationWithContracts = async (req, res) => {
   try {
     let siteIds = [];
 
-    // ดึง SLid จาก sites_location ที่เป็นสัญญา draft หรือ official และยังไม่หมดอายุ
     try {
-      const contractSlSql = `
-        SELECT DISTINCT sl.SLid
-        FROM sites_location sl
-        WHERE sl.status IN ('draft', 'official')
-          AND (
-            sl.status = 'draft'
-            OR TRIM(COALESCE(sl.SOF, '')) != ''
-          )
-          AND (sl.end_date IS NULL OR sl.end_date >= CURDATE())
-      `;
-      const [contractSlRows] = await db.execute(contractSlSql);
+      const slSof = await resolveSlSofSchema();
+      const { sql: contractSlSql, params } = await slSof.activeContractSlidsQuery();
+      const [contractSlRows] = await db.execute(contractSlSql, params);
       siteIds = contractSlRows.map((row) => row.SLid);
     } catch (err) {
       console.log('sites_location contract query failed:', err.message);

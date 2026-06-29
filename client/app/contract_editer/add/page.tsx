@@ -33,6 +33,7 @@ import {
   validateEmployeePhoneSubmit,
   validateOptionalEmployeePhoneSubmit,
 } from '@/lib/phoneFormat';
+import { parseSiteContactPersonFromRecord } from '@/lib/legacySiteContact';
 import { MAX_VISIBLE_SELECTED_DEVICES_PER_ENTRY } from '@/lib/contractLimits';
 import { randomUUID } from '@/lib/utils';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
@@ -458,12 +459,7 @@ function siteContactRowsHaveData(rows: SiteContactRow[] | undefined): boolean {
 
 function parseSiteContactPerson(raw: unknown): Pick<SiteContactRow, 'name' | 'tel'> {
   if (!raw || typeof raw !== 'object') return { name: '', tel: '' };
-  const o = raw as Record<string, unknown>;
-  const parsed = parseTelLineFromDb(o.tel != null ? String(o.tel) : '');
-  return {
-    name: o.name != null ? String(o.name) : '',
-    tel: formatTenDigitUsDisplay(parsed.tel),
-  };
+  return parseSiteContactPersonFromRecord(raw as Record<string, unknown>);
 }
 
 function siteContactRowsFromDb(raw: unknown): SiteContactRow[] {

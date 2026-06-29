@@ -1,6 +1,5 @@
 /** สถานะ Asset_State ที่เลือกได้สำหรับอุปกรณ์ที่เสียตอน Add/Edit Plan MA — sync กับ backend/config/maBrokenAssetState.js */
 export const MA_BROKEN_ASSET_STATE_OPTIONS = [
-  'In Store On Site',
   'Broken',
   'Waiting to Claim',
   'In Store',
@@ -37,8 +36,8 @@ export function maBrokenAssetStateSelectClass(
       return `${base} border-amber-300 bg-amber-50 text-amber-900 hover:border-amber-400 focus:border-amber-400 focus:ring-amber-200/60 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/40`;
     case 'In Store':
       return `${base} border-border bg-muted text-foreground hover:border-border focus:border-border focus:ring-border`;
-    case 'In Store On Site':
-      return `${base} border-sky-300 bg-sky-50 text-sky-900 hover:border-sky-400 focus:border-sky-400 focus:ring-sky-200/60 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/40`;
+    // case 'In Store On Site':
+    //   return `${base} border-sky-300 bg-sky-50 text-sky-900 hover:border-sky-400 focus:border-sky-400 focus:ring-sky-200/60 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-500/40`;
     default:
       return `${base} border-border bg-card text-foreground hover:border-border focus:border-sky-400 focus:ring-sky-500/15`;
   }

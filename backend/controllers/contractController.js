@@ -18,6 +18,15 @@ const { notifyTeamsContractEvent } = require('../services/teamsContractNotificat
 const { notifyContractExpiringOnChange } = require('../jobs/contractExpiringReminder');
 const { getTeamsActor } = require('../utils/teamsActor');
 const { collectContractChanges } = require('../utils/contractChangeSummary');
+const { resolveSlSofSchema } = require('../lib/slSofSchema');
+const legacyContracts = require('./contractController.legacy');
+const { usesLegacyContractTable } = require('../lib/contractSchemaMode');
+
+async function dispatchLegacyContract(handler, req, res) {
+  if (!(await usesLegacyContractTable())) return false;
+  await legacyContracts[handler](req, res);
+  return true;
+}
 
 const EMAIL_LINE_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -146,6 +155,7 @@ const uploadContractFile = async (req, res) => {
 };
 
 const getContractsBySite = async (req, res) => {
+  if (await dispatchLegacyContract('getContractsBySite', req, res)) return;
   try {
     const siteId = req.query.site_id;
     const expandSites = req.query.expand === 'sites';
@@ -190,6 +200,7 @@ const getContractsBySite = async (req, res) => {
 };
 
 const getContractById = async (req, res) => {
+  if (await dispatchLegacyContract('getContractById', req, res)) return;
   try {
     const cid = parseInt(req.params.id, 10);
     if (isNaN(cid)) {
@@ -242,6 +253,7 @@ const getContractById = async (req, res) => {
 };
 
 const getAvailableDevices = async (req, res) => {
+  if (await dispatchLegacyContract('getAvailableDevices', req, res)) return;
   try {
     const siteId = req.query.site_id;
     const contractId = req.query.contract_id;
@@ -283,6 +295,7 @@ const getAvailableDevices = async (req, res) => {
 };
 
 const getSitesByContract = async (req, res) => {
+  if (await dispatchLegacyContract('getSitesByContract', req, res)) return;
   try {
     const cid = parseInt(req.params.id, 10);
     if (isNaN(cid)) {
@@ -307,6 +320,7 @@ const getSitesByContract = async (req, res) => {
 };
 
 const getDevicesByContract = async (req, res) => {
+  if (await dispatchLegacyContract('getDevicesByContract', req, res)) return;
   try {
     const cid = parseInt(req.params.id, 10);
     if (isNaN(cid)) {
@@ -325,6 +339,7 @@ const getDevicesByContract = async (req, res) => {
 };
 
 const getContractHistory = async (req, res) => {
+  if (await dispatchLegacyContract('getContractHistory', req, res)) return;
   try {
     const cid = parseInt(req.params.id, 10);
     if (isNaN(cid)) {
@@ -353,6 +368,7 @@ const getContractHistory = async (req, res) => {
 };
 
 const postContractHistoryDisplayRows = async (req, res) => {
+  if (await dispatchLegacyContract('postContractHistoryDisplayRows', req, res)) return;
   try {
     const rawIds = req.body && Array.isArray(req.body.contract_ids) ? req.body.contract_ids : [];
     const includeNrHistory =
@@ -482,6 +498,7 @@ const postContractHistoryDisplayRows = async (req, res) => {
 };
 
 const getContractHistoryDetailByHistoryId = async (req, res) => {
+  if (await dispatchLegacyContract('getContractHistoryDetailByHistoryId', req, res)) return;
   try {
     const hid = parseInt(String(req.params.historyId), 10);
     if (Number.isNaN(hid) || hid <= 0) {
@@ -783,6 +800,7 @@ async function maybeNotifyTeamsContract(slid, { event, meta = {}, actor = null, 
 }
 
 const createContract = async (req, res) => {
+  if (await dispatchLegacyContract('createContract', req, res)) return;
   const conn = await db.getConnection();
   try {
     const body = req.body;
@@ -981,6 +999,7 @@ const createContract = async (req, res) => {
 };
 
 const updateContract = async (req, res) => {
+  if (await dispatchLegacyContract('updateContract', req, res)) return;
   const conn = await db.getConnection();
   try {
     const cid = parseInt(req.params.id, 10);
@@ -1197,6 +1216,7 @@ const updateContract = async (req, res) => {
 
 const getVendorStatistics = async (req, res) => {
   try {
+    const slSof = await resolveSlSofSchema();
     const [rows] = await db.execute(`
       SELECT d.Vendor,
         COUNT(DISTINCT sl.SLid) AS contract_count,
@@ -1205,8 +1225,8 @@ const getVendorStatistics = async (req, res) => {
       FROM devices d
       INNER JOIN sites_location sl ON d.SLid = sl.SLid
       WHERE d.Vendor IS NOT NULL AND d.Vendor != ''
-        AND sl.status = 'official'
-        AND sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''
+        AND ${slSof.officialContractWhere('sl')}
+        AND ${slSof.sofIsValidWhere('sl')}
       GROUP BY d.Vendor
       ORDER BY contract_count DESC, d.Vendor ASC
     `);
@@ -1239,25 +1259,23 @@ const getTopSitesByContractDevice = async (req, res) => {
       ps && pe && dateRe.test(String(ps).trim()) && dateRe.test(String(pe).trim());
     const periodStart = usePeriod ? String(ps).trim() : null;
     const periodEndEx = usePeriod ? String(pe).trim() : null;
-    const periodFilter = usePeriod
-      ? ` AND sl.start_date IS NOT NULL AND DATE(sl.start_date) >= ? AND DATE(sl.start_date) < ?`
-      : '';
+    const slSof = await resolveSlSofSchema();
+    const periodPart = await slSof.periodStartFilter('sl', usePeriod);
+    const periodFilter = periodPart.sql;
     const periodBind = usePeriod ? [periodStart, periodEndEx] : [];
+    const expiringExpr = await slSof.expiringSoonExpr('sl');
 
     const [rows] = await db.execute(
       `
       SELECT sl.SLid AS slid, s.Name AS site_name, IFNULL(l.Location2, '') AS location2,
         COUNT(DISTINCT d.Did) AS device_count,
         1 AS contract_count,
-        COUNT(DISTINCT CASE
-          WHEN sl.end_date IS NOT NULL AND sl.end_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
-            AND sl.end_date >= CURDATE()
-          THEN sl.SLid END) AS contracts_expiring_soon
+        ${expiringExpr} AS contracts_expiring_soon
       FROM sites_location sl
       INNER JOIN devices d ON d.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
-      WHERE sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''${periodFilter}
+      WHERE ${slSof.sofIsValidWhere('sl')}${periodFilter}
       GROUP BY sl.SLid, s.Name, l.Location2
       ORDER BY device_count DESC
       LIMIT ?
@@ -1270,7 +1288,7 @@ const getTopSitesByContractDevice = async (req, res) => {
       SELECT COUNT(DISTINCT d.Did) AS total
       FROM devices d
       INNER JOIN sites_location sl ON d.SLid = sl.SLid
-      WHERE sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''${periodFilter}
+      WHERE ${slSof.sofIsValidWhere('sl')}${periodFilter}
       `,
       periodBind
     );
@@ -1310,6 +1328,7 @@ const getTopSitesHeatmap = async (req, res) => {
   try {
     const siteLimit = Math.min(15, Math.max(3, parseInt(String(req.query.site_limit ?? '8'), 10) || 8));
     const contractLimit = Math.min(10, Math.max(2, parseInt(String(req.query.contract_limit ?? '5'), 10) || 5));
+    const slSof = await resolveSlSofSchema();
 
     const [siteRows] = await db.execute(
       `
@@ -1319,7 +1338,7 @@ const getTopSitesHeatmap = async (req, res) => {
       INNER JOIN devices d ON d.SLid = sl.SLid
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
-      WHERE sl.SOF IS NOT NULL AND TRIM(sl.SOF) != ''
+      WHERE ${slSof.sofIsValidWhere('sl')}
       GROUP BY sl.SLid, s.Name, l.Location2
       ORDER BY total_devices DESC
       LIMIT ?
@@ -1391,6 +1410,7 @@ const getTopSitesHeatmap = async (req, res) => {
 };
 
 const syncContractsFromReferSof = async (req, res) => {
+  if (await dispatchLegacyContract('syncContractsFromReferSof', req, res)) return;
   const dryRun = Boolean(req.body && req.body.dry_run);
   const singleSof =
     req.body && req.body.refer_sof != null ? String(req.body.refer_sof).trim() : '';
