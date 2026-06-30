@@ -16,7 +16,12 @@ import {
   logoutRequest,
   registerRequest,
 } from '@/lib/auth/authApi';
-import { ensureAuthSession } from '@/lib/auth/session';
+import {
+  ensureAuthSession,
+  registerSessionExpiredHandler,
+  startAccessTokenRefreshScheduler,
+  stopAccessTokenRefreshScheduler,
+} from '@/lib/auth/session';
 import type { AuthUser } from '@/lib/auth/types';
 
 const PUBLIC_PATHS = new Set(['/login', '/register']);
@@ -44,12 +49,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const me = await fetchMe();
     if (me) {
       setUser(me);
+      startAccessTokenRefreshScheduler();
       return;
     }
     await ensureAuthSession();
     const meAfter = await fetchMe();
     setUser(meAfter);
-  }, []);
+    if (meAfter) {
+      startAccessTokenRefreshScheduler();
+    } else if (!PUBLIC_PATHS.has(pathname)) {
+      router.replace('/login');
+    }
+  }, [pathname, router]);
+
+  useEffect(() => {
+    registerSessionExpiredHandler(() => {
+      stopAccessTokenRefreshScheduler();
+      setUser(null);
+      router.replace('/login');
+    });
+    return () => registerSessionExpiredHandler(null);
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await loginRequest(username, password);
       if ('error' in result) return result.error;
       setUser(result.user);
+      startAccessTokenRefreshScheduler();
       router.replace('/calendar');
       return null;
     },

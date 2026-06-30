@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, postMaReport, getTasks, getMaReportedTaskIds, uploadMaReportFile, apiFetch} from '@/lib/api';
+import { apiUrl, postMaReport, getTasks, getMaReportedTaskIds, uploadMaReportFile, apiFetch, protectedTaskFileUrl, openProtectedFile} from '@/lib/api';
 import { formatFileSize, prepareReportUploadFile } from '@/lib/prepareReportUploadFile';
 import { asRecord } from '@/lib/unknownUtil';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
@@ -55,9 +55,14 @@ function normalizeRepairPathsFromPhotos(photos: unknown): string[] {
   return out;
 }
 
-function repairFileHref(path: string): string {
-  if (/^https?:\/\//i.test(path)) return path;
-  return apiUrl(path.startsWith('/') ? path : `/${path}`);
+function repairFileHref(taskId: number | null, path: string): string {
+  return protectedTaskFileUrl(taskId, path);
+}
+
+function openRepairFile(taskId: number | null, path: string, onError: (msg: string) => void): void {
+  void openProtectedFile(repairFileHref(taskId, path)).catch((err: unknown) => {
+    onError(err instanceof Error ? err.message : 'ไม่สามารถเปิดไฟล์ได้');
+  });
 }
 
 interface UploadedFile {
@@ -270,8 +275,6 @@ function AddMAReportPageContent() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [finishedPdfFile, setFinishedPdfFile] = useState<File | null>(null);
-  const finishedPdfInputRef = useRef<HTMLInputElement>(null);
   const maResult = 'pass' as const;
   const [comment, setComment] = useState('');
   const [technicianName, setTechnicianName] = useState('');
@@ -598,7 +601,7 @@ function AddMAReportPageContent() {
   useEffect(() => {
     if (selectedTaskId == null) {
       setSelectedDeviceId('');
-      setFinishedPdfFile(null);
+      setUploadedFiles([]);
       return;
     }
     if (selectedDeviceId && allowedDevices.length > 0 && !allowedDevices.some((d) => d.Did.toString() === selectedDeviceId)) {
@@ -632,22 +635,6 @@ function AddMAReportPageContent() {
     applyTaskToForm(task);
      
   }, [selectedTaskId, doneMATasks]);
-
-  const handleFinishedPdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      toastWarning('Please upload a PDF file.');
-      return;
-    }
-    if (!selectedTaskId) {
-      toastWarning('Please select a task before uploading the MA PDF.');
-      return;
-    }
-    setFinishedPdfFile(file);
-    toastSuccess('MA PDF ready — enter Uptime and click Save MA Report.');
-  };
 
   // Handle file upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -728,15 +715,10 @@ function AddMAReportPageContent() {
       allowedDevices.find((d) => d.Did.toString() === selectedDeviceId) ??
       devices.find((d) => d.Did.toString() === selectedDeviceId);
 
-    const attachmentSources: Array<{ file: File; type: UploadedFile['type']; name: string }> = [];
-    if (finishedPdfFile) {
-      attachmentSources.push({ file: finishedPdfFile, type: 'pdf', name: finishedPdfFile.name });
-    }
-    for (const f of uploadedFiles) {
-      attachmentSources.push({ file: f.file, type: f.type, name: f.name });
-    }
+    const attachmentSources: Array<{ file: File; type: UploadedFile['type']; name: string }> =
+      uploadedFiles.map((f) => ({ file: f.file, type: f.type, name: f.name }));
     if (attachmentSources.length === 0) {
-      toastWarning('Upload a finished MA PDF in Step 1, or attach files below.');
+      toastWarning('Please attach at least one file (PDF or image).');
       return;
     }
 
@@ -992,15 +974,16 @@ function AddMAReportPageContent() {
                             const name = path.replace(/^.*[/\\]/, '') || path;
                             return (
                               <li key={path}>
-                                <a
-                                  href={repairFileHref(path)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-sky-700 hover:text-sky-900 hover:underline break-all"
-                                  onClick={(e) => e.stopPropagation()}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openRepairFile(task.id, path, toastError);
+                                  }}
+                                  className="text-sky-700 hover:text-sky-900 hover:underline break-all text-left"
                                 >
                                   {name}
-                                </a>
+                                </button>
                               </li>
                             );
                           })}
@@ -1048,72 +1031,7 @@ function AddMAReportPageContent() {
 
         {/* Main Form */}
         <div className="bg-card/95 backdrop-blur-sm p-6 rounded-2xl border border-border shadow-sm">
-          {/* Step 1 — Finished MA PDF */}
-          <div className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">
-                1
-              </span>
-              <h2 className="text-lg font-bold text-foreground">Upload finished MA PDF</h2>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              If you already have the MA report PDF, upload it here — then enter Uptime below and click{' '}
-              <strong>Save MA Report</strong>. No need to attach files again in Step 2.
-            </p>
-            {!selectedTaskId ? (
-              <p className="text-sm text-muted-foreground">Select a task above first.</p>
-            ) : (
-              <>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => finishedPdfInputRef.current?.click()}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      finishedPdfInputRef.current?.click();
-                    }
-                  }}
-                  className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center cursor-pointer hover:border-emerald-400 transition-colors"
-                >
-                  <input
-                    ref={finishedPdfInputRef}
-                    type="file"
-                    accept=".pdf,application/pdf"
-                    className="sr-only"
-                    onChange={handleFinishedPdfChange}
-                  />
-                  <FileText size={32} className="mx-auto text-muted-foreground mb-2" />
-                  <p className="text-sm font-medium">Drop PDF here or click to browse</p>
-                  {finishedPdfFile && (
-                    <p className="mt-2 text-xs text-emerald-800 font-medium">{finishedPdfFile.name}</p>
-                  )}
-                </div>
-                {finishedPdfFile && (
-                  <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
-                    <span className="flex items-center gap-2 text-emerald-800">
-                      <CheckCircle2 size={18} />
-                      PDF ready — fill Uptime and save below
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setFinishedPdfFile(null)}
-                      className="flex items-center gap-1 text-red-600 hover:text-red-800 text-xs font-medium"
-                    >
-                      <X size={14} /> Remove
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="mb-2 flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
-              2
-            </span>
-            <h2 className="text-lg font-bold text-foreground">Report details & attachments</h2>
-          </div>
+          <h2 className="mb-6 text-lg font-bold text-foreground">Report details & attachments</h2>
 
           {/* Device Selection */}
           <div className="mb-6">
@@ -1383,8 +1301,8 @@ function AddMAReportPageContent() {
                       <Paperclip size={18} aria-hidden />
                     </span>
                     <div>
-                      <h3 className="text-sm font-bold text-foreground">Repair notice</h3>
-                      <p className="text-xs text-muted-foreground">Files attached when the MA task was created</p>
+                      <h3 className="text-sm font-bold text-foreground">Remark</h3>
+                      <p className="text-xs text-muted-foreground">จาก MA plan — แนบตอนสร้าง/แก้ plan</p>
                     </div>
                   </div>
                   <ul className="mt-3 space-y-2">
@@ -1396,14 +1314,13 @@ function AddMAReportPageContent() {
                           className="flex items-start gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm"
                         >
                           <FileText size={16} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden />
-                          <a
-                            href={repairFileHref(path)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium text-sky-700 hover:text-sky-900 hover:underline break-all"
+                          <button
+                            type="button"
+                            onClick={() => openRepairFile(selectedTaskId, path, toastError)}
+                            className="font-medium text-sky-700 hover:text-sky-900 hover:underline break-all text-left"
                           >
                             {name}
-                          </a>
+                          </button>
                         </li>
                       );
                     })}
@@ -1442,7 +1359,7 @@ function AddMAReportPageContent() {
           {/* File Upload Section */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-muted-foreground mb-3">
-              Additional images / documents {finishedPdfFile ? '(optional)' : ''}
+              MA report files *
             </label>
             <div className="border-2 border-dashed border-border rounded-xl p-6 bg-muted">
               <input
@@ -1544,11 +1461,6 @@ function AddMAReportPageContent() {
 
           {/* Save Button */}
           <div className="flex flex-col items-end gap-2">
-            {finishedPdfFile && (
-              <p className="text-xs text-muted-foreground text-right max-w-md">
-                Finished PDF uploaded in Step 1 — enter Uptime and click Save to submit.
-              </p>
-            )}
             <button
               onClick={handleSave}
               disabled={saving}

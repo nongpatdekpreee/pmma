@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const db = require('../config/database');
 
 const REFRESH_TOKEN_COOKIE_NAME = process.env.REFRESH_TOKEN_COOKIE_NAME || 'refreshToken';
-const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 7);
+const REFRESH_TOKEN_TTL_DAYS = Number(process.env.REFRESH_TOKEN_TTL_DAYS || 1);
 
 function hashToken(raw) {
   return crypto.createHash('sha256').update(raw).digest('hex');

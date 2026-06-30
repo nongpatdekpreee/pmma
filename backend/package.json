@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "migrate:refresh-tokens": "node scripts/runRefreshTokensMigration.js",
     "cron:sns-upcoming": "node scripts/runSnsUpcomingReminder.js",
-    "cron:contract-expiring": "node scripts/runContractExpiringReminder.js"
+    "cron:contract-expiring": "node scripts/runContractExpiringReminder.js",
+    "teams:test-webhooks": "node scripts/testTeamsWebhooks.js"
   },
   "keywords": [
     "stock",

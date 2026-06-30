@@ -13,6 +13,8 @@ import {
   getTasks,
   apiUrl,
   taskMaNoticeUrl,
+  protectedTaskFileUrl,
+  openProtectedFile,
   absoluteUrlForHyperlink,
   deletePmReport,
   deleteMaReport,
@@ -242,6 +244,10 @@ function pathsFromMaReportUploadedFiles(ma: MAReport): string[] {
     if (path) out.push(path);
   }
   return out;
+}
+
+function basenameFromStoragePath(filePath: string): string {
+  return filePath.replace(/^.*[/\\]/, '') || filePath;
 }
 
 const ITEMS_PER_PAGE = 5;
@@ -3186,66 +3192,45 @@ function ReportPageContent() {
                 {tab === 'ma' &&
                   (() => {
                     const ma = selectedReport as MAReport;
-                    const fromUploads = pathsFromMaReportUploadedFiles(ma);
-                    const fromLegacyPaths = Array.isArray(ma.repairNoticePaths)
-                      ? ma.repairNoticePaths.filter((p): p is string => typeof p === 'string' && !!p.trim())
-                      : [];
                     const linkedTask =
                       ma.taskId != null
                         ? pmMaTasks.find((t) => Number(t.id) === Number(ma.taskId))
                         : undefined;
-                    const fromTask = normalizeRepairPathsFromPhotos(linkedTask?.photos);
-                    const repairPaths =
-                      fromUploads.length > 0
-                        ? fromUploads
-                        : fromLegacyPaths.length > 0
-                          ? fromLegacyPaths
-                          : fromTask;
-                    if (repairPaths.length === 0) return null;
-                    const dev = ma.device as Record<string, unknown> | undefined;
-                    const rSite = ma.site_name;
-                    const rawSite =
-                      dev?.Sitename != null && String(dev.Sitename).trim() !== ''
-                        ? String(dev.Sitename)
-                        : rSite != null && String(rSite).trim() !== ''
-                          ? String(rSite)
-                          : '';
-                    const explicitLoc = dev?.Location2 != null ? String(dev.Location2) : '';
-                    const { site: siteForRepairLabel } = exportSiteAndLocation(rawSite, explicitLoc);
-                    const ticketStr = ma.ticket != null ? String(ma.ticket) : '';
+                    const planRemarkPaths = normalizeRepairPathsFromPhotos(linkedTask?.photos);
+                    const tid = ma.taskId;
+                    if (planRemarkPaths.length === 0) return null;
+
                     return (
                       <div className="bg-card rounded-2xl border border-border p-6">
                         <div className="flex items-center gap-2 mb-3">
                           <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center">
                             <Paperclip size={20} className="text-sky-700" />
                           </div>
-                          <h3 className="font-bold text-foreground">Remark</h3>
+                          <div>
+                            <h3 className="font-bold text-foreground">Remark</h3>
+                            <p className="text-xs text-muted-foreground">
+                              from MA plan — show when uploaded and saved from MA plan
+                            </p>
+                          </div>
                         </div>
                         <ul className="space-y-2">
-                          {repairPaths.map((path, idx) => {
-                            const linkLabel = buildMaRepairNoticeExcelLinkLabel(
-                              idx + 1,
-                              ticketStr,
-                              siteForRepairLabel
-                            );
-                            const tid = ma.taskId;
-                            const basename = path.split('/').filter(Boolean).pop() || path;
-                            const href =
-                              /^https?:\/\//i.test(path)
-                                ? path
-                                : tid != null && String(tid).trim() !== '' && basename
-                                  ? taskMaNoticeUrl(tid, basename)
-                                  : apiUrl(path.startsWith('/') ? path : `/${path}`);
+                          {planRemarkPaths.map((path, idx) => {
+                            const href = protectedTaskFileUrl(tid, path);
                             return (
-                              <li key={`${path}-${idx}`}>
-                                <a
-                                  href={href}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-sm font-medium text-sky-700 hover:underline break-all"
+                              <li key={`plan-remark-${path}-${idx}`}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void openProtectedFile(href).catch((err: unknown) => {
+                                      const msg =
+                                        err instanceof Error ? err.message : 'ไม่สามารถเปิดไฟล์ได้';
+                                      toastError(msg);
+                                    });
+                                  }}
+                                  className="text-left text-sm font-medium text-sky-700 hover:text-sky-900 hover:underline break-all"
                                 >
-                                  {linkLabel}
-                                </a>
+                                  {basenameFromStoragePath(path)}
+                                </button>
                               </li>
                             );
                           })}
@@ -3497,12 +3482,12 @@ function ReportPageContent() {
                   </div>
                 )}
 
-                {/* Uploaded Files — PM: PDF เท่านั้น (รูปช่างฝังใน PDF แล้ว) */}
+                {/* Uploaded Files — PM: PDF เท่านั้น; MA: ไฟล์ที่แนบตอนสร้าง report */}
                 {(() => {
                   const displayFiles =
                     tab === 'pm'
                       ? getPmReportDocumentFiles(selectedReport.uploadedFiles)
-                      : selectedReport.uploadedFiles ?? [];
+                      : (selectedReport.uploadedFiles ?? []);
                   if (displayFiles.length === 0) return null;
                   return (
                   <div>
@@ -3510,7 +3495,9 @@ function ReportPageContent() {
                       <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
                         <FileText size={20} className="text-blue-600" />
                       </div>
-                      <h3 className="font-bold text-foreground">Uploaded Files</h3>
+                      <h3 className="font-bold text-foreground">
+                        {tab === 'pm' ? 'Report PDF' : 'MA Report files'}
+                      </h3>
                     </div>
                     <div className="flex flex-wrap gap-3">
                       {displayFiles.map((f, i) => (

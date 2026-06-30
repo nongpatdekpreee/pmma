@@ -1,8 +1,13 @@
 const jwt = require('jsonwebtoken');
 const { normalizeRole } = require('../utils/roleUtils');
 const { logAuthFailure } = require('../utils/authLogger');
+const { requireSession } = require('./requireSession');
 
 const JWT_SECRET = process.env.JWT_SECRET ;
+
+function isMaNoticeFileGet(req) {
+  return req.method === 'GET' && /\/api\/tasks\/\d+\/ma-notice\//.test(String(req.originalUrl || ''));
+}
 
 // Middleware ตรวจสอบ JWT Token
 const authenticateToken = (req, res, next) => {
@@ -10,6 +15,9 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
   if (!token) {
+    if (isMaNoticeFileGet(req)) {
+      return requireSession(req, res, next);
+    }
     logAuthFailure('missing_token', { path: req.originalUrl });
     return res.status(401).json({
       success: false,
@@ -25,6 +33,9 @@ const authenticateToken = (req, res, next) => {
     };
     next();
   } catch (error) {
+    if (error.name === 'TokenExpiredError' && isMaNoticeFileGet(req)) {
+      return requireSession(req, res, next);
+    }
     if (error.name === 'TokenExpiredError') {
       logAuthFailure('token_expired', { path: req.originalUrl });
       return res.status(401).json({

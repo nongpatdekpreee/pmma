@@ -104,6 +104,9 @@ interface Props {
   /** ส่ง object เดียว หรือ array เมื่อสร้างหลายทาสก์จากหลายสัญญา */
   onSave?: (data: TaskSavePayload | TaskSavePayload[]) => Promise<void> | void;
   editingEvent?: TaskEditingEvent | null;
+  /** ใช้ล็อก Remark เมื่อ Done + มี report แล้ว */
+  reportedPMTaskIds?: Set<number>;
+  reportedMATaskIds?: Set<number>;
 }
 
 interface Device {
@@ -262,7 +265,14 @@ function formatContractDisplayLabel(c: ContractOption | undefined, idFallback = 
 /* ================= available engineers ================= */
 // จะดึงข้อมูลจาก API ใน component แทน
 
-export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
+export function AddTaskModal({
+  isOpen,
+  onClose,
+  onSave,
+  editingEvent,
+  reportedPMTaskIds,
+  reportedMATaskIds,
+}: Props) {
   /* ================= state (ตามที่กำหนด) ================= */
   const [taskType, setTaskType] = useState<'PM' | 'MA'>('PM');
   const [Sid, setSid] = useState('');
@@ -278,6 +288,34 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
   const [taskAttachmentFilesPending, setTaskAttachmentFilesPending] = useState<File[]>([]);
   const repairNoticeInputId = useId();
   const [assetModalOpen, setAssetModalOpen] = useState(false);
+
+  const editingTaskHasReport = useMemo(() => {
+    if (!editingEvent?.id) return false;
+    const id = Number(editingEvent.id);
+    if (!Number.isFinite(id)) return false;
+    const isMa = String(editingEvent.taskType || 'PM').toUpperCase() === 'MA';
+    return isMa ? Boolean(reportedMATaskIds?.has(id)) : Boolean(reportedPMTaskIds?.has(id));
+  }, [editingEvent, reportedMATaskIds, reportedPMTaskIds]);
+
+  /** Done + ส่ง report แล้ว — ห้ามแก้ไฟล์ Remark; Done ยังไม่มี report แก้ได้ */
+  const remarkAttachmentsLocked = useMemo(() => {
+    if (editingEvent?.status !== 'done') return false;
+    if (reportedPMTaskIds !== undefined || reportedMATaskIds !== undefined) {
+      return editingTaskHasReport;
+    }
+    return true;
+  }, [editingEvent?.status, editingTaskHasReport, reportedMATaskIds, reportedPMTaskIds]);
+
+  const remarkLockReason = useMemo((): string | null => {
+    if (!remarkAttachmentsLocked) return null;
+    if (editingTaskHasReport) {
+      return 'ไม่สามารถเพิ่มไฟล์ได้ — งาน Done และส่ง MA report แล้ว';
+    }
+    if (editingEvent?.status === 'done') {
+      return 'ไม่สามารถเพิ่มไฟล์ได้ — งานสถานะ Done';
+    }
+    return 'ไม่สามารถเพิ่มไฟล์ได้';
+  }, [remarkAttachmentsLocked, editingTaskHasReport, editingEvent?.status]);
 
   /* ===== MA Contract fields (เหมือน PM) ===== */
   const [vendorName, setVendorName] = useState('');
@@ -2889,9 +2927,13 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Remark</p>
-                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
-                      PDF or images. Files are sent to the server when you save the task.
-                    </p>
+                    {remarkLockReason ? (
+                      <p className="mt-0.5 text-xs leading-snug text-amber-700">{remarkLockReason}</p>
+                    ) : (
+                      <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                        PDF or images แนบตอนสร้าง/แก้ plan — บันทึกเมื่อกด Save task
+                      </p>
+                    )}
                   </div>
                 </div>
                 <input
@@ -2899,7 +2941,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                   type="file"
                   multiple
                   accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,application/pdf,image/*"
-                  disabled={editingEvent?.status === 'done'}
+                  disabled={remarkAttachmentsLocked}
                   className="sr-only"
                   onChange={(e) => {
                     const list = e.target.files;
@@ -2910,7 +2952,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                 />
                 <label
                   htmlFor={repairNoticeInputId}
-                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/50 px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${editingEvent?.status === 'done' ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
+                  className={`group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/50 px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-sky-300 hover:bg-sky-50/40 hover:text-sky-800 ${remarkAttachmentsLocked ? 'pointer-events-none cursor-not-allowed opacity-45' : ''
                     }`}
                 >
                   <Paperclip size={16} className="text-muted-foreground transition-colors group-hover:text-sky-600" aria-hidden />
@@ -2935,7 +2977,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                           >
                             {name}
                           </a>
-                          {editingEvent?.status !== 'done' && (
+                          {!remarkAttachmentsLocked && (
                             <button
                               type="button"
                               className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"
@@ -2955,7 +2997,7 @@ export function AddTaskModal({ isOpen, onClose, onSave, editingEvent }: Props) {
                       >
                         <Paperclip size={14} className="shrink-0 text-muted-foreground" aria-hidden />
                         <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">{file.name}</span>
-                        {editingEvent?.status !== 'done' && (
+                        {!remarkAttachmentsLocked && (
                           <button
                             type="button"
                             className="shrink-0 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-red-50 hover:text-red-600"

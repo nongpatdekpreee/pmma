@@ -80,9 +80,17 @@ app.use((req, res) => {
 
 // Cron jobs (PM/MA plans @ Mon 09:00, contract expiring @ daily 09:00)
 const { startCronJobs } = require('./cron/scheduler');
-startCronJobs();
+const { ensureRefreshTokensTable } = require('./scripts/runRefreshTokensMigration');
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
+async function startServer() {
+  await ensureRefreshTokensTable();
+  startCronJobs();
+  app.listen(PORT, () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
+  });
+}
+
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });

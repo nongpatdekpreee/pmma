@@ -109,6 +109,50 @@ export function taskMaNoticeUrl(taskId: number | string, fileBasename: string): 
   return apiUrl(`/api/tasks/${taskId}/ma-notice/${enc}`);
 }
 
+/** สร้าง URL เปิดไฟล์แนบของ task/report (ตรวจสิทธิ์ที่ backend) */
+export function protectedTaskFileUrl(
+  taskId: number | string | null | undefined,
+  filePath: string
+): string {
+  const raw = String(filePath ?? '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const basename = raw.split('/').filter(Boolean).pop() || raw;
+  const tid = taskId != null ? String(taskId).trim() : '';
+  if (tid && basename) return taskMaNoticeUrl(tid, basename);
+  return uploadAssetUrl(raw);
+}
+
+/** เปิดไฟล์ที่ต้อง login — ส่ง Bearer + refresh cookie ผ่าน apiFetch */
+export async function openProtectedFile(fileUrl: string): Promise<void> {
+  const url = String(fileUrl ?? '').trim();
+  if (!url) return;
+
+  const fetchUrl = /^https?:\/\//i.test(url)
+    ? url
+    : apiUrl(url.startsWith('/') ? url : `/${url}`);
+
+  const res = await apiFetch(fetchUrl);
+  if (!res.ok) {
+    const msg =
+      res.status === 401
+        ? 'กรุณา login ใหม่ก่อนเปิดไฟล์'
+        : res.status === 404
+          ? 'ไม่พบไฟล์'
+          : 'ไม่สามารถเปิดไฟล์ได้';
+    throw new Error(msg);
+  }
+
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const opened = window.open(objectUrl, '_blank', 'noopener,noreferrer');
+  if (!opened) {
+    URL.revokeObjectURL(objectUrl);
+    throw new Error('เบราว์เซอร์บล็อกการเปิดหน้าต่างใหม่');
+  }
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
 /**
  * Excel HYPERLINK() must use an absolute http(s) URL. On Windows, a path like `/api/...` is treated as `C:\\api\\...`
  * (local file), which triggers a security warning and breaks the link.

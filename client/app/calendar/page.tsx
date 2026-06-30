@@ -13,11 +13,12 @@ import { Suspense, useState, useMemo, useEffect, useRef, useCallback, Fragment }
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 import { TaskDetailModal } from '@/components/ui/detail';
+import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, getTasks, type HolidayItem, apiFetch} from '@/lib/api';
+import { apiUrl, getEmployees, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, getTasks, type HolidayItem, apiFetch, responseJsonOrThrow} from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
-import { getErrorMessage, readNumber, readString } from '@/lib/unknownUtil';
+import { asRecord, getErrorMessage, readNumber, readString } from '@/lib/unknownUtil';
 import { type ApiTask, apiTaskString } from '@/lib/apiTask';
 
 interface Device {
@@ -119,6 +120,8 @@ function CalendarPageContent() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
   const [selectedTask, setSelectedTask] = useState<CalendarEvent | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [draggedEvent, setDraggedEvent] = useState<CalendarEvent | null>(null);
   const [dragOverDay, setDragOverDay] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -937,7 +940,127 @@ function CalendarPageContent() {
   };
 
   // Handle delete task from detail modal
- 
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const res = await apiFetch(apiUrl(`/api/tasks/${taskId}`), { method: 'DELETE' });
+      const json = await responseJsonOrThrow<{ success: boolean; message?: string }>(
+        res,
+        'Delete task failed: server returned non-JSON (check API URL).'
+      );
+      if (!json.success) throw new Error(json.message || 'Delete task failed');
+      setCalendarEvents((prev) => prev.filter((e) => e.id !== taskId));
+      setIsDetailModalOpen(false);
+      setSelectedTask(null);
+      toastSuccess('Delete task successfully');
+    } catch (error: unknown) {
+      console.error('handleDeleteTask error', error);
+      toastError(getErrorMessage(error) || 'Delete task failed');
+    }
+  };
+
+  const handleSaveFromModal = async (data: Record<string, unknown> | Record<string, unknown>[]) => {
+    const batch = Array.isArray(data) ? data : [data];
+    const first = batch[0];
+    if (!first) {
+      throw new Error('No task data to save');
+    }
+
+    const normalizedTaskType = (first.taskType as string) || editingEvent?.taskType || 'PM';
+    const normalizedStartDate = (first.startDate as string) || editingEvent?.startDate || '';
+    const normalizedEndDate =
+      (first.endDate as string) ||
+      (first.startDate as string) ||
+      editingEvent?.endDate ||
+      editingEvent?.startDate ||
+      '';
+
+    if (!editingEvent && (!normalizedTaskType || !normalizedStartDate || !normalizedEndDate)) {
+      throw new Error('Please specify taskType, startDate, endDate');
+    }
+
+    try {
+      for (let i = 0; i < batch.length; i++) {
+        const item = batch[i];
+        const repDev = asRecord(item.replacementDevice);
+        const repDevId = repDev.id;
+        const payload = {
+          taskType: item.taskType || normalizedTaskType,
+          contractId: item.contractId || item.contract_id || null,
+          replacementDeviceId:
+            item.replacementDeviceId ||
+            (repDevId != null
+              ? typeof repDevId === 'number'
+                ? repDevId
+                : parseInt(String(repDevId), 10)
+              : null),
+          siteId: item.siteId || (item.Sid ? Number(item.Sid) : null),
+          siteName: item.Sname || item.siteName,
+          vendorName: item.vendorName,
+          vendorTel: item.vendorTel,
+          reporterName: item.reporterName,
+          reporterTel: item.reporterTel,
+          ticket: item.ticket,
+          rootCause: item.rootCause,
+          resolution: item.resolution,
+          duration: item.duration,
+          downtimeDate: item.downtimeDate,
+          downtimeTime: item.downtimeTime,
+          uptimeDate: item.uptimeDate,
+          uptimeTime: item.uptimeTime,
+          assignedService: item.assignedService ?? item.assigned_service ?? null,
+          assetBinding: item.assetBinding,
+          ...(item.slaTerm ? { slaTerm: item.slaTerm } : {}),
+          coverageScope: item.coverageScope,
+          startDate: item.startDate || normalizedStartDate,
+          endDate: item.endDate || item.startDate || normalizedEndDate,
+          travelMethod: item.travelMethod,
+          travelCost: item.travelCost,
+          engineers: item.Eng_ids || [],
+          assets: item.assets || [],
+          status: editingEvent?.status || item.status || 'not-started',
+          actuallyWent: item.actuallyWent ?? editingEvent?.actuallyWent ?? false,
+          notes: item.notes ?? editingEvent?.notes ?? '',
+          rescheduleNote: item.rescheduleNote ?? editingEvent?.rescheduleNote ?? null,
+          photos: item.photos ?? editingEvent?.photos ?? [],
+        };
+
+        const res = await apiFetch(
+          apiUrl(editingEvent ? `/api/tasks/${editingEvent.id}` : '/api/tasks'),
+          {
+            method: editingEvent ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }
+        );
+        const json = await responseJsonOrThrow<{ success: boolean; message?: string; data?: unknown }>(
+          res,
+          'Save task failed: server returned HTML or invalid JSON (check NEXT_PUBLIC_API_URL).'
+        );
+        if (!json.success) {
+          const j = json as { message?: string; error?: string };
+          const detail = [j.message, j.error].filter((x) => x && String(x).trim()).join(' — ');
+          throw new Error(detail || 'Save task failed');
+        }
+
+        const mapped = mapTaskToEvent((json.data ?? {}) as ApiTask);
+        setCalendarEvents((events) =>
+          editingEvent
+            ? events.map((ev) => (ev.id === mapped.id ? mapped : ev))
+            : [...events, mapped]
+        );
+        if (selectedTask && editingEvent && String(selectedTask.id) === String(mapped.id)) {
+          setSelectedTask(mapped);
+        }
+      }
+
+      setEditingEvent(null);
+      setIsModalOpen(false);
+      toastSuccess(batch.length > 1 ? `Plan success (${batch.length} tasks)` : 'Plan updated');
+    } catch (error: unknown) {
+      console.error('handleSaveFromModal error', error);
+      toastError(getErrorMessage(error) || 'Save task failed');
+    }
+  };
 
   /* ================= Render ================= */
   return (
@@ -1877,6 +2000,19 @@ function CalendarPageContent() {
         </div>
       )}
 
+      {/* Edit plan modal */}
+      <AddTaskModal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingEvent(null);
+        }}
+        onSave={handleSaveFromModal}
+        editingEvent={editingEvent}
+        reportedPMTaskIds={reportedPMTaskIds}
+        reportedMATaskIds={reportedMATaskIds}
+      />
+
       {/* Task Detail Modal - Allow status updates and delete */}
       <TaskDetailModal
         isOpen={isDetailModalOpen}
@@ -1886,6 +2022,12 @@ function CalendarPageContent() {
         }}
         task={selectedTask}
         onUpdate={handleTaskUpdate}
+        onEdit={(task) => {
+          setEditingEvent(task as CalendarEvent);
+          setIsDetailModalOpen(false);
+          setIsModalOpen(true);
+        }}
+        onDelete={handleDeleteTask}
         reportLink={selectedTask && (selectedTask.taskType === 'MA' ? reportedMATaskIds.has(Number(selectedTask.id)) : reportedPMTaskIds.has(Number(selectedTask.id)))
           ? `/pmchecklist_report?tab=${selectedTask.taskType === 'MA' ? 'ma' : 'pm'}&taskId=${selectedTask.id}`
           : null}

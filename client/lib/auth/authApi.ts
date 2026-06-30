@@ -60,6 +60,8 @@ export async function loginRequest(
   }
   const user = mapUser(body.data);
   setAccessToken(body.data.token);
+  const { scheduleAccessTokenRefresh } = await import('@/lib/auth/session');
+  scheduleAccessTokenRefresh();
   return { user, token: body.data.token };
 }
 
@@ -91,6 +93,8 @@ export async function refreshAccessToken(): Promise<AuthUser | null> {
     return null;
   }
   setAccessToken(body.data.token);
+  const { scheduleAccessTokenRefresh } = await import('@/lib/auth/session');
+  scheduleAccessTokenRefresh();
   return mapUser(body.data);
 }
 
@@ -102,6 +106,8 @@ export async function logoutRequest(): Promise<void> {
     });
   } finally {
     setAccessToken(null);
+    const { stopAccessTokenRefreshScheduler } = await import('@/lib/auth/session');
+    stopAccessTokenRefreshScheduler();
   }
 }
 

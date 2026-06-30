@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "cron:sns-upcoming": "npm run cron:sns-upcoming --prefix backend",
+    "cron:contract-expiring": "npm run cron:contract-expiring --prefix backend",
+    "teams:test-webhooks": "npm run teams:test-webhooks --prefix backend"
   },
   "keywords": [
     "pmma",

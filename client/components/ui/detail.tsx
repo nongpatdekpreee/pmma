@@ -3,7 +3,7 @@
 import { X, CheckCircle2, Trash2, FileText, Download, Paperclip, Clock3, Calendar, MoreHorizontal } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { apiUrl, apiFetch} from '@/lib/api';
+import { apiUrl, apiFetch, protectedTaskFileUrl, openProtectedFile } from '@/lib/api';
 import { DEFAULT_IN_STORE_SITE_NAME } from '@/lib/inStoreSite';
 import { parseRescheduleNoteOrigin } from '@/lib/rescheduleNote';
 import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
@@ -768,20 +768,28 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                     <Paperclip size={16} className="text-muted-foreground shrink-0" aria-hidden />
                     Remark
                   </h3>
+                  <p className="text-xs text-muted-foreground mb-2 -mt-1">
+                    แนบตอนสร้าง/แก้ MA plan — จะแสดงเมื่อมีการอัปโหลดและบันทึกแล้ว
+                  </p>
                   <ul className="space-y-2">
                     {repairPaths.map((path) => {
                       const name = path.replace(/^.*[/\\]/, '') || path;
-                      const href = /^https?:\/\//i.test(path) ? path : apiUrl(path.startsWith('/') ? path : `/${path}`);
+                      const href = protectedTaskFileUrl(task.id, path);
                       return (
                         <li key={path}>
-                          <a
-                            href={href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm font-medium text-sky-700 hover:text-sky-900 hover:underline break-all"
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void openProtectedFile(href).catch((err: unknown) => {
+                                const msg =
+                                  err instanceof Error ? err.message : 'ไม่สามารถเปิดไฟล์ได้';
+                                showAlert(msg, 'warning', 'เปิดไฟล์ไม่สำเร็จ');
+                              });
+                            }}
+                            className="text-sm font-medium text-sky-700 hover:text-sky-900 hover:underline break-all text-left"
                           >
                             {name}
-                          </a>
+                          </button>
                         </li>
                       );
                     })}
@@ -949,7 +957,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                 Actions
               </summary>
               <div className="absolute bottom-full right-0 z-20 mb-1 min-w-[11rem] rounded-lg border border-border bg-card py-1 shadow-lg">
-                {onEdit && (
+                {onEdit && !isStatusLockedDoneReported && (
                   <button
                     type="button"
                     onClick={() => {
@@ -986,7 +994,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                     }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground hover:bg-muted"
                   >
-                    Edit
+                    Edit plan
                   </button>
                 )}
                 {onDelete && task && (

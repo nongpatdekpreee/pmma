@@ -20,15 +20,36 @@ promisePool.execute = function (sql, params) {
   return promisePool.query(sql, params);
 };
 
-// ทดสอบการเชื่อมต่อ
-pool.getConnection((err, connection) => {
-  if (err) {
-    console.error('❌ เชื่อมต่อ Database ไม่สำเร็จ:', err.message);
-  } else {
-    console.log('✅ เชื่อมต่อ Database สำเร็จ!');
-    connection.release();
+// ทดสอบการเชื่อมต่อ (retry สำหรับ Docker — MySQL อาจยังไม่พร้อมตอน backend start)
+async function testDbConnection(retries = 15, delayMs = 2000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const connection = await promisePool.getConnection();
+      console.log('✅ เชื่อมต่อ Database สำเร็จ!');
+      connection.release();
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt >= retries) {
+        console.error('❌ เชื่อมต่อ Database ไม่สำเร็จ:', msg);
+        return;
+      }
+      console.warn(`⏳ รอ Database... (${attempt}/${retries})`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
   }
-});
+}
+
+void testDbConnection();
+
+/** ปิด pool — ใช้ก่อน process.exit ใน CLI scripts เพื่อไม่ให้ libuv assertion crash บน Windows */
+async function closePool() {
+  return new Promise((resolve, reject) => {
+    pool.end((err) => (err ? reject(err) : resolve()));
+  });
+}
+
+promisePool.closePool = closePool;
 
 module.exports = promisePool;
 

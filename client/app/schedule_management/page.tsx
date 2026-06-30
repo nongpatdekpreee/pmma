@@ -3093,6 +3093,8 @@ function ScheduleManagementContent() {
           }}
           onSave={handleSaveFromModal}
           editingEvent={editingEvent}
+          reportedPMTaskIds={reportedPMTaskIds}
+          reportedMATaskIds={reportedMATaskIds}
         />
 
         <div
