@@ -56,8 +56,31 @@ function getDeviceIdFromAsset(a: unknown): string {
   return id != null ? String(id).trim() : '';
 }
 
+function roleFromTaskAsset(raw: unknown): string {
+  const a = asRecord(raw);
+  return (
+    readString(a, 'roleName') ??
+    readString(a, 'role') ??
+    readString(a, 'DeviceRole') ??
+    ''
+  ).trim();
+}
+
+function mergePoolDeviceWithTaskAsset(poolDevice: Device, raw: unknown): Device {
+  const a = asRecord(raw);
+  const role = (poolDevice.roleName ?? poolDevice.role ?? roleFromTaskAsset(raw)).trim();
+  const model = (poolDevice.model ?? readString(a, 'model') ?? readString(a, 'type') ?? '').trim();
+  return {
+    ...poolDevice,
+    model: model || poolDevice.model,
+    role: role || poolDevice.role,
+    roleName: role || poolDevice.roleName,
+  };
+}
+
 function deviceFromTaskAssetSnapshot(raw: unknown, didNum: number): Device {
   const a = asRecord(raw);
+  const role = roleFromTaskAsset(raw);
   return {
     Did: didNum,
     Asset_State: readString(a, 'Asset_State'),
@@ -65,6 +88,8 @@ function deviceFromTaskAssetSnapshot(raw: unknown, didNum: number): Device {
     Asset_Number: readString(a, 'Asset_Number') ?? readString(a, 'assetNumber') ?? '',
     serial: readString(a, 'serial') ?? readString(a, 'serialNumber') ?? '',
     model: readString(a, 'model') ?? readString(a, 'type') ?? '',
+    role,
+    roleName: role,
     Manufacturername: readString(a, 'Manufacturername'),
     Sitename: readString(a, 'Sitename') ?? readString(a, 'sitename') ?? readString(a, 'siteName') ?? '',
     Location2: readString(a, 'Location2') ?? readString(a, 'location2') ?? '',
@@ -96,6 +121,8 @@ interface Device {
   Asset_Number?: string;
   serial?: string;
   model?: string;
+  role?: string;
+  roleName?: string;
   Manufacturername?: string;
   Sitename?: string;
   PR_No?: string;
@@ -318,7 +345,7 @@ function AddPMReportPageContent() {
       if (!idStr) continue;
       const fromPool = devices.find((d) => String(d.Did) === String(idStr));
       if (fromPool) {
-        addOne(fromPool);
+        addOne(mergePoolDeviceWithTaskAsset(fromPool, raw));
         continue;
       }
       const didNum = parseInt(String(idStr), 10);

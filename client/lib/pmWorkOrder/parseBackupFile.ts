@@ -8,6 +8,9 @@ const SERIAL_KEYS = [
   'serial no',
   'serialno',
   'sn',
+  'sn.',
+  'sn:',
+  's/n',
 ];
 
 const FIELD_ALIASES: Record<keyof Omit<PmBackupRecord, 'serialNumber'>, string[]> = {
@@ -33,8 +36,8 @@ const FIELD_ALIASES: Record<keyof Omit<PmBackupRecord, 'serialNumber'>, string[]
     'version',
   ],
   ipAddress: ['ipaddress', 'ip_address', 'ip address', 'ip'],
-  stackNo: ['stackno', 'stack_no', 'stack no', 'stack number'],
-  stackRole: ['stackrole', 'stack_role', 'stack role'],
+  stackNo: ['stackno', 'stack_no', 'stack no', 'stack number', 'stacks /ha role', 'stacks/ha role', 'stacks ha role'],
+  stackRole: ['stackrole', 'stack_role', 'stack role', 'stacks role'],
   cpuProcessor: ['cpuprocessor', 'cpu_processor', 'cpu', 'cpu processor', 'cpu usage'],
   memoryUtilization: [
     'memoryutilization',
@@ -44,16 +47,31 @@ const FIELD_ALIASES: Record<keyof Omit<PmBackupRecord, 'serialNumber'>, string[]
     'memory usage',
   ],
   temperature: ['temperature', 'temp'],
-  environmentAlarm: ['environmentalarm', 'environment_alarm', 'environment alarm', 'alarm'],
-  powerSupply: ['powersupply', 'power_supply', 'power supply', 'psu'],
+  environmentAlarm: ['environmentalarm', 'environment_alarm', 'environment alarm', 'Environment Status', 'Environment Alarm'],
+  powerSupply: ['powersupply', 'power_supply', 'power supply', 'psu','Power Supply'],
   fan: ['fan', 'fans'],
   systemUptime: ['systemuptime', 'system_uptime', 'system uptime', 'uptime'],
-  backupConfig: ['backupconfig', 'backup_config', 'backup config', 'config backup'],
-  hardwareCleaning: ['hardwarecleaning', 'hardware_cleaning', 'hardware cleaning', 'cleaning'],
+  backupConfig: [
+    'backupconfig',
+    'backup_config',
+    'backup config',
+    'backup configuration',
+    'config backup',
+  ],
+  fileSizeKb: [
+    'filesizekilobyte',
+    'file size kilobyte',
+    'file size (kilobyte)',
+    'filesize',
+    'file size',
+    'file size kb',
+    'filesizekb',
+  ],
+  hardwareCleaning: ['hardwarecleaning', 'hardware_cleaning', 'hardware cleaning', 'cleaning',],
 };
 
 function normalizeKey(key: string): string {
-  return key.trim().toLowerCase().replace(/[_\s-]+/g, '');
+  return key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
 function pickSerial(row: Record<string, unknown>): string {

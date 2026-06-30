@@ -9,16 +9,27 @@ import {
   findMonitoringForLocation,
   monitoringToPmBackupRecord,
 } from './parsePmMonitoringBackupFile';
-import { deviceModelKey } from './normalizeMatch';
+import { deviceModelForMatch } from './normalizeMatch';
 
 export type PmWizardDevice = {
   Did: number;
   CI_Name?: string;
   serial?: string;
   model?: string;
-  Location2?: string;
   Sitename?: string;
 };
+
+/** Location/rack only from matched location file row — empty when no match */
+export function resolveMaintenanceLocationAndRack(
+  _device: PmWizardDevice,
+  loc: PmLocationRecord | null | undefined
+): { location: string; rack: string } {
+  if (!loc) return { location: '', rack: '' };
+  return {
+    location: buildLocationDisplayText(loc),
+    rack: buildRackDisplayText(loc),
+  };
+}
 
 export type LocationMapResult = {
   locationByDid: Map<number, PmLocationRecord | null>;
@@ -43,15 +54,15 @@ export function mapLocationRecordsToDevices(
   for (const device of devices) {
     const label = deviceLabelFromParts(device);
     const serial = (device.serial ?? '').trim();
-    const model = deviceModelKey(device);
+    const taskModel = deviceModelForMatch(device);
 
     if (!serial) {
-      unmapped.push(`${label}: no serial in task`);
+      unmapped.push(`${label}: no serial in task — add serial to task assets`);
       locationByDid.set(device.Did, null);
       continue;
     }
-    if (!model) {
-      unmapped.push(`${label} (${serial}): no model in task`);
+    if (!taskModel) {
+      unmapped.push(`${label} (${serial}): no model in task — model must match location file`);
       locationByDid.set(device.Did, null);
       continue;
     }
@@ -61,7 +72,9 @@ export function mapLocationRecordsToDevices(
       mappedCount += 1;
       locationByDid.set(device.Did, loc);
     } else {
-      unmapped.push(`${label} (${serial} / ${model}): not found in location file`);
+      unmapped.push(
+        `${label}: no location row with Serial ${serial} + Model ${taskModel} (rack is not used for matching)`
+      );
       locationByDid.set(device.Did, null);
     }
   }
@@ -100,9 +113,9 @@ export function mapMonitoringBackupToDevices(
         })
       );
     } else {
-      const ip = loc.ipAddress || '—';
-      const model = loc.model || '—';
-      unmapped.push(`${label}: no backup row matching IP ${ip} + Model ${model}`);
+      unmapped.push(
+        `${label}: no backup row with Serial ${loc.serialNumber} + Model ${loc.model} — optional`
+      );
       backupByDid.set(device.Did, null);
     }
   }
@@ -110,26 +123,61 @@ export function mapMonitoringBackupToDevices(
   return { backupByDid, mappedCount, unmapped };
 }
 
+/** Step 4 rows: only devices with matched location file row that has location text */
 export function buildMaintenanceRowsFromMaps(
   devices: PmWizardDevice[],
   locationByDid: Map<number, PmLocationRecord | null>,
-  backupByDid: Map<number, PmBackupRecord | null>,
+  _backupByDid: Map<number, PmBackupRecord | null>,
   monitoringByDid?: Map<number, PmMonitoringBackupRecord | null>
 ): PmMaintenanceItemDraft[] {
-  return devices.map((d) => {
-    const loc = locationByDid.get(d.Did);
-    const backup = backupByDid.get(d.Did);
-    const mon = monitoringByDid?.get(d.Did);
+  return devices
+    .filter((d) => {
+      const loc = locationByDid.get(d.Did);
+      if (!loc) return false;
+      return buildLocationDisplayText(loc).trim() !== '';
+    })
+    .map((d) => {
+      const loc = locationByDid.get(d.Did)!;
+      const mon = monitoringByDid?.get(d.Did);
+      const { location, rack } = resolveMaintenanceLocationAndRack(d, loc);
+      return {
+        id: `row-${d.Did}`,
+        deviceDid: d.Did,
+        deviceLabel: deviceLabelFromParts(d),
+        location,
+        rack,
+        remark: mon?.remark?.trim() || '',
+        technicianNote: '',
+      };
+    });
+}
+
+export function mergeMaintenanceRowsWithPhotos(
+  previous: PmMaintenanceItemDraft[],
+  fresh: PmMaintenanceItemDraft[]
+): PmMaintenanceItemDraft[] {
+  const prevByDid = new Map(
+    previous.filter((r) => r.deviceDid != null).map((r) => [r.deviceDid as number, r])
+  );
+
+  const mergedDeviceRows = fresh.map((row) => {
+    const prev = row.deviceDid != null ? prevByDid.get(row.deviceDid) : undefined;
+    if (!prev) return row;
     return {
-      id: `row-${d.Did}`,
-      deviceDid: d.Did,
-      deviceLabel: deviceLabelFromParts(d),
-      location: loc ? buildLocationDisplayText(loc) : (d.Location2 ?? '').trim(),
-      rack: loc ? buildRackDisplayText(loc) : backup?.rackRu || '',
-      remark: mon?.remark?.trim() || '',
-      technicianNote: '',
+      ...row,
+      location: row.location,
+      rack: row.rack,
+      remark: prev.remark.trim() ? prev.remark : row.remark,
+      technicianNote: prev.technicianNote ?? row.technicianNote,
+      beforeFile: prev.beforeFile,
+      beforePreview: prev.beforePreview,
+      afterFile: prev.afterFile,
+      afterPreview: prev.afterPreview,
     };
   });
+
+  const manualRows = previous.filter((r) => r.deviceDid == null);
+  return [...mergedDeviceRows, ...manualRows];
 }
 
 export function allDevicesMapped(

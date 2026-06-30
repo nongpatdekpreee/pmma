@@ -14,17 +14,21 @@ export {
   normalizeModel,
   normalizeIp,
   modelsMatch,
+  modelsLooselyMatch,
+  modelCandidatesFromDevice,
   ipsMatch,
   serialsMatch,
   deviceModelKey,
+  deviceModelForMatch,
 } from './normalizeMatch';
 export { parseSpreadsheetFile, pickField } from './parseSpreadsheet';
 export {
   parseLocationFile,
+  parseLocationFileDetailed,
+  buildLocationParseErrorMessage,
   buildLocationDisplayText,
   buildRackDisplayText,
   findLocationForDevice,
-  findLocationByIpAndModel,
 } from './parseLocationFile';
 export {
   parsePmMonitoringBackupFile,
@@ -35,6 +39,7 @@ export {
   mapLocationRecordsToDevices,
   mapMonitoringBackupToDevices,
   buildMaintenanceRowsFromMaps,
+  mergeMaintenanceRowsWithPhotos,
   allDevicesMapped,
   type PmWizardDevice,
 } from './mapPmExcelFiles';

@@ -1,53 +1,61 @@
 import type { PmBackupRecord, PmMonitoringBackupRecord } from './types';
 import { pickField, parseSpreadsheetFile } from './parseSpreadsheet';
-import { ipsMatch, modelsMatch, normalizeModel, normalizeSerial, serialsMatch } from './normalizeMatch';
-
-const SERIAL_ALIASES = ['sn.', 'sn', 'serialnumber', 'serial number', 'serial'];
-const IP_ALIASES = ['ipaddress', 'ip address', 'ip'];
+import {
+  BACKUP_CONFIGURATION_ALIASES,
+  BACKUP_CPU_USAGE_ALIASES,
+  BACKUP_ENVIRONMENT_ALARM_ALIASES,
+  BACKUP_FAN_ALIASES,
+  BACKUP_FILE_SIZE_ALIASES,
+  BACKUP_HOSTNAME_ALIASES,
+  BACKUP_IP_ALIASES,
+  BACKUP_MEMORY_UTILIZATION_ALIASES,
+  BACKUP_MODEL_ALIASES,
+  BACKUP_POWER_SUPPLY_ALIASES,
+  BACKUP_REMARK_ALIASES,
+  BACKUP_SERIAL_ALIASES,
+  BACKUP_SOFTWARE_VERSION_ALIASES,
+  BACKUP_STACK_HA_ROLE_ALIASES,
+  BACKUP_STACK_ROLE_ALIASES,
+  BACKUP_SYSTEM_UPTIME_ALIASES,
+  BACKUP_TEMPERATURE_ALIASES,
+} from './backupFieldAliases';
+import { modelsMatch, modelsLooselyMatch, normalizeModel, normalizeSerial, serialsMatch } from './normalizeMatch';
 
 function monitoringModelFromRow(row: Record<string, unknown>): string {
-  const candidates = [
-    pickField(row, ['equipmentname', 'equipment name']),
-    pickField(row, ['model', 'device model']),
-    pickField(row, ['asset']),
-    pickField(row, ['manufacturer']),
-  ];
-  for (const c of candidates) {
-    if (c.trim()) return c.trim();
+  for (const alias of BACKUP_MODEL_ALIASES) {
+    const val = pickField(row, [alias]);
+    if (val.trim()) return val.trim();
   }
   return '';
 }
 
 function rowToMonitoringRecord(row: Record<string, unknown>): PmMonitoringBackupRecord | null {
-  const serialNumber = pickField(row, SERIAL_ALIASES);
+  const serialNumber = pickField(row, BACKUP_SERIAL_ALIASES);
   const model = monitoringModelFromRow(row);
   if (!serialNumber && !model) return null;
 
-  const ipAddress = pickField(row, IP_ALIASES) || undefined;
+  const equipmentName = pickField(row, ['equipmentname', 'equipment name']) || undefined;
 
   return {
     serialNumber: serialNumber || '',
     model,
-    ipAddress,
-    equipmentName: pickField(row, ['equipmentname', 'equipment name']) || undefined,
+    hostname: pickField(row, BACKUP_HOSTNAME_ALIASES) || equipmentName || undefined,
+    ipAddress: pickField(row, BACKUP_IP_ALIASES) || undefined,
+    osVersion: pickField(row, BACKUP_SOFTWARE_VERSION_ALIASES) || undefined,
+    systemUptime: pickField(row, BACKUP_SYSTEM_UPTIME_ALIASES) || undefined,
+    stackNo: pickField(row, BACKUP_STACK_HA_ROLE_ALIASES) || undefined,
+    stackRole: pickField(row, BACKUP_STACK_ROLE_ALIASES) || undefined,
+    cpuUsage: pickField(row, BACKUP_CPU_USAGE_ALIASES) || undefined,
+    memoryUtilization: pickField(row, BACKUP_MEMORY_UTILIZATION_ALIASES) || undefined,
+    environmentAlarm: pickField(row, BACKUP_ENVIRONMENT_ALARM_ALIASES) || undefined,
+    powerSupply: pickField(row, BACKUP_POWER_SUPPLY_ALIASES) || undefined,
+    temperature: pickField(row, BACKUP_TEMPERATURE_ALIASES) || undefined,
+    fileSizeKb: pickField(row, BACKUP_FILE_SIZE_ALIASES) || undefined,
+    fan: pickField(row, BACKUP_FAN_ALIASES) || undefined,
+    backupConfig: pickField(row, BACKUP_CONFIGURATION_ALIASES) || undefined,
+    remark: pickField(row, BACKUP_REMARK_ALIASES) || undefined,
+    equipmentName,
     manufacturer: pickField(row, ['manufacturer']) || undefined,
-    temperature:
-      pickField(row, [
-        'temperature(celsius)',
-        'temperature (celsius)',
-        'temperature',
-        'temp',
-      ]) || undefined,
-    remark: pickField(row, ['remark', 'remarks']) || undefined,
-    backupReference: pickField(row, ['backup(reference)', 'backup (reference)', 'backup']) || undefined,
-    operatingStatus:
-      pickField(row, [
-        'normaloperatingstatus',
-        'normal operating status',
-        'status(condition)',
-        'status (condition)',
-        'status',
-      ]) || undefined,
     gps: pickField(row, ['gps']) || undefined,
     substation: pickField(row, ['substation']) || undefined,
     installationDate: pickField(row, ['installationdate', 'installation date']) || undefined,
@@ -64,35 +72,30 @@ export async function parsePmMonitoringBackupFile(file: File): Promise<PmMonitor
   return out;
 }
 
-/** Join monitoring row to location row: IP + Model (fallback Serial + Model) */
+/** Join backup row to location: Serial + Model must match */
 export function findMonitoringForLocation(
   monitoringRecords: PmMonitoringBackupRecord[],
-  location: { ipAddress: string; model: string; serialNumber: string }
+  location: { model: string; serialNumber: string }
 ): PmMonitoringBackupRecord | undefined {
   const locModel = location.model.trim();
-  const locIp = location.ipAddress.trim();
   const locSerial = location.serialNumber.trim();
+  if (!locSerial || !locModel) return undefined;
 
-  if (locIp && locModel) {
-    const byIpModel = monitoringRecords.find(
-      (m) =>
-        m.ipAddress &&
-        ipsMatch(m.ipAddress, locIp) &&
-        modelsMatch(m.model, locModel)
-    );
-    if (byIpModel) return byIpModel;
-  }
-
-  if (locSerial && locModel) {
-    return monitoringRecords.find(
-      (m) => serialsMatch(m.serialNumber, locSerial) && modelsMatch(m.model, locModel)
-    );
+  const bySerialModel = monitoringRecords.filter(
+    (m) =>
+      m.serialNumber &&
+      serialsMatch(m.serialNumber, locSerial) &&
+      (modelsMatch(m.model, locModel) || modelsLooselyMatch(m.model, locModel))
+  );
+  if (bySerialModel.length === 1) return bySerialModel[0];
+  if (bySerialModel.length > 1) {
+    return bySerialModel.find((m) => modelsMatch(m.model, locModel)) ?? bySerialModel[0];
   }
 
   return undefined;
 }
 
-/** Convert monitoring row → PmBackupRecord for PDF inspection */
+/** Hostname + IP always from location file (not backup) */
 export function monitoringToPmBackupRecord(
   mon: PmMonitoringBackupRecord,
   location?: { hostname?: string; vendor?: string; ipAddress?: string }
@@ -100,13 +103,21 @@ export function monitoringToPmBackupRecord(
   return {
     serialNumber: mon.serialNumber,
     model: mon.model || mon.equipmentName || '',
-    hostname: location?.hostname || mon.equipmentName || '',
+    hostname: (location?.hostname ?? '').trim(),
     product: mon.manufacturer || location?.vendor || '',
-    ipAddress: mon.ipAddress || location?.ipAddress || '',
+    ipAddress: (location?.ipAddress ?? '').trim(),
+    osVersion: mon.osVersion || '',
+    systemUptime: mon.systemUptime || '',
+    stackNo: mon.stackNo || '',
+    stackRole: mon.stackRole || '',
+    cpuProcessor: mon.cpuUsage || '',
+    memoryUtilization: mon.memoryUtilization || '',
+    environmentAlarm: mon.environmentAlarm || '',
+    powerSupply: mon.powerSupply || '',
     temperature: mon.temperature || '',
-    backupConfig: mon.backupReference || '',
-    equipmentType: mon.equipmentName || '',
-    environmentAlarm: mon.operatingStatus || '',
+    fileSizeKb: mon.fileSizeKb || '',
+    fan: mon.fan || '',
+    backupConfig: mon.backupConfig || '',
     equipmentLocation: mon.substation || '',
   };
 }

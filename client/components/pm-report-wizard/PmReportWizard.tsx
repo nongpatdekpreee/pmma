@@ -28,6 +28,8 @@ import {
   buildPmFullDocumentMulti,
   buildPmWorkOrderFilename,
   buildMaintenanceRowsFromMaps,
+  mergeMaintenanceRowsWithPhotos,
+  buildLocationDisplayText,
   buildRackDisplayText,
   createDefaultMaintenanceDrafts,
   downloadPmWorkOrderPdf,
@@ -36,7 +38,8 @@ import {
   mapMonitoringBackupToDevices,
   findMonitoringForLocation,
   monitoringToPmBackupRecord,
-  parseLocationFile,
+  parseLocationFileDetailed,
+  buildLocationParseErrorMessage,
   parsePmMonitoringBackupFile,
 } from '@/lib/pmWorkOrder';
 
@@ -65,6 +68,14 @@ type Device = {
   model?: string;
   Location2?: string;
   Sitename?: string;
+  role?: string;
+  roleName?: string;
+};
+
+type TechnicianPhotoItem = {
+  id: string;
+  file: File;
+  preview: string;
 };
 
 type Props = {
@@ -126,15 +137,20 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   const [backupLoading, setBackupLoading] = useState(false);
   const [backupByDid, setBackupByDid] = useState<Map<number, PmBackupRecord | null>>(new Map());
   const [backupMapped, setBackupMapped] = useState(false);
+  const [backupSkipped, setBackupSkipped] = useState(false);
+  const [backupNotice, setBackupNotice] = useState('');
   const [mappedPreviewExpanded, setMappedPreviewExpanded] = useState(false);
   const [externalPdfFile, setExternalPdfFile] = useState<File | null>(null);
   const externalPdfInputRef = useRef<HTMLInputElement>(null);
 
   const [maintenanceRows, setMaintenanceRows] = useState<PmMaintenanceItemDraft[]>([]);
+  const [technicianPhotos, setTechnicianPhotos] = useState<TechnicianPhotoItem[]>([]);
+  const technicianPhotoInputRef = useRef<HTMLInputElement>(null);
   const [generatingPdf, setGeneratingPdf] = useState(false);
   const [pdfPreparing, setPdfPreparing] = useState(false);
   const [pdfReady, setPdfReady] = useState(false);
   const pdfCacheRef = useRef<{ doc: PmFullDocument; blob: Blob } | null>(null);
+  const photosRowsInitializedRef = useRef(false);
   const onPdfPrepareStateRef = useRef(onPdfPrepareState);
   onPdfPrepareStateRef.current = onPdfPrepareState;
 
@@ -163,9 +179,13 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     setBackupError('');
     setBackupByDid(new Map());
     setBackupMapped(false);
+    setBackupSkipped(false);
+    setBackupNotice('');
     setMappedPreviewExpanded(false);
     setExternalPdfFile(null);
     setMaintenanceRows([]);
+    setTechnicianPhotos([]);
+    photosRowsInitializedRef.current = false;
     setStep(1);
   }, [selectedTaskId]);
 
@@ -205,12 +225,45 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     onExternalPdfModeChange?.(Boolean(externalPdfFile));
   }, [externalPdfFile, onExternalPdfModeChange]);
 
-  const fullDocument = useMemo((): PmFullDocument | null => {
-    if (!backupMapped || allowedDevices.length === 0) return null;
-    return buildPmFullDocumentMulti(baseTaskContext, allowedDevices, maintenanceRows, backupByDid);
-  }, [backupMapped, allowedDevices, baseTaskContext, maintenanceRows, backupByDid]);
+  const locationMappedCount = allowedDevices.filter((d) => locationByDid.get(d.Did)).length;
+  const allLocationMatched =
+    locationMapped && locationMappedCount === allowedDevices.length && allowedDevices.length > 0;
 
-  /** Inspection rows ที่ match backup จริง (Model + Serial ตรง) */
+  /** Device rows need location text; manual Add row entries always show */
+  const photoStepRows = useMemo(
+    () => maintenanceRows.filter((r) => r.deviceDid == null || r.location.trim() !== ''),
+    [maintenanceRows]
+  );
+
+  const technicianPhotoPreviews = useMemo(
+    () => technicianPhotos.map((p) => p.preview),
+    [technicianPhotos]
+  );
+
+  const fullDocument = useMemo((): PmFullDocument | null => {
+    if (!locationMapped || allowedDevices.length === 0) return null;
+    if (!backupMapped && !backupSkipped) return null;
+    return buildPmFullDocumentMulti(
+      baseTaskContext,
+      allowedDevices,
+      photoStepRows,
+      backupByDid,
+      technicianPhotoPreviews,
+      locationByDid
+    );
+  }, [
+    locationMapped,
+    backupMapped,
+    backupSkipped,
+    allowedDevices,
+    baseTaskContext,
+    photoStepRows,
+    backupByDid,
+    technicianPhotoPreviews,
+    locationByDid,
+  ]);
+
+  /** Inspection rows ที่ match backup จริง */
   const matchedInspections = useMemo(() => {
     if (!fullDocument) return [];
     return allowedDevices.flatMap((device, idx) => {
@@ -219,10 +272,6 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       return inspection ? [inspection] : [];
     });
   }, [fullDocument, allowedDevices, backupByDid]);
-
-  const locationMappedCount = allowedDevices.filter((d) => locationByDid.get(d.Did)).length;
-  const allLocationMatched =
-    locationMapped && locationMappedCount === allowedDevices.length && allowedDevices.length > 0;
 
   const backupMappedCount = matchedInspections.length;
   const allBackupMatched =
@@ -281,9 +330,9 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     setLocationLoading(true);
     setLocationError('');
     try {
-      const records = await parseLocationFile(file);
+      const { records, ...parseMeta } = await parseLocationFileDetailed(file);
       if (!records.length) {
-        setLocationError('No rows with Serial Number and Model found in location file.');
+        setLocationError(buildLocationParseErrorMessage(parseMeta));
         setLocationRecords([]);
         setLocationFileName('');
         setLocationByDid(new Map());
@@ -305,11 +354,22 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       setBackupError('');
       setBackupByDid(new Map());
       setBackupMapped(false);
-      setMaintenanceRows([]);
+      setBackupSkipped(false);
+      setBackupNotice('');
+      const emptyBackup = new Map<number, PmBackupRecord | null>();
+      for (const device of allowedDevices) {
+        emptyBackup.set(device.Did, null);
+      }
+      setMaintenanceRows((prev) =>
+        mergeMaintenanceRowsWithPhotos(
+          prev,
+          buildMaintenanceRowsFromMaps(allowedDevices, nextLoc, emptyBackup)
+        )
+      );
 
       if (unmapped.length) {
         setLocationError(
-          `Could not map ${unmapped.length} device(s) — Serial + Model must match location file. ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? `; +${unmapped.length - 5} more` : ''}`
+          `${unmapped.length} device(s) not matched — you can still continue. ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? `; +${unmapped.length - 5} more` : ''}`
         );
       } else {
         setLocationError('');
@@ -325,6 +385,73 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     }
   };
 
+  const applyPhotosStepFromMaps = useCallback(
+    (
+      nextBackup: Map<number, PmBackupRecord | null>,
+      records: PmMonitoringBackupRecord[] | null,
+      options?: { updateBackupState?: boolean }
+    ) => {
+      const monitoringByDid = new Map<number, PmMonitoringBackupRecord | null>();
+      if (records) {
+        for (const device of allowedDevices) {
+          const loc = locationByDid.get(device.Did);
+          monitoringByDid.set(
+            device.Did,
+            loc ? findMonitoringForLocation(records, loc) ?? null : null
+          );
+        }
+      }
+      const fresh = buildMaintenanceRowsFromMaps(
+        allowedDevices,
+        locationByDid,
+        nextBackup,
+        monitoringByDid
+      );
+      if (options?.updateBackupState !== false) {
+        setBackupByDid(nextBackup);
+      }
+      setMaintenanceRows((prev) => mergeMaintenanceRowsWithPhotos(prev, fresh));
+    },
+    [allowedDevices, locationByDid]
+  );
+
+  useEffect(() => {
+    if (step < 4) {
+      photosRowsInitializedRef.current = false;
+    }
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== 4 || photosRowsInitializedRef.current || !locationMapped) return;
+    photosRowsInitializedRef.current = true;
+    applyPhotosStepFromMaps(
+      backupByDid,
+      monitoringRecords.length > 0 ? monitoringRecords : null,
+      { updateBackupState: false }
+    );
+  }, [step, locationMapped, backupByDid, monitoringRecords, applyPhotosStepFromMaps]);
+
+  const handleSkipBackup = useCallback(() => {
+    if (!locationMapped) {
+      toastWarning('Upload the location file first.');
+      return;
+    }
+    const emptyBackup = new Map<number, PmBackupRecord | null>();
+    for (const device of allowedDevices) {
+      emptyBackup.set(device.Did, null);
+    }
+    setBackupSkipped(true);
+    setBackupMapped(true);
+    setBackupError('');
+    setBackupNotice('');
+    setBackupFileName('');
+    setMonitoringRecords([]);
+    applyPhotosStepFromMaps(emptyBackup, null);
+    photosRowsInitializedRef.current = true;
+    setStep(4);
+    toastSuccess('Skipped backup — location and rack will still be applied on the photo step.');
+  }, [locationMapped, allowedDevices, applyPhotosStepFromMaps, toastSuccess, toastWarning]);
+
   const handleMonitoringBackupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -333,20 +460,28 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       toastWarning('Please select a task in Tasks to Report first.');
       return;
     }
-    if (!allLocationMatched) {
-      toastWarning('Upload and map the location file first.');
+    if (!locationMapped) {
+      toastWarning('Upload the location file first.');
       return;
     }
     setBackupLoading(true);
     setBackupError('');
+    setBackupNotice('');
+    setBackupSkipped(false);
     try {
       const records = await parsePmMonitoringBackupFile(file);
+      const emptyBackup = new Map<number, PmBackupRecord | null>();
+      for (const device of allowedDevices) {
+        emptyBackup.set(device.Did, null);
+      }
+
       if (!records.length) {
-        setBackupError('No rows found in backup file.');
         setMonitoringRecords([]);
-        setBackupFileName('');
-        setBackupByDid(new Map());
-        setBackupMapped(false);
+        setBackupFileName(file.name);
+        setBackupMapped(true);
+        applyPhotosStepFromMaps(emptyBackup, null);
+        setBackupNotice('Backup file has no data rows — inspection fields will be empty (OK).');
+        toastWarning('Backup file is empty — continuing without backup data.');
         return;
       }
 
@@ -358,27 +493,17 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
 
       setMonitoringRecords(records);
       setBackupFileName(file.name);
-      setBackupByDid(nextBackup);
       setBackupMapped(true);
-
-      const monitoringByDid = new Map<number, PmMonitoringBackupRecord | null>();
-      for (const device of allowedDevices) {
-        const loc = locationByDid.get(device.Did);
-        monitoringByDid.set(
-          device.Did,
-          loc ? findMonitoringForLocation(records, loc) ?? null : null
-        );
-      }
-      setMaintenanceRows(
-        buildMaintenanceRowsFromMaps(allowedDevices, locationByDid, nextBackup, monitoringByDid)
-      );
+      applyPhotosStepFromMaps(nextBackup, records);
 
       if (unmapped.length) {
-        setBackupError(
-          `Could not map ${unmapped.length} device(s) — backup row must match location IP + Model. ${unmapped.slice(0, 5).join('; ')}${unmapped.length > 5 ? `; +${unmapped.length - 5} more` : ''}`
-        );
-      } else {
-        setBackupError('');
+        const optionalOnly = unmapped.every((m) => m.includes('optional') || m.includes('no backup row'));
+        const msg = `${mappedCount} matched, ${unmapped.length} without backup (optional). ${unmapped.slice(0, 3).join('; ')}${unmapped.length > 3 ? `; +${unmapped.length - 3} more` : ''}`;
+        if (optionalOnly) {
+          setBackupNotice(msg);
+        } else {
+          setBackupError(msg);
+        }
       }
       toastSuccess(`Mapped backup for ${mappedCount} of ${allowedDevices.length} device(s)`);
     } catch (err) {
@@ -386,6 +511,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       setMonitoringRecords([]);
       setBackupByDid(new Map());
       setBackupMapped(false);
+      setBackupSkipped(false);
     } finally {
       setBackupLoading(false);
     }
@@ -411,14 +537,32 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     }
   };
 
-  const canGoStep3 = Boolean(
-    selectedTaskId && allowedDevices.length > 0 && locationMapped && allLocationMatched
-  );
+  const handleTechnicianPhoto = async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toastWarning('Please upload an image file.');
+      return;
+    }
+    try {
+      const { file: compressed, preview } = await compressImageFile(file);
+      setTechnicianPhotos((prev) => [
+        ...prev,
+        { id: `tech-${Date.now()}-${prev.length}`, file: compressed, preview },
+      ]);
+    } catch {
+      toastError('Failed to read image.');
+    }
+  };
+
+  const removeTechnicianPhoto = (id: string) => {
+    setTechnicianPhotos((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  const canGoStep3 = Boolean(selectedTaskId && allowedDevices.length > 0 && locationMapped);
   const canGoStep4 = Boolean(
-    selectedTaskId && backupMapped && allBackupMatched
+    selectedTaskId && locationMapped && (backupMapped || backupSkipped)
   );
-  const canGoStep5 =
-    maintenanceRows.length > 0 && maintenanceRows.every((r) => r.beforePreview && r.afterPreview);
+  const canGoStep5 = maintenanceRows.length > 0;
 
   const handleExternalPdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -621,23 +765,35 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   const canSaveWizard = Boolean(
     selectedTaskId &&
       locationMapped &&
-      allLocationMatched &&
-      backupMapped &&
-      allBackupMatched &&
+      (backupMapped || backupSkipped) &&
       maintenanceRows.length > 0 &&
-      maintenanceRows.every((r) => r.beforePreview && r.afterPreview) &&
       fullDocument
   );
   const canSaveReport = canSaveExternalPdf || canSaveWizard;
 
+  /** Green = user has moved past this step and its minimum requirement was met */
   const isStepComplete = (id: number) => {
-    if (id === 1) return Boolean(externalPdfFile);
-    if (id === 2) return allLocationMatched;
-    if (id === 3) return allBackupMatched;
-    if (id === 4) return canGoStep5;
-    if (id === 5) return pdfReady || Boolean(fullDocument);
-    return false;
+    if (step <= id) return false;
+
+    switch (id) {
+      case 1:
+        return true;
+      case 2:
+        return locationMapped;
+      case 3:
+        return backupMapped || backupSkipped;
+      case 4:
+        return maintenanceRows.length > 0;
+      case 5:
+        return pdfReady;
+      default:
+        return false;
+    }
   };
+
+  const backupPreviewItems = mappedPreviewExpanded
+    ? matchedInspections
+    : matchedInspections.slice(0, 3);
 
   useImperativeHandle(
     ref,
@@ -664,6 +820,13 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               if (s.id === 3 && !canGoStep3) return;
               if (s.id === 4 && !canGoStep4) return;
               if (s.id === 5 && !canGoStep5) return;
+              if (s.id === 4) {
+                photosRowsInitializedRef.current = true;
+                applyPhotosStepFromMaps(
+                  backupByDid,
+                  monitoringRecords.length > 0 ? monitoringRecords : null
+                );
+              }
               setStep(s.id);
             }}
             className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
@@ -746,7 +909,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               type="button"
               onClick={() => setStep(2)}
               disabled={!selectedTaskId || allowedDevices.length === 0}
-              className="rounded-xl border border-border bg-card px-5 py-2.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              className="rounded-xl border-2 border-violet-600 bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-violet-700 hover:border-violet-700 disabled:opacity-50 disabled:hover:bg-violet-600"
             >
               Or create report from location + backup files →
             </button>
@@ -793,10 +956,9 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                <strong className="text-foreground">{allowedDevices.length}</strong> device(s) in this task — map
-                when <strong className="text-foreground">Serial Number</strong> and{' '}
-                <strong className="text-foreground">Model</strong> match the location file. Rack and room data
-                will auto-fill on the photo step.
+                <strong className="text-foreground">{allowedDevices.length}</strong> device(s) — matched
+                Matched by <strong className="text-foreground">Serial + Model</strong> — partial match is OK;
+                rack/room from the file is copied to the photo step.
               </p>
               <div className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center">
                 <input
@@ -838,7 +1000,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
                         <li key={d.Did}>
                           {d.CI_Name || d.model || d.serial || d.Did}:{' '}
                           {loc
-                            ? `IP ${loc.ipAddress || '—'} · Rack ${buildRackDisplayText(loc) || '—'}`
+                            ? `Rack ${buildRackDisplayText(loc) || '—'} · ${buildLocationDisplayText(loc) || '—'}`
                             : 'not matched'}
                         </li>
                       );
@@ -848,16 +1010,25 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               )}
             </>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <button type="button" onClick={() => setStep(1)} className="rounded-xl border px-4 py-2.5 text-sm">
               Back
             </button>
+            {locationMapped && !backupMapped && !backupSkipped && (
+              <button
+                type="button"
+                onClick={handleSkipBackup}
+                className="rounded-xl border border-slate-300 bg-card px-4 py-2.5 text-sm font-medium hover:bg-muted"
+              >
+                Skip backup → Photos
+              </button>
+            )}
             <button
               type="button"
               disabled={!canGoStep3}
               onClick={() => {
                 if (!canGoStep3) {
-                  toastWarning('Map all devices in the location file before continuing.');
+                  toastWarning('Upload the location file first.');
                   return;
                 }
                 setStep(3);
@@ -876,13 +1047,14 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
           <h2 className="text-lg font-bold">Step 3 — Upload Backup Excel</h2>
           {!selectedTaskId ? (
             <p className="text-sm text-muted-foreground">Select a task first.</p>
-          ) : !allLocationMatched ? (
-            <p className="text-sm text-amber-700">Complete Step 2 (location file) first.</p>
+          ) : !locationMapped ? (
+            <p className="text-sm text-amber-700">Upload the location file in Step 2 first.</p>
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
-                Match backup rows to location using <strong className="text-foreground">IP Address + Model</strong>{' '}
-                (falls back to Serial + Model if backup has no IP). Temperature and remarks come from this file.
+                <strong>Optional.</strong> Match by <strong className="text-foreground">Serial + Model</strong>.
+                Reads Hostname, IP, Software Version, Uptime, Stack/HA, CPU, Memory, Alarm, Temp, File Size, Fan,
+                Backup Config into the inspection PDF.
               </p>
               <div className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center">
                 <input
@@ -905,35 +1077,47 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
                 </label>
               </div>
               {backupError && <p className="text-sm text-amber-700">{backupError}</p>}
-              {backupMapped && backupMappedCount > 0 && (
+              {backupNotice && !backupError && (
+                <p className="text-sm text-blue-800 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                  {backupNotice}
+                </p>
+              )}
+              {backupMapped && (
                 <div
                   className={`rounded-xl border p-4 ${
-                    allBackupMatched ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'
+                    allBackupMatched ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'
                   }`}
                 >
                   <p
                     className={`mb-2 flex items-center gap-2 text-sm font-semibold ${
-                      allBackupMatched ? 'text-emerald-800' : 'text-amber-900'
+                      allBackupMatched ? 'text-emerald-800' : 'text-slate-800'
                     }`}
                   >
                     <CheckCircle2 size={18} />
-                    Backup matched {backupMappedCount} of {allowedDevices.length} device(s)
+                    {backupSkipped
+                      ? 'Backup skipped — inspection fields empty'
+                      : `Backup matched ${backupMappedCount} of ${allowedDevices.length} device(s)`}
+                    {!backupSkipped && !allBackupMatched && backupMappedCount < allowedDevices.length && (
+                      <span className="font-normal text-muted-foreground">
+                        {' '}
+                        (others without backup are OK)
+                      </span>
+                    )}
                   </p>
-                  {(mappedPreviewExpanded ? matchedInspections : matchedInspections.slice(0, 3)).length > 0 && (
+                  {backupMappedCount > 0 && backupPreviewItems.length > 0 && (
                     <div className="space-y-0">
-                      {(mappedPreviewExpanded ? matchedInspections : matchedInspections.slice(0, 3)).map(
-                        (insp, idx) => (
-                          <div
-                            key={`${insp.serialNumber}-${insp.model}-${idx}`}
-                            className="grid grid-cols-2 gap-2 border-t py-2 text-xs first:border-t-0"
-                          >
-                            <span className="col-span-2 font-medium">{insp.serialNumber || '—'}</span>
-                            <span>Model: {insp.model || '—'}</span>
-                            <span>IP: {insp.ipAddress || '—'}</span>
-                            <span>Temp: {insp.temperature || '—'}</span>
-                          </div>
-                        )
-                      )}
+                      {backupPreviewItems.map((insp, idx) => (
+                        <div
+                          key={`${insp.serialNumber}-${insp.model}-${idx}`}
+                          className="grid grid-cols-2 gap-2 border-t py-2 text-xs first:border-t-0"
+                        >
+                          <span className="col-span-2 font-medium">{insp.serialNumber || '—'}</span>
+                          <span>Host: {insp.hostname || '—'}</span>
+                          <span>IP: {insp.ipAddress || '—'}</span>
+                          <span>SW: {insp.osVersion || '—'}</span>
+                          <span>Temp: {insp.temperature || '—'}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                   {matchedInspections.length > 3 && (
@@ -942,25 +1126,41 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
                       onClick={() => setMappedPreviewExpanded((v) => !v)}
                       className="mt-2 text-xs font-medium hover:underline"
                     >
-                      {mappedPreviewExpanded ? 'Show less' : `Show more (+${matchedInspections.length - 3})`}
+                      {mappedPreviewExpanded
+                        ? 'Show less'
+                        : `Show more (+${matchedInspections.length - 3})`}
                     </button>
                   )}
                 </div>
               )}
             </>
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <button type="button" onClick={() => setStep(2)} className="rounded-xl border px-4 py-2.5 text-sm">
               Back
             </button>
+            {locationMapped && !backupMapped && !backupSkipped && (
+              <button
+                type="button"
+                onClick={handleSkipBackup}
+                className="rounded-xl border border-slate-300 bg-card px-4 py-2.5 text-sm font-medium hover:bg-muted"
+              >
+                Skip backup
+              </button>
+            )}
             <button
               type="button"
               disabled={!canGoStep4}
               onClick={() => {
                 if (!canGoStep4) {
-                  toastWarning('Map backup file (IP + Model) for all devices before continuing.');
+                  toastWarning('Upload a backup file or click Skip backup to continue.');
                   return;
                 }
+                applyPhotosStepFromMaps(
+                  backupByDid,
+                  monitoringRecords.length > 0 ? monitoringRecords : null
+                );
+                photosRowsInitializedRef.current = true;
                 setStep(4);
               }}
               className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50"
@@ -990,20 +1190,30 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             </button>
           </div>
           <p className="text-sm text-muted-foreground">
-            Location and rack are filled from the location file. Edit if needed, then upload before/after photos.
+            Shows devices with <strong>location filled</strong> from the location file. Use{' '}
+            <strong>Add row</strong> for extra items. Photos are optional.
           </p>
+          {photoStepRows.length === 0 && (
+            <p className="text-sm text-amber-700">
+              No devices with location data — check location file columns or click Add row.
+            </p>
+          )}
           <div className="space-y-4">
-            {maintenanceRows.map((row, idx) => (
+            {photoStepRows.map((row, idx) => (
               <div key={row.id} className="rounded-xl border border-border p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <span className="font-semibold">
                     {row.deviceLabel ? `${row.deviceLabel}` : `Row ${idx + 1}`}
                   </span>
-                  {maintenanceRows.length > allowedDevices.length && (
-                    <button type="button" onClick={() => setMaintenanceRows((r) => r.filter((x) => x.id !== row.id))} className="text-red-500">
-                      <Trash2 size={16} />
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setMaintenanceRows((r) => r.filter((x) => x.id !== row.id))}
+                    className="flex items-center gap-1 text-sm text-red-500 hover:text-red-600"
+                    title="Remove this row"
+                  >
+                    <Trash2 size={16} />
+                    Remove
+                  </button>
                 </div>
                 <div className="mb-3 grid grid-cols-2 gap-3">
                   <div>
@@ -1074,6 +1284,54 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
               </div>
             ))}
           </div>
+
+          <div className="rounded-xl border border-border bg-muted/40 p-4">
+            <p className="text-sm font-semibold">Technician photo / รูปผู้ปฏิบัติงาน</p>
+            {technicianName.trim() ? (
+              <p className="mt-1 text-xs text-muted-foreground">{technicianName}</p>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-start gap-3">
+              {technicianPhotos.map((photo) => (
+                <div key={photo.id} className="flex flex-col items-center gap-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.preview}
+                    alt="Technician"
+                    className="h-28 w-28 rounded-lg border object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeTechnicianPhoto(photo.id)}
+                    className="text-xs text-red-500 hover:underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <div className="flex flex-col gap-2">
+                <input
+                  ref={technicianPhotoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleTechnicianPhoto(f);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => technicianPhotoInputRef.current?.click()}
+                  className="flex h-28 w-28 flex-col items-center justify-center gap-1 rounded-lg border border-dashed bg-muted text-muted-foreground hover:border-blue-400 hover:text-blue-600"
+                >
+                  <Plus size={22} />
+                  <span className="text-xs font-medium">Add photo</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-between">
             <button type="button" onClick={() => setStep(3)} className="rounded-xl border px-4 py-2 text-sm">Back</button>
             <button type="button" disabled={!canGoStep5} onClick={() => setStep(5)} className="rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white disabled:opacity-50">
@@ -1087,7 +1345,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       {step === 5 && fullDocument && (
         <div className="space-y-6 rounded-2xl border border-border bg-card p-6">
           <h2 className="text-lg font-bold">Step 5 — Preview & Download PDF</h2>
-          <div className="overflow-auto rounded-xl border border-border">
+          <div className="max-h-[min(72vh,900px)] overflow-y-auto overflow-x-auto rounded-xl border border-border bg-muted/40">
             <PmWorkOrderDocument data={fullDocument} withPreviewShell />
           </div>
           <div className="flex flex-wrap gap-3">

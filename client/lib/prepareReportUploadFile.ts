@@ -1,4 +1,4 @@
-import { compressImageFile } from '@/lib/compressImage';
+import { compressImageFile, REPORT_IMAGE_JPEG_QUALITY, REPORT_IMAGE_MAX_WIDTH } from '@/lib/compressImage';
 import {
   compressPdfFile,
   formatFileSize,
@@ -7,6 +7,9 @@ import {
 } from '@/lib/compressPdf';
 
 export { formatFileSize, REPORT_UPLOAD_MAX_BYTES, REPORT_UPLOAD_TARGET_BYTES };
+
+/** เป้าหมายขนาดต่อรูปก่อนอัปโหลด — เกินค่อยบีบเพิ่ม */
+const REPORT_IMAGE_UPLOAD_TARGET_BYTES = 750 * 1024;
 
 /** เตรียมไฟล์ก่อนอัปโหลด report — บีบอัด PDF/รูปให้ต่ำกว่า limit backend */
 export async function prepareReportUploadFile(
@@ -25,13 +28,23 @@ export async function prepareReportUploadFile(
   }
 
   if (fileType === 'image') {
-    const { file: compressed } = await compressImageFile(file);
-    if (compressed.size > REPORT_UPLOAD_MAX_BYTES) {
+    const attempts: Array<{ maxWidth: number; quality: number }> = [
+      { maxWidth: REPORT_IMAGE_MAX_WIDTH, quality: REPORT_IMAGE_JPEG_QUALITY },
+      { maxWidth: 1024, quality: 0.72 },
+      { maxWidth: 896, quality: 0.65 },
+    ];
+    let last: File = file;
+    for (const { maxWidth, quality } of attempts) {
+      const { file: compressed } = await compressImageFile(file, maxWidth, quality);
+      last = compressed;
+      if (compressed.size <= REPORT_IMAGE_UPLOAD_TARGET_BYTES) return compressed;
+    }
+    if (last.size > REPORT_UPLOAD_MAX_BYTES) {
       throw new Error(
-        `Image too large after compression (${formatFileSize(compressed.size)}). Maximum upload size is ${formatFileSize(REPORT_UPLOAD_MAX_BYTES)}.`
+        `Image too large after compression (${formatFileSize(last.size)}). Maximum upload size is ${formatFileSize(REPORT_UPLOAD_MAX_BYTES)}.`
       );
     }
-    return compressed;
+    return last;
   }
 
   if (file.size > REPORT_UPLOAD_MAX_BYTES) {

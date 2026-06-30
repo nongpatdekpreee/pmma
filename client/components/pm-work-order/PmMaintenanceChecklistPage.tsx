@@ -17,6 +17,8 @@ function PhotoCell({ src, label }: { src?: string | null; label: string }) {
 }
 
 export function PmMaintenanceChecklistPage({ data }: { data: PmMaintenanceChecklistSection }) {
+  const technicianPhotos = (data.technicianPhotoSrcs ?? []).filter((src) => src.trim() !== '');
+
   return (
     <section className="pm-wo-page" aria-label="PM Maintenance checklist">
       <PmWorkOrderHeader />
@@ -58,6 +60,29 @@ export function PmMaintenanceChecklistPage({ data }: { data: PmMaintenanceCheckl
           ))}
         </tbody>
       </table>
+
+      <div className="pm-wo-technician-footer">
+        <p className="pm-wo-technician-footer-label">Technician / ผู้ปฏิบัติงาน</p>
+        {data.technicianName ? (
+          <p className="pm-wo-technician-footer-name">{data.technicianName}</p>
+        ) : null}
+        {technicianPhotos.length > 0 ? (
+          <div className="pm-wo-technician-photos">
+            {technicianPhotos.map((src, idx) => (
+              <div key={`${src}-${idx}`} className="pm-wo-technician-photo-wrap">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={src}
+                  alt={`Technician ${idx + 1}`}
+                  className="pm-wo-technician-photo"
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="pm-wo-technician-photo-placeholder">—</div>
+        )}
+      </div>
     </section>
   );
 }

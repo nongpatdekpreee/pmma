@@ -1,8 +1,10 @@
 import { PM_DEFAULT_PROJECT_SUFFIX, PM_INSPECTION_TITLE } from './constants';
+import { buildRackDisplayText } from './parseLocationFile';
 import type {
   PmBackupRecord,
   PmFullDocument,
   PmInspectionSection,
+  PmLocationRecord,
   PmMaintenanceChecklistSection,
   PmMaintenanceItemDraft,
   PmMaintenanceItemRow,
@@ -39,6 +41,7 @@ function emptyInspection(ctx: PmTaskContext): PmInspectionSection {
     fan: '',
     systemUptime: '',
     backupConfig: '',
+    fileSizeKb: '',
     hardwareCleaning: '',
     comment: '',
   };
@@ -76,20 +79,33 @@ function formatChecklistDate(value?: string): string {
   return value.trim();
 }
 
+/** Hostname, IP, Rack/RU — location file only (same rack text as photo step) */
+function applyLocationFieldsToInspection(
+  inspection: PmInspectionSection,
+  loc: PmLocationRecord
+): PmInspectionSection {
+  return {
+    ...inspection,
+    hostname: (loc.hostname ?? '').trim(),
+    ipAddress: (loc.ipAddress ?? '').trim(),
+    rackRu: buildRackDisplayText(loc),
+  };
+}
+
 export function applyBackupToInspection(
   inspection: PmInspectionSection,
   backup: PmBackupRecord
 ): PmInspectionSection {
   return {
     ...inspection,
-    equipmentType: backup.equipmentType || inspection.equipmentType,
+    equipmentType: inspection.equipmentType,
     equipmentLocation: backup.equipmentLocation || inspection.equipmentLocation,
-    hostname: backup.hostname || inspection.hostname,
+    hostname: inspection.hostname,
     product: backup.product || inspection.product,
     model: backup.model || inspection.model,
-    rackRu: backup.rackRu || inspection.rackRu,
+    rackRu: inspection.rackRu,
     osVersion: backup.osVersion || inspection.osVersion,
-    ipAddress: backup.ipAddress || inspection.ipAddress,
+    ipAddress: inspection.ipAddress,
     serialNumber: backup.serialNumber || inspection.serialNumber,
     stackNo: backup.stackNo || inspection.stackNo,
     stackRole: backup.stackRole || inspection.stackRole,
@@ -101,6 +117,7 @@ export function applyBackupToInspection(
     fan: backup.fan || inspection.fan,
     systemUptime: backup.systemUptime || inspection.systemUptime,
     backupConfig: backup.backupConfig || inspection.backupConfig,
+    fileSizeKb: backup.fileSizeKb || inspection.fileSizeKb,
     hardwareCleaning: backup.hardwareCleaning || inspection.hardwareCleaning,
   };
 }
@@ -137,15 +154,32 @@ type DeviceLike = {
   model?: string;
   CI_Name?: string;
   Location2?: string;
+  role?: string;
+  roleName?: string;
 };
+
+/** Type of equipment = device role (e.g. Core Switch), never model or backup fields */
+export function deviceRoleLabel(device: DeviceLike): string {
+  return (device.roleName ?? device.role ?? '').trim();
+}
+
+function applyDeviceRoleToInspection(
+  inspection: PmInspectionSection,
+  device: DeviceLike
+): PmInspectionSection {
+  return {
+    ...inspection,
+    equipmentType: deviceRoleLabel(device),
+  };
+}
 
 export function buildDeviceTaskContext(base: PmTaskContext, device: DeviceLike): PmTaskContext {
   return {
     ...base,
     deviceSerial: (device.serial ?? '').trim(),
-    deviceModel: (device.model ?? device.CI_Name ?? '').trim(),
+    deviceModel: (device.model ?? '').trim(),
     deviceLocation: (device.Location2 ?? '').trim(),
-    deviceType: (device.CI_Name ?? '').trim(),
+    deviceType: deviceRoleLabel(device),
     location: (device.Location2 ?? '').trim(),
   };
 }
@@ -164,6 +198,8 @@ export function buildPmFullDocument(
     date: formatChecklistDate(ctx.pmDate),
     site: (ctx.siteName ?? '').trim(),
     rows: maintenanceDraftsToRows(maintenanceDrafts),
+    technicianName: (ctx.technicianName ?? '').trim(),
+    technicianPhotoSrcs: [],
   };
 
   return { inspections: [inspection], maintenanceChecklist };
@@ -173,7 +209,9 @@ export function buildPmFullDocumentMulti(
   baseCtx: PmTaskContext,
   devices: DeviceLike[],
   maintenanceDrafts: PmMaintenanceItemDraft[],
-  backupByDid: Map<number, PmBackupRecord | null> = new Map()
+  backupByDid: Map<number, PmBackupRecord | null> = new Map(),
+  technicianPhotoSrcs: string[] = [],
+  locationByDid: Map<number, PmLocationRecord | null> = new Map()
 ): PmFullDocument {
   const noteByDid = new Map<number, string>();
   for (const row of maintenanceDrafts) {
@@ -187,6 +225,9 @@ export function buildPmFullDocumentMulti(
     let inspection = emptyInspection(ctx);
     const backup = backupByDid.get(device.Did);
     if (backup) inspection = applyBackupToInspection(inspection, backup);
+    const loc = locationByDid.get(device.Did);
+    if (loc) inspection = applyLocationFieldsToInspection(inspection, loc);
+    inspection = applyDeviceRoleToInspection(inspection, device);
     inspection.comment = noteByDid.get(device.Did) ?? '';
     return inspection;
   });
@@ -195,6 +236,8 @@ export function buildPmFullDocumentMulti(
     date: formatChecklistDate(baseCtx.pmDate),
     site: (baseCtx.siteName ?? '').trim(),
     rows: maintenanceDraftsToRows(maintenanceDrafts),
+    technicianName: (baseCtx.technicianName ?? '').trim(),
+    technicianPhotoSrcs: technicianPhotoSrcs.filter((src) => src.trim() !== ''),
   };
 
   return { inspections, maintenanceChecklist };

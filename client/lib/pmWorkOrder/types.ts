@@ -22,17 +22,28 @@ export interface PmLocationRecord {
   status?: string;
 }
 
-/** Row from monitoring / backup Excel (field readings) */
+/** Row from monitoring / backup Excel (field readings) — matched by Serial + Model */
 export interface PmMonitoringBackupRecord {
   serialNumber: string;
   model: string;
+  hostname?: string;
   ipAddress?: string;
+  osVersion?: string;
+  systemUptime?: string;
+  stackNo?: string;
+  stackRole?: string;
+  cpuUsage?: string;
+  memoryUtilization?: string;
+  environmentAlarm?: string;
+  powerSupply?: string;
+  temperature?: string;
+  fileSizeKb?: string;
+  fan?: string;
+  backupConfig?: string;
+  remark?: string;
+  /** Legacy / display */
   equipmentName?: string;
   manufacturer?: string;
-  temperature?: string;
-  remark?: string;
-  backupReference?: string;
-  operatingStatus?: string;
   gps?: string;
   substation?: string;
   installationDate?: string;
@@ -58,6 +69,7 @@ export interface PmBackupRecord {
   fan?: string;
   systemUptime?: string;
   backupConfig?: string;
+  fileSizeKb?: string;
   hardwareCleaning?: string;
 }
 
@@ -88,6 +100,7 @@ export interface PmInspectionSection {
   fan: string;
   systemUptime: string;
   backupConfig: string;
+  fileSizeKb: string;
   hardwareCleaning: string;
   comment: string;
 }
@@ -106,6 +119,9 @@ export interface PmMaintenanceChecklistSection {
   date: string;
   site: string;
   rows: PmMaintenanceItemRow[];
+  technicianName?: string;
+  /** Preview URLs (blob:) for technician photos in PDF */
+  technicianPhotoSrcs?: string[];
 }
 
 export interface PmFullDocument {

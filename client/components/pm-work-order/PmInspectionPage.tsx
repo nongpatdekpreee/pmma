@@ -116,20 +116,15 @@ export function PmInspectionPage({ data }: { data: PmInspectionSection }) {
               <ChecklistPairItem label="Backup Config" value={data.backupConfig} />
               <ChecklistPairItem label="Hardware cleaning" value={data.hardwareCleaning} />
             </div>
+          
           </div>
         </div>
 
         <div className="pm-wo-comment-section">
           <p className="pm-wo-comment-heading">Comment/Remark :</p>
-          {data.comment ? (
+          {data.comment.trim() ? (
             <p className="pm-wo-comment-text">{data.comment}</p>
-          ) : (
-            <div className="pm-wo-comment-rules">
-              {Array.from({ length: 8 }, (_, i) => (
-                <div key={i} className="pm-wo-comment-rule" />
-              ))}
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
     </section>

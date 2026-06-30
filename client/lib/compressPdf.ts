@@ -1,17 +1,16 @@
 /** ลดขนาด PDF ก่อนอัปโหลด — rasterize หน้าเป็น JPEG แล้วสร้าง PDF ใหม่ (ตรงกับ limit multer 30MB) */
 
 export const REPORT_UPLOAD_MAX_BYTES = 30 * 1024 * 1024;
-/** เป้าหมายบีบอัด — เผื่อ margin ใต้ limit backend */
-export const REPORT_UPLOAD_TARGET_BYTES = 28 * 1024 * 1024;
+/** เป้าหมายบีบอัดก่อนอัปโหลด — บีบเฉพาะ PDF ที่ใหญ่มาก (ข้อความชัดจากการสร้าง PDF แล้ว) */
+export const REPORT_UPLOAD_TARGET_BYTES = 10 * 1024 * 1024;
 
 const PX_TO_MM = 25.4 / 96;
 
 type PageRaster = { widthPx: number; heightPx: number; dataUrl: string };
 
 const COMPRESS_ATTEMPTS: Array<{ scale: number; quality: number }> = [
-  { scale: 2, quality: 0.88 },
   { scale: 1.5, quality: 0.82 },
-  { scale: 1.25, quality: 0.75 },
+  { scale: 1.25, quality: 0.76 },
   { scale: 1, quality: 0.68 },
   { scale: 0.85, quality: 0.6 },
   { scale: 0.72, quality: 0.52 },

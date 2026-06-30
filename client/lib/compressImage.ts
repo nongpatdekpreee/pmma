@@ -1,8 +1,12 @@
+/** ค่าเริ่มต้นสำหรับรูปใน PM/MA report — สมดุลความคมชัดกับขนาดไฟล์ */
+export const REPORT_IMAGE_MAX_WIDTH = 1152;
+export const REPORT_IMAGE_JPEG_QUALITY = 0.78;
+
 /** ลดขนาดรูปก่อนฝังใน PDF — เร็วขึ้นและไฟล์เล็กลง */
 export async function compressImageFile(
   file: File,
-  maxWidth = 1280,
-  quality = 0.82
+  maxWidth = REPORT_IMAGE_MAX_WIDTH,
+  quality = REPORT_IMAGE_JPEG_QUALITY
 ): Promise<{ file: File; preview: string }> {
   const bitmap = await createImageBitmap(file);
   const scale = Math.min(1, maxWidth / Math.max(bitmap.width, 1));
@@ -17,6 +21,8 @@ export async function compressImageFile(
     bitmap.close();
     throw new Error('Cannot compress image');
   }
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(bitmap, 0, 0, w, h);
   bitmap.close();
 

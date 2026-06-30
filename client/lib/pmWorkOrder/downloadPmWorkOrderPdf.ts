@@ -13,9 +13,23 @@ import {
 } from '@/lib/maWorkOrder/sanitizeColorsForHtml2Canvas';
 
 const A4_WIDTH_PX = 794;
-/** scale 2 + JPEG — ลดขนาด PDF (มีรูป before/after ฝังในหน้า maintenance) */
-const PDF_CAPTURE_SCALE = 2;
-const PDF_JPEG_QUALITY = 0.88;
+
+/** หน้าเอกสาร (ตัวอักษร) — คมชัด */
+const PDF_TEXT_PAGE_SCALE = 1.85;
+const PDF_TEXT_PAGE_JPEG_QUALITY = 0.86;
+
+/** หน้า checklist (รูป before/after) — รูปบีบอัดแล้ว ลด scale ประหยัดขนาด */
+const PDF_PHOTO_PAGE_SCALE = 1.4;
+const PDF_PHOTO_PAGE_JPEG_QUALITY = 0.76;
+
+type PdfPageCaptureProfile = { scale: number; jpegQuality: number };
+
+function captureProfileForPage(pageEl: HTMLElement): PdfPageCaptureProfile {
+  if (pageEl.classList.contains('pm-wo-inspection-page')) {
+    return { scale: PDF_TEXT_PAGE_SCALE, jpegQuality: PDF_TEXT_PAGE_JPEG_QUALITY };
+  }
+  return { scale: PDF_PHOTO_PAGE_SCALE, jpegQuality: PDF_PHOTO_PAGE_JPEG_QUALITY };
+}
 
 let pmExportCssCache: string | null = null;
 
@@ -103,6 +117,14 @@ function preparePmInspectionForPdfCapture(root: HTMLElement): void {
     if (!(node instanceof HTMLElement)) return;
     node.style.setProperty('box-sizing', 'border-box', 'important');
     node.style.setProperty('line-height', '1.45', 'important');
+  });
+
+  root.querySelectorAll(
+    '.pm-wo-field-line-label, .pm-wo-checklist-label, .pm-wo-underline-value, .pm-wo-comment-heading, .pm-wo-comment-text'
+  ).forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.setProperty('-webkit-font-smoothing', 'antialiased', 'important');
+    node.style.setProperty('text-rendering', 'geometricPrecision', 'important');
   });
 
   root.querySelectorAll('.pm-wo-doc-frame').forEach((node) => {
@@ -193,10 +215,13 @@ async function capturePdf(data: PmFullDocument): Promise<jsPDF> {
       pageEl.style.backgroundColor = '#ffffff';
       inlineResolvedColorsForHtml2Canvas(iframeWin, pageEl);
       inlineExportFontFamily(iframeWin, pageEl);
-      preparePmInspectionForPdfCapture(pageEl);
+      if (pageEl.classList.contains('pm-wo-inspection-page')) {
+        preparePmInspectionForPdfCapture(pageEl);
+      }
+      const { scale, jpegQuality } = captureProfileForPage(pageEl);
 
       const canvas = await html2canvas(pageEl, {
-        scale: PDF_CAPTURE_SCALE,
+        scale,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
@@ -211,11 +236,13 @@ async function capturePdf(data: PmFullDocument): Promise<jsPDF> {
             clonedEl.style.maxWidth = `${pageWidth}px`;
             clonedEl.style.overflow = 'hidden';
             clonedEl.style.boxSizing = 'border-box';
-            preparePmInspectionForPdfCapture(clonedEl);
+            if (clonedEl.classList.contains('pm-wo-inspection-page')) {
+              preparePmInspectionForPdfCapture(clonedEl);
+            }
           }
         },
       });
-      const imgData = canvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY);
+      const imgData = canvas.toDataURL('image/jpeg', jpegQuality);
       if (i > 0) pdf.addPage();
       addCanvasToPdfPage(pdf, canvas, imgData, pageW, pageH);
     }

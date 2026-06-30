@@ -137,9 +137,17 @@ interface PMReport {
   technicianName?: string;
   pmDate?: string;
   comment?: string;
-  uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
+  uploadedFiles?: Array<{ name: string; type: string; path?: string; slot?: string }>;
   createdAt?: string;
   site_name?: string;
+}
+
+/** PM report — รูปช่างฝังใน PDF แล้ว แสดงเฉพาะเอกสาร (PDF) ใน Uploaded Files */
+function getPmReportDocumentFiles(
+  files: Array<{ name: string; type: string; path?: string; slot?: string }> | undefined
+): Array<{ name: string; type: string; path?: string; slot?: string }> {
+  if (!files?.length) return [];
+  return files.filter((f) => f.type !== 'image' && !f.slot?.startsWith('technician_photo'));
 }
 
 type ReportInformationFields = {
@@ -2672,12 +2680,19 @@ function ReportPageContent() {
                             <Cpu size={12} className="text-muted-foreground" />
                             <span>{getReportDevices(report).length} Devices</span>
                           </div>
-                          {report.uploadedFiles && report.uploadedFiles.length > 0 && (
+                          {(() => {
+                            const docFiles =
+                              tab === 'pm'
+                                ? getPmReportDocumentFiles(report.uploadedFiles)
+                                : report.uploadedFiles ?? [];
+                            if (docFiles.length === 0) return null;
+                            return (
                             <div className="flex items-center gap-1.5">
                               <FileText size={12} className="text-muted-foreground" />
-                              <span>{report.uploadedFiles.length} file{report.uploadedFiles.length > 1 ? 's' : ''}</span>
+                              <span>{docFiles.length} file{docFiles.length > 1 ? 's' : ''}</span>
                             </div>
-                          )}
+                            );
+                          })()}
                           {report.comment && (
                             <div className="flex items-center gap-1.5">
                               <MessageSquare size={12} className="text-muted-foreground" />
@@ -3482,8 +3497,14 @@ function ReportPageContent() {
                   </div>
                 )}
 
-                {/* Uploaded Files */}
-                {selectedReport.uploadedFiles && selectedReport.uploadedFiles.length > 0 && (
+                {/* Uploaded Files — PM: PDF เท่านั้น (รูปช่างฝังใน PDF แล้ว) */}
+                {(() => {
+                  const displayFiles =
+                    tab === 'pm'
+                      ? getPmReportDocumentFiles(selectedReport.uploadedFiles)
+                      : selectedReport.uploadedFiles ?? [];
+                  if (displayFiles.length === 0) return null;
+                  return (
                   <div>
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
@@ -3492,7 +3513,7 @@ function ReportPageContent() {
                       <h3 className="font-bold text-foreground">Uploaded Files</h3>
                     </div>
                     <div className="flex flex-wrap gap-3">
-                      {selectedReport.uploadedFiles.map((f, i) => (
+                      {displayFiles.map((f, i) => (
                         f.path ? (
                           <button
                             key={i}
@@ -3520,7 +3541,8 @@ function ReportPageContent() {
                       ))}
                     </div>
                   </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
           </div>,
