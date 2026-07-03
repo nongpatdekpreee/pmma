@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, Calendar, CheckCircle2, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { getCompletedTasks, getInprocessTasks, getOverdueTasks, getPendingTasks, getSitesLocation } from '@/lib/api';
 import { asRecord, getErrorMessage, readString } from '@/lib/unknownUtil';
+import { buildTaskSiteDisplayTitle } from '@/lib/taskDisplayTitle';
 
 type TaskType = 'PM' | 'MA';
 
@@ -127,26 +128,17 @@ function normalizeTask(raw: unknown): OverdueTask | null {
   const status = r.status ?? undefined;
   const isMA = taskType === 'MA';
 
-  // Prefer consistent "location - site" title similar to calendar page
-  let siteName = readString(r, 'siteName') ?? readString(r, 'site_name') ?? readString(r, 'Sname') ?? '';
-  let location = readString(r, 'location') ?? readString(r, 'Location2') ?? '';
-  if (!location && siteName && String(siteName).includes(' - ')) {
-    const parts = String(siteName).split(' - ');
-    const sitePart = parts[0]?.trim() || '';
-    const locationPart = parts.slice(1).join(' - ').trim();
-    if (locationPart) {
-      location = locationPart;
-      siteName = sitePart;
-    }
-  }
-  const title =
-    location && siteName
-      ? `${location} - ${siteName}`
-      : location
-        ? String(location)
-        : siteName
-          ? String(siteName)
-          : String(r.vendorName ?? r.vendor_name ?? (isMA ? 'Maintenance Agreement' : 'Preventive Maintenance'));
+  // Prefer consistent "Province - location" title similar to calendar page
+  const siteName = readString(r, 'siteName') ?? readString(r, 'site_name') ?? readString(r, 'Sname') ?? '';
+  const location = readString(r, 'location') ?? readString(r, 'Location2') ?? '';
+  const province = readString(r, 'province') ?? readString(r, 'Province') ?? '';
+  const title = buildTaskSiteDisplayTitle({
+    taskType,
+    province,
+    location,
+    siteName,
+    vendorName: readString(r, 'vendorName') ?? readString(r, 'vendor_name'),
+  });
 
   const engineers = r.engineers ?? r.Eng_ids ?? [];
   const engineer =

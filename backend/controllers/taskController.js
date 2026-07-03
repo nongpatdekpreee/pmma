@@ -7,7 +7,7 @@ const { getTeamsActor } = require('../utils/teamsActor');
 const { collectTaskChanges } = require('../utils/taskChangeSummary');
 const { MA_BROKEN_DEVICE_ASSET_STATE_SET } = require('../config/maBrokenAssetState');
 const { assignDeviceToInStoreWarehouse } = require('../config/inStoreSite');
-const { resolveTaskContractJoin } = require('../lib/taskContractJoin');
+const { resolveTaskContractJoin, resolveTaskSiteLocationSql } = require('../lib/taskContractJoin');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
@@ -444,6 +444,18 @@ const normalizeAssignedServiceFromBody = (body) => {
 const mapTaskRow = (row) => {
   const slaVal = row.contract_sla_term;
   const sofRaw = row.contract_sof_name != null ? String(row.contract_sof_name).trim() : '';
+  const siteLocation =
+    row.site_location != null && String(row.site_location).trim() !== ''
+      ? String(row.site_location).trim()
+      : null;
+  const siteProvince =
+    row.site_province != null && String(row.site_province).trim() !== ''
+      ? String(row.site_province).trim()
+      : null;
+  const siteDbName =
+    row.site_db_name != null && String(row.site_db_name).trim() !== ''
+      ? String(row.site_db_name).trim()
+      : null;
   return {
   id: row.id,
   contractId: row.contract_id,
@@ -452,10 +464,15 @@ const mapTaskRow = (row) => {
   taskType: row.task_type,
   siteId: row.site_id,
   siteName: row.site_name,
+  ...(siteDbName ? { siteDbName } : {}),
+  ...(siteLocation ? { location: siteLocation } : {}),
+  ...(siteProvince ? { province: siteProvince } : {}),
   vendorName: row.vendor_name,
   vendorTel: row.vendor_tel,
   reporterName: row.reporter_name,
   reporterTel: row.reporter_tel,
+  reporterPosition: row.reporter_position,
+  reporterEmail: row.reporter_email,
   ticket: row.ticket,
   rootCause: row.root_cause,
   resolution: row.resolution,
@@ -488,6 +505,26 @@ const mapTaskRow = (row) => {
   updatedAt: row.updated_at,
 };
 };
+
+async function buildTaskQueryFragments(existingSiteLocationAlias) {
+  const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+  const siteLoc = resolveTaskSiteLocationSql(
+    existingSiteLocationAlias ? { existingSiteLocationAlias } : {},
+  );
+  return {
+    select: `${contractSelect}, ${siteLoc.select}`,
+    join: `${contractJoin} ${siteLoc.join}`.trim(),
+  };
+}
+
+async function buildTaskQueryFragmentsWithSlFilter() {
+  const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+  const siteLoc = resolveTaskSiteLocationSql({ existingSiteLocationAlias: 'sl' });
+  return {
+    select: `${contractSelect}, ${siteLoc.select}`,
+    join: `${contractJoin} LEFT JOIN sites_location sl ON sl.SLid = t.site_id ${siteLoc.join}`.trim(),
+  };
+}
 // devices_history is populated by DB trigger (trg_devices_update)
 const updateDeviceAssetState = async (deviceId, newState) => {
   const [current] = await db.execute('SELECT Asset_State FROM devices WHERE Did = ?', [deviceId]);
@@ -595,6 +632,8 @@ const createTask = async (req, res) => {
       vendorTel,
       reporterName,
       reporterTel,
+      reporterPosition,
+      reporterEmail,
       ticket,
       rootCause,
       resolution,
@@ -724,6 +763,22 @@ const createTask = async (req, res) => {
           : null;
       insertValues.push(asVal);
     }
+    if (await taskColumnExists('reporter_position')) {
+      insertColumns.push('reporter_position');
+      insertValues.push(
+        String(taskType || '').toUpperCase() === 'MA' && reporterPosition
+          ? String(reporterPosition).trim() || null
+          : null
+      );
+    }
+    if (await taskColumnExists('reporter_email')) {
+      insertColumns.push('reporter_email');
+      insertValues.push(
+        String(taskType || '').toUpperCase() === 'MA' && reporterEmail
+          ? String(reporterEmail).trim() || null
+          : null
+      );
+    }
     const insertSql = `INSERT INTO tasks (${insertColumns.join(', ')}) VALUES (${insertColumns.map(() => '?').join(', ')})`;
 
     await db.execute(insertSql, insertValues);
@@ -733,10 +788,10 @@ const createTask = async (req, res) => {
       await syncMaReferTicketOnDevices(assets, ticket, safeParseInt(replacementDeviceId));
     }
 
-    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+    const { select, join } = await buildTaskQueryFragments();
     const [rows] = await db.execute(
-      `SELECT t.*, ${contractSelect}
-       FROM tasks t ${contractJoin} WHERE t.id = ?`,
+      `SELECT t.*, ${select}
+       FROM tasks t ${join} WHERE t.id = ?`,
       [finalTaskId]
     );
     const createdTask = mapTaskRow(rows[0]);
@@ -766,11 +821,11 @@ const createTask = async (req, res) => {
 // GET /api/tasks
 const getTasks = async (_req, res) => {
   try {
-    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+    const { select, join } = await buildTaskQueryFragments();
     const [rows] = await db.execute(
-      `SELECT t.*, ${contractSelect}
+      `SELECT t.*, ${select}
        FROM tasks t
-       ${contractJoin}
+       ${join}
        ORDER BY t.start_date DESC, t.id DESC`
     );
     res.status(200).json({
@@ -792,11 +847,11 @@ const getTasks = async (_req, res) => {
 const getTaskById = async (req, res) => {
   try {
     const { id } = req.params;
-    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+    const { select, join } = await buildTaskQueryFragments();
     const [rows] = await db.execute(
-      `SELECT t.*, ${contractSelect}
+      `SELECT t.*, ${select}
        FROM tasks t
-       ${contractJoin}
+       ${join}
        WHERE t.id = ?`,
       [id]
     );
@@ -828,6 +883,8 @@ const updateTask = async (req, res) => {
       vendorTel,
       reporterName,
       reporterTel,
+      reporterPosition,
+      reporterEmail,
       ticket,
       rootCause,
       resolution,
@@ -901,6 +958,12 @@ const updateTask = async (req, res) => {
     if (vendorTel !== undefined) addUpdate('vendor_tel', vendorTel || null);
     if (reporterName !== undefined) addUpdate('reporter_name', reporterName || null);
     if (reporterTel !== undefined) addUpdate('reporter_tel', reporterTel || null);
+    if (reporterPosition !== undefined && (await taskColumnExists('reporter_position'))) {
+      addUpdate('reporter_position', reporterPosition || null);
+    }
+    if (reporterEmail !== undefined && (await taskColumnExists('reporter_email'))) {
+      addUpdate('reporter_email', reporterEmail || null);
+    }
     if (ticket !== undefined) addUpdate('ticket', ticket || null);
     if (rootCause !== undefined) addUpdate('root_cause', rootCause || null);
     if (resolution !== undefined) addUpdate('resolution', resolution || null);
@@ -1078,7 +1141,14 @@ const updateTask = async (req, res) => {
       }
     }
 
-    const [rows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
+    const { select, join } = await buildTaskQueryFragments();
+    const [rows] = await db.execute(
+      `SELECT t.*, ${select}
+       FROM tasks t
+       ${join}
+       WHERE t.id = ?`,
+      [id]
+    );
     const updatedTask = mapTaskRow(rows[0]);
 
     if (taskChanges.length > 0) {
@@ -1240,12 +1310,11 @@ const getOverdueTasks = async (req, res) => {
         message: 'Please specify sid/lid as a number',
       });
     }
-    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+    const { select, join } = await buildTaskQueryFragmentsWithSlFilter();
     const [rows] = await db.execute(
-      `SELECT t.*, ${contractSelect}
+      `SELECT t.*, ${select}
        FROM tasks t
-       ${contractJoin}
-       LEFT JOIN sites_location sl ON sl.SLid = t.site_id
+       ${join}
        WHERE t.status = 'not-started' AND t.end_date < CURRENT_DATE AND t.task_type = ?
          AND (? IS NULL OR sl.Sid = ?)
          AND (? IS NULL OR sl.lid = ?)
@@ -1285,12 +1354,11 @@ const getCompletedTasks = async (req, res) => {
         message: 'Please specify sid/lid as a number',
       });
     }
-    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+    const { select, join } = await buildTaskQueryFragmentsWithSlFilter();
     const [rows] = await db.execute(
-      `SELECT t.*, ${contractSelect}
+      `SELECT t.*, ${select}
        FROM tasks t
-       ${contractJoin}
-       LEFT JOIN sites_location sl ON sl.SLid = t.site_id
+       ${join}
        WHERE t.status = 'done' AND t.task_type = ?
          AND (? IS NULL OR sl.Sid = ?)
          AND (? IS NULL OR sl.lid = ?)
@@ -1331,13 +1399,12 @@ const getInprocessTasks = async (req, res) => {
         message: 'กรุณาระบุ sid/lid เป็นตัวเลข',
       });
     }
-    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+    const { select, join } = await buildTaskQueryFragmentsWithSlFilter();
     const [rows] = await db.execute(
-      `SELECT t.*, ${contractSelect}
+      `SELECT t.*, ${select}
        FROM tasks t
-       ${contractJoin}
+       ${join}
        LEFT JOIN report r ON r.id = t.id
-       LEFT JOIN sites_location sl ON sl.SLid = t.site_id
        WHERE t.task_type = ?
          AND (LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL))
          AND (? IS NULL OR sl.Sid = ?)
@@ -1379,12 +1446,11 @@ const getPendingTasks = async (req, res) => {
         message: 'Please specify sid/lid as a number',
       });
     }
-    const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
+    const { select, join } = await buildTaskQueryFragmentsWithSlFilter();
     const [rows] = await db.execute(
-      `SELECT t.*, ${contractSelect}
+      `SELECT t.*, ${select}
        FROM tasks t
-       ${contractJoin}
-       LEFT JOIN sites_location sl ON sl.SLid = t.site_id
+       ${join}
        WHERE t.task_type = ?
          AND LOWER(t.status) NOT IN ('done', 'working')
          AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)

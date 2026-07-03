@@ -96,6 +96,7 @@ function parsePairsFromBody(body, contractStatus) {
           ? p.device_ids.map((d) => parseInt(d, 10)).filter((n) => !isNaN(n))
           : [],
         contact: p.contact !== undefined ? p.contact : undefined,
+        province: p.province !== undefined ? (p.province != null ? String(p.province).trim() : null) : undefined,
       }))
       .filter(
         (p) =>
@@ -218,6 +219,7 @@ const getContractById = async (req, res) => {
         SLid: cid,
         SiteName: slRow.site_name,
         Location2: slRow.site_location || null,
+        Province: slRow.site_province || null,
       },
     ];
 
@@ -429,7 +431,7 @@ const postContractHistoryDisplayRows = async (req, res) => {
     if (slids.length) {
       const ph2 = slids.map(() => '?').join(',');
       const [slRows] = await db.execute(
-        `SELECT sl.SLid, s.Name AS site_name, IFNULL(l.Location2, '') AS site_location
+        `SELECT sl.SLid, s.Name AS site_name, IFNULL(l.Location2, '') AS site_location, IFNULL(l.Province, '') AS site_province
          FROM sites_location sl
          LEFT JOIN sites s ON sl.Sid = s.Sid
          LEFT JOIN location l ON sl.lid = l.lid
@@ -440,6 +442,7 @@ const postContractHistoryDisplayRows = async (req, res) => {
         siteBySlid.set(Number(r.SLid), {
           site_name: r.site_name != null ? String(r.site_name) : '',
           site_location: r.site_location != null ? String(r.site_location) : '',
+          site_province: r.site_province != null ? String(r.site_province) : '',
         });
       }
     }
@@ -473,8 +476,10 @@ const postContractHistoryDisplayRows = async (req, res) => {
         site_id: slid,
         contract_site_name: sl?.site_name || null,
         contract_site_location: sl?.site_location || null,
+        contract_site_province: sl?.site_province || null,
         site_name: sl?.site_name ?? null,
         site_location: sl?.site_location ?? null,
+        site_province: sl?.site_province ?? null,
         device_count: deviceCountBySlid.get(slid) ?? 0,
         status: snap?.status ?? 'official',
         devices_slid_aligned: 1,
@@ -900,6 +905,9 @@ const createContract = async (req, res) => {
       }
 
       for (const p of pairs) {
+        if (p.province !== undefined) {
+          await slc.updateLocationProvinceBySlid(conn, p.site_id, p.province);
+        }
         if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id, p.device_ids);
       }
     } else {
@@ -931,6 +939,9 @@ const createContract = async (req, res) => {
         await applyContractFieldsToSlid(conn, newSlid, bodyWithoutContact(body), contractStatus, {
           contact: p.contact,
         });
+        if (p.province !== undefined) {
+          await slc.updateLocationProvinceBySlid(conn, refSlid, p.province);
+        }
         await slc.insertSiteLocationHistory(conn, newSlid, slc.HIST_ACTION.UPDATE, {
           oldSof: prevSof || null,
           newSof: sofValue,
@@ -1147,6 +1158,9 @@ const updateContract = async (req, res) => {
           await applyContractFieldsToSlid(conn, targetSlid, {}, effStatus, {
             contact: p.contact,
           });
+        }
+        if (p.province !== undefined) {
+          await slc.updateLocationProvinceBySlid(conn, targetSlid, p.province);
         }
         if (p.device_ids.length) await slc.assignDevicesToSlid(conn, targetSlid, p.device_ids);
       }

@@ -4,6 +4,7 @@
     lid?: number;
     SiteName: string;
     Location2: string;
+    Province?: string | null;
     SOF?: string | null;
     Refer_SOF?: string | null;
   }
@@ -24,5 +25,6 @@ export interface ContractSiteRow {
     SLid: number;
     SiteName?: string | null;
     Location2?: string | null;
+    Province?: string | null;
 }
 

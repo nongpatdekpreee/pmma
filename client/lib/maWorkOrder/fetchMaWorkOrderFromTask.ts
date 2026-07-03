@@ -45,6 +45,8 @@ function taskRecordToInput(task: Record<string, unknown>): MaWorkOrderTaskInput 
     endDate: String(task.endDate ?? task.end_date ?? ''),
     reporterName: String(task.reporterName ?? task.reporter_name ?? ''),
     reporterTel: String(task.reporterTel ?? task.reporter_tel ?? ''),
+    reporterPosition: String(task.reporterPosition ?? task.reporter_position ?? ''),
+    reporterEmail: String(task.reporterEmail ?? task.reporter_email ?? ''),
     ticket: String(task.ticket ?? ''),
     assignedService: String(task.assignedService ?? task.assigned_service ?? '') || null,
     assetBinding: String(task.assetBinding ?? task.asset_binding ?? '') || null,

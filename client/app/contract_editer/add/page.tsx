@@ -55,9 +55,39 @@ import {
   ContractShellSearchListDropdown,
 } from '@/components/ui/ContractSearchListDropdown';
 import type { SiteLocation, DeviceItem, ContractSiteRow } from './types';
+import { provinceSelectOptions } from '@/lib/thaiProvinces';
 
 const inputBase =
   'w-full rounded-xl border border-border/90 bg-card p-3 text-sm text-foreground shadow-sm shadow-slate-900/[0.03] outline-none transition-all placeholder:text-muted-foreground focus:border-sky-400 focus:ring-2 focus:ring-sky-500/15';
+
+function ProvinceSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  const options = provinceSelectOptions(value);
+  return (
+    <NativeSelectDropdownShell>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className={`${contractDropdownNativeSelectClass} w-full min-w-0`}
+      >
+        <option value="">-- Select Province --</option>
+        {options.map((p) => (
+          <option key={p} value={p}>
+            {p}
+          </option>
+        ))}
+      </select>
+    </NativeSelectDropdownShell>
+  );
+}
 
 function ymdFromDbDate(raw: unknown): string {
   if (raw == null || raw === '') return '';
@@ -74,6 +104,13 @@ function formatYmdLocal(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function formatYmdDisplay(ymd: string): string {
+  if (!ymd) return '';
+  const [y, m, d] = ymd.split('-');
+  if (!y || !m || !d) return ymd;
+  return `${m}/${d}/${y}`;
 }
 
 function addDaysToYmd(ymd: string, days: number): string {
@@ -124,6 +161,7 @@ type SiteEntry = {
   selectedSid?: string;
   siteId: string;
   siteLabel: string;
+  province: string;
   devices: Array<{ id: string; label: string; role?: string; slid?: number }>;
   siteContactRows: SiteContactRow[];
 };
@@ -132,7 +170,13 @@ type SiteDevicePair = {
   site_id: number;
   device_ids: number[];
   contact?: Record<string, unknown> | null;
+  province?: string | null;
 };
+
+function provinceFromSiteLocation(site: SiteLocation | undefined): string {
+  if (!site?.Province) return '';
+  return String(site.Province).trim();
+}
 
 /** สร้างแถว Site & Devices จาก locations ที่ใช้ SOF เดียวกัน + devices แยกตาม SLid */
 function buildSiteEntriesFromPeerLocations(
@@ -155,6 +199,7 @@ function buildSiteEntriesFromPeerLocations(
       selectedSid: site.Sid != null ? String(site.Sid) : undefined,
       siteId: String(slid),
       siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
+      province: provinceFromSiteLocation(site),
       devices: devices.map((d) => ({
         id: String(d.Did),
         label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
@@ -388,11 +433,13 @@ function sitePairsFromEntries(
 ): SiteDevicePair[] {
   const map = new Map<number, number[]>();
   const contactBySlid = new Map<number, SiteContactRow[]>();
+  const provinceBySlid = new Map<number, string>();
   for (const e of entries) {
     const parsedRowSlid = e.siteId?.trim() ? parseInt(e.siteId.trim(), 10) : NaN;
     const rowSlid = !Number.isNaN(parsedRowSlid) ? parsedRowSlid : null;
     const entryContactRows = e.siteContactRows ?? [];
     if (rowSlid != null) {
+      provinceBySlid.set(rowSlid, e.province?.trim() ?? '');
       if (siteContactRowsHaveData(entryContactRows)) {
         contactBySlid.set(rowSlid, entryContactRows);
       }
@@ -428,10 +475,12 @@ function sitePairsFromEntries(
   }
   return [...map.entries()].map(([site_id, ids]) => {
     const serialized = serializeSiteContactRows(contactBySlid.get(site_id) ?? []);
+    const province = provinceBySlid.get(site_id);
     return {
       site_id,
       device_ids: [...new Set(ids)],
       ...(serialized ? { contact: serialized } : {}),
+      ...(province !== undefined ? { province: province || null } : {}),
     };
   });
 }
@@ -505,6 +554,7 @@ function createEmptySiteEntry(partial?: Partial<Omit<SiteEntry, 'siteContactRows
     id: randomUUID(),
     siteId: '',
     siteLabel: '',
+    province: '',
     devices: [],
     siteContactRows: [],
     ...partial,
@@ -647,6 +697,8 @@ function AddContractPageContent() {
 
   // สำหรับต่อสัญญา: ข้อมูลสัญญาเก่า
   const [oldContractSOF, setOldContractSOF] = useState<string>('');
+  const [oldContractStartDate, setOldContractStartDate] = useState('');
+  const [oldContractEndDate, setOldContractEndDate] = useState('');
   const [oldContractDevices, setOldContractDevices] = useState<DeviceItem[]>([]);
   const [selectedOldDevices, setSelectedOldDevices] = useState<Set<number>>(new Set());
   const [loadingOldContract, setLoadingOldContract] = useState(false);
@@ -1095,6 +1147,9 @@ function AddContractPageContent() {
                 selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
                 siteId: String(slid),
                 siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
+                province:
+                  provinceFromSiteLocation(sl) ||
+                  (site.Province != null ? String(site.Province).trim() : ''),
                 devices: devices.map((d) => ({
                   id: String(d.Did),
                   label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
@@ -1122,6 +1177,11 @@ function AddContractPageContent() {
                   selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
                   siteId: String(slid),
                   siteLabel,
+                  province:
+                    provinceFromSiteLocation(sl) ||
+                    (site && 'Province' in site && site.Province != null
+                      ? String(site.Province).trim()
+                      : ''),
                   devices: devices.map((d) => ({
                     id: String(d.Did),
                     label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
@@ -1185,20 +1245,13 @@ function AddContractPageContent() {
           if (contract.pm_time_per_year != null) {
             setPmTimePerYear(String(contract.pm_time_per_year));
           }
-          // คำนวณวันที่ใหม่ (วันสิ้นสุดเก่า + 1 วัน เป็นวันเริ่มต้นใหม่) — ใช้ local date ไม่ใช้ UTC
           const oldEndYmd = ymdFromDbDate(contract.end_date);
           const oldStartYmd = ymdFromDbDate(contract.start_date);
-          if (oldEndYmd) {
-            const newStartStr = addDaysToYmd(oldEndYmd, 1);
-            setStartDate(newStartStr);
-            if (oldStartYmd) {
-              const monthsDiff = monthsBetweenInclusiveYmd(oldStartYmd, oldEndYmd);
-              if (monthsDiff > 0) {
-                setDuration(String(monthsDiff));
-                setEndDate(inclusiveEndYmdFromStartMonths(newStartStr, monthsDiff));
-              }
-            }
-          }
+          setOldContractStartDate(oldStartYmd);
+          setOldContractEndDate(oldEndYmd);
+          setStartDate('');
+          setEndDate('');
+          setDuration('');
 
           // ทุก sites_location ที่ใช้เลข SOF เดียวกัน (ไม่ใช่แค่ contract_id ที่กด Renew)
           let peerSites: SiteLocation[] = [];
@@ -1480,9 +1533,9 @@ function AddContractPageContent() {
         prev.map((e) => {
           if (e.id !== entryId) return e;
           if (opts?.clearLocationOnly) {
-            return { ...e, siteId: '', siteLabel: '', devices: [] };
+            return { ...e, siteId: '', siteLabel: '', province: '', devices: [] };
           }
-          return { ...e, selectedSid: undefined, siteId: '', siteLabel: '', devices: [] };
+          return { ...e, selectedSid: undefined, siteId: '', siteLabel: '', province: '', devices: [] };
         })
       );
       return;
@@ -1491,15 +1544,22 @@ function AddContractPageContent() {
     const site = sitesLocation.find((s) => String(s.SLid) === trimmed);
     const siteLabel = site ? `${site.SiteName} – ${site.Location2}` : '';
     const selectedSid = site?.Sid != null ? String(site.Sid) : undefined;
+    const province = provinceFromSiteLocation(site);
     setSiteEntries((prev) => {
       const conflict = isNewContractFlow
         ? entryConflictsPhysicalLocation(entryId, trimmed, prev, sitesLocation)
         : prev.some((e) => e.id !== entryId && e.siteId === trimmed);
       if (conflict) return prev;
       return prev.map((e) =>
-        e.id === entryId ? { ...e, selectedSid, siteId: trimmed, siteLabel, devices: [] } : e
+        e.id === entryId ? { ...e, selectedSid, siteId: trimmed, siteLabel, province, devices: [] } : e
       );
     });
+  };
+
+  const updateEntryProvince = (entryId: string, province: string) => {
+    setSiteEntries((prev) =>
+      prev.map((e) => (e.id === entryId ? { ...e, province } : e)),
+    );
   };
 
   const setEntrySid = (entryId: string, sid: string) => {
@@ -1519,7 +1579,7 @@ function AddContractPageContent() {
         }
       }
       return prev.map((e) =>
-        e.id === entryId ? { ...e, selectedSid: sid || undefined, siteId: '', siteLabel: '', devices: [] } : e
+        e.id === entryId ? { ...e, selectedSid: sid || undefined, siteId: '', siteLabel: '', province: '', devices: [] } : e
       );
     });
   };
@@ -1704,6 +1764,7 @@ function AddContractPageContent() {
               selectedSid: siteFirst.Sid != null ? String(siteFirst.Sid) : e.selectedSid,
               siteId: first,
               siteLabel: `${siteFirst.SiteName} – ${siteFirst.Location2}`,
+              province: provinceFromSiteLocation(siteFirst),
               devices: [],
             }
           : e
@@ -1722,6 +1783,7 @@ function AddContractPageContent() {
             selectedSid: sl.Sid != null ? String(sl.Sid) : sid,
             siteId: slid,
             siteLabel: `${sl.SiteName} – ${sl.Location2}`,
+            province: provinceFromSiteLocation(sl),
           }),
         ];
       }
@@ -1889,6 +1951,27 @@ function AddContractPageContent() {
         setSaveError(msg);
         toastError(msg);
         return;
+      }
+
+      if (renewContractId) {
+        if (!startDate.trim() || !endDate.trim()) {
+          const msg = 'Please enter new Start Date and End Date for the renewed contract';
+          setSaveError(msg);
+          toastError(msg);
+          return;
+        }
+        if (oldContractEndDate && startDate <= oldContractEndDate) {
+          const msg = 'New Start Date must be after the old contract End Date';
+          setSaveError(msg);
+          toastError(msg);
+          return;
+        }
+        if (endDate < startDate) {
+          const msg = 'End Date must be on or after Start Date';
+          setSaveError(msg);
+          toastError(msg);
+          return;
+        }
       }
     }
 
@@ -2100,6 +2183,7 @@ function AddContractPageContent() {
           ? e.device_ids.filter((n: number) => !isNaN(n))
           : [],
         ...(e.contact != null ? { contact: e.contact } : {}),
+        ...(e.province !== undefined ? { province: e.province } : {}),
       })) : [];
 
       const primaryContractSlid = primaryContractSiteIdFromEntries(validPairs);
@@ -2309,6 +2393,49 @@ function AddContractPageContent() {
                         )}
                       </FormField>
                     </div>
+                  )}
+                  {(oldContractStartDate || oldContractEndDate) && (
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <FormField
+                        label={
+                          <>
+                            Old Start Date{' '}
+                            <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground">
+                              (mm/dd/yyyy)
+                            </span>
+                          </>
+                        }
+                      >
+                        <input
+                          type="text"
+                          value={formatYmdDisplay(oldContractStartDate)}
+                          readOnly
+                          className={`${inputBase} bg-muted cursor-not-allowed`}
+                        />
+                      </FormField>
+                      <FormField
+                        label={
+                          <>
+                            Old End Date{' '}
+                            <span className="text-[10px] font-normal normal-case tracking-normal text-muted-foreground">
+                              (mm/dd/yyyy)
+                            </span>
+                          </>
+                        }
+                      >
+                        <input
+                          type="text"
+                          value={formatYmdDisplay(oldContractEndDate)}
+                          readOnly
+                          className={`${inputBase} bg-muted cursor-not-allowed`}
+                        />
+                      </FormField>
+                    </div>
+                  )}
+                  {!loadingOldContract && (
+                    <p className="mt-3 text-xs text-amber-600">
+                      Enter new Start Date and End Date in the Contract Period section below.
+                    </p>
                   )}
                 </>
               )}
@@ -2848,7 +2975,11 @@ function AddContractPageContent() {
           {/* Section 2: ระยะเวลาสัญญา */}
           <FormSection
             title="Contract Period"
-            description="Start Date, End Date and Contract Sign Date"
+            description={
+              renewContractId
+                ? 'Enter new Start Date and End Date for the renewed contract'
+                : 'Start Date, End Date and Contract Sign Date'
+            }
             icon={Calendar}
             gradient="from-purple-50 to-pink-50"
           >
@@ -2862,10 +2993,16 @@ function AddContractPageContent() {
                     </span>
                   </>
                 }
+                required={Boolean(renewContractId)}
               >
                 <input
                   type="date"
                   value={startDate}
+                  min={
+                    renewContractId && oldContractEndDate
+                      ? addDaysToYmd(oldContractEndDate, 1)
+                      : undefined
+                  }
                   onChange={(e) => {
                     const v = e.target.value;
                     setStartDate(v);
@@ -2873,7 +3010,13 @@ function AddContractPageContent() {
                   }}
                   onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
                   className={inputBase}
+                  required={Boolean(renewContractId)}
                 />
+                {renewContractId && oldContractEndDate ? (
+                  <p className="mt-1 text-xs text-amber-600">
+                    Must be after {formatYmdDisplay(oldContractEndDate)}
+                  </p>
+                ) : null}
               </FormField>
               <FormField
                 label={
@@ -2921,10 +3064,12 @@ function AddContractPageContent() {
                     </span>
                   </>
                 }
+                required={Boolean(renewContractId)}
               >
                 <input
                   type="date"
                   value={endDate}
+                  min={startDate || undefined}
                   onChange={(e) => {
                     const val = e.target.value;
                     setEndDate(val);
@@ -2935,6 +3080,7 @@ function AddContractPageContent() {
                   }}
                   onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
                   className={inputBase}
+                  required={Boolean(renewContractId)}
                 />
               </FormField>
               <FormField label="PM Time Per Year">
@@ -3182,7 +3328,7 @@ function AddContractPageContent() {
                         rowPickerOpen ? 'z-[220]' : ''
                       }`}
                     >
-                      <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:items-end sm:gap-3">
+                      <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 sm:items-end sm:gap-3">
                         {uniqueSites.length > 0 ? (
                           <>
                             <div className="min-w-0 w-full max-w-full">
@@ -3394,6 +3540,16 @@ function AddContractPageContent() {
                                 />
                               )}
                             </div>
+                            <div className="min-w-0 w-full max-w-full">
+                              <label className="mb-1 block text-[10px] font-semibold uppercase text-muted-foreground">
+                                Province
+                              </label>
+                              <ProvinceSelect
+                                value={entry.province}
+                                onChange={(v) => updateEntryProvince(entry.id, v)}
+                                disabled={!entry.siteId?.trim() || siteComboDisabled}
+                              />
+                            </div>
                           </>
                         ) : (
                           <div className="min-w-0 w-full max-w-full sm:col-span-2">
@@ -3428,6 +3584,18 @@ function AddContractPageContent() {
                             />
                           </div>
                         )}
+                        {uniqueSites.length === 0 && entry.siteId ? (
+                          <div className="min-w-0 w-full max-w-full">
+                            <label className="mb-1 block text-[10px] font-semibold uppercase text-muted-foreground">
+                              Province
+                            </label>
+                            <ProvinceSelect
+                              value={entry.province}
+                              onChange={(v) => updateEntryProvince(entry.id, v)}
+                              disabled={siteComboDisabled}
+                            />
+                          </div>
+                        ) : null}
                         {entry.devices.length === 0 &&
                           (showSelectDeviceBtn || siteEntries.length > 1) && (
                           <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-4 sm:col-span-2">

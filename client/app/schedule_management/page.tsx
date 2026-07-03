@@ -31,6 +31,7 @@ import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTas
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import { getErrorMessage, asRecord, readNumber, readString } from '@/lib/unknownUtil';
 import { type ApiTask, apiTaskString } from '@/lib/apiTask';
+import { buildTaskSiteDisplayTitle, taskDetailSiteName } from '@/lib/taskDisplayTitle';
 import * as XLSX from 'xlsx';
 
 
@@ -66,7 +67,9 @@ interface CalendarEvent {
   replacementDeviceId?: number;
   Sid?: string;
   Sname?: string;
+  siteDbName?: string;
   location?: string;
+  province?: string;
   Eng_ids?: Engineer[];
   startDate?: string;
   endDate?: string;
@@ -77,6 +80,8 @@ interface CalendarEvent {
   vendorTel?: string;
   reporterName?: string;
   reporterTel?: string;
+  reporterPosition?: string;
+  reporterEmail?: string;
   ticket?: string;
   rootCause?: string;
   resolution?: string;
@@ -434,14 +439,19 @@ export default function ScheduleManagement() {
   );
 }
 
-/** Site label for table filter — matches Task column (location - site name). */
-function tableTaskSiteLabel(ev: Pick<CalendarEvent, 'title' | 'Sname' | 'location'>): string {
-  const sname = (ev.Sname || '').trim();
-  const loc = (ev.location || '').trim();
-  if (loc && sname) return `${loc} - ${sname}`;
-  if (sname) return sname;
-  if (loc) return loc;
-  return (ev.title || '').trim() || '—';
+/** Site label for table filter — matches Task column (Province - location). */
+function tableTaskSiteLabel(
+  ev: Pick<CalendarEvent, 'title' | 'Sname' | 'location' | 'province' | 'taskType' | 'vendorName'>,
+): string {
+  return (
+    buildTaskSiteDisplayTitle({
+      taskType: ev.taskType,
+      province: ev.province,
+      location: ev.location,
+      siteName: ev.Sname,
+      vendorName: ev.vendorName,
+    }) || (ev.title || '').trim() || '—'
+  );
 }
 
 const TABLE_MONTH_NAMES = [
@@ -650,31 +660,17 @@ function ScheduleManagementContent() {
             .join(', ')
         : 'Unassigned';
     const taskType = (apiTaskString(task, 'taskType', 'task_type') || 'PM') as 'PM' | 'MA';
-    let siteName = apiTaskString(task, 'siteName', 'site_name') || readString(task, 'Sname') || '';
-    let location = readString(task, 'location') ?? readString(task, 'Location2') ?? '';
-    if (!location && siteName && siteName.includes(' - ')) {
-      const parts = siteName.split(' - ');
-      const sitePart = parts[0]?.trim() || '';
-      const locationPart = parts.slice(1).join(' - ').trim();
-      if (locationPart) {
-        location = locationPart;
-        siteName = sitePart;
-      }
-    }
-    const title =
-      taskType === 'MA'
-        ? location && siteName
-          ? `${location} - ${siteName}`
-          : location
-            ? `${location}`
-            : siteName
-              ? ` ${siteName}`
-              : `${apiTaskString(task, 'vendorName', 'vendor_name') || 'Maintenance Agreement'}`
-        : location && siteName
-          ? `${location} - ${siteName}`
-          : location
-            ? location
-            : (siteName || 'Preventive Maintenance');
+    const siteName = apiTaskString(task, 'siteName', 'site_name') || readString(task, 'Sname') || '';
+    const location = readString(task, 'location') ?? readString(task, 'Location2') ?? '';
+    const province = readString(task, 'province') ?? readString(task, 'Province') ?? '';
+    const siteDbName = readString(task, 'siteDbName') ?? '';
+    const title = buildTaskSiteDisplayTitle({
+      taskType,
+      province,
+      location,
+      siteName,
+      vendorName: apiTaskString(task, 'vendorName', 'vendor_name'),
+    });
     const sofNameRaw = readString(task, 'sofName') ?? readString(task, 'sof_name');
 
     return {
@@ -699,7 +695,9 @@ function ScheduleManagementContent() {
         readNumber(task, 'replacementDeviceId') ?? readNumber(task, 'replacement_device_id'),
       Sid: task.siteId ? String(task.siteId) : readString(task, 'Sid'),
       Sname: siteName,
+      siteDbName: siteDbName || undefined,
       location,
+      province: province || undefined,
       Eng_ids: engineers as Engineer[],
       startDate: start,
       endDate: end,
@@ -710,6 +708,8 @@ function ScheduleManagementContent() {
       vendorTel: apiTaskString(task, 'vendorTel', 'vendor_tel'),
       reporterName: apiTaskString(task, 'reporterName', 'reporter_name'),
       reporterTel: apiTaskString(task, 'reporterTel', 'reporter_tel'),
+      reporterPosition: apiTaskString(task, 'reporterPosition', 'reporter_position'),
+      reporterEmail: apiTaskString(task, 'reporterEmail', 'reporter_email'),
       ticket: readString(task, 'ticket'),
       rootCause: apiTaskString(task, 'rootCause', 'root_cause'),
       resolution: readString(task, 'resolution'),
@@ -1593,6 +1593,8 @@ function ScheduleManagementContent() {
           vendorTel: item.vendorTel,
           reporterName: item.reporterName,
           reporterTel: item.reporterTel,
+          reporterPosition: item.reporterPosition,
+          reporterEmail: item.reporterEmail,
           ticket: item.ticket,
           rootCause: item.rootCause,
           resolution: item.resolution,
@@ -3922,7 +3924,7 @@ function ScheduleManagementContent() {
             {/* Site Name */}
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-0.5">Site</p>
-              <p className="text-sm font-bold text-foreground">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
+              <p className="text-sm font-bold text-foreground">{taskDetailSiteName(hoveredEvent)}</p>
             </div>
 
             {/* Dates */}

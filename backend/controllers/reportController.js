@@ -298,7 +298,7 @@ const getReports = async (req, res) => {
                 r.checklist_items, r.comment, r.technician_name, r.pm_date, r.device_id, r.device_json,
                 r.created_at,
                 t.task_type AS task_task_type, t.assets, t.site_name, t.engineers, t.start_date,
-                t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.ticket`;
+                t.replacement_device_id, t.vendor_name, t.vendor_tel, t.reporter_name, t.reporter_tel, t.reporter_position, t.reporter_email, t.ticket`;
     const taskHoursSuffixes = [
       ', t.downtime_total_hours, t.down_time_total_hours',
       ', t.downtime_total_hours',
@@ -389,11 +389,13 @@ const getReports = async (req, res) => {
         assets,
         site_name: r.site_name,
         ...(taskType === 'MA' && r.replacement_device_id != null ? { replacementDeviceId: r.replacement_device_id } : {}),
-        ...(taskType === 'MA' && (r.vendor_name != null || r.vendor_tel != null || r.reporter_name != null || r.reporter_tel != null || r.ticket != null) ? {
+        ...(taskType === 'MA' && (r.vendor_name != null || r.vendor_tel != null || r.reporter_name != null || r.reporter_tel != null || r.reporter_position != null || r.reporter_email != null || r.ticket != null) ? {
           vendorName: r.vendor_name,
           vendorTel: r.vendor_tel,
           reporterName: r.reporter_name,
           reporterTel: r.reporter_tel,
+          reporterPosition: r.reporter_position,
+          reporterEmail: r.reporter_email,
           ticket: r.ticket,
         } : {}),
         ...(taskType === 'MA'

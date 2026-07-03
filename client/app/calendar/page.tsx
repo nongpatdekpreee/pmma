@@ -20,6 +20,7 @@ import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTas
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import { asRecord, getErrorMessage, readNumber, readString } from '@/lib/unknownUtil';
 import { type ApiTask, apiTaskString } from '@/lib/apiTask';
+import { buildTaskSiteDisplayTitle, taskDetailSiteName } from '@/lib/taskDisplayTitle';
 
 interface Device {
   id: string;
@@ -52,7 +53,9 @@ interface CalendarEvent {
   replacementDeviceId?: number;
   Sid?: string;
   Sname?: string;
+  siteDbName?: string;
   location?: string;
+  province?: string;
   Eng_ids?: Engineer[];
   startDate?: string;
   endDate?: string;
@@ -63,6 +66,8 @@ interface CalendarEvent {
   vendorTel?: string;
   reporterName?: string;
   reporterTel?: string;
+  reporterPosition?: string;
+  reporterEmail?: string;
   ticket?: string;
   rootCause?: string;
   resolution?: string;
@@ -189,31 +194,17 @@ function CalendarPageContent() {
             .join(', ')
         : 'Unassigned';
     const taskType = (apiTaskString(task, 'taskType', 'task_type') || 'PM') as 'PM' | 'MA';
-    let siteName = apiTaskString(task, 'siteName', 'site_name') || readString(task, 'Sname') || '';
-    let location = readString(task, 'location') ?? readString(task, 'Location2') ?? '';
-    if (!location && siteName && siteName.includes(' - ')) {
-      const parts = siteName.split(' - ');
-      const sitePart = parts[0]?.trim() || '';
-      const locationPart = parts.slice(1).join(' - ').trim();
-      if (locationPart) {
-        location = locationPart;
-        siteName = sitePart;
-      }
-    }
-    const title =
-      taskType === 'MA'
-        ? location && siteName
-          ? `${location} - ${siteName}`
-          : location
-            ? `${location}`
-            : siteName
-              ? ` ${siteName}`
-              : `${apiTaskString(task, 'vendorName', 'vendor_name') || 'Maintenance Agreement'}`
-        : location && siteName
-          ? `${location} - ${siteName}`
-          : location
-            ? location
-            : (siteName || 'Preventive Maintenance');
+    const siteName = apiTaskString(task, 'siteName', 'site_name') || readString(task, 'Sname') || '';
+    const location = readString(task, 'location') ?? readString(task, 'Location2') ?? '';
+    const province = readString(task, 'province') ?? readString(task, 'Province') ?? '';
+    const siteDbName = readString(task, 'siteDbName') ?? '';
+    const title = buildTaskSiteDisplayTitle({
+      taskType,
+      province,
+      location,
+      siteName,
+      vendorName: apiTaskString(task, 'vendorName', 'vendor_name'),
+    });
 
     return {
       id: String(task.id ?? task.taskId ?? task.task_id ?? Date.now()),
@@ -236,7 +227,9 @@ function CalendarPageContent() {
         readNumber(task, 'replacementDeviceId') ?? readNumber(task, 'replacement_device_id'),
       Sid: task.siteId ? String(task.siteId) : readString(task, 'Sid'),
       Sname: siteName,
+      siteDbName: siteDbName || undefined,
       location,
+      province: province || undefined,
       Eng_ids: engineers as Engineer[],
       startDate: start,
       endDate: end,
@@ -247,6 +240,8 @@ function CalendarPageContent() {
       vendorTel: apiTaskString(task, 'vendorTel', 'vendor_tel'),
       reporterName: apiTaskString(task, 'reporterName', 'reporter_name'),
       reporterTel: apiTaskString(task, 'reporterTel', 'reporter_tel'),
+      reporterPosition: apiTaskString(task, 'reporterPosition', 'reporter_position'),
+      reporterEmail: apiTaskString(task, 'reporterEmail', 'reporter_email'),
       ticket: readString(task, 'ticket'),
       rootCause: apiTaskString(task, 'rootCause', 'root_cause'),
       resolution: readString(task, 'resolution'),
@@ -999,6 +994,8 @@ function CalendarPageContent() {
           vendorTel: item.vendorTel,
           reporterName: item.reporterName,
           reporterTel: item.reporterTel,
+          reporterPosition: item.reporterPosition,
+          reporterEmail: item.reporterEmail,
           ticket: item.ticket,
           rootCause: item.rootCause,
           resolution: item.resolution,
@@ -1855,7 +1852,7 @@ function CalendarPageContent() {
             )}
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-0.5">Site</p>
-              <p className="text-sm font-bold text-foreground">{hoveredEvent.Sname || hoveredEvent.title || '-'}</p>
+              <p className="text-sm font-bold text-foreground">{taskDetailSiteName(hoveredEvent)}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">

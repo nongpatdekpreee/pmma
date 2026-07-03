@@ -93,6 +93,10 @@ export interface MaWorkOrderTaskInput {
   vendorTel?: string;
   reporterName?: string;
   reporterTel?: string;
+  reporterPosition?: string;
+  reporter_position?: string;
+  reporterEmail?: string;
+  reporter_email?: string;
   ticket?: string;
   assignedService?: string | null;
   assetBinding?: string | null;

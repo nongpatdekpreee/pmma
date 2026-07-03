@@ -27,8 +27,10 @@ const SL_LIST_SELECT = `
   sl.status,
   s.Name AS contract_site_name,
   IFNULL(l.Location2, '') AS contract_site_location,
+  IFNULL(l.Province, '') AS contract_site_province,
   s.Name AS site_name,
   IFNULL(l.Location2, '') AS site_location,
+  IFNULL(l.Province, '') AS site_province,
   (SELECT COUNT(*) FROM devices d WHERE d.SLid = sl.SLid) AS device_count,
   1 AS devices_slid_aligned`;
 
@@ -51,8 +53,10 @@ async function buildSlListSelect(conn) {
   sl.status,
   s.Name AS contract_site_name,
   IFNULL(l.Location2, '') AS contract_site_location,
+  IFNULL(l.Province, '') AS contract_site_province,
   s.Name AS site_name,
   IFNULL(l.Location2, '') AS site_location,
+  IFNULL(l.Province, '') AS site_province,
   (SELECT COUNT(*) FROM devices d WHERE d.SLid = sl.SLid) AS device_count,
   1 AS devices_slid_aligned`;
 }
@@ -204,7 +208,7 @@ async function fetchSiteLocationRow(conn, slid) {
   const id = parseInt(slid, 10);
   if (Number.isNaN(id)) return null;
   const [rows] = await conn.execute(
-    `SELECT sl.*, s.Name AS site_name, IFNULL(l.Location2, '') AS site_location
+    `SELECT sl.*, s.Name AS site_name, IFNULL(l.Location2, '') AS site_location, IFNULL(l.Province, '') AS site_province, IFNULL(l.Province, '') AS site_province
      FROM sites_location sl
      LEFT JOIN sites s ON sl.Sid = s.Sid
      LEFT JOIN location l ON sl.lid = l.lid
@@ -218,6 +222,7 @@ function mapSlRowToContractDetail(slRow) {
   if (!slRow) return null;
   const siteName = slRow.site_name != null ? String(slRow.site_name) : '';
   const loc = slRow.site_location != null ? String(slRow.site_location) : '';
+  const province = slRow.site_province != null ? String(slRow.site_province) : '';
   return {
     contract_id: slRow.SLid,
     contract_name: resolveContractNameFromRow(slRow),
@@ -230,6 +235,7 @@ function mapSlRowToContractDetail(slRow) {
     Assigned_Service: slRow.Assigned_Service,
     site_name: siteName,
     site_location: loc,
+    site_province: province,
     status: slRow.status,
     tel_acc: slRow.tel_acc,
     email_acc: slRow.email_acc,
@@ -651,6 +657,14 @@ const AVAILABLE_DEVICES_BASE = `
   LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
   LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid`;
 
+async function updateLocationProvinceBySlid(conn, slid, province) {
+  if (province === undefined) return;
+  const row = await fetchSiteLocationRow(conn, slid);
+  if (!row || row.lid == null) return;
+  const val = province != null ? String(province).trim() : '';
+  await conn.execute('UPDATE location SET Province = ? WHERE lid = ?', [val || null, row.lid]);
+}
+
 module.exports = {
   HIST_ACTION,
   SL_LIST_SELECT,
@@ -681,6 +695,7 @@ module.exports = {
   findDevicesOnOtherContracts,
   insertSiteLocationContract,
   updateSiteLocationContract,
+  updateLocationProvinceBySlid,
   mapHistoryRowToLegacy,
   DEVICES_BY_SLID_SQL,
   AVAILABLE_DEVICES_BASE,

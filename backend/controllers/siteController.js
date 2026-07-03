@@ -42,7 +42,7 @@ const getSitesLocation = async (req, res) => {
     const slSof = await resolveSlSofSchema();
     const sql = `
       SELECT SL.SLid, SL.Sid, SL.lid, ${slSof.locationSofSelect('SL')},
-             S.Name AS SiteName, L.Location2
+             S.Name AS SiteName, L.Location2, IFNULL(L.Province, '') AS Province
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
@@ -73,7 +73,7 @@ const getSitesLocationBySOF = async (req, res) => {
     const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
     const slSof = await resolveSlSofSchema();
     const sql = `
-      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
+      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2, IFNULL(L.Province, '') AS Province
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
@@ -116,7 +116,7 @@ const getSitesLocationWithContracts = async (req, res) => {
 
     const placeholders = siteIds.map(() => '?').join(',');
     const sql = `
-      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2
+      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2, IFNULL(L.Province, '') AS Province
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
@@ -313,7 +313,7 @@ const updateSitesLocationSof = async (req, res) => {
 
     const [updated] = await db.execute(
       `SELECT SL.SLid, SL.Sid, SL.lid, SL.SOF, SL.SOF AS Refer_SOF,
-              S.Name AS SiteName, L.Location2
+              S.Name AS SiteName, L.Location2, IFNULL(L.Province, '') AS Province
        FROM sites_location SL
        JOIN sites S ON SL.Sid = S.Sid
        JOIN location L ON SL.lid = L.lid

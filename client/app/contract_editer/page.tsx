@@ -66,9 +66,11 @@ interface Contract {
   partner: string;
   siteName?: string;
   siteLocation?: string;
+  siteProvince?: string;
   /** ชื่อ/ที่ตั้งจาก contract.site_id (sites + location) */
   contractSiteName?: string;
   contractSiteLocation?: string;
+  contractSiteProvince?: string;
   maintenanceType?: string;
   startDate: string;
   endDate: string;
@@ -270,8 +272,10 @@ function mapApiRowToContract(c: {
   site_id?: number | null;
   contract_site_name?: string | null;
   contract_site_location?: string | null;
+  contract_site_province?: string | null;
   site_name?: string | null;
   site_location?: string | null;
+  site_province?: string | null;
   device_count?: number | null;
   status?: string | null;
   devices_slid_aligned?: number | boolean | null;
@@ -305,6 +309,10 @@ function mapApiRowToContract(c: {
     (c.contract_site_location != null && String(c.contract_site_location).trim()) ||
     (c.site_location != null && String(c.site_location).trim()) ||
     '';
+  const rowSiteProvince =
+    (c.contract_site_province != null && String(c.contract_site_province).trim()) ||
+    (c.site_province != null && String(c.site_province).trim()) ||
+    '';
   const slid =
     c.site_id != null && !Number.isNaN(Number(c.site_id)) ? Number(c.site_id) : null;
   const cid = c.contract_id;
@@ -316,8 +324,10 @@ function mapApiRowToContract(c: {
     partner: c.sale_account || rowSiteName || '—',
     siteName: rowSiteName || undefined,
     siteLocation: rowSiteLocation || undefined,
+    siteProvince: rowSiteProvince || undefined,
     contractSiteName: rowSiteName || undefined,
     contractSiteLocation: rowSiteLocation || undefined,
+    contractSiteProvince: rowSiteProvince || undefined,
     startDate: c.start_date || '',
     endDate,
     value: '',
@@ -767,6 +777,11 @@ function contractListDisplaySiteLocation(c: Contract): string {
   return (m.contractSiteLocation ?? m.siteLocation ?? '').trim() || '—';
 }
 
+function contractListDisplaySiteProvince(c: Contract): string {
+  const m = contractListPrimaryMember(c);
+  return (m.contractSiteProvince ?? m.siteProvince ?? '').trim() || '—';
+}
+
 function buildSofGroupRepresentative(members: Contract[]): Contract {
   const sorted = [...members].sort((a, b) => contractRowSortTimestamp(a) - contractRowSortTimestamp(b));
   const primary = sorted[0];
@@ -774,6 +789,7 @@ function buildSofGroupRepresentative(members: Contract[]): Contract {
   const groupContractStatus = pickGroupContractStatus(sorted);
   const primarySiteName = (primary.contractSiteName ?? primary.siteName ?? '').trim();
   const primarySiteLocation = (primary.contractSiteLocation ?? primary.siteLocation ?? '').trim();
+  const primarySiteProvince = (primary.contractSiteProvince ?? primary.siteProvince ?? '').trim();
   const bucketKey = contractSofGroupBucketKey(primary);
   return {
     ...primary,
@@ -785,6 +801,8 @@ function buildSofGroupRepresentative(members: Contract[]): Contract {
     siteName: primarySiteName || undefined,
     contractSiteLocation: primarySiteLocation || undefined,
     siteLocation: primarySiteLocation || undefined,
+    contractSiteProvince: primarySiteProvince || undefined,
+    siteProvince: primarySiteProvince || undefined,
     status: groupStatus,
     contractStatus: groupContractStatus,
     formattedStartDate: primary.formattedStartDate,
@@ -2779,6 +2797,13 @@ function ContractEditorPageContent() {
                 </span>
               </div>
               <div className="mb-3 flex items-start gap-3 text-sm">
+                <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><MapPin size={18} /></span>
+                <span className="text-muted-foreground min-w-[100px] flex-shrink-0">Province:</span>
+                <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
+                  {contractListDisplaySiteProvince(contract)}
+                </span>
+              </div>
+              <div className="mb-3 flex items-start gap-3 text-sm">
                 <span className="text-muted-foreground min-w-[20px] flex-shrink-0 flex items-center justify-center"><Hash size={18} /></span>
                 <span className="text-muted-foreground min-w-[100px] flex-shrink-0">SOF:</span>
                 <span className="text-muted-foreground font-medium min-w-0 flex-1" style={{ overflowWrap: 'break-word', wordBreak: 'normal' }}>
@@ -2944,6 +2969,7 @@ function ContractEditorPageContent() {
                 <tr className="bg-muted border-b border-border">
                   <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Site</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Location</th>
+                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Province</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">SOF</th>
                   <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">
   Start Date
@@ -2995,6 +3021,9 @@ function ContractEditorPageContent() {
                     </td>
                     <td className="py-4 px-4 text-sm text-muted-foreground">
                       {contractListDisplaySiteLocation(contract)}
+                    </td>
+                    <td className="py-4 px-4 text-sm text-muted-foreground">
+                      {contractListDisplaySiteProvince(contract)}
                     </td>
                     <td className="py-4 px-4 text-sm text-muted-foreground whitespace-nowrap">
                       {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
@@ -4899,6 +4928,7 @@ function ContractEditorPageContent() {
                         <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Contract Name</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Site</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Location</th>
+                        <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Province</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">SOF</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">Start Date</th>
                         <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground">End Date</th>
@@ -4919,6 +4949,9 @@ function ContractEditorPageContent() {
                           <td className="px-3 py-2 text-muted-foreground">{c.contractSiteName?.trim() ? c.contractSiteName : '—'}</td>
                           <td className="px-3 py-2 text-muted-foreground">
                             {c.contractSiteLocation?.trim() ? c.contractSiteLocation : '—'}
+                          </td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {c.contractSiteProvince?.trim() ? c.contractSiteProvince : '—'}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                             {c.sofName && String(c.sofName).trim() ? c.sofName : '—'}

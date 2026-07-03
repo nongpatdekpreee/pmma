@@ -8,6 +8,7 @@ import { DEFAULT_IN_STORE_SITE_NAME } from '@/lib/inStoreSite';
 import { parseRescheduleNoteOrigin } from '@/lib/rescheduleNote';
 import { formatDateLocale, formatTime12h } from '@/lib/downtimeHours';
 import { readString } from '@/lib/unknownUtil';
+import { taskDetailSiteName } from '@/lib/taskDisplayTitle';
 import { useAlertModal } from '@/components/ui/useAlertModal';
 import {
   buildDeviceMapsFromDetail,
@@ -69,7 +70,9 @@ interface TaskDetail {
   year?: number;
   Sid?: string;
   Sname?: string;
+  siteDbName?: string;
   location?: string;
+  province?: string;
   Eng_ids?: Engineer[];
   lastName?: string;
   engineer?: string;
@@ -482,12 +485,18 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
               </div>
               <div>
                 <label className="text-[10px] font-semibold uppercase text-muted-foreground">Site</label>
-                <p className="text-sm font-bold text-foreground mt-1">{task.Sname || '—'}</p>
+                <p className="text-sm font-bold text-foreground mt-1">{taskDetailSiteName(task)}</p>
               </div>
               <div>
                 <label className="text-[10px] font-semibold uppercase text-muted-foreground">Location</label>
-                <p className="text-sm font-bold text-foreground mt-1">{task.location || '—'}</p>
+                <p className="text-sm font-bold text-foreground mt-1">{task.location?.trim() || '—'}</p>
               </div>
+              {task.province?.trim() ? (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground">Province</label>
+                  <p className="text-sm font-bold text-foreground mt-1">{task.province.trim()}</p>
+                </div>
+              ) : null}
               <div>
                 <label className="text-[10px] font-semibold uppercase text-muted-foreground">Start Date</label>
                 <p className="text-sm font-medium text-foreground mt-1">{task.startDate ? formatDate(task.startDate) : '—'}</p>

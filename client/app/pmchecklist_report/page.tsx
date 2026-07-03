@@ -188,6 +188,8 @@ interface MAReport {
   vendorTel?: string;
   reporterName?: string;
   reporterTel?: string;
+  reporterPosition?: string;
+  reporterEmail?: string;
   ticket?: string;
   site_name?: string;
   /** ชั่วโมงรวม — จาก tasks.downtime_total_hours */
@@ -1404,6 +1406,8 @@ function ReportPageContent() {
       'Third Party Vendor name',
       'Third Party Vendor phone',
       'Reporter name',
+      'Reporter email',
+      'Reporter position',
       'Reporter phone',
       'Ticket',
       'Assigned Service',
@@ -1537,6 +1541,8 @@ function ReportPageContent() {
         maR.vendorName ?? '',
         maR.vendorTel ?? '',
         maR.reporterName ?? '',
+        maR.reporterEmail ?? '',
+        maR.reporterPosition ?? '',
         maR.reporterTel ?? '',
         maR.ticket ?? '',
         assignedServiceForTaskExport(maR.taskId ?? r.taskId),
@@ -1678,6 +1684,8 @@ function ReportPageContent() {
         readString(task, 'vendorName') ?? readString(task, 'vendor_name') ?? '',
         readString(task, 'vendorTel') ?? readString(task, 'vendor_tel') ?? '',
         readString(task, 'reporterName') ?? readString(task, 'reporter_name') ?? '',
+        readString(task, 'reporterEmail') ?? readString(task, 'reporter_email') ?? '',
+        readString(task, 'reporterPosition') ?? readString(task, 'reporter_position') ?? '',
         readString(task, 'reporterTel') ?? readString(task, 'reporter_tel') ?? '',
         readString(task, 'ticket') ?? '',
         String(readString(task, 'assignedService') ?? readString(task, 'assigned_service') ?? '').trim() || '-',
@@ -3143,7 +3151,7 @@ function ReportPageContent() {
                 {/* MA: Contract Information */}
                 {tab === 'ma' && (() => {
                   const ma = selectedReport as MAReport;
-                  const hasContract = ma.vendorName || ma.vendorTel || ma.reporterName || ma.reporterTel || ma.ticket;
+                  const hasContract = ma.vendorName || ma.vendorTel || ma.reporterName || ma.reporterPosition || ma.reporterEmail || ma.reporterTel || ma.ticket;
                   if (!hasContract) return null;
                   return (
                     <div className="bg-card rounded-2xl border border-border p-6">
@@ -3170,6 +3178,18 @@ function ReportPageContent() {
                           <div>
                             <p className="text-xs font-medium text-muted-foreground mb-1">Reporter name</p>
                             <p className="text-sm font-semibold text-foreground">{ma.reporterName}</p>
+                          </div>
+                        )}
+                        {ma.reporterEmail && (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Reporter email</p>
+                            <p className="text-sm font-semibold text-foreground break-all">{ma.reporterEmail}</p>
+                          </div>
+                        )}
+                        {ma.reporterPosition && (
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground mb-1">Reporter position</p>
+                            <p className="text-sm font-semibold text-foreground">{ma.reporterPosition}</p>
                           </div>
                         )}
                         {ma.reporterTel && (

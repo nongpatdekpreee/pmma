@@ -152,7 +152,7 @@ export function mapTaskToMaWorkOrder(
     issueDate: toThaiDateParts(context.issueDate ?? task.startDate ?? new Date()),
 
     customerName: (task.reporterName ?? '').trim(),
-    customerPosition: '',
+    customerPosition: (task.reporterPosition ?? task.reporter_position ?? '').trim(),
     customerDepartment: companyOrSite,
     customerPhone: (task.reporterTel ?? '').trim(),
     companyName: companyOrSite,

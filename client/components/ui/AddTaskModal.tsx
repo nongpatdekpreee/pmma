@@ -78,6 +78,10 @@ interface TaskEditingEvent {
   reporter_name?: string;
   reporterTel?: string;
   reporter_tel?: string;
+  reporterPosition?: string;
+  reporter_position?: string;
+  reporterEmail?: string;
+  reporter_email?: string;
   ticket?: string;
   rootCause?: string;
   root_cause?: string;
@@ -211,6 +215,8 @@ function parseEngineersFromEvent(engList: unknown): Engineer[] {
 /** MA text field limits (aligned with DB / UX) */
 const MA_MAX_VENDOR = 100;
 const MA_MAX_REPORTER = 100;
+const MA_MAX_REPORTER_POSITION = 100;
+const MA_MAX_REPORTER_EMAIL = 255;
 const MA_MAX_ISSUE_TEXT = 300;
 const MA_MAX_TICKET_DIGITS = 50;
 
@@ -326,6 +332,9 @@ export function AddTaskModal({
   const [reporterName, setReporterName] = useState('');
   /** ตั้งเมื่อกด Save แล้วชื่อ Reporter ว่าง — ไม่โชว์ error ตอนยังไม่เคยพยายามบันทึก */
   const [reporterNameRequiredError, setReporterNameRequiredError] = useState('');
+  const [reporterPosition, setReporterPosition] = useState('');
+  const [reporterEmail, setReporterEmail] = useState('');
+  const [reporterEmailError, setReporterEmailError] = useState('');
   const [reporterTel, setReporterTel] = useState('');
   const [reporterTelExt, setReporterTelExt] = useState('');
   const reporterPhoneMainOverflowWarned = useRef(false);
@@ -416,6 +425,9 @@ export function AddTaskModal({
     setReporterPhoneError('');
     setReporterName('');
     setReporterNameRequiredError('');
+    setReporterPosition('');
+    setReporterEmail('');
+    setReporterEmailError('');
     setReporterTel('');
     setReporterTelExt('');
     reporterPhoneMainOverflowWarned.current = false;
@@ -709,6 +721,11 @@ export function AddTaskModal({
       vendorPhoneMainOverflowWarned.current = false;
       setReporterName(editingEvent.reporterName || editingEvent.reporter_name || '');
       setReporterNameRequiredError('');
+      setReporterPosition(
+        editingEvent.reporterPosition || editingEvent.reporter_position || ''
+      );
+      setReporterEmail(editingEvent.reporterEmail || editingEvent.reporter_email || '');
+      setReporterEmailError('');
       {
         const reporterLine = String(
           editingEvent.reporterTel || editingEvent.reporter_tel || ''
@@ -1067,6 +1084,9 @@ export function AddTaskModal({
       setVendorName('');
       setReporterName('');
       setReporterNameRequiredError('');
+      setReporterPosition('');
+      setReporterEmail('');
+      setReporterEmailError('');
       setReporterTel('');
       setReporterTelExt('');
       setReporterPhoneError('');
@@ -1705,6 +1725,15 @@ export function AddTaskModal({
           return;
         }
       }
+      {
+        const emailTrim = reporterEmail.trim();
+        if (emailTrim && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) {
+          setReporterEmailError('Please enter a valid email address.');
+          showWarning('Please enter a valid Client email address');
+          return;
+        }
+        setReporterEmailError('');
+      }
       if (!String(ticket || '').trim()) {
         setTicketRequiredError('Please enter Ticket (required)');
         showWarning('Please enter Ticket');
@@ -1797,6 +1826,8 @@ export function AddTaskModal({
         reporterName: taskType === 'MA' ? reporterName : null,
         reporterTel:
           taskType === 'MA' ? formatTelLineForDb(reporterTel, reporterTelExt) || null : null,
+        reporterPosition: taskType === 'MA' ? reporterPosition.trim() || null : null,
+        reporterEmail: taskType === 'MA' ? reporterEmail.trim() || null : null,
         ticket: taskType === 'MA' ? ticket : null,
         rootCause: taskType === 'MA' ? rootCause : null,
         resolution: taskType === 'MA' ? resolution : null,
@@ -2725,7 +2756,8 @@ export function AddTaskModal({
             <div className={sectionCard}>
               <h3 className="text-xs font-bold text-muted-foreground">Client</h3>
                 
-              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+              <div className="mt-2 flex flex-col gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                 <div className="flex min-w-0 flex-1 basis-0 flex-col">
                   <label className={fieldLabel}>
                     Reporter name <span className="text-red-500 text-[10px]">*</span>
@@ -2918,6 +2950,54 @@ export function AddTaskModal({
                     ) : null}
                   </div>
                 </div>
+              </div>
+
+              <div className="grid w-full grid-cols-2 gap-3">
+                <div className="min-w-0">
+                  <label className={fieldLabel}>Email</label>
+                  <input
+                    type="email"
+                    value={reporterEmail}
+                    maxLength={MA_MAX_REPORTER_EMAIL}
+                    onChange={(e) => {
+                      setReporterEmailError('');
+                      setReporterEmail(e.target.value.slice(0, MA_MAX_REPORTER_EMAIL));
+                    }}
+                    onBlur={() => {
+                      const t = reporterEmail.trim();
+                      if (t && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) {
+                        setReporterEmailError('Please enter a valid email address.');
+                      } else {
+                        setReporterEmailError('');
+                      }
+                    }}
+                    placeholder="name@example.com"
+                    autoComplete="email"
+                    aria-invalid={reporterEmailError ? true : undefined}
+                    className={`${inputBase} w-full ${
+                      reporterEmailError ? 'border-red-300 focus:border-red-400 focus:ring-red-200' : ''
+                    }`}
+                  />
+                  <div className="mt-0.5 min-h-[1.125rem]" aria-live="polite">
+                    {reporterEmailError ? (
+                      <p className="text-[10px] text-red-500 leading-snug">{reporterEmailError}</p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <label className={fieldLabel}>Position</label>
+                  <input
+                    type="text"
+                    value={reporterPosition}
+                    maxLength={MA_MAX_REPORTER_POSITION}
+                    onChange={(e) =>
+                      setReporterPosition(e.target.value.slice(0, MA_MAX_REPORTER_POSITION))
+                    }
+                    placeholder="Job title / department"
+                    className={`${inputBase} w-full`}
+                  />
+                </div>
+              </div>
               </div>
 
               <div className="mt-3 border-t border-border pt-3">

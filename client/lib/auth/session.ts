@@ -8,6 +8,9 @@ let onSessionExpired: (() => void) | null = null;
 
 const REFRESH_BEFORE_EXPIRY_MS = 60_000;
 
+/** Dev: ปิด timer + refresh ล่วงหน้า — HMR รีเซ็ต in-memory token ทำให้ refresh วนลูป */
+const isDev = process.env.NODE_ENV === 'development';
+
 /** Decode JWT exp — scheduling only, not for verification */
 function getJwtExpMs(token: string): number | null {
   try {
@@ -49,8 +52,9 @@ export function registerSessionExpiredHandler(handler: (() => void) | null): voi
   onSessionExpired = handler;
 }
 
-/** ตั้ง timer refresh access token ก่อนหมดอายุ (ฝั่ง frontend) */
+/** ตั้ง timer refresh access token ก่อนหมดอายุ (ฝั่ง frontend) — ปิดใน dev */
 export function scheduleAccessTokenRefresh(): void {
+  if (isDev) return;
   clearRefreshTimer();
   const token = getAccessToken();
   if (!token) return;
@@ -85,8 +89,11 @@ export function startAccessTokenRefreshScheduler(): () => void {
 /** ดึง/ต่ออายุ access token จาก refresh cookie — dedupe ถ้ามีหลาย request พร้อมกัน */
 export function ensureAuthSession(): Promise<AuthUser | null> {
   const token = getAccessToken();
-  if (token && !isAccessTokenExpiringSoon(token)) {
-    return Promise.resolve(null);
+  if (token) {
+    // dev: refresh เฉพาะตอนไม่มี token (เช่นหลัง HMR); production: refresh ก่อนหมดอายุด้วย
+    if (isDev || !isAccessTokenExpiringSoon(token)) {
+      return Promise.resolve(null);
+    }
   }
 
   if (!inflight) {
