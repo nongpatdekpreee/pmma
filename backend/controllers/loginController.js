@@ -94,8 +94,13 @@ const login = async (req, res) => {
 
     const user = users[0];
 
-    // ตรวจสอบ Password ด้วย argon2
-    const isValidPassword = await argon2.verify(user.Password, Password);
+    // ตรวจสอบ Password ด้วย argon2 (hash ไม่ถูกรูปแบบ → ถือว่า login ไม่ผ่าน)
+    let isValidPassword = false;
+    try {
+      isValidPassword = await argon2.verify(user.Password, Password);
+    } catch (verifyErr) {
+      console.error('Password verify failed for user:', user.Username, verifyErr);
+    }
 
     if (!isValidPassword) {
       return res.status(401).json({
@@ -125,10 +130,11 @@ const login = async (req, res) => {
     });
   } catch (error) {
     console.error('Error logging in:', error);
+    const isProd = process.env.NODE_ENV === 'production';
     res.status(500).json({
       success: false,
       message: 'เกิดข้อผิดพลาดในการ Login',
-      error: error.message
+      ...(isProd ? {} : { error: error.message }),
     });
   }
 };

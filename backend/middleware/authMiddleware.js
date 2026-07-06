@@ -3,7 +3,13 @@ const { normalizeRole } = require('../utils/roleUtils');
 const { logAuthFailure } = require('../utils/authLogger');
 const { requireSession } = require('./requireSession');
 
-const JWT_SECRET = process.env.JWT_SECRET ;
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || String(secret).trim() === '') {
+    throw new Error('JWT_SECRET is not configured');
+  }
+  return secret;
+}
 
 function isMaNoticeFileGet(req) {
   return req.method === 'GET' && /\/api\/tasks\/\d+\/ma-notice\//.test(String(req.originalUrl || ''));
@@ -26,7 +32,7 @@ const authenticateToken = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     req.user = {
       ...decoded,
       Role: normalizeRole(decoded.Role),
@@ -51,4 +57,4 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
-module.exports = { authenticateToken, JWT_SECRET };
+module.exports = { authenticateToken, getJwtSecret };

@@ -104,15 +104,41 @@ npm start
 
 ## Docker (รวม UI + API)
 
-จากรากโปรเจกต์:
+### Build + push ขึ้น registry
 
 ```bash
-docker build -t pmma -f Dockerfile .
-docker run -p 8080:80 --env-file path/to/backend.env pmma
+docker build -t 10.4.102.212:8080/pmma:latest -f dockerfile .
+docker push 10.4.102.212:8080/pmma:latest
+```
+
+### รันบน server (inventory / tccstock_mysql)
+
+```bash
+docker pull 10.4.102.212:8080/pmma:latest
+docker rm -f pmma
+docker run -d --name pmma \
+  --network inventory_default \
+  -p 9000:80 \
+  --env-file backend/.env \
+  -e DB_HOST=tccstock_mysql \
+  10.4.102.212:8080/pmma:latest
+docker logs pmma --tail 30
+```
+
+- ภายใน container: nginx **:80** → `/api` ไป Express **:5000**, `/` ไป Next **:3000**
+- จาก container อื่นใน network: ใช้ `http://pmma:80` (ไม่ใช่ `:9000` หรือ `:5000`)
+- `DB_HOST` ต้องเป็นชื่อ MySQL container (`tccstock_mysql`) ไม่ใช่ IP host
+- ดูตัวอย่าง env: `backend/.env.inventory.example`
+
+### รันทดสอบบนเครื่อง dev (Windows)
+
+```bash
+docker build -t pmma:latest -f dockerfile .
+docker run -p 9001:80 --env-file backend/.env -e DB_HOST=host.docker.internal pmma:latest
 ```
 
 - ภายในคอนเทนเนอร์ nginx ฟังพอร์ต **80** — พร็อกซี `/api` และ `/uploads` ไป Express ที่ **5000** และส่งคำขออื่นไป Next standalone ที่ **3000**
-- ตอน **build** สามารถส่ง `NEXT_PUBLIC_API_URL` เป็นค่าว่างเพื่อให้เบราว์เซอร์เรียก API แบบ same-origin ผ่าน nginx (ตาม `Dockerfile`)
+- ตอน **build** ใช้ `NEXT_PUBLIC_API_URL=""` (default) เพื่อให้เบราว์เซอร์เรียก API แบบ same-origin
 
 ตัวแปร `DB_*` และ `PORT` ของแบ็กเอนด์ต้องมีให้คอนเทนเนอร์เชื่อม MySQL ได้ (เช่น `--env-file` หรือ `-e`)
 
