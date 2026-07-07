@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -6,7 +8,6 @@ const path = require('path');
 const loginRoutes = require('./routes/loginRoutes');
 const { authenticateToken } = require('./middleware/authMiddleware');
 const { requireSession } = require('./middleware/requireSession');
-require('dotenv').config();
 
 // โหลด config database เพื่อทดสอบการเชื่อมต่อตอน start server
 require('./config/database');
@@ -81,8 +82,18 @@ app.use((req, res) => {
 // Cron jobs (PM/MA plans @ Mon 09:00, contract expiring @ daily 09:00)
 const { startCronJobs } = require('./cron/scheduler');
 const { ensureRefreshTokensTable } = require('./scripts/runRefreshTokensMigration');
+const { ensureUserTable } = require('./scripts/runUserTableMigration');
+
+function requireJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || String(secret).trim() === '') {
+    throw new Error('JWT_SECRET is required — set it in backend/.env or container environment');
+  }
+}
 
 async function startServer() {
+  requireJwtSecret();
+  await ensureUserTable();
   await ensureRefreshTokensTable();
   startCronJobs();
   app.listen(PORT, () => {

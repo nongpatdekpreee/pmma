@@ -20,8 +20,6 @@ services:
       DB_NAME: app_db
       COOKIE_SECURE: "false"
       COOKIE_SAME_SITE: lax
-      DOCKER_ADMIN_USER: admin
-      DOCKER_ADMIN_PASSWORD: Admin@2026
     volumes:
       - ./backend/uploads:/app/uploads
     depends_on:
@@ -56,7 +54,7 @@ services:
     networks:
       - app-net
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

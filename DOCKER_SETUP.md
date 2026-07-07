@@ -18,35 +18,38 @@ This setup allows you to build and run both Backend (Node.js/Express) and Fronte
 
 ## Quick Start
 
-### Build and Run All Services
+### Option A — Full stack (recommended)
 
 ```bash
-# Build images and start all containers
-docker-compose up --build
-
-# Or run in detached mode (background)
-docker-compose up -d --build
+# จาก root โปรเจกต์ — backend + frontend + nginx + MySQL
+docker compose up -d --build
 ```
 
-### Individual Commands
+เปิด **http://localhost** (nginx port 80)
+
+### Option B — Single combined image
 
 ```bash
-# Build only
-docker-compose build
+docker build -f dockerfile -t pmma .
+docker run -p 80:80 --env-file backend/.env pmma
+```
 
-# Start services
-docker-compose up
+### Option C — Build images แยก
 
-# Stop services
-docker-compose down
+```bash
+docker build -f backend/Dockerfile -t pmma-backend .
+docker build -f client/Dockerfile -t pmma-frontend \
+  --build-arg NEXT_PUBLIC_API_URL="" \
+  --build-arg API_PROXY_TARGET=http://backend:5000 .
+```
 
-# View logs
-docker-compose logs -f
+### คำสั่งเพิ่มเติม
 
-# View specific service logs
-docker-compose logs -f backend
-docker-compose logs -f frontend
-docker-compose logs -f nginx
+```bash
+docker compose build          # build อย่างเดียว
+docker compose down           # หยุดทุก service
+docker compose logs -f        # ดู log ทั้งหมด
+docker compose logs -f backend
 ```
 
 ## Access Points
@@ -67,7 +70,8 @@ environment:
   DB_USER: app_user
   DB_PASSWORD: app_password
   DB_NAME: app_db
-  NEXT_PUBLIC_API_URL: http://backend:5000
+  # Frontend build arg — ใช้ "" เมื่อเข้าผ่าน nginx (same-origin /api)
+  NEXT_PUBLIC_API_URL: ""
 ```
 
 ## Database Initialization

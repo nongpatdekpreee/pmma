@@ -1,0 +1,30 @@
+# Deploy บน server inventory (เครือข่าย app-net ร่วมกับ tccstock_mysql)
+# ใช้งาน:
+#   cp backend/.env.inventory.example .env
+#   # แก้ JWT_SECRET ใน .env ให้เป็นค่าจริง
+#   docker compose -f docker-compose.inventory.yml up -d
+
+services:
+  pmma:
+    image: 10.4.102.212:8080/pmma:latest
+    container_name: pmma
+    restart: unless-stopped
+    ports:
+      - "9000:80"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: tccstock_mysql
+      DB_PORT: 3306
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+      DB_NAME: app_db
+    volumes:
+      - /data/pmm/uploads:/app/backend/uploads
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    external: true

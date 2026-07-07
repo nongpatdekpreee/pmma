@@ -1,24 +1,29 @@
-# Backend - Node.js Express API
-FROM node:20-slim
+# Backend API — build from repo root:
+#   docker build -f backend/Dockerfile -t pmma-backend .
+FROM node:20-alpine AS deps
+
+RUN apk add --no-cache python3 make g++
+WORKDIR /app
+COPY backend/package.json backend/package-lock.json* ./
+RUN npm ci --omit=dev
+
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Copy package files
-COPY backend/package*.json ./
+ENV NODE_ENV=production
+ENV PORT=5000
 
-# Install dependencies
-RUN npm ci --only=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY backend/ ./
 
-# Copy application code
-COPY backend/ .
+RUN mkdir -p uploads \
+  && sed -i 's/\r$//' docker-entrypoint.sh \
+  && chmod +x docker-entrypoint.sh
 
-# Expose port
 EXPOSE 5000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+  CMD node -e "require('http').get('http://127.0.0.1:5000/',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
-# Start application (migrate refresh_tokens then listen)
-RUN sed -i 's/\r$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
-CMD ["./docker-entrypoint.sh"]
+ENTRYPOINT ["./docker-entrypoint.sh"]

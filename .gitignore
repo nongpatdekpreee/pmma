@@ -118,10 +118,8 @@ next-env.d.ts
 uploads/
 temp/
 
-# Docker
-Dockerfile
-dockerfile
-client/Dockerfile
+# Docker — Dockerfiles are tracked; local env is not
+# backend/Dockerfile, client/Dockerfile, dockerfile
 
 # Package manager locks (optional - uncomment if you don't want to commit them)
 # package-lock.json

@@ -3,17 +3,3 @@ node_modules/
 *.log
 .DS_Store
 uploads/
-
-# Docker
-Dockerfile
-dockerfile
-docker-compose.yml
-Dockerfile
-dockerfile
-docker-compose.yml
-Dockerfile
-dockerfile
-docker-compose.yml
-Dockerfile
-dockerfile
-docker-compose.yml
