@@ -618,8 +618,10 @@ function contractMatchesListSearch(contract: Contract, searchTerm: string): bool
     contract.partner.toLowerCase().includes(searchLower) ||
     (contract.siteName ?? '').toLowerCase().includes(searchLower) ||
     (contract.siteLocation ?? '').toLowerCase().includes(searchLower) ||
+    (contract.siteProvince ?? '').toLowerCase().includes(searchLower) ||
     (contract.contractSiteName ?? '').toLowerCase().includes(searchLower) ||
     (contract.contractSiteLocation ?? '').toLowerCase().includes(searchLower) ||
+    (contract.contractSiteProvince ?? '').toLowerCase().includes(searchLower) ||
     (contract.siteId != null && String(contract.siteId).includes(searchLower))
   ) {
     return true;

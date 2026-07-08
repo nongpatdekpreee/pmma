@@ -1,0 +1,159 @@
+/* PM permit request — PDF export (extends ma-wo export.css) */
+
+.pm-pr-root {
+  font-family: 'Noto Sans Thai', 'TH Sarabun New', 'Sarabun', sans-serif;
+}
+
+.pm-pr-page {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.pm-pr-subject {
+  font-weight: 700;
+  margin: 8px 0 10px;
+}
+
+.pm-pr-line {
+  margin: 0 0 6px;
+}
+
+.pm-pr-client {
+  margin-bottom: 12px;
+}
+
+.pm-pr-body {
+  margin-bottom: 12px;
+}
+
+.pm-pr-paragraph {
+  padding-top: 20px;
+  margin: 0 0 8px;
+  text-indent: 2.5em;
+  text-align: justify;
+}
+
+.pm-pr-paragraph.pm-pr-closing {
+  margin-top: 14px;
+  text-indent: 0;
+}
+
+.pm-pr-inline-value {
+  font-weight: 600;
+}
+
+.pm-pr-table-title {
+  font-weight: 700;
+  margin: 10px 0 6px;
+  text-align: center;
+}
+
+.pm-pr-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 10.5px;
+  margin-bottom: 12px;
+}
+
+.pm-pr-col-no {
+  width: 5%;
+}
+
+.pm-pr-col-location {
+  width: 32%;
+}
+
+.pm-pr-col-province {
+  width: 9%;
+}
+
+.pm-pr-col-devices {
+  width: 7%;
+}
+
+.pm-pr-col-date {
+  width: 9%;
+}
+
+.pm-pr-col-staff {
+  width: 29%;
+}
+
+.pm-pr-table th,
+.pm-pr-table td {
+  border: 1px solid #374151;
+  padding: 5px 3px;
+  vertical-align: top;
+  text-align: center;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.pm-pr-table th {
+  background: #f3f4f6;
+  font-weight: 700;
+  font-size: 9.5px;
+  line-height: 1.25;
+}
+
+.pm-pr-table th.pm-pr-th-date,
+.pm-pr-table td.pm-pr-date {
+  font-size: 9px;
+  padding: 5px 2px;
+  line-height: 1.2;
+}
+
+.pm-pr-table td.pm-pr-location {
+  text-align: left;
+  font-size: 10px;
+}
+
+.pm-pr-table td.pm-pr-num {
+  text-align: center;
+}
+
+.pm-pr-staff {
+  text-align: left;
+}
+
+.pm-pr-staff-name {
+  display: block;
+  line-height: 1.35;
+}
+
+.pm-pr-staff-name + .pm-pr-staff-name {
+  margin-top: 2px;
+}
+
+.pm-pr-signatures {
+  padding-top: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 24px;
+  margin-top: 28px;
+}
+
+.pm-pr-sign-col {
+  min-width: 0;
+}
+
+.pm-pr-sign-line {
+  margin: 0 0 18px;
+  padding: 0;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+  line-height: 1.4;
+}
+
+.pm-pr-sign-company {
+  font-weight: 700;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 1.2em;
+  line-height: 1.4;
+}

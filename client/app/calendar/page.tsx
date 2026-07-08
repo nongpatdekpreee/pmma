@@ -56,6 +56,7 @@ interface CalendarEvent {
   siteDbName?: string;
   location?: string;
   province?: string;
+  sofName?: string;
   Eng_ids?: Engineer[];
   startDate?: string;
   endDate?: string;
@@ -230,6 +231,9 @@ function CalendarPageContent() {
       siteDbName: siteDbName || undefined,
       location,
       province: province || undefined,
+      ...(readString(task, 'sofName') ?? readString(task, 'sof_name')
+        ? { sofName: (readString(task, 'sofName') ?? readString(task, 'sof_name'))!.trim() }
+        : {}),
       Eng_ids: engineers as Engineer[],
       startDate: start,
       endDate: end,

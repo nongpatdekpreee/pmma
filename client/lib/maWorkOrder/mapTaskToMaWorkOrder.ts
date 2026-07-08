@@ -1,9 +1,9 @@
 import {
   MA_BROKEN_HARDWARE_ROW_COUNT,
   MA_REPLACEMENT_HARDWARE_ROW_COUNT,
-  MA_WORK_ORDER_DOCUMENT_VERSION,
+ 
 } from './constants';
-import { formatDisplayDate, toThaiDateParts } from './formatThaiDate';
+import { toThaiDateParts } from './formatThaiDate';
 import type {
   MaAssetOwner,
   MaResolutionOutcome,
@@ -148,7 +148,7 @@ export function mapTaskToMaWorkOrder(
     'Device is not working';
 
   return {
-    documentVersion: MA_WORK_ORDER_DOCUMENT_VERSION,
+
     issueDate: toThaiDateParts(context.issueDate ?? task.startDate ?? new Date()),
 
     customerName: (task.reporterName ?? '').trim(),
@@ -172,8 +172,8 @@ export function mapTaskToMaWorkOrder(
         : '',
     replacementHardware,
 
-    installDate: formatDisplayDate(task.uptimeDate ?? task.endDate),
-    returnDate: formatDisplayDate(task.downtimeDate),
+    installDate: '',
+    returnDate: '',
     warrantyFrom: '',
     warrantyTo: '',
 

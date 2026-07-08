@@ -434,12 +434,8 @@ function AddPMReportPageContent() {
       const deviceId = getDeviceIdFromAsset(firstAsset);
       if (deviceId) setSelectedDeviceId(deviceId);
     }
-    const doneDate = toYmd(task.updatedAt ?? task.updated_at);
-    if (doneDate) setPmDate(doneDate);
-    else {
-      const start = toYmd(task.startDate ?? task.start_date);
-      if (start) setPmDate(start);
-    }
+    const plannedDate = toYmd(task.startDate ?? task.start_date);
+    if (plannedDate) setPmDate(plannedDate);
     setTechnicianName(formatTaskEngineersLine(task.engineers ?? task.Eng_ids));
   }, []);
 

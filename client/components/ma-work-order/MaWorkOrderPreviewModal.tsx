@@ -65,7 +65,7 @@ export function MaWorkOrderPreviewModal({
               className="inline-flex items-center gap-1 rounded-lg bg-sky-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-600 disabled:opacity-60"
             >
               <Download size={14} />
-              {downloading ? 'กำลังสร้าง PDF…' : 'ดาวน์โหลด PDF'}
+              {downloading ? 'Generating PDF…' : 'Download PDF'}
             </button>
           )}
           <button
@@ -74,18 +74,18 @@ export function MaWorkOrderPreviewModal({
             className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
           >
             <X size={14} />
-            ปิด
+            Close
           </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-auto">
         {loading ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">กำลังเตรียมข้อมูลฟอร์ม…</p>
+          <p className="p-8 text-center text-sm text-muted-foreground">Preparing form data…</p>
         ) : data ? (
           <MaWorkOrderDocument data={data} withPreviewShell />
         ) : (
-          <p className="p-8 text-center text-sm text-muted-foreground">ไม่มีข้อมูลสำหรับแสดงฟอร์ม</p>
+          <p className="p-8 text-center text-sm text-muted-foreground">No data to display form</p>
         )}
       </div>
     </div>

@@ -16,6 +16,11 @@ import {
   downloadMaWorkOrderPdf,
   fetchMaWorkOrderFromTask,
 } from '@/lib/maWorkOrder';
+import {
+  buildPmPermitRequestFilename,
+  downloadPmPermitRequestPdf,
+  fetchPmPermitRequestFromTask,
+} from '@/lib/pmPermitRequest';
 import ExcelJS from 'exceljs';
 
 /** Reason for in process (notes เมื่อ status = working) */
@@ -72,6 +77,7 @@ interface TaskDetail {
   Sname?: string;
   siteDbName?: string;
   location?: string;
+  sofName?: string;
   province?: string;
   Eng_ids?: Engineer[];
   lastName?: string;
@@ -161,6 +167,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
   const [assetPage, setAssetPage] = useState(1);
   const assetsPerPage = 5;
   const [maWorkOrderDownloading, setMaWorkOrderDownloading] = useState(false);
+  const [pmPermitDownloading, setPmPermitDownloading] = useState(false);
 
   const handleDownloadMaWorkOrder = async () => {
     if (!task || task.taskType !== 'MA') return;
@@ -184,6 +191,21 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
       showAlert('Cannot create PDF file, please try again', 'warning', 'Download failed');
     } finally {
       setMaWorkOrderDownloading(false);
+    }
+  };
+
+  const handleDownloadPmPermitRequest = async () => {
+    if (!task || task.taskType === 'MA') return;
+    setPmPermitDownloading(true);
+    try {
+      const taskRecord = task as unknown as Record<string, unknown>;
+      const data = await fetchPmPermitRequestFromTask(taskRecord);
+      await downloadPmPermitRequestPdf(data, buildPmPermitRequestFilename(taskRecord));
+    } catch (err) {
+      console.error('PM permit request PDF download failed:', err);
+      showAlert('Cannot create PDF file, please try again', 'warning', 'Download failed');
+    } finally {
+      setPmPermitDownloading(false);
     }
   };
 
@@ -959,7 +981,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
 
         {/* Footer */}
         <div className="flex flex-wrap items-center justify-end gap-2 px-6 py-3 border-t bg-muted">
-          {(onEdit || onDelete || task.taskType === 'MA') && (
+          {(onEdit || onDelete || task.taskType === 'MA' || task.taskType === 'PM') && (
             <details className="relative">
               <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground hover:bg-muted [&::-webkit-details-marker]:hidden">
                 <MoreHorizontal size={14} />
@@ -1036,7 +1058,18 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground hover:bg-muted disabled:opacity-60"
                   >
                     <Download size={14} />
-                    {maWorkOrderDownloading ? 'กำลังสร้าง PDF…' : 'ดาวน์โหลดใบแจ้งซ่อม'}
+                    {maWorkOrderDownloading ? 'Generating PDF…' : 'Download MA Work Order'}
+                  </button>
+                )}
+                {task.taskType === 'PM' && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadPmPermitRequest()}
+                    disabled={pmPermitDownloading}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                  >
+                    <Download size={14} />
+                    {pmPermitDownloading ? 'Generating PDF…' : 'Download PM Permit Request'}
                   </button>
                 )}
               </div>
