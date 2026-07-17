@@ -127,9 +127,10 @@ interface Device {
   SiteName?: string;
   assetState?: string;
   assetNumber?: string;
-  source?: 'site' | 'available';
+  source?: 'site' | 'available' | 'manual';
   Dtypeid?: number;
   DeRoleid?: number;
+  Project_Owen?: string;
   SLid?: number; // สำหรับกรองตาม site
   role?: string;
   manufacturer?: string;
@@ -268,6 +269,42 @@ function formatContractDisplayLabel(c: ContractOption | undefined, idFallback = 
   return idFallback;
 }
 
+function buildManualMaBrokenDevice(params: {
+  name: string;
+  serialNumber?: string;
+  assetNumber?: string;
+  role?: string;
+  type?: string;
+  Dtypeid?: number;
+  DeRoleid?: number;
+  projectOwen: string;
+  contractId: number;
+  siteName?: string;
+  slid?: number;
+}): Device {
+  const name = params.name.trim();
+  const serialNumber = params.serialNumber?.trim() || undefined;
+  const assetNumber = params.assetNumber?.trim() || undefined;
+  const role = params.role?.trim() || undefined;
+  const type = params.type?.trim() || role;
+  return {
+    id: `manual-${randomUUID()}`,
+    name,
+    serialNumber,
+    assetNumber,
+    role,
+    type,
+    ...(params.Dtypeid != null ? { Dtypeid: params.Dtypeid } : {}),
+    ...(params.DeRoleid != null ? { DeRoleid: params.DeRoleid } : {}),
+    Project_Owen: params.projectOwen.trim(),
+    contract_id: params.contractId,
+    site: params.siteName,
+    SLid: params.slid,
+    source: 'manual',
+    assetState: 'In Use',
+  };
+}
+
 /* ================= available engineers ================= */
 // จะดึงข้อมูลจาก API ใน component แทน
 
@@ -294,6 +331,11 @@ export function AddTaskModal({
   const [taskAttachmentFilesPending, setTaskAttachmentFilesPending] = useState<File[]>([]);
   const repairNoticeInputId = useId();
   const [assetModalOpen, setAssetModalOpen] = useState(false);
+  const [maManualDeviceModalOpen, setMaManualDeviceModalOpen] = useState(false);
+  /** broken = เพิ่ม broken device; replacement = เพิ่มเครื่องทดแทนของ pair นั้น */
+  const [maManualTarget, setMaManualTarget] = useState<
+    { kind: 'broken' } | { kind: 'replacement'; pairId: string } | null
+  >(null);
 
   const editingTaskHasReport = useMemo(() => {
     if (!editingEvent?.id) return false;
@@ -406,6 +448,18 @@ export function AddTaskModal({
   const [loadingEngineers, setLoadingEngineers] = useState(false);
   const { toasts, removeToast, warning: showWarning, error: toastError } = useToast();
 
+  const openMaManualDeviceModal = useCallback(
+    (target: { kind: 'broken' } | { kind: 'replacement'; pairId: string }) => {
+      if (selectedContractIds.length === 0) {
+        showWarning('Please select a contract before adding a device');
+        return;
+      }
+      setMaManualTarget(target);
+      setMaManualDeviceModalOpen(true);
+    },
+    [selectedContractIds.length, showWarning],
+  );
+
   const resetForm = () => {
     setTaskType('PM');
     setSid('');
@@ -459,6 +513,9 @@ export function AddTaskModal({
     devicesMappedRef.current = '';
     replacementWarehouseCacheRef.current = null;
     replacementWarehouseInflightRef.current = null;
+    setAssetModalOpen(false);
+    setMaManualDeviceModalOpen(false);
+    setMaManualTarget(null);
   };
 
   const mapDeviceFromApi = (item: unknown, source: 'site' | 'available'): Device => {
@@ -674,6 +731,9 @@ export function AddTaskModal({
 
       if (preserveSelectedDevices.length > 0) {
         setSelectedDevices(preserveSelectedDevices);
+      } else if (currentTaskType === 'PM') {
+        // PM Asset Binding: เริ่มต้นเลือกอุปกรณ์ทั้งหมดของสัญญา
+        setSelectedDevices(merged);
       } else {
         setSelectedDevices((prev) => prev.filter((d) => merged.some((c) => String(c.id) === String(d.id))));
       }
@@ -1176,7 +1236,10 @@ export function AddTaskModal({
     const newPair: BrokenDevicePair = {
       id: pairId,
       brokenDevice: device,
-      brokenAssetState: resolveMaBrokenAssetStateDefault(device.assetState),
+      brokenAssetState:
+        device.source === 'manual'
+          ? 'In Store'
+          : resolveMaBrokenAssetStateDefault(device.assetState),
       replacementDevice: null,
       replacementDevices: [],
       loading: false,
@@ -1211,16 +1274,39 @@ export function AddTaskModal({
       typeof deviceId === 'number'
         ? deviceId
         : parseInt(String(deviceId), 10);
+    const rep = pair.replacementDevice;
+    const repIdRaw = rep?.id;
+    const repDid =
+      repIdRaw == null
+        ? null
+        : typeof repIdRaw === 'number'
+          ? repIdRaw
+          : parseInt(String(repIdRaw), 10);
+    const repIsManual =
+      Boolean(rep) &&
+      (rep!.source === 'manual' ||
+        (typeof repIdRaw === 'string' && repIdRaw.startsWith('manual-')) ||
+        repDid == null ||
+        Number.isNaN(repDid) ||
+        repDid <= 0);
+
     return {
       ...pair.brokenDevice,
       id: !Number.isNaN(did) && did > 0 ? did : deviceId,
       ...( !Number.isNaN(did) && did > 0 ? { Did: did } : {}),
       brokenAssetState: pair.brokenAssetState,
-      replacementDeviceId: pair.replacementDevice
-        ? typeof pair.replacementDevice.id === 'number'
-          ? pair.replacementDevice.id
-          : parseInt(String(pair.replacementDevice.id), 10)
-        : null,
+      replacementDeviceId:
+        rep && !repIsManual && repDid != null && !Number.isNaN(repDid) && repDid > 0
+          ? repDid
+          : null,
+      ...(rep && repIsManual
+        ? {
+            replacementDevice: {
+              ...rep,
+              source: 'manual' as const,
+            },
+          }
+        : {}),
     };
   };
 
@@ -2545,21 +2631,18 @@ export function AddTaskModal({
                     Broken device & replacement <span className="text-red-500">*</span>
                   </label>
                   <p className="text-[10px] text-muted-foreground">
-                    Asset State will be updated in the system when Done is clicked in task detail only.
+                    Manual devices are saved to the database when you save the plan.
+                    Asset State / site updates when Done is clicked.
                   </p>
                 </div>
 
                 {brokenDevicePairs.length === 0 && (
-                  <>
-                    {devicesToShow.length === 0 ? (
+                  <div className="space-y-2">
+                    {!Sid ? (
+                      <p className="text-xs text-muted-foreground">Select Site</p>
+                    ) : selectedContractIds.length === 0 ? (
                       <p className="text-xs text-muted-foreground">
-                        {!Sid
-                          ? 'Select Site'
-                          : selectedContractIds.length === 0
-                            ? 'Select contract(s) to load devices'
-                            : Sid
-                              ? 'No devices for the selected site in these contracts'
-                              : 'No devices in these contracts'}
+                        Select contract(s) to load devices
                       </p>
                     ) : (
                       <SearchableDeviceSelect
@@ -2567,9 +2650,11 @@ export function AddTaskModal({
                         value={null}
                         placeholder="Select broken device"
                         onSelect={(d) => d && addBrokenDevicePair(d)}
+                        onAddManual={() => openMaManualDeviceModal({ kind: 'broken' })}
+                        addManualLabel="Add device not in list"
                       />
                     )}
-                  </>
+                  </div>
                 )}
 
                 {brokenDevicePairs.map((pair, index) => (
@@ -2581,6 +2666,11 @@ export function AddTaskModal({
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-semibold text-foreground">
                           {index + 1}. {pair.brokenDevice.name}
+                          {pair.brokenDevice.source === 'manual' ? (
+                            <span className="ml-1 text-[10px] font-normal text-amber-700">
+                              (manual)
+                            </span>
+                          ) : null}
                         </p>
                         <p className="truncate text-[10px] text-muted-foreground">
                           {[
@@ -2622,8 +2712,6 @@ export function AddTaskModal({
 
                     {pair.loading ? (
                       <p className="text-xs text-muted-foreground">Loading replacements...</p>
-                    ) : pair.replacementDevices.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">No replacement devices in store</p>
                     ) : (
                       <SearchableDeviceSelect
                         devices={pair.replacementDevices}
@@ -2632,23 +2720,23 @@ export function AddTaskModal({
                         onSelect={(d) => updateBrokenDeviceReplacement(pair.id, d)}
                         showTypeRoleFilters
                         showClearOption
+                        onAddManual={() =>
+                          openMaManualDeviceModal({ kind: 'replacement', pairId: pair.id })
+                        }
+                        addManualLabel="Add replacement not in list"
                       />
                     )}
                   </div>
                 ))}
 
-                {/* Add button */}
                 {brokenDevicePairs.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => {
-                      // Open modal to select next broken device
-                      setAssetModalOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition mt-2"
+                    onClick={() => setAssetModalOpen(true)}
+                    className="mt-2 flex items-center gap-1.5 rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600"
                   >
                     <Plus size={14} />
-                    Add Device {brokenDevicePairs.length + 1}
+                    Add broken device {brokenDevicePairs.length + 1}
                   </button>
                 )}
               </div>
@@ -3377,6 +3465,42 @@ export function AddTaskModal({
         document.body
       )}
 
+      <MaManualBrokenDeviceModal
+        open={maManualDeviceModalOpen}
+        kind={maManualTarget?.kind === 'replacement' ? 'replacement' : 'broken'}
+        title={
+          maManualTarget?.kind === 'replacement'
+            ? 'Add Replacement Device Manually'
+            : 'Add Broken Device Manually'
+        }
+        contractOptions={contractOptions.filter((c) =>
+          selectedContractIds.includes(String(c.contract_id)),
+        )}
+        selectedContractIds={selectedContractIds}
+        siteName={
+          siteOptions.find((s) => s.id === Sid)?.name?.trim() ||
+          Sname.trim() ||
+          undefined
+        }
+        slid={Sid && !Number.isNaN(Number(Sid)) ? Number(Sid) : undefined}
+        deviceTypes={deviceTypes}
+        deviceRoles={deviceRoles}
+        onClose={() => {
+          setMaManualDeviceModalOpen(false);
+          setMaManualTarget(null);
+        }}
+        onConfirm={(device) => {
+          if (maManualTarget?.kind === 'replacement') {
+            updateBrokenDeviceReplacement(maManualTarget.pairId, device);
+          } else {
+            addBrokenDevicePair(device);
+          }
+          setMaManualDeviceModalOpen(false);
+          setMaManualTarget(null);
+        }}
+        onValidationError={showWarning}
+      />
+
       <AssetSelectModal
         open={assetModalOpen}
         devices={devicesToShow.filter(d =>
@@ -3432,6 +3556,8 @@ function SearchableDeviceSelect({
   className = '',
   showTypeRoleFilters = false,
   showClearOption = false,
+  onAddManual,
+  addManualLabel = 'Add device not in list',
 }: {
   devices: Device[];
   value: Device | null;
@@ -3441,6 +3567,9 @@ function SearchableDeviceSelect({
   className?: string;
   showTypeRoleFilters?: boolean;
   showClearOption?: boolean;
+  /** ปุ่ม Add ใน dropdown — กรณีไม่มีทั้งตัวเสีย/ตัวเปลี่ยนในระบบ */
+  onAddManual?: () => void;
+  addManualLabel?: string;
 }) {
   const rootId = useId().replace(/:/g, '');
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -3560,6 +3689,24 @@ function SearchableDeviceSelect({
       </div>
     ) : undefined;
 
+  const panelFooter = onAddManual ? (
+    <div className="shrink-0 border-t border-border bg-card p-2">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          closeDropdown();
+          onAddManual();
+        }}
+        className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+      >
+        <Plus size={14} />
+        {addManualLabel}
+      </button>
+    </div>
+  ) : undefined;
+
   return (
     <div ref={wrapRef} className={`relative ${className}`}>
       <ContractSimpleSearchListDropdown
@@ -3591,7 +3738,256 @@ function SearchableDeviceSelect({
         listMaxHeightClass="max-h-48"
         showFilterCountHint
         countNoun="devices"
+        panelFooter={panelFooter}
       />
+    </div>
+  );
+}
+
+/* ================= MA manual broken device modal ================= */
+const MANUAL_REPLACEMENT_PROJECT_OWEN = 'TCC';
+
+interface MaManualBrokenDeviceModalProps {
+  open: boolean;
+  kind?: 'broken' | 'replacement';
+  title?: string;
+  contractOptions: ContractOption[];
+  selectedContractIds: string[];
+  siteName?: string;
+  slid?: number;
+  deviceTypes: Array<{ Dtypeid: number; model: string; Mid: number; manufacturer_name: string }>;
+  deviceRoles: Array<{ DeRoleid: number; name: string; slug: string }>;
+  onClose: () => void;
+  onConfirm: (device: Device) => void;
+  onValidationError: (message: string) => void;
+}
+
+function MaManualBrokenDeviceModal({
+  open,
+  kind = 'broken',
+  title = 'Add Device Manually',
+  contractOptions,
+  selectedContractIds,
+  siteName,
+  slid,
+  deviceTypes,
+  deviceRoles,
+  onClose,
+  onConfirm,
+  onValidationError,
+}: MaManualBrokenDeviceModalProps) {
+  const [name, setName] = useState('');
+  const [serialNumber, setSerialNumber] = useState('');
+  const [assetNumber, setAssetNumber] = useState('');
+  const [roleId, setRoleId] = useState('');
+  const [typeId, setTypeId] = useState('');
+  const [contractId, setContractId] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setName('');
+    setSerialNumber('');
+    setAssetNumber('');
+    setRoleId('');
+    setTypeId('');
+    setContractId(selectedContractIds[0] ?? '');
+  }, [open, selectedContractIds]);
+
+  if (!open) return null;
+
+  const showContractPicker = selectedContractIds.length > 1;
+  const selectedRole = deviceRoles.find((r) => String(r.DeRoleid) === roleId);
+  const selectedType = deviceTypes.find((t) => String(t.Dtypeid) === typeId);
+  const resolvedProjectOwen =
+    kind === 'replacement'
+      ? MANUAL_REPLACEMENT_PROJECT_OWEN
+      : (siteName?.trim() || '');
+
+  const handleConfirm = () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      onValidationError('Please enter device name');
+      return;
+    }
+    const trimmedSerial = serialNumber.trim();
+    if (!trimmedSerial) {
+      onValidationError('Please enter serial number');
+      return;
+    }
+    if (!resolvedProjectOwen) {
+      onValidationError(
+        kind === 'replacement'
+          ? 'Replacement Project Owen must be TCC'
+          : 'Please select a site first (Project Owen uses the site name)',
+      );
+      return;
+    }
+    const contractIdStr = showContractPicker ? contractId : selectedContractIds[0];
+    const contractNum = Number(contractIdStr);
+    if (!contractIdStr || Number.isNaN(contractNum)) {
+      onValidationError('Please select a contract');
+      return;
+    }
+    const dtypeid = typeId ? Number(typeId) : undefined;
+    const deroleid = roleId ? Number(roleId) : undefined;
+    onConfirm(
+      buildManualMaBrokenDevice({
+        name: trimmedName,
+        serialNumber: trimmedSerial,
+        assetNumber,
+        role: selectedRole?.name,
+        type: selectedType
+          ? `${selectedType.model}${selectedType.manufacturer_name ? ` (${selectedType.manufacturer_name})` : ''}`
+          : undefined,
+        Dtypeid: dtypeid != null && !Number.isNaN(dtypeid) ? dtypeid : undefined,
+        DeRoleid: deroleid != null && !Number.isNaN(deroleid) ? deroleid : undefined,
+        projectOwen: resolvedProjectOwen,
+        contractId: contractNum,
+        siteName: siteName?.trim() || undefined,
+        slid,
+      }),
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="flex w-full max-w-lg flex-col rounded-3xl bg-card shadow-xl">
+        <div className="flex items-center justify-between border-b px-6 py-4">
+          <div>
+            <h3 className="text-lg font-bold">{title}</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Saved into devices DB when you save the plan. Status / site change on Done.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-muted">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-3 px-6 py-4">
+          {showContractPicker ? (
+            <div>
+              <label className={fieldLabel}>Contract (SOF)</label>
+              <select
+                value={contractId}
+                onChange={(e) => setContractId(e.target.value)}
+                className={inputBase}
+              >
+                <option value="">-- Select contract --</option>
+                {contractOptions.map((c) => (
+                  <option key={c.contract_id} value={String(c.contract_id)}>
+                    {formatContractDisplayLabel(c)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          <div>
+            <label className={fieldLabel}>
+              Device name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Router Core-01"
+              className={inputBase}
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className={fieldLabel}>Project Owen (Owner)</label>
+            <div className={`${inputBase} bg-muted text-foreground`}>
+              {resolvedProjectOwen ||
+                (kind === 'replacement' ? MANUAL_REPLACEMENT_PROJECT_OWEN : 'Select a site first')}
+            </div>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {kind === 'replacement'
+                ? 'Replacement devices are owned by TCC.'
+                : 'Broken devices use the selected site name as Project Owen.'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className={fieldLabel}>
+                Serial number <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={serialNumber}
+                onChange={(e) => setSerialNumber(e.target.value)}
+                placeholder="Required"
+                className={inputBase}
+                required
+              />
+            </div>
+            <div>
+              <label className={fieldLabel}>Asset number</label>
+              <input
+                type="text"
+                value={assetNumber}
+                onChange={(e) => setAssetNumber(e.target.value)}
+                placeholder="Optional"
+                className={inputBase}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className={fieldLabel}>Role</label>
+              <select
+                value={roleId}
+                onChange={(e) => setRoleId(e.target.value)}
+                className={inputBase}
+              >
+                <option value="">-- Optional --</option>
+                {deviceRoles.map((r) => (
+                  <option key={r.DeRoleid} value={String(r.DeRoleid)}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={fieldLabel}>Model / Type</label>
+              <select
+                value={typeId}
+                onChange={(e) => setTypeId(e.target.value)}
+                className={inputBase}
+              >
+                <option value="">-- Optional --</option>
+                {deviceTypes.map((t) => (
+                  <option key={t.Dtypeid} value={String(t.Dtypeid)}>
+                    {t.model}
+                    {t.manufacturer_name ? ` (${t.manufacturer_name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 border-t px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl bg-muted px-4 py-2 text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            className="rounded-xl bg-blue-500 px-5 py-2 text-sm font-bold text-white hover:bg-blue-600"
+          >
+            Add Device
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -594,6 +594,205 @@ const extractBrokenDeviceIdFromAsset = (asset) => {
   return null;
 };
 
+/** อุปกรณ์ที่กรอกเองใน Add Plan MA (ยังไม่มี Did จริงใน devices) */
+const isManualMaAsset = (asset) => {
+  if (asset == null || typeof asset !== 'object') return false;
+  if (String(asset.source || '').toLowerCase() === 'manual') return true;
+  const rawId = asset.id ?? asset.Did ?? asset.did;
+  if (rawId == null || rawId === '') return false;
+  if (typeof rawId === 'string' && rawId.startsWith('manual-')) return true;
+  return parsePositiveDeviceId(rawId) == null;
+};
+
+const MANUAL_REPLACEMENT_PROJECT_OWEN = 'TCC';
+
+const resolveSiteNameForProjectOwen = async (siteId, fallbackName) => {
+  const slid = parsePositiveDeviceId(siteId);
+  if (slid != null) {
+    try {
+      const [rows] = await db.execute(
+        `SELECT s.Name AS site_name
+         FROM sites_location sl
+         INNER JOIN sites s ON s.Sid = sl.Sid
+         WHERE sl.SLid = ?
+         LIMIT 1`,
+        [slid]
+      );
+      const fromDb = rows[0]?.site_name != null ? String(rows[0].site_name).trim() : '';
+      if (fromDb) return fromDb;
+    } catch (e) {
+      console.warn('[resolveSiteNameForProjectOwen]', e.message);
+    }
+  }
+  const fallback = String(fallbackName || '').trim();
+  if (!fallback) return '';
+  // tasks.site_name อาจเป็น "Site - Location" — ใช้เฉพาะชื่อ site ด้านหน้า
+  return fallback.split(' - ')[0].trim() || fallback;
+};
+
+/**
+ * INSERT/UPDATE devices สำหรับ manual MA assets ก่อนบันทึก task
+ * — broken: In Use ที่ site ของงานก่อน พอ Done ค่อยเปลี่ยน Asset_State + ย้าย site
+ * — replacement: In Store ที่คลังก่อน พอ Done ค่อย In Use + ย้ายไป site งาน
+ */
+const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, initialAssetState, projectOwenOverride }) => {
+  const name = String(deviceLike.name ?? deviceLike.CI_Name ?? '').trim();
+  if (!name) {
+    throw new Error('Manual device requires a name (CI_Name)');
+  }
+
+  const serial =
+    (deviceLike.serialNumber != null && String(deviceLike.serialNumber).trim()) ||
+    (deviceLike.serial != null && String(deviceLike.serial).trim()) ||
+    null;
+  if (!serial) {
+    throw new Error('Manual device requires a serial number');
+  }
+  const assetNumber =
+    (deviceLike.assetNumber != null && String(deviceLike.assetNumber).trim()) ||
+    (deviceLike.Asset_Number != null && String(deviceLike.Asset_Number).trim()) ||
+    null;
+  const slid =
+    parsePositiveDeviceId(deviceLike.SLid) ??
+    parsePositiveDeviceId(siteId);
+  const dtypeid = parsePositiveDeviceId(deviceLike.Dtypeid);
+  const deroleid = parsePositiveDeviceId(deviceLike.DeRoleid);
+  const projectOwen = String(
+    projectOwenOverride ??
+      deviceLike.Project_Owen ??
+      deviceLike.projectOwen ??
+      ''
+  ).trim();
+  if (!projectOwen) {
+    throw new Error('Manual device requires Project Owen');
+  }
+  const cid =
+    parsePositiveDeviceId(deviceLike.contract_id) ??
+    parsePositiveDeviceId(contractId);
+  const assetState = initialAssetState || 'In Use';
+
+  let did = null;
+
+  if (assetNumber) {
+    const [existingRows] = await db.execute(
+      'SELECT Did FROM devices WHERE Asset_Number = ? LIMIT 1',
+      [assetNumber]
+    );
+    if (existingRows[0]?.Did != null) {
+      did = parsePositiveDeviceId(existingRows[0].Did);
+      await db.execute(
+        `UPDATE devices
+         SET CI_Name = ?,
+             serial = COALESCE(?, serial),
+             SLid = COALESCE(?, SLid),
+             Asset_State = COALESCE(NULLIF(TRIM(Asset_State), ''), ?),
+             Dtypeid = COALESCE(?, Dtypeid),
+             DeRoleid = COALESCE(?, DeRoleid),
+             Project_Owen = ?
+         WHERE Did = ?`,
+        [name, serial, slid, assetState, dtypeid, deroleid, projectOwen, did]
+      );
+    }
+  }
+
+  if (did == null) {
+    const [insertResult] = await db.execute(
+      `INSERT INTO devices (
+        Asset_State, serial, CI_Name, Asset_Number, SLid, Dtypeid, DeRoleid, Project_Owen
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [assetState, serial, name, assetNumber, slid, dtypeid, deroleid, projectOwen]
+    );
+    did = parsePositiveDeviceId(insertResult.insertId);
+  }
+
+  if (did == null) {
+    throw new Error(`Failed to persist manual device "${name}"`);
+  }
+
+  return {
+    did,
+    name,
+    serial,
+    assetNumber,
+    slid,
+    dtypeid,
+    deroleid,
+    projectOwen,
+    cid,
+  };
+};
+
+const persistManualMaAssets = async (assets, { siteId, contractId, siteName } = {}) => {
+  if (!Array.isArray(assets) || assets.length === 0) return assets;
+
+  const brokenProjectOwen = await resolveSiteNameForProjectOwen(siteId, siteName);
+  const resolved = [];
+  for (const asset of assets) {
+    let nextAsset = asset;
+
+    if (isManualMaAsset(asset)) {
+      if (!brokenProjectOwen) {
+        throw new Error('Manual broken device requires site name for Project Owen');
+      }
+      const saved = await insertOrUpdateManualDeviceRow(asset, {
+        siteId,
+        contractId,
+        initialAssetState: 'In Use',
+        projectOwenOverride: brokenProjectOwen,
+      });
+      nextAsset = {
+        ...asset,
+        id: saved.did,
+        Did: saved.did,
+        name: saved.name,
+        CI_Name: saved.name,
+        serialNumber: saved.serial || undefined,
+        serial: saved.serial || undefined,
+        assetNumber: saved.assetNumber || undefined,
+        Asset_Number: saved.assetNumber || undefined,
+        SLid: saved.slid ?? asset.SLid,
+        Dtypeid: saved.dtypeid ?? asset.Dtypeid,
+        DeRoleid: saved.deroleid ?? asset.DeRoleid,
+        Project_Owen: saved.projectOwen,
+        contract_id: saved.cid ?? asset.contract_id,
+        source: 'manual',
+      };
+    }
+
+    const nestedRep =
+      nextAsset && typeof nextAsset === 'object' ? nextAsset.replacementDevice : null;
+    if (nestedRep && isManualMaAsset(nestedRep)) {
+      // เครื่องทดแทนที่กรอกเอง — เริ่มที่ In Store (ยังไม่อยู่ที่ site งานจนกว่า Done)
+      let warehouseSlid = null;
+      try {
+        warehouseSlid = await require('../config/inStoreSite').resolveDefaultInStoreSlid(db);
+        if (warehouseSlid == null) {
+          warehouseSlid = await require('../config/inStoreSite').ensureDefaultInStoreWarehouseSlid(db);
+        }
+      } catch (e) {
+        console.warn('[persistManualMaAssets] resolve warehouse SLid:', e.message);
+      }
+      const savedRep = await insertOrUpdateManualDeviceRow(
+        { ...nestedRep, SLid: nestedRep.SLid ?? warehouseSlid },
+        {
+          siteId: warehouseSlid ?? siteId,
+          contractId,
+          initialAssetState: 'In Store',
+          projectOwenOverride: MANUAL_REPLACEMENT_PROJECT_OWEN,
+        }
+      );
+      const { replacementDevice: _omitRep, ...rest } = nextAsset;
+      nextAsset = {
+        ...rest,
+        replacementDeviceId: savedRep.did,
+      };
+    }
+
+    resolved.push(nextAsset);
+  }
+  return resolved;
+};
+
 const resolveMaBrokenAssetStateForDone = (asset) => {
   const rawState = asset?.brokenAssetState ?? asset?.broken_asset_state;
   const state = rawState != null ? String(rawState).trim() : '';
@@ -683,6 +882,33 @@ const createTask = async (req, res) => {
       return isNaN(parsed) ? null : parsed;
     };
 
+    /** MA: ถ้ามีอุปกรณ์ที่กรอกเอง → INSERT ลง devices ก่อน แล้วเก็บ Did จริงใน assets */
+    let assetsToSave = Array.isArray(assets) ? assets : [];
+    if (String(taskType || '').toUpperCase() === 'MA' && assetsToSave.length > 0) {
+      try {
+        assetsToSave = await persistManualMaAssets(assetsToSave, {
+          siteId: safeParseInt(siteId),
+          contractId: safeParseInt(contractId),
+          siteName: siteName || null,
+        });
+      } catch (persistErr) {
+        console.error('[createTask] persistManualMaAssets:', persistErr);
+        return res.status(400).json({
+          success: false,
+          message: persistErr.message || 'Failed to save manual device to database',
+        });
+      }
+    }
+
+    let replacementIdToSave = safeParseInt(replacementDeviceId);
+    if (
+      replacementIdToSave == null &&
+      assetsToSave[0] &&
+      typeof assetsToSave[0] === 'object'
+    ) {
+      replacementIdToSave = safeParseInt(assetsToSave[0].replacementDeviceId);
+    }
+
     const insertColumns = [
       'id', 'task_type', 'contract_id', 'replacement_device_id', 'site_id', 'site_name', 'vendor_name', 'vendor_tel',
       'reporter_name', 'reporter_tel', 'ticket', 'root_cause', 'resolution', 'coverage_scope',
@@ -693,7 +919,7 @@ const createTask = async (req, res) => {
       finalTaskId,
       taskType,
       safeParseInt(contractId),
-      safeParseInt(replacementDeviceId),
+      replacementIdToSave,
       safeParseInt(siteId),
       siteName || null,
       vendorName || null,
@@ -707,7 +933,7 @@ const createTask = async (req, res) => {
       startDate,
       endDate,
       (engineers && Array.isArray(engineers) && engineers.length > 0) ? JSON.stringify(engineers) : null,
-      (assets && Array.isArray(assets) && assets.length > 0) ? JSON.stringify(assets) : null,
+      (assetsToSave && Array.isArray(assetsToSave) && assetsToSave.length > 0) ? JSON.stringify(assetsToSave) : null,
       assetBinding || null,
       status || 'not-started',
       actuallyWent ? 1 : 0,
@@ -785,7 +1011,7 @@ const createTask = async (req, res) => {
 
     // MA: Asset_State อุปกรณ์ที่เสียจะอัปเดตเมื่อกด Done เท่านั้น
     if (String(taskType || '').toUpperCase() === 'MA') {
-      await syncMaReferTicketOnDevices(assets, ticket, safeParseInt(replacementDeviceId));
+      await syncMaReferTicketOnDevices(assetsToSave, ticket, replacementIdToSave);
     }
 
     const { select, join } = await buildTaskQueryFragments();
@@ -1015,7 +1241,46 @@ const updateTask = async (req, res) => {
       if (endDate !== undefined) addUpdate('end_date', endDate);
     }
     if (engineers !== undefined) addUpdate('engineers', engineers && engineers.length > 0 ? JSON.stringify(engineers) : null);
-    if (assets !== undefined) addUpdate('assets', assets && assets.length > 0 ? JSON.stringify(assets) : null);
+    let assetsForUpdate = undefined;
+    if (assets !== undefined) {
+      assetsForUpdate = assets;
+      const effTaskTypeForAssets = String(
+        taskType !== undefined ? taskType : existing[0].task_type || ''
+      ).toUpperCase();
+      if (effTaskTypeForAssets === 'MA' && Array.isArray(assets) && assets.length > 0) {
+        try {
+          assetsForUpdate = await persistManualMaAssets(assets, {
+            siteId:
+              siteId !== undefined
+                ? safeParseInt(siteId)
+                : safeParseInt(existing[0].site_id),
+            contractId:
+              contractId !== undefined
+                ? safeParseInt(contractId)
+                : safeParseInt(existing[0].contract_id),
+            siteName:
+              siteName !== undefined
+                ? siteName || null
+                : existing[0].site_name || null,
+          });
+        } catch (persistErr) {
+          console.error('[updateTask] persistManualMaAssets:', persistErr);
+          return res.status(400).json({
+            success: false,
+            message: persistErr.message || 'Failed to save manual device to database',
+          });
+        }
+      }
+      addUpdate(
+        'assets',
+        assetsForUpdate && assetsForUpdate.length > 0 ? JSON.stringify(assetsForUpdate) : null
+      );
+      // ถ้า replacement กรอกเอง — ใช้ Did ที่เพิ่ง INSERT เป็น replacement_device_id
+      const persistedRepId = safeParseInt(assetsForUpdate?.[0]?.replacementDeviceId);
+      if (persistedRepId != null && safeParseInt(replacementDeviceId) == null) {
+        addUpdate('replacement_device_id', persistedRepId);
+      }
+    }
     if (assetBinding !== undefined) addUpdate('asset_binding', assetBinding || null);
     if (status !== undefined) addUpdate('status', status || 'not-started');
     if (actuallyWent !== undefined) addUpdate('actually_went', actuallyWent ? 1 : 0);
@@ -1066,8 +1331,15 @@ const updateTask = async (req, res) => {
     // Handle replacement device asset state changes and SLid assignment
     // MA: อัปเดต Asset_State และ SLid เฉพาะเมื่อ status = 'done' (กด Done ใน detail)
     const newStatus = status !== undefined ? (status || 'not-started') : existing[0].status;
-    const newReplacementDeviceId = replacementDeviceId !== undefined ? replacementDeviceId : oldReplacementDeviceId;
-    const newAssets = assets !== undefined ? assets : oldAssets;
+    const newAssets = assets !== undefined ? assetsForUpdate : oldAssets;
+    const newReplacementDeviceId = (() => {
+      const fromCol =
+        replacementDeviceId !== undefined
+          ? safeParseInt(replacementDeviceId)
+          : safeParseInt(oldReplacementDeviceId);
+      if (fromCol != null) return fromCol;
+      return safeParseInt(newAssets?.[0]?.replacementDeviceId);
+    })();
     const newContractId = contractId !== undefined ? contractId : existing[0].contract_id;
     const currentTaskType = taskType !== undefined ? taskType : existing[0].task_type;
     const mergedTicket = ticket !== undefined ? (ticket || null) : existing[0].ticket;
@@ -1075,64 +1347,66 @@ const updateTask = async (req, res) => {
       await syncMaReferTicketOnDevices(newAssets, mergedTicket, newReplacementDeviceId);
     }
 
-    if (newStatus === 'done' && newReplacementDeviceId && newAssets && newAssets.length > 0 && currentTaskType === 'MA') {
+    if (
+      newStatus === 'done' &&
+      newAssets &&
+      newAssets.length > 0 &&
+      currentTaskType === 'MA'
+    ) {
       try {
         const isBecomingDone = existing[0].status !== 'done' && newStatus === 'done';
-
-        // Revert old replacement device if changed (In Use -> In Store, เคลียร์ SLid)
-        if (oldReplacementDeviceId && oldReplacementDeviceId !== newReplacementDeviceId) {
-          await updateDeviceAssetState(oldReplacementDeviceId, 'In Store');
-          await db.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
-        }
-
-        // Update new replacement device: In Store -> In Use, อัปเดต SLid เป็น site ของ task
         const taskSiteId = siteId !== undefined ? safeParseInt(siteId) : existing[0].site_id;
-        if (isBecomingDone || newReplacementDeviceId !== oldReplacementDeviceId) {
-          await updateDeviceAssetState(newReplacementDeviceId, 'In Use');
-        }
-        if (taskSiteId && newReplacementDeviceId) {
-          await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [taskSiteId, newReplacementDeviceId]);
+
+        // อุปกรณ์ที่เสีย — เปลี่ยน status + ย้าย site (In Store → คลัง) แม้ไม่มี replacement
+        if (isBecomingDone || JSON.stringify(oldAssets) !== JSON.stringify(newAssets)) {
+          await applyMaBrokenAssetStatesOnDone(newAssets);
         }
 
-        // Get new original device ID
-        const newFirstAsset = newAssets[0];
-        const newOriginalDeviceId = typeof newFirstAsset === 'object' ? (newFirstAsset.id || newFirstAsset.Did || newFirstAsset) : newFirstAsset;
-        
-        // Revert old original device if assets changed (In Store -> previous state, but we'll set to In Store anyway)
-        if (JSON.stringify(oldAssets) !== JSON.stringify(newAssets) && oldAssets.length > 0) {
-          const oldFirstAsset = oldAssets[0];
-          const oldOriginalDeviceId = typeof oldFirstAsset === 'object' ? (oldFirstAsset.id || oldFirstAsset.Did || oldFirstAsset) : oldFirstAsset;
-          if (oldOriginalDeviceId && oldOriginalDeviceId !== newOriginalDeviceId) {
-            await updateDeviceAssetState(oldOriginalDeviceId, 'In Store');
-            await assignDeviceToInStoreWarehouse(db, oldOriginalDeviceId);
+        if (newReplacementDeviceId) {
+          if (oldReplacementDeviceId && oldReplacementDeviceId !== newReplacementDeviceId) {
+            await updateDeviceAssetState(oldReplacementDeviceId, 'In Store');
+            await db.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
           }
-        }
-        
-        // อุปกรณ์ที่เสียทุกตัวใน assets — ใช้ brokenAssetState ที่เลือกไว้ใน plan (default In Store)
-        await applyMaBrokenAssetStatesOnDone(newAssets);
 
-        // Assign replacement device to contract SLid (contract_id === SLid)
-        const contractSlid = safeParseInt(newContractId);
-        const replacementIdNum = typeof newReplacementDeviceId === 'number' ? newReplacementDeviceId : parseInt(String(newReplacementDeviceId), 10);
-        const originalIdNum = typeof newOriginalDeviceId === 'number' ? newOriginalDeviceId : parseInt(String(newOriginalDeviceId), 10);
+          if (isBecomingDone || newReplacementDeviceId !== oldReplacementDeviceId) {
+            await updateDeviceAssetState(newReplacementDeviceId, 'In Use');
+          }
+          if (taskSiteId && newReplacementDeviceId) {
+            await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [taskSiteId, newReplacementDeviceId]);
+          }
 
-        if (contractSlid && !isNaN(replacementIdNum)) {
-          try {
-            const slidToUse = taskSiteId != null ? taskSiteId : contractSlid;
-            await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [slidToUse, replacementIdNum]);
-            console.log(
-              `Assigned replacement device ${replacementIdNum} to SLid ${slidToUse} (was broken device ${originalIdNum})`
-            );
-          } catch (error) {
-            console.error('Error assigning replacement device to SLid:', error);
+          const newFirstAsset = newAssets[0];
+          const newOriginalDeviceId = typeof newFirstAsset === 'object' ? (newFirstAsset.id || newFirstAsset.Did || newFirstAsset) : newFirstAsset;
+
+          if (JSON.stringify(oldAssets) !== JSON.stringify(newAssets) && oldAssets.length > 0) {
+            const oldFirstAsset = oldAssets[0];
+            const oldOriginalDeviceId = typeof oldFirstAsset === 'object' ? (oldFirstAsset.id || oldFirstAsset.Did || oldFirstAsset) : oldFirstAsset;
+            if (oldOriginalDeviceId && oldOriginalDeviceId !== newOriginalDeviceId) {
+              await updateDeviceAssetState(oldOriginalDeviceId, 'In Store');
+              await assignDeviceToInStoreWarehouse(db, oldOriginalDeviceId);
+            }
+          }
+
+          const contractSlid = safeParseInt(newContractId);
+          const replacementIdNum = typeof newReplacementDeviceId === 'number' ? newReplacementDeviceId : parseInt(String(newReplacementDeviceId), 10);
+          const originalIdNum = typeof newOriginalDeviceId === 'number' ? newOriginalDeviceId : parseInt(String(newOriginalDeviceId), 10);
+
+          if (contractSlid && !isNaN(replacementIdNum)) {
+            try {
+              const slidToUse = taskSiteId != null ? taskSiteId : contractSlid;
+              await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [slidToUse, replacementIdNum]);
+              console.log(
+                `Assigned replacement device ${replacementIdNum} to SLid ${slidToUse} (was broken device ${originalIdNum})`
+              );
+            } catch (error) {
+              console.error('Error assigning replacement device to SLid:', error);
+            }
           }
         }
       } catch (error) {
         console.error('Error updating device asset states:', error);
-        // Continue even if asset state update fails
       }
     } else if (existing[0].status === 'done' && oldReplacementDeviceId && (!newReplacementDeviceId || !newAssets || newAssets.length === 0)) {
-      // Revert: เคยเป็น done แล้วลบ replacement/assets ออก ให้ revert อุปกรณ์กลับ
       try {
         await updateDeviceAssetState(oldReplacementDeviceId, 'In Store');
         await db.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
