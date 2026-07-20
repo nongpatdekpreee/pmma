@@ -1,5 +1,6 @@
 const { withCardImage } = require('./teamsCardImages');
 const { formatChangesMarkdown } = require('../utils/teamsMessageFormat');
+const { isProjectOwenSnsContract } = require('../utils/projectOwenSns');
 
 const WEBHOOK_ENV = 'TEAMS_WEBHOOK_PROJECT_OWEN_SNS';
 
@@ -155,6 +156,22 @@ function buildMessageCard({ event, contract, devices = [], meta = {} }) {
  * @param {{ event: string, contract: object, devices?: object[], meta?: object }} payload
  */
 async function notifyTeamsContractEvent(payload) {
+  const contract = payload?.contract || {};
+  const devices = Array.isArray(payload?.devices) ? payload.devices : [];
+  const deviceIds = devices
+    .map((d) => d?.Did ?? d?.id ?? d?.device_id ?? d?.deviceId)
+    .filter((id) => id != null);
+  const isSns = await isProjectOwenSnsContract({
+    contractId: contract.contract_id ?? contract.SLid ?? contract.site_id,
+    deviceIds,
+  });
+  if (!isSns) {
+    console.log(
+      `[teamsContractNotification] skip: contract #${contract.contract_id ?? '?'} is not Project_Owen SNS`
+    );
+    return { sent: false, reason: 'not_sns' };
+  }
+
   const webhookUrl = getWebhookUrl();
   if (!webhookUrl) {
     console.warn(

@@ -1,4 +1,5 @@
 const { withCardImage } = require('./teamsCardImages');
+const { isProjectOwenSnsPlan } = require('../utils/projectOwenSns');
 
 const WEBHOOK_ENV = 'TEAMS_WEBHOOK_SNS_UPCOMING_PLANS';
 
@@ -180,6 +181,21 @@ function buildUpcomingMessageCard({ plans, windowDays }) {
   };
 }
 
+async function filterSnsPlans(plans) {
+  const list = Array.isArray(plans) ? plans : [];
+  const out = [];
+  for (const plan of list) {
+    const isSns = await isProjectOwenSnsPlan({
+      assets: plan?.assets,
+      replacementDeviceId: plan?.replacementDeviceId ?? plan?.replacement_device_id,
+      contractId: plan?.contractId ?? plan?.contract_id,
+      siteId: plan?.siteId ?? plan?.site_id,
+    });
+    if (isSns) out.push(plan);
+  }
+  return out;
+}
+
 async function notifyTeamsUpcomingPlans({ plans, windowDays }) {
   const webhookUrl = getWebhookUrl();
   if (!webhookUrl) {
@@ -189,7 +205,13 @@ async function notifyTeamsUpcomingPlans({ plans, windowDays }) {
     return { sent: false, reason: 'no_webhook' };
   }
 
-  const payload = buildUpcomingMessageCard({ plans, windowDays });
+  const snsPlans = await filterSnsPlans(plans);
+  if (snsPlans.length === 0) {
+    console.log('[teamsUpcomingPlans] skip: no Project_Owen SNS plans in window');
+    return { sent: false, reason: 'not_sns', pmCount: 0, maCount: 0 };
+  }
+
+  const payload = buildUpcomingMessageCard({ plans: snsPlans, windowDays });
 
   try {
     const res = await fetch(webhookUrl, {
@@ -202,7 +224,11 @@ async function notifyTeamsUpcomingPlans({ plans, windowDays }) {
       console.error(`[teamsUpcomingPlans] HTTP ${res.status}: ${text.slice(0, 500)}`);
       return { sent: false, reason: 'http_error', status: res.status };
     }
-    return { sent: true, pmCount: plans.filter((p) => String(p.taskType).toUpperCase() === 'PM').length, maCount: plans.filter((p) => String(p.taskType).toUpperCase() === 'MA').length };
+    return {
+      sent: true,
+      pmCount: snsPlans.filter((p) => String(p.taskType).toUpperCase() === 'PM').length,
+      maCount: snsPlans.filter((p) => String(p.taskType).toUpperCase() === 'MA').length,
+    };
   } catch (err) {
     console.error('[teamsUpcomingPlans] request failed:', err.message);
     return { sent: false, reason: 'network_error' };

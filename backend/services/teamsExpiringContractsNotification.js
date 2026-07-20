@@ -1,4 +1,5 @@
 const { withCardImage } = require('./teamsCardImages');
+const { isProjectOwenSnsContract } = require('../utils/projectOwenSns');
 
 const WEBHOOK_ENV = 'TEAMS_WEBHOOK_CONTRACT_EXPIRING';
 const FALLBACK_WEBHOOK_ENVS = ['TEAMS_WEBHOOK_PROJECT_OWEN_SNS', 'TEAMS_WEBHOOK_SNS_UPCOMING_PLANS'];
@@ -166,6 +167,19 @@ function buildExpiringMessageCard({ contracts, windowDays, trigger = 'daily' }) 
   };
 }
 
+async function filterSnsContracts(contracts) {
+  const list = Array.isArray(contracts) ? contracts : [];
+  const out = [];
+  for (const contract of list) {
+    const isSns = await isProjectOwenSnsContract({
+      contractId: contract?.contract_id ?? contract?.SLid ?? contract?.site_id,
+      deviceIds: [],
+    });
+    if (isSns) out.push(contract);
+  }
+  return out;
+}
+
 async function notifyTeamsExpiringContracts({ contracts, windowDays, trigger = 'daily' }) {
   const webhookUrl = getWebhookUrl();
   if (!webhookUrl) {
@@ -179,7 +193,17 @@ async function notifyTeamsExpiringContracts({ contracts, windowDays, trigger = '
     return { sent: false, reason: 'none_expiring', contractCount: 0 };
   }
 
-  const payload = buildExpiringMessageCard({ contracts, windowDays, trigger });
+  const snsContracts = await filterSnsContracts(contracts);
+  if (snsContracts.length === 0) {
+    console.log('[teamsExpiringContracts] skip: no Project_Owen SNS contracts in window');
+    return { sent: false, reason: 'not_sns', contractCount: 0 };
+  }
+
+  const payload = buildExpiringMessageCard({
+    contracts: snsContracts,
+    windowDays,
+    trigger,
+  });
 
   try {
     const res = await fetch(webhookUrl, {
@@ -192,7 +216,7 @@ async function notifyTeamsExpiringContracts({ contracts, windowDays, trigger = '
       console.error(`[teamsExpiringContracts] HTTP ${res.status}: ${text.slice(0, 500)}`);
       return { sent: false, reason: 'http_error', status: res.status };
     }
-    return { sent: true, contractCount: contracts.length };
+    return { sent: true, contractCount: snsContracts.length };
   } catch (err) {
     console.error('[teamsExpiringContracts] request failed:', err.message);
     return { sent: false, reason: 'network_error' };
