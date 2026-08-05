@@ -6,11 +6,12 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
-import { apiUrl, getSitesLocation, syncContractsFromReferSof, apiFetch} from '@/lib/api';
+import { apiUrl, getSitesLocation, syncContractsFromReferSof, apiFetch, fetchDeviceRecordsByIds } from '@/lib/api';
 import { isDefaultInStoreSiteName } from '@/lib/inStoreSite';
 import { asRecord, getErrorMessage, readString } from '@/lib/unknownUtil';
 import * as XLSX from 'xlsx';
 import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearchListDropdown';
+import { ImportSofDetailsModal } from '@/components/ui/ImportSofDetailsModal';
 import { PageCatLoader, InlineCatLoader } from '@/components/ui/CatLoader';
 import { 
   FileText, Calendar, Building2, MapPin, Hash,
@@ -1153,6 +1154,7 @@ function ContractEditorPageContent() {
   const [isImportingContract, setIsImportingContract] = useState(false);
   const [importContractSites, setImportContractSites] = useState<Array<{ SLid: number; SiteName?: string; Location2?: string; label: string }>>([]);
   const importContractFileRef = useRef<HTMLInputElement>(null);
+  const [isImportSofDetailsModalOpen, setIsImportSofDetailsModalOpen] = useState(false);
 
   // Export Contract modal: เลือกสัญญาที่จะ export
   const [isExportContractModalOpen, setIsExportContractModalOpen] = useState(false);
@@ -1259,7 +1261,9 @@ function ContractEditorPageContent() {
         if (!cancelled) setContractsLoading(false);
       }
 
-      // Sync Refer_SOF หลังแสดงรายการ — background (ไม่ toast ทุกครั้งที่เปิดหน้า)
+      // Sync Refer_SOF เบื้องหลังหลังโชว์รายการแล้ว (ไม่บล็อกการเปิดหน้า)
+      if (cancelled) return;
+      await new Promise((r) => setTimeout(r, 1500));
       if (cancelled) return;
       try {
         const syncResult = await syncContractsFromReferSof();
@@ -2070,25 +2074,18 @@ function ContractEditorPageContent() {
       const sitesJson = await sitesRes.json();
       if (sitesRes.ok && sitesJson.data) setSitesLocation(sitesJson.data);
       const deviceDetails: Record<string, { SLid?: number | null; Asset_State?: string; SiteName?: string; Location2?: string }> = {};
-      const results = await Promise.allSettled(
-        devices.map(async (d: { Did: number }) => {
-          const r = await apiFetch(apiUrl(`/api/devices/${d.Did}`));
-          const j = await r.json();
-          return { data: r.ok && j.data ? j.data : null };
-        })
-      );
+      const deviceIds = devices.map((d: { Did: number }) => String(d.Did));
+      const byId = await fetchDeviceRecordsByIds(deviceIds);
       const assignedStatus: Record<string, boolean> = {};
-      results.forEach((r, i) => {
-        const d = devices[i];
-        const data = r.status === 'fulfilled' ? r.value.data : null;
+      devices.forEach((d: { Did: number }) => {
+        const data = byId[String(d.Did)];
         if (data) {
           deviceDetails[String(d.Did)] = {
-            SLid: data.SLid ?? data.slid ?? null,
-            Asset_State: data.Asset_State ?? data.asset_state ?? null,
-            SiteName: data.Sitename ?? data.SiteName ?? null,
-            Location2: data.Location2 ?? data.location2 ?? null,
+            SLid: (data.SLid ?? data.slid ?? null) as number | null,
+            Asset_State: (data.Asset_State ?? data.asset_state ?? null) as string | undefined,
+            SiteName: (data.Sitename ?? data.SiteName ?? null) as string | undefined,
+            Location2: (data.Location2 ?? data.location2 ?? null) as string | undefined,
           };
-          // ถือว่า assign แล้วเมื่อมี SLid และไม่ใช่ location ใต้ site คลัง Bangna
           const deviceSlid = data.SLid ?? data.slid ?? null;
           const deviceSiteName = data.Sitename ?? data.SiteName ?? null;
           const isAssigned =
@@ -2637,6 +2634,12 @@ function ContractEditorPageContent() {
             className="flex items-center gap-2 bg-green-500 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-green-600 transition-colors"
           >
             <Download size={16} /> Import Contract
+          </button>
+          <button
+            onClick={() => setIsImportSofDetailsModalOpen(true)}
+            className="flex items-center gap-2 bg-teal-600 text-white px-3 py-2 rounded-xl text-sm font-bold hover:bg-teal-700 transition-colors"
+          >
+            <Download size={16} /> Import Contact
           </button>
           <button
             onClick={() => router.push('/contract_editer/add')}
@@ -5212,6 +5215,17 @@ function ContractEditorPageContent() {
           </div>
         </div>
       )}
+
+      <ImportSofDetailsModal
+        open={isImportSofDetailsModalOpen}
+        onClose={() => setIsImportSofDetailsModalOpen(false)}
+        onSuccess={async () => {
+          await loadContracts();
+          router.refresh();
+        }}
+        onError={toastError}
+        onInfo={toastSuccess}
+      />
 
       {/* Renew Contract Modal */}
       {showRenewModal && renewContractTarget && (

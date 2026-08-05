@@ -1,4 +1,8 @@
-import { formatTenDigitUsDisplay, parseTelLineFromDb } from '@/lib/phoneFormat';
+import {
+  formatContractTelForDisplay,
+  formatContractTelLineForDb,
+  parseTelLineFromDb,
+} from '@/lib/phoneFormat';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
@@ -8,10 +12,19 @@ function looksLikeEmail(line: string): boolean {
   return EMAIL_RE.test(line.trim());
 }
 
-/** บรรทัดนี้เป็นเบอร์ไหม (9–15 หลัก หลังลบอักขระที่ไม่ใช่ตัวเลข) */
+/** บรรทัดนี้เป็นเบอร์ไหม (รองรับเบอร์ต่อ เช่น 034130700-5#1000) */
 function looksLikePhone(line: string): boolean {
-  const digits = line.replace(/\D/g, '');
-  return digits.length >= 9 && digits.length <= 15;
+  const parsed = parseTelLineFromDb(line.trim());
+  if (!parsed.tel) return false;
+  return parsed.tel.length >= 9 && parsed.tel.length <= 15;
+}
+
+function formatSiteContactTel(line: string): string {
+  const trimmed = String(line ?? '').trim();
+  if (!trimmed) return '';
+  const parsed = parseTelLineFromDb(trimmed);
+  const dbLine = formatContractTelLineForDb(parsed.tel, parsed.telExt);
+  return formatContractTelForDisplay(dbLine || trimmed);
 }
 
 /**
@@ -24,14 +37,13 @@ export function parseLegacySiteContactFromNameBlob(
 ): ParsedSiteContact {
   const telTrim = telField.trim();
   if (telTrim) {
-    const parsed = parseTelLineFromDb(telTrim);
     const nameLines = nameBlob
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => l && !looksLikeEmail(l) && !looksLikePhone(l));
     return {
       name: (nameLines.length > 0 ? nameLines.join(' ') : nameBlob.trim()),
-      tel: formatTenDigitUsDisplay(parsed.tel),
+      tel: formatSiteContactTel(telTrim),
     };
   }
 
@@ -43,8 +55,7 @@ export function parseLegacySiteContactFromNameBlob(
   if (lines.length <= 1) {
     const single = lines[0] ?? nameBlob.trim();
     if (looksLikePhone(single)) {
-      const parsed = parseTelLineFromDb(single);
-      return { name: '', tel: formatTenDigitUsDisplay(parsed.tel) };
+      return { name: '', tel: formatSiteContactTel(single) };
     }
     return { name: single, tel: '' };
   }
@@ -61,10 +72,9 @@ export function parseLegacySiteContactFromNameBlob(
     nameParts.push(line);
   }
 
-  const parsed = parseTelLineFromDb(telRaw);
   return {
     name: nameParts.join(' ').trim(),
-    tel: formatTenDigitUsDisplay(parsed.tel),
+    tel: formatSiteContactTel(telRaw),
   };
 }
 

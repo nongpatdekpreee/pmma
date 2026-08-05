@@ -100,11 +100,18 @@ const HISTORY_STATUS_SUBQUERY = `
   (SELECT h.action_type FROM sites_location_sof_history h
     WHERE h.SLid = sl.SLid ORDER BY h.log_id DESC LIMIT 1) AS history_status`;
 
+/** Cache SHOW COLUMNS — schema ไม่เปลี่ยนระหว่าง process (ลด metadata round-trips บนทุก update/list) */
+const columnExistsCache = new Map();
+
 async function columnExists(dbOrConn, table, column) {
+  const safeCol = String(column).replace(/[^a-zA-Z0-9_]/g, '');
+  const key = `${table}.${safeCol}`;
+  if (columnExistsCache.has(key)) return columnExistsCache.get(key);
   try {
-    const safeCol = String(column).replace(/[^a-zA-Z0-9_]/g, '');
     const [cols] = await dbOrConn.execute(`SHOW COLUMNS FROM \`${table}\` LIKE '${safeCol}'`);
-    return Array.isArray(cols) && cols.length > 0;
+    const exists = Array.isArray(cols) && cols.length > 0;
+    columnExistsCache.set(key, exists);
+    return exists;
   } catch {
     return false;
   }

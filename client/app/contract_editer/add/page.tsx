@@ -23,14 +23,17 @@ import { PageCatLoader } from '@/components/ui/CatLoader';
 import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { apiUrl, getAssignedServices, apiFetch} from '@/lib/api';
+import { apiUrl, getAssignedServices, apiFetch, fetchDeviceRecordsByIds } from '@/lib/api';
 import {
+  formatContractTelForDisplay,
+  formatContractTelLineForDb,
   formatTelLineForDb,
   formatTenDigitUsDisplay,
   parseTelLineFromDb,
   PHONE_EXT_MAX_DIGITS,
   PHONE_MAIN_MAX_DIGITS,
   validateEmployeePhoneSubmit,
+  validateOptionalContractPhoneLine,
   validateOptionalEmployeePhoneSubmit,
 } from '@/lib/phoneFormat';
 import { parseSiteContactPersonFromRecord } from '@/lib/legacySiteContact';
@@ -539,7 +542,8 @@ function serializeSiteContactRows(rows: SiteContactRow[]): Record<string, unknow
   const out: Record<string, unknown> = {};
   rows.slice(0, MAX_SITE_CONTACT_ROWS).forEach((row, i) => {
     if (row.name.trim() || row.tel.trim()) {
-      const telDb = formatTelLineForDb(row.tel, '');
+      const parsed = parseTelLineFromDb(row.tel);
+      const telDb = formatContractTelLineForDb(parsed.tel, parsed.telExt);
       out[keys[i]] = {
         name: row.name.trim(),
         ...(telDb ? { tel: telDb } : {}),
@@ -561,14 +565,19 @@ function createEmptySiteEntry(partial?: Partial<Omit<SiteEntry, 'siteContactRows
   };
 }
 
-/** โหลด contact จาก sites_location ต่อ SLid */
-async function loadSiteContactsBySlids(slids: number[]): Promise<Map<number, SiteContactRow[]>> {
+/** โหลด contact จาก sites_location ต่อ SLid — ใช้ contact ที่มากับ peer list ก่อน แล้วค่อย fallback API */
+async function loadSiteContactsBySlids(
+  slids: number[],
+  contactsFromPeers?: Map<number, SiteContactRow[]>,
+): Promise<Map<number, SiteContactRow[]>> {
   const unique = [...new Set(slids.filter((n) => !Number.isNaN(n) && n > 0))];
-  const map = new Map<number, SiteContactRow[]>();
+  const map = new Map<number, SiteContactRow[]>(contactsFromPeers ?? []);
+  const missing = unique.filter((slid) => !map.has(slid));
+  if (missing.length === 0) return map;
   await Promise.all(
-    unique.map(async (slid) => {
+    missing.map(async (slid) => {
       try {
-        const res = await apiFetch(apiUrl(`/api/contracts/${slid}`));
+        const res = await apiFetch(apiUrl(`/api/contracts/${slid}?include_history=0`));
         const json = await res.json();
         if (res.ok && json.data) {
           map.set(slid, siteContactRowsFromDb(json.data.contact));
@@ -579,6 +588,27 @@ async function loadSiteContactsBySlids(slids: number[]): Promise<Map<number, Sit
     }),
   );
   return map;
+}
+
+function contactsMapFromPeerSites(peerSites: SiteLocation[]): Map<number, SiteContactRow[]> {
+  const map = new Map<number, SiteContactRow[]>();
+  for (const site of peerSites) {
+    if (site.contact == null) continue;
+    const rows = siteContactRowsFromDb(site.contact);
+    if (rows.length > 0) map.set(site.SLid, rows);
+  }
+  return map;
+}
+
+async function fetchDevicesBySlids(slids: number[]): Promise<DeviceItem[]> {
+  const unique = [...new Set(slids.filter((n) => Number.isFinite(n) && n > 0))];
+  if (unique.length === 0) return [];
+  const res = await apiFetch(
+    apiUrl(`/api/contracts/devices-by-slids?slids=${encodeURIComponent(unique.join(','))}`),
+  );
+  const json = await res.json();
+  if (res.ok && Array.isArray(json.data)) return json.data as DeviceItem[];
+  return [];
 }
 
 function attachContactsToSiteEntries(
@@ -1003,8 +1033,7 @@ function AddContractPageContent() {
           setSitesLocation(currentSites);
         }
 
-        // ดึงข้อมูลสัญญา
-        const contractRes = await apiFetch(apiUrl(`/api/contracts/${editContractId}`));
+        const contractRes = await apiFetch(apiUrl(`/api/contracts/${editContractId}?include_history=0`));
         const contractJson = await contractRes.json();
         
         if (!contractRes.ok || !contractJson.data) {
@@ -1086,26 +1115,19 @@ function AddContractPageContent() {
               ? [editSlid]
               : [];
 
-        const deviceBatches = await Promise.all(
-          slidsToLoad.map(async (slid) => {
-            try {
-              const devicesRes = await apiFetch(apiUrl(`/api/contracts/${slid}/devices`));
-              const devicesJson = await devicesRes.json();
-              if (devicesRes.ok && Array.isArray(devicesJson.data)) {
-                return devicesJson.data as DeviceItem[];
-              }
-            } catch {
-              /* skip failed SLid */
-            }
-            return [];
-          }),
-        );
-        const allDevices = deviceBatches.flat();
+        const allDevices =
+          Array.isArray(contract.devices) && peerSites.length <= 1
+            ? (contract.devices as DeviceItem[])
+            : await fetchDevicesBySlids(slidsToLoad);
 
+        const peerContacts = contactsMapFromPeerSites(peerSites);
         if (peerSites.length > 0) {
           setSitesLocation(peerSites);
           const peerEntries = buildSiteEntriesFromPeerLocations(peerSites, allDevices);
-          const contacts = await loadSiteContactsBySlids(peerSites.map((s) => s.SLid));
+          const contacts = await loadSiteContactsBySlids(
+            peerSites.map((s) => s.SLid),
+            peerContacts,
+          );
           setSiteEntries(attachContactsToSiteEntries(peerEntries, contacts));
         } else if (allDevices.length > 0 || slidsToLoad.length > 0) {
           const fallbackPeerSites = slidsToLoad.map((slid) => {
@@ -1121,7 +1143,7 @@ function AddContractPageContent() {
             );
           });
           const fallbackEntries = buildSiteEntriesFromPeerLocations(fallbackPeerSites, allDevices);
-          const contacts = await loadSiteContactsBySlids(slidsToLoad);
+          const contacts = await loadSiteContactsBySlids(slidsToLoad, peerContacts);
           setSiteEntries(attachContactsToSiteEntries(fallbackEntries, contacts));
         } else {
           // ไม่มี SOF / ไม่มี peer — ใช้ข้อมูลจาก contract response เดิม
@@ -1215,125 +1237,121 @@ function AddContractPageContent() {
       setLoadingOldContract(true);
       setFetchError('');
       try {
-        const contractRes = await apiFetch(apiUrl(`/api/contracts/${renewContractId}`));
+        const contractRes = await apiFetch(
+          apiUrl(`/api/contracts/${renewContractId}?include_history=0`),
+        );
         const contractJson = await contractRes.json();
         const contract = contractRes.ok && contractJson.data ? contractJson.data : null;
 
-        if (contract) {
-          const oldSof =
-            contract.sof_name != null && String(contract.sof_name).trim() !== ''
-              ? String(contract.sof_name).trim()
-              : '';
-          if (oldSof) {
-            setOldContractSOF(oldSof);
-          }
-          if (contract.contract_name) {
-            setContractName(contract.contract_name);
-          }
-          if (contract.Assigned_Service != null && String(contract.Assigned_Service).trim() !== '') {
-            setAssignedService(String(contract.Assigned_Service).trim());
-          }
-          setSaleContacts(
-            saleContactsFromDb(contract.sale_account, contract.email_acc, contract.tel_acc),
-          );
-          if (contract.coverage_scope) {
-            setCoverageScope(contract.coverage_scope);
-          }
-          if (contract.sla_term != null) {
-            setSlaTerm(String(contract.sla_term));
-          }
-          if (contract.pm_time_per_year != null) {
-            setPmTimePerYear(String(contract.pm_time_per_year));
-          }
-          const oldEndYmd = ymdFromDbDate(contract.end_date);
-          const oldStartYmd = ymdFromDbDate(contract.start_date);
-          setOldContractStartDate(oldStartYmd);
-          setOldContractEndDate(oldEndYmd);
-          setStartDate('');
-          setEndDate('');
-          setDuration('');
-
-          // ทุก sites_location ที่ใช้เลข SOF เดียวกัน (ไม่ใช่แค่ contract_id ที่กด Renew)
-          let peerSites: SiteLocation[] = [];
-          if (oldSof) {
-            const locRes = await apiFetch(
-              apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(oldSof)}`),
-            );
-            const locJson = await locRes.json();
-            if (locRes.ok && Array.isArray(locJson.data)) {
-              peerSites = locJson.data as SiteLocation[];
-            }
-          }
-
-          const renewSlid = parseInt(String(renewContractId), 10);
-          const slidsToLoad =
-            peerSites.length > 0
-              ? peerSites.map((s) => s.SLid)
-              : Number.isFinite(renewSlid)
-                ? [renewSlid]
-                : [];
-
-          const deviceBatches = await Promise.all(
-            slidsToLoad.map(async (slid) => {
-              try {
-                const devicesRes = await apiFetch(apiUrl(`/api/contracts/${slid}/devices`));
-                const devicesJson = await devicesRes.json();
-                if (devicesRes.ok && Array.isArray(devicesJson.data)) {
-                  return devicesJson.data as DeviceItem[];
-                }
-              } catch {
-                /* skip failed SLid */
-              }
-              return [];
-            }),
-          );
-          const allDevices = deviceBatches.flat();
-
-          setOldContractDevices(allDevices);
-          setSelectedOldDevices(new Set(allDevices.map((d) => d.Did)));
-
-          if (peerSites.length > 0) {
-            setSitesLocation(peerSites);
-            const peerEntries = buildSiteEntriesFromPeerLocations(peerSites, allDevices);
-            const contacts = await loadSiteContactsBySlids(peerSites.map((s) => s.SLid));
-            setSiteEntries(attachContactsToSiteEntries(peerEntries, contacts));
-          } else if (allDevices.length > 0) {
-            const fallbackSitesRes = await apiFetch(apiUrl('/api/sites/locations'));
-            const fallbackSitesJson = await fallbackSitesRes.json();
-            const fallbackSites =
-              fallbackSitesRes.ok && Array.isArray(fallbackSitesJson.data)
-                ? (fallbackSitesJson.data as SiteLocation[])
-                : [];
-            if (fallbackSites.length > 0) {
-              setSitesLocation(fallbackSites);
-            }
-            const fallbackPeerSites = slidsToLoad.map((slid) => {
-              const match = fallbackSites.find((s) => s.SLid === slid);
-              return (
-                match ?? {
-                  SLid: slid,
-                  Sid: 0,
-                  lid: 0,
-                  SiteName: `Site ${slid}`,
-                  Location2: '',
-                }
-              );
-            });
-            const fallbackEntries = buildSiteEntriesFromPeerLocations(fallbackPeerSites, allDevices);
-            const contacts = await loadSiteContactsBySlids(slidsToLoad);
-            setSiteEntries(attachContactsToSiteEntries(fallbackEntries, contacts));
-          }
-        } else {
+        if (!contract) {
           throw new Error(contractJson.message || 'Load old contract failed');
+        }
+
+        const oldSof =
+          contract.sof_name != null && String(contract.sof_name).trim() !== ''
+            ? String(contract.sof_name).trim()
+            : '';
+        if (oldSof) {
+          setOldContractSOF(oldSof);
+        }
+        if (contract.contract_name) {
+          setContractName(contract.contract_name);
+        }
+        if (contract.Assigned_Service != null && String(contract.Assigned_Service).trim() !== '') {
+          setAssignedService(String(contract.Assigned_Service).trim());
+        }
+        setSaleContacts(
+          saleContactsFromDb(contract.sale_account, contract.email_acc, contract.tel_acc),
+        );
+        if (contract.coverage_scope) {
+          setCoverageScope(contract.coverage_scope);
+        }
+        if (contract.sla_term != null) {
+          setSlaTerm(String(contract.sla_term));
+        }
+        if (contract.pm_time_per_year != null) {
+          setPmTimePerYear(String(contract.pm_time_per_year));
+        }
+        const oldEndYmd = ymdFromDbDate(contract.end_date);
+        const oldStartYmd = ymdFromDbDate(contract.start_date);
+        setOldContractStartDate(oldStartYmd);
+        setOldContractEndDate(oldEndYmd);
+        setStartDate('');
+        setEndDate('');
+        setDuration('');
+
+        // โชว์ฟอร์มพื้นฐานก่อน แล้วค่อยโหลด peer sites/devices (ไม่ค้างทั้งหน้า)
+        setLoadingOldContract(false);
+
+        let peerSites: SiteLocation[] = [];
+        if (oldSof) {
+          const locRes = await apiFetch(
+            apiUrl(`/api/sites/locations-by-sof?refer_sof=${encodeURIComponent(oldSof)}`),
+          );
+          const locJson = await locRes.json();
+          if (locRes.ok && Array.isArray(locJson.data)) {
+            peerSites = locJson.data as SiteLocation[];
+          }
+        }
+
+        const renewSlid = parseInt(String(renewContractId), 10);
+        const slidsToLoad =
+          peerSites.length > 0
+            ? peerSites.map((s) => s.SLid)
+            : Number.isFinite(renewSlid)
+              ? [renewSlid]
+              : [];
+
+        const allDevices =
+          Array.isArray(contract.devices) && peerSites.length <= 1
+            ? (contract.devices as DeviceItem[])
+            : await fetchDevicesBySlids(slidsToLoad);
+
+        setOldContractDevices(allDevices);
+        setSelectedOldDevices(new Set(allDevices.map((d) => d.Did)));
+
+        const peerContacts = contactsMapFromPeerSites(peerSites);
+        if (peerSites.length > 0) {
+          setSitesLocation(peerSites);
+          const peerEntries = buildSiteEntriesFromPeerLocations(peerSites, allDevices);
+          const contacts = await loadSiteContactsBySlids(
+            peerSites.map((s) => s.SLid),
+            peerContacts,
+          );
+          setSiteEntries(attachContactsToSiteEntries(peerEntries, contacts));
+        } else if (allDevices.length > 0) {
+          const fallbackSitesRes = await apiFetch(apiUrl('/api/sites/locations'));
+          const fallbackSitesJson = await fallbackSitesRes.json();
+          const fallbackSites =
+            fallbackSitesRes.ok && Array.isArray(fallbackSitesJson.data)
+              ? (fallbackSitesJson.data as SiteLocation[])
+              : [];
+          if (fallbackSites.length > 0) {
+            setSitesLocation(fallbackSites);
+          }
+          const fallbackPeerSites = slidsToLoad.map((slid) => {
+            const match = fallbackSites.find((s) => s.SLid === slid);
+            return (
+              match ?? {
+                SLid: slid,
+                Sid: 0,
+                lid: 0,
+                SiteName: `Site ${slid}`,
+                Location2: '',
+              }
+            );
+          });
+          const fallbackEntries = buildSiteEntriesFromPeerLocations(fallbackPeerSites, allDevices);
+          const contacts = await loadSiteContactsBySlids(slidsToLoad, peerContacts);
+          setSiteEntries(attachContactsToSiteEntries(fallbackEntries, contacts));
         }
       } catch (e) {
         setFetchError(e instanceof Error ? e.message : 'Load old contract data failed');
-      } finally {
         setLoadingOldContract(false);
       }
     };
 
-    loadOldContract();
+    void loadOldContract();
   }, [renewContractId, editContractId]);
 
   // โหลด Sites: สัญญาใหม่ = Refer SOF เดียว; แก้ไข/ต่อ = ใช้ selectedSOF เดิม
@@ -1456,17 +1474,8 @@ function AddContractPageContent() {
     const existingDeviceIds = new Set(allDevices.map((d) => String(d.Did)));
     const missingSelected = (includeDeviceIds || []).map(String).filter((id) => id && !existingDeviceIds.has(id));
     if (missingSelected.length > 0) {
-      const results = await Promise.allSettled(
-        missingSelected.map(async (id) => {
-          const res = await apiFetch(apiUrl(`/api/devices/${encodeURIComponent(id)}`));
-          const json = await res.json();
-          if (res.ok && json?.data) return json.data;
-          return null;
-        })
-      );
-      results.forEach((r) => {
-        const data = r.status === 'fulfilled' ? r.value : null;
-        if (!data) return;
+      const byId = await fetchDeviceRecordsByIds(missingSelected);
+      Object.values(byId).forEach((data) => {
         const did = data.Did ?? data.did;
         if (did == null) return;
         const didStr = String(did);
@@ -1474,12 +1483,12 @@ function AddContractPageContent() {
         const slidVal = data.SLid ?? data.slid;
         allDevices.push({
           Did: Number(did),
-          CI_Name: data.CI_Name ?? data.ci_name ?? null,
-          Asset_Number: data.Asset_Number ?? data.asset_number ?? null,
-          serial: data.serial ?? null,
-          model: data.model ?? null,
-          roleName: data.roleName ?? null,
-          manufacturername: data.manufacturername ?? null,
+          CI_Name: (data.CI_Name ?? data.ci_name ?? null) as string | null,
+          Asset_Number: (data.Asset_Number ?? data.asset_number ?? null) as string | null,
+          serial: (data.serial ?? null) as string | null,
+          model: (data.model ?? null) as string | null,
+          roleName: (data.roleName ?? null) as string | null,
+          manufacturername: (data.manufacturername ?? null) as string | null,
           SLid: slidVal != null ? Number(slidVal) : undefined,
         });
         existingDeviceIds.add(didStr);
@@ -2003,7 +2012,7 @@ function AddContractPageContent() {
       for (let ci = 0; ci < entry.siteContactRows.length; ci++) {
         const row = entry.siteContactRows[ci];
         if (!row.tel.replace(/\D/g, '')) continue;
-        const telErr = validateOptionalEmployeePhoneSubmit(row.tel, '');
+        const telErr = validateOptionalContractPhoneLine(row.tel);
         if (telErr) {
           const siteLabel = entry.siteLabel?.trim() || entry.siteId || 'site';
           const msg = `Site contact (${siteLabel}) row ${ci + 1}: ${telErr}`;
@@ -3688,25 +3697,19 @@ function AddContractPageContent() {
                                       inputMode="tel"
                                       value={contactRow.tel}
                                       onChange={(e) => {
-                                        const raw = e.target.value;
-                                        const n = raw.replace(/\D/g, '').length;
-                                        const map = siteTelOverflowWarned.current;
-                                        if (n > PHONE_MAIN_MAX_DIGITS) {
-                                          if (!map.get(contactRow.id)) {
-                                            map.set(contactRow.id, true);
-                                            toastWarning(
-                                              `Site contact ${contactIndex + 1}: Phone must be at most ${PHONE_MAIN_MAX_DIGITS} digits (already full)`,
-                                              2600,
-                                            );
-                                          }
-                                        } else {
-                                          map.set(contactRow.id, false);
-                                        }
                                         updateSiteContactRow(entry.id, contactRow.id, {
-                                          tel: formatTenDigitUsDisplay(raw),
+                                          tel: e.target.value,
                                         });
                                       }}
-                                      placeholder="0xx-xxx-xxxx"
+                                      onBlur={() => {
+                                        if (!contactRow.tel.trim()) return;
+                                        const parsed = parseTelLineFromDb(contactRow.tel);
+                                        const dbLine = formatContractTelLineForDb(parsed.tel, parsed.telExt);
+                                        updateSiteContactRow(entry.id, contactRow.id, {
+                                          tel: formatContractTelForDisplay(dbLine),
+                                        });
+                                      }}
+                                      placeholder="0xx-xxx-xxxx or 0xx-xxx-xxxx - ext"
                                       autoComplete="tel"
                                       className={`${saleContactInputClass} tabular-nums`}
                                     />

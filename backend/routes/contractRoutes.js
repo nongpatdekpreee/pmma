@@ -7,12 +7,14 @@ const {
   createContract,
   uploadContractFile,
   syncContractsFromReferSof,
+  importSofDetails,
   getContractsBySite,
   postContractHistoryDisplayRows,
   getContractHistoryDetailByHistoryId,
   getAvailableDevices,
   getSitesByContract,
   getDevicesByContract,
+  getDevicesBySlids,
   getVendorStatistics,
   getTopSitesByContractDevice,
   getTopSitesHeatmap,
@@ -52,6 +54,9 @@ router.post('/', createContract);
 // POST /api/contracts/sync-from-refer-sof — สร้าง contract อัตโนมัติจาก sites_location.SOF
 router.post('/sync-from-refer-sof', syncContractsFromReferSof);
 
+// POST /api/contracts/import-sof-details — map Site+Location+SOF แล้วอัปเดต contact/dates/province
+router.post('/import-sof-details', importSofDetails);
+
 // GET /api/contracts/devices/available — ดึง Devices ที่ไม่มี Contract (รองรับ site_id query parameter)
 router.get('/devices/available', getAvailableDevices);
 
@@ -68,6 +73,9 @@ router.post('/history-display-rows', postContractHistoryDisplayRows);
 
 // GET /api/contracts/history/:historyId — รายละเอียดจาก contract_history ตาม history_id (ต้องมาก่อน /:id)
 router.get('/history/:historyId', getContractHistoryDetailByHistoryId);
+
+// GET /api/contracts/devices-by-slids?slids=1,2,3 — batch devices (ต้องมาก่อน /:id)
+router.get('/devices-by-slids', getDevicesBySlids);
 
 // GET /api/contracts/:id/devices — ดึง Devices ที่ผูกกับ Contract (ต้องมาก่อน GET / เพื่อไม่ให้ conflict)
 router.get('/:id/devices', getDevicesByContract);

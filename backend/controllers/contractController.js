@@ -223,17 +223,20 @@ const getContractById = async (req, res) => {
       },
     ];
 
-    const { tsColumn, hasTerm } = await historySchemaFlags();
-    const histSelect = await historySelectSql(tsColumn, hasTerm);
-    const [histRows] = await db.execute(
-      `SELECT ${histSelect}
-       FROM sites_location_sof_history
-       WHERE SLid = ?
-       ${slc.historyOrderByClause(tsColumn)}`,
-      [cid]
-    );
-
-    const history = (histRows || []).map((r) => slc.mapHistoryRowToLegacy(r));
+    const includeHistory = String(req.query.include_history ?? '1') !== '0';
+    let history = [];
+    if (includeHistory) {
+      const { tsColumn, hasTerm } = await historySchemaFlags();
+      const histSelect = await historySelectSql(tsColumn, hasTerm);
+      const [histRows] = await db.execute(
+        `SELECT ${histSelect}
+         FROM sites_location_sof_history
+         WHERE SLid = ?
+         ${slc.historyOrderByClause(tsColumn)}`,
+        [cid]
+      );
+      history = (histRows || []).map((r) => slc.mapHistoryRowToLegacy(r));
+    }
 
     return res.status(200).json({
       success: true,
@@ -335,6 +338,49 @@ const getDevicesByContract = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error getting devices by contract',
+      error: error.message,
+    });
+  }
+};
+
+/** GET /api/contracts/devices-by-slids?slids=1,2,3 — ดึง devices หลาย SLid ในคำขอเดียว (renew/edit) */
+const getDevicesBySlids = async (req, res) => {
+  if (await usesLegacyContractTable()) {
+    return res.status(400).json({
+      success: false,
+      message: 'devices-by-slids requires sites_location schema',
+    });
+  }
+  try {
+    const raw = String(req.query.slids ?? '')
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const slids = [...new Set(raw)].slice(0, 200);
+    if (slids.length === 0) {
+      return res.status(200).json({ success: true, data: [] });
+    }
+    const ph = slids.map(() => '?').join(',');
+    const sql = `
+  SELECT d.Did, d.CI_Name, d.Asset_Number, d.serial, d.Asset_State, d.SLid,
+    d.SLid AS contract_SLid, sl.SLid AS contract_id,
+    s.Name AS SiteName, l.Location2 AS Location2,
+    d.Dtypeid, d.DeRoleid, dt.model AS type_name, dr.name AS roleName
+  FROM devices d
+  INNER JOIN sites_location sl ON d.SLid = sl.SLid
+  LEFT JOIN sites s ON sl.Sid = s.Sid
+  LEFT JOIN location l ON sl.lid = l.lid
+  LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+  LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
+  WHERE d.SLid IN (${ph})
+  ORDER BY d.SLid ASC, d.CI_Name ASC, d.Asset_Number ASC`;
+    const [rows] = await db.execute(sql, slids);
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error('Error getting devices by slids:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error getting devices by slids',
       error: error.message,
     });
   }
@@ -1555,16 +1601,257 @@ const syncContractsFromReferSof = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/contracts/import-sof-details
+ * Map Customer + Location + New SOF → sites_location แล้วอัปเดต contact / start_date / end_date / province
+ * (ไม่สร้างสัญญาใหม่ — อัปเดตแถวที่มีอยู่แล้ว)
+ */
+const importSofDetails = async (req, res) => {
+  if (await usesLegacyContractTable()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Import SOF details requires sites_location schema (not legacy contract table)',
+    });
+  }
+
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (rows.length === 0) {
+    return res.status(400).json({ success: false, message: 'No rows to import' });
+  }
+
+  const normText = (value) =>
+    String(value ?? '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+
+  const {
+    parseTelLineFromDb,
+    formatTelLineForDb,
+    looksLikePhoneLine,
+  } = require('../utils/phoneFormat');
+
+  const looksLikeEmail = (line) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(String(line).trim());
+
+  const parseContactBlob = (raw) => {
+    const lines = String(raw ?? '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    let name = '';
+    let tel = '';
+    let email = '';
+    const nameParts = [];
+    for (const line of lines) {
+      if (!email && looksLikeEmail(line)) {
+        email = line;
+        continue;
+      }
+      if (!tel && looksLikePhoneLine(line)) {
+        const parsed = parseTelLineFromDb(line);
+        tel = formatTelLineForDb(parsed.tel, parsed.telExt);
+        continue;
+      }
+      nameParts.push(line);
+    }
+    name = nameParts.join(' ').trim();
+    return { name, tel, email };
+  };
+
+  const parseImportDate = (value) => {
+    if (value == null || value === '') return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+    if (typeof value === 'number' && value >= 10000 && value <= 1000000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const d = new Date(excelEpoch.getTime() + value * 86400000);
+      if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    const str = String(value).trim();
+    if (!str) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    const dmy = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+    if (dmy) {
+      const day = dmy[1].padStart(2, '0');
+      const month = dmy[2].padStart(2, '0');
+      const year = dmy[3];
+      return `${year}-${month}-${day}`;
+    }
+    const d = new Date(str);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    return null;
+  };
+
+  let conn;
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const results = [];
+    let updated = 0;
+    let failed = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] || {};
+      const rowNum = row._row != null ? Number(row._row) : i + 2;
+      const customer = String(row.customer ?? row.siteName ?? row.site ?? '').trim();
+      const location = String(row.location ?? row.Location2 ?? '').trim();
+      const sofRaw = String(row.sof ?? row.sof_name ?? row.new_sof ?? row['New SOF'] ?? '').trim();
+      const service = String(row.service ?? row.assigned_service ?? '').trim();
+      const province = String(row.province ?? row.Province ?? '').trim();
+      const contactRaw = row.contact;
+      const startDate = parseImportDate(row.start_date ?? row.startDate);
+      const endDate = parseImportDate(row.end_date ?? row.endDate);
+
+      if (!sofRaw) {
+        failed += 1;
+        results.push({ row: rowNum, ok: false, reason: 'SOF is required' });
+        continue;
+      }
+      if (!location) {
+        failed += 1;
+        results.push({ row: rowNum, ok: false, reason: 'Location is required' });
+        continue;
+      }
+
+      const sofKey = normalizeReferSofKey(sofRaw);
+      const [candidates] = await conn.execute(
+        `SELECT sl.SLid,
+                s.Name AS site_name,
+                IFNULL(l.Location2, '') AS site_location,
+                sl.SOF AS sof_name
+         FROM sites_location sl
+         INNER JOIN sites s ON s.Sid = sl.Sid
+         LEFT JOIN location l ON l.lid = sl.lid
+         WHERE (${sofMatchWhere('sl')})`,
+        [sofRaw, sofKey]
+      );
+
+      let matches = Array.isArray(candidates) ? candidates : [];
+      const locNorm = normText(location);
+      matches = matches.filter((m) => normText(m.site_location) === locNorm);
+
+      if (customer) {
+        const custNorm = normText(customer);
+        const byCustomer = matches.filter((m) => {
+          const siteNorm = normText(m.site_name);
+          return siteNorm === custNorm || siteNorm.includes(custNorm) || custNorm.includes(siteNorm);
+        });
+        if (byCustomer.length > 0) matches = byCustomer;
+      }
+
+      if (matches.length === 0) {
+        failed += 1;
+        results.push({
+          row: rowNum,
+          ok: false,
+          reason: `No match for SOF "${sofRaw}" + Location "${location}"${customer ? ` + Customer "${customer}"` : ''}`,
+        });
+        continue;
+      }
+      if (matches.length > 1) {
+        failed += 1;
+        results.push({
+          row: rowNum,
+          ok: false,
+          reason: `Ambiguous match (${matches.length} rows) for SOF "${sofRaw}" + Location "${location}"`,
+          candidates: matches.map((m) => ({
+            SLid: m.SLid,
+            site: m.site_name,
+            location: m.site_location,
+          })),
+        });
+        continue;
+      }
+
+      const target = matches[0];
+      const slid = Number(target.SLid);
+      const fields = {};
+      if (startDate) fields.start_date = startDate;
+      if (endDate) fields.end_date = endDate;
+      if (service) fields.assigned_service = service;
+
+      if (contactRaw != null && String(contactRaw).trim() !== '') {
+        const parsed = parseContactBlob(contactRaw);
+        if (parsed.name || parsed.tel) {
+          const contactObj = {
+            site_contact_1: {
+              name: parsed.name || '',
+              ...(parsed.tel ? { tel: parsed.tel } : {}),
+            },
+          };
+          fields.contact = JSON.stringify(contactObj);
+        }
+        if (parsed.email) fields.email_acc = parsed.email;
+      }
+
+      if (Object.keys(fields).length === 0 && !province) {
+        failed += 1;
+        results.push({
+          row: rowNum,
+          ok: false,
+          reason: 'Nothing to update (need contact, dates, or province)',
+          SLid: slid,
+        });
+        continue;
+      }
+
+      if (Object.keys(fields).length > 0) {
+        await slc.updateSiteLocationContract(conn, slid, fields);
+      }
+      if (province) {
+        await slc.updateLocationProvinceBySlid(conn, slid, province);
+      }
+
+      updated += 1;
+      results.push({
+        row: rowNum,
+        ok: true,
+        SLid: slid,
+        site: target.site_name,
+        location: target.site_location,
+        sof: target.sof_name,
+      });
+    }
+
+    await conn.commit();
+    return res.status(200).json({
+      success: true,
+      message: `Updated ${updated} row(s)${failed ? `, ${failed} failed` : ''}`,
+      data: { updated, failed, results },
+    });
+  } catch (error) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        /* ignore */
+      }
+    }
+    console.error('[importSofDetails]', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to import SOF details',
+      error: error.message,
+    });
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
 module.exports = {
   createContract,
   uploadContractFile,
   syncContractsFromReferSof,
+  importSofDetails,
   getContractsBySite,
   postContractHistoryDisplayRows,
   getContractHistoryDetailByHistoryId,
   getAvailableDevices,
   getSitesByContract,
   getDevicesByContract,
+  getDevicesBySlids,
   getVendorStatistics,
   getTopSitesByContractDevice,
   getTopSitesHeatmap,

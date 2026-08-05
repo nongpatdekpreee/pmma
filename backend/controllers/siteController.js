@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const { applyReferSofToSiteLocation, syncSofRenameOnSiteLocations } = require('../config/deviceSof');
 const { resolveSlSofSchema } = require('../lib/slSofSchema');
+const { columnExists } = require('../lib/siteLocationContract');
 
 // POST - สร้าง Site ใหม่
 const createSite = async (req, res) => {
@@ -72,8 +73,11 @@ const getSitesLocationBySOF = async (req, res) => {
     }
     const referSOFTrim = String(referSOF).replace(/^0+/, '') || '0';
     const slSof = await resolveSlSofSchema();
+    const hasContact = await columnExists(db, 'sites_location', 'contact');
+    const contactSelect = hasContact ? 'SL.contact' : 'NULL AS contact';
     const sql = `
-      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2, IFNULL(L.Province, '') AS Province
+      SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2,
+        IFNULL(L.Province, '') AS Province, ${contactSelect}
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid

@@ -19,8 +19,36 @@ export function formatTenDigitUsDisplay(raw: string): string {
 }
 
 export function parseTelLineFromDb(line: string): { tel: string; telExt: string } {
-  const t = String(line ?? '').trim();
+  const t = String(line ?? '').trim().replace(/\s+/g, '');
   if (!t) return { tel: '', telExt: '' };
+
+  const hashIdx = t.indexOf('#');
+  if (hashIdx >= 0) {
+    const afterHash = t.slice(hashIdx + 1).replace(/\D/g, '').slice(0, EXT_MAX);
+    const before = t.slice(0, hashIdx).trim();
+    const dashMatch = before.match(/^(\d{9,15})-(\d{1,6})$/);
+    if (dashMatch) {
+      const main = dashMatch[1];
+      const prefix = dashMatch[2];
+      const ext = (prefix + afterHash).slice(0, EXT_MAX);
+      return { tel: main, telExt: ext };
+    }
+    const mainDigits = before.replace(/\D/g, '');
+    if (mainDigits.length >= 9 && mainDigits.length <= 15) {
+      return { tel: mainDigits, telExt: afterHash };
+    }
+  }
+
+  // Display format: "034-130-700 - 51000" or "081-234-5678 - 123"
+  const displayExt = t.match(/^(.+?)\s+-\s+(\d{1,6})$/);
+  if (displayExt) {
+    const mainDigits = displayExt[1].replace(/\D/g, '');
+    const ext = displayExt[2];
+    if (mainDigits.length >= 9 && mainDigits.length <= 15) {
+      return { tel: mainDigits, telExt: ext };
+    }
+  }
+
   // 10 หลัก + ต่อ
   let m = t.match(/^(\d{10})-(\d{1,6})$/);
   if (m) return { tel: m[1], telExt: m[2] };
@@ -39,6 +67,29 @@ export function formatTelLineForDb(tel: string, telExt: string): string {
   if (!m && !x) return '';
   if (m && x) return `${m}-${x}`;
   return m;
+}
+
+/** บันทึกเบอร์ contract/site contact — หลัก 9–15 หลัก + ext */
+export function formatContractTelLineForDb(tel: string, telExt: string): string {
+  const m = tel.replace(/\D/g, '');
+  const x = telExt.replace(/\D/g, '').slice(0, EXT_MAX);
+  if (!m && !x) return '';
+  if (m && x) return `${m}-${x}`;
+  return m;
+}
+
+/** ตรวจเบอร์ contract/site contact (ไม่บังคับ) — หลัก 9–15 หลัก */
+export function validateOptionalContractPhoneLine(line: string): string {
+  const p = parseTelLineFromDb(String(line ?? '').trim());
+  const mainD = p.tel.replace(/\D/g, '');
+  const extD = p.telExt.replace(/\D/g, '');
+  if (!mainD && !extD) return '';
+  if (!mainD) return 'Enter the main number before extension.';
+  if (mainD.length < 9 || mainD.length > 15) return 'Phone must be 9–15 digits.';
+  if (extD && (extD.length < 1 || extD.length > EXT_MAX)) {
+    return 'Extension must be 1–6 digits when provided.';
+  }
+  return '';
 }
 
 /** ระหว่างพิมพ์: แจ้งเฉพาะเมื่อน้อยกว่า 4 หลัก (มีตัวเลขแล้ว) หรือเกิน 10 หลัก */
@@ -89,12 +140,18 @@ export function validateOptionalEmployeePhoneSubmit(tel: string, telExt: string)
 /** @deprecated ใช้ validateEmployeePhoneSubmit หรือ validateEmployeePhoneInline */
 export const validateContractStylePhone = validateEmployeePhoneSubmit;
 
-/** แสดงในรายการ: xxx-xxx-xxxx หรือ xxx-xxx-xxxx - ext */
+/** แสดงในรายการ: xxx-xxx-xxxx หรือ xxx-xxx-xxxx - ext (รองรับเบอร์บ้าน 9 หลัก) */
 export function formatEmployeeTelForDisplay(line: string): string {
   const p = parseTelLineFromDb(String(line ?? '').trim());
   const d = p.tel.replace(/\D/g, '');
   if (!d) return '';
-  const main = formatTenDigitUsDisplay(p.tel);
+  const main =
+    d.length <= MAIN_LEN
+      ? formatTenDigitUsDisplay(p.tel)
+      : d.replace(/(\d{3})(\d{3})(\d+)/, '$1-$2-$3');
   if (p.telExt) return `${main} - ${p.telExt}`;
   return main;
 }
+
+/** @alias formatEmployeeTelForDisplay — site/contract contact */
+export const formatContractTelForDisplay = formatEmployeeTelForDisplay;

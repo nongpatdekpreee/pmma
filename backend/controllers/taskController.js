@@ -1045,15 +1045,37 @@ const createTask = async (req, res) => {
 };
 
 // GET /api/tasks
-const getTasks = async (_req, res) => {
+const getTasks = async (req, res) => {
   try {
     const { select, join } = await buildTaskQueryFragments();
-    const [rows] = await db.execute(
-      `SELECT t.*, ${select}
+    const monthRaw = req.query?.month;
+    const yearRaw = req.query?.year;
+    const month = monthRaw != null && monthRaw !== '' ? Number(monthRaw) : null;
+    const year = yearRaw != null && yearRaw !== '' ? Number(yearRaw) : null;
+    const useMonthFilter =
+      Number.isInteger(month) &&
+      month >= 1 &&
+      month <= 12 &&
+      Number.isInteger(year) &&
+      year >= 2000 &&
+      year <= 2100;
+
+    let sql = `SELECT t.*, ${select}
        FROM tasks t
-       ${join}
-       ORDER BY t.start_date DESC, t.id DESC`
-    );
+       ${join}`;
+    const params = [];
+    if (useMonthFilter) {
+      // รวมงานที่ทับเดือนที่ขอ (start หรือ end อยู่ในเดือน / คร่อมเดือน)
+      const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+      const nextMonth = month === 12 ? 1 : month + 1;
+      const nextYear = month === 12 ? year + 1 : year;
+      const monthEndExclusive = `${nextYear}-${String(nextMonth).padStart(2, '0')}-01`;
+      sql += ` WHERE t.start_date < ? AND (t.end_date IS NULL OR t.end_date >= ?)`;
+      params.push(monthEndExclusive, monthStart);
+    }
+    sql += ` ORDER BY t.start_date DESC, t.id DESC`;
+
+    const [rows] = await db.execute(sql, params);
     res.status(200).json({
       success: true,
       count: rows.length,

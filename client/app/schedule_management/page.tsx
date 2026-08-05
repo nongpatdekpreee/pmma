@@ -742,21 +742,46 @@ function ScheduleManagementContent() {
     };
   }, []);
 
-  const loadTasksFromApi = useCallback(async () => {
+  const loadTasksFromApi = useCallback(async (month?: number, year?: number) => {
+    const targetMonth = month ?? currentDate.getMonth() + 1;
+    const targetYear = year ?? currentDate.getFullYear();
     setIsLoading(true);
     setLoadError(null);
     try {
-      const json = await getTasks();
-      if (!json.success) throw new Error(json.message || 'Cannot load tasks');
-      const rows = Array.isArray(json.data) ? (json.data as ApiTask[]) : [];
-      setCalendarEvents(rows.map(mapTaskToEvent));
+      const monthsToLoad: Array<{ month: number; year: number }> = [
+        { month: targetMonth, year: targetYear },
+      ];
+      // โหลดเดือนก่อน/หลังด้วย เพื่องานที่คร่อมเดือนโชว์บนปฏิทินได้
+      const prev =
+        targetMonth === 1
+          ? { month: 12, year: targetYear - 1 }
+          : { month: targetMonth - 1, year: targetYear };
+      const next =
+        targetMonth === 12
+          ? { month: 1, year: targetYear + 1 }
+          : { month: targetMonth + 1, year: targetYear };
+      monthsToLoad.push(prev, next);
+
+      const responses = await Promise.all(
+        monthsToLoad.map((m) => getTasks({ month: m.month, year: m.year }))
+      );
+      const byId = new Map<string, CalendarEvent>();
+      for (const json of responses) {
+        if (!json.success) throw new Error(json.message || 'Cannot load tasks');
+        const rows = Array.isArray(json.data) ? (json.data as ApiTask[]) : [];
+        for (const row of rows) {
+          const ev = mapTaskToEvent(row);
+          byId.set(String(ev.id), ev);
+        }
+      }
+      setCalendarEvents(Array.from(byId.values()));
     } catch (error: unknown) {
       console.error('loadTasksFromApi error', error);
       setLoadError(getErrorMessage(error) || 'Cannot load tasks');
     } finally {
       setIsLoading(false);
     }
-  }, [mapTaskToEvent]);
+  }, [mapTaskToEvent, currentDate]);
 
   const loadReportedTaskIds = useCallback(async () => {
     try {
@@ -898,8 +923,11 @@ function ScheduleManagementContent() {
 
   useEffect(() => {
     void loadTasksFromApi();
+  }, [loadTasksFromApi]);
+
+  useEffect(() => {
     void loadReportedTaskIds();
-    // Load sites and engineers for Excel import
+    // Load sites and engineers for Excel import (once on mount)
     const loadSitesAndEngineers = async () => {
       try {
         // ใช้ endpoint ที่กรองเฉพาะ sites ที่มี contract
@@ -921,13 +949,6 @@ function ScheduleManagementContent() {
         if (employeesResult.success && employeesResult.data) {
           setAvailableEngineers(mapEmployeesToEngineerRoster(employeesResult.data) as Engineer[]);
         }
-        
-        // Auto-provision contracts จาก Refer_SOF (background — ไม่แสดง toast ตอนเปิดหน้า)
-        try {
-          await syncContractsFromReferSof();
-        } catch (syncErr) {
-          console.warn('Refer_SOF contract sync skipped:', syncErr);
-        }
 
         // Load contracts for sof_name → contract_id lookup
         const contractsResult = await getContractsBySite();
@@ -940,13 +961,37 @@ function ScheduleManagementContent() {
             end_date: c.end_date || undefined,
           })));
         }
+
+        // Sync Refer_SOF เบื้องหลังหลังโหลดเสร็จ (ไม่บล็อกเปิดหน้า)
+        setTimeout(() => {
+          void (async () => {
+            try {
+              const syncResult = await syncContractsFromReferSof();
+              if (!syncResult.success || !syncResult.data) return;
+              const { created = 0, linked = 0 } = syncResult.data;
+              if (created === 0 && linked === 0) return;
+              const refreshed = await getContractsBySite();
+              if (refreshed.success && refreshed.data) {
+                setAvailableContracts(refreshed.data.map((c: ContractApiRow) => ({
+                  contract_id: c.contract_id,
+                  sof_name: c.sof_name || '',
+                  contract_name: c.contract_name || '',
+                  site_id: c.site_id ?? undefined,
+                  end_date: c.end_date || undefined,
+                })));
+              }
+            } catch (syncErr) {
+              console.warn('Refer_SOF contract sync skipped:', syncErr);
+            }
+          })();
+        }, 1500);
       } catch (error) {
         console.error('Error loading sites/engineers/contracts:', error);
       }
     };
     
     void loadSitesAndEngineers();
-  }, [loadTasksFromApi, loadReportedTaskIds]);
+  }, [loadReportedTaskIds]);
 
   /* ================= Calendar ================= */
   const currentMonth = currentDate.getMonth();

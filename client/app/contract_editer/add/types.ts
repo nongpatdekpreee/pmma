@@ -7,6 +7,7 @@
     Province?: string | null;
     SOF?: string | null;
     Refer_SOF?: string | null;
+    contact?: unknown;
   }
 
 export interface DeviceItem {

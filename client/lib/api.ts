@@ -414,6 +414,32 @@ export async function syncContractsFromReferSof(options?: {
   return parseJsonResponse(res, { success: false });
 }
 
+/** POST /api/contracts/import-sof-details — map Site+Location+SOF แล้วอัปเดต contact/dates/province */
+export async function importSofDetails(rows: Array<Record<string, unknown>>): Promise<{
+  success: boolean;
+  message?: string;
+  data?: {
+    updated: number;
+    failed: number;
+    results: Array<{
+      row: number;
+      ok: boolean;
+      reason?: string;
+      SLid?: number;
+      site?: string;
+      location?: string;
+      sof?: string;
+    }>;
+  };
+}> {
+  const res = await apiFetch(apiUrl('/api/contracts/import-sof-details'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rows }),
+  });
+  return parseJsonResponse(res, { success: false });
+}
+
 /** GET /api/contracts?site_id=xxx - รายการ Contract ตาม site_id (ไม่ส่ง site_id = ดึงทั้งหมด) */
 export async function getContractsBySite(siteId?: number | string | null): Promise<{
   success: boolean;
