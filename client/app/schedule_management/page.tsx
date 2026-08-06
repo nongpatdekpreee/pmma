@@ -3575,27 +3575,29 @@ function ScheduleManagementContent() {
               const multiDaySpansWithRow = assignRowsToMultiDaySpans(multiDaySpans);
               const multiDayRowCount = multiDaySpansWithRow.length > 0 ? Math.max(...multiDaySpansWithRow.map(s => s.row)) + 1 : 0;
               const BAR_HEIGHT = 28;
-              const TASK_GAP = 4; // ระยะห่างเท่ากันทุกที่: ระหว่างแถบ-แถบ, แถบ-pill, pill-pill
-              const MULTI_DAY_TOP_OFFSET = 32;
-              /** เผื่อหัวเลขวันจริงต่ำกว่า DAY_HEADER_PX — ไม่ให้ pill ถูกแถบหลายวันทับ */
-              const PILL_BELOW_MULTI_DAY_EXTRA_PX = 8;
-              /** ความสูงพื้นที่แถบงานหลายวัน + ระยะห่างก่อน pills ให้เท่ากับ TASK_GAP */
-              const multiDayAreaHeight = (rows: number) =>
-                MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
-              /** ความสูงต่อแถบ task วันเดียว (h-7 + mt-1 ระหว่างแถว) — ให้พอดีจริงไม่ถูกตัด */
-              const PILL_ROW_PX = 36;
-              /** ความสูงขั้นต่ำของช่องวัน = เทียบเท่ามี task วันเดียวกี่แถว */
-              const MIN_VISIBLE_PILL_ROWS = 2;
+              const TASK_GAP = 4;
               const DAY_HEADER_PX = 28;
               const HOLIDAY_EXTRA_PX = 20;
+              const CELL_PAD_TOP_PX = 8; // matches p-2
               const CELL_PAD_PX = 16;
+              const PILL_ROW_PX = 36;
+              const MIN_VISIBLE_PILL_ROWS = 2;
+              const weekHasHoliday = week.some((d) => d !== null && Boolean(getHolidayForDay(d)));
+              const weekHeaderPx = DAY_HEADER_PX + (weekHasHoliday ? HOLIDAY_EXTRA_PX : 0);
+              const multiDayTopOffset =
+                CELL_PAD_TOP_PX + weekHeaderPx + (multiDayRowCount > 0 ? TASK_GAP : 0);
+              const multiDayBarsBlockPx =
+                multiDayRowCount > 0
+                  ? multiDayRowCount * BAR_HEIGHT + Math.max(0, multiDayRowCount - 1) * TASK_GAP
+                  : 0;
+              const weekMultiDayLaneAfterHeaderPx =
+                multiDayRowCount > 0 ? multiDayBarsBlockPx + TASK_GAP : 0;
               const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
               const dayLayouts = week.map((day, dayIndex) => {
                 const dayEvents = getEventsForDay(day);
                 const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
                 const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
                 const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
-                const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
                 const holidayForDay = getHolidayForDay(day);
                 const dayKey = day === null ? '' : dayExpandKey(day);
                 const isDayExpanded = day !== null && expandedDayKeys.has(dayKey);
@@ -3610,27 +3612,19 @@ function ScheduleManagementContent() {
                 const nPillsForHeight = day === null ? 0 : Math.max(nPills, MIN_VISIBLE_PILL_ROWS);
                 const pillsStackPx = nPillsForHeight * PILL_ROW_PX;
                 const headerPx = DAY_HEADER_PX + (holidayForDay ? HOLIDAY_EXTRA_PX : 0);
-                const pillsMtPx = hasMultiDayBarAbove
-                  ? Math.max(
-                      0,
-                      multiDayAreaHeight(multiDayRowsThisDay) -
-                        MULTI_DAY_TOP_OFFSET +
-                        PILL_BELOW_MULTI_DAY_EXTRA_PX
-                    )
-                  : nPillsForHeight > 0
-                    ? 6
-                    : 0;
+                const headerAlignPadPx = Math.max(0, weekHeaderPx - headerPx);
+                const pillsMtPx =
+                  weekMultiDayLaneAfterHeaderPx > 0
+                    ? headerAlignPadPx + weekMultiDayLaneAfterHeaderPx
+                    : nPillsForHeight > 0
+                      ? 6
+                      : 0;
                 let cellMinH: number;
                 if (day === null) {
                   cellMinH = 40;
-                } else if (multiDayRowCount > 0) {
-                  const barBlock = multiDayAreaHeight(multiDayRowCount);
-                  cellMinH = Math.ceil(
-                    barBlock + pillsMtPx + pillsStackPx + headerPx + CELL_PAD_PX + 10
-                  );
                 } else {
                   cellMinH = Math.ceil(
-                    headerPx + pillsMtPx + pillsStackPx + CELL_PAD_PX + 10
+                    headerPx + pillsMtPx + pillsStackPx + CELL_PAD_PX + 4
                   );
                 }
                 return {
@@ -3640,9 +3634,9 @@ function ScheduleManagementContent() {
                   showMoreLink,
                   showLessLink,
                   hasMultiDayBarAbove,
-                  multiDayRowsThisDay,
                   holidayForDay,
                   pillsStackPx,
+                  pillsMtPx,
                 };
               });
               const weekRowMinH = Math.max(48, ...dayLayouts.map(l => l.cellMinH));
@@ -3665,9 +3659,9 @@ function ScheduleManagementContent() {
                       showMoreLink,
                       showLessLink,
                       hasMultiDayBarAbove,
-                      multiDayRowsThisDay,
                       holidayForDay,
                       pillsStackPx,
+                      pillsMtPx,
                     } = dayLayouts[dayIndex];
                     return (
                       <div
@@ -3700,18 +3694,9 @@ function ScheduleManagementContent() {
                             </div>
                             {/* มี task ในเดือน → flex-none + min สูงตาม pills; ไม่มี → flex-1 เติมเซลล์ */}
                             <div
-                              className={`flex w-full flex-col overflow-x-hidden [scrollbar-width:thin] space-y-0.5 relative z-[5] ${expandCalendarByTasks ? 'flex-none overflow-y-auto' : 'min-h-0 flex-1 overflow-y-hidden'} ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
+                              className={`flex w-full flex-col overflow-x-hidden [scrollbar-width:thin] space-y-0.5 relative z-[5] ${expandCalendarByTasks ? 'flex-none overflow-y-auto' : 'min-h-0 flex-1 overflow-y-hidden'}`}
                               style={{
-                                ...(hasMultiDayBarAbove
-                                  ? {
-                                      marginTop: `${Math.max(
-                                        0,
-                                        multiDayAreaHeight(multiDayRowsThisDay) -
-                                          MULTI_DAY_TOP_OFFSET +
-                                          PILL_BELOW_MULTI_DAY_EXTRA_PX
-                                      )}px`,
-                                    }
-                                  : {}),
+                                ...(pillsMtPx > 0 ? { marginTop: `${pillsMtPx}px` } : {}),
                                 ...(pillsStackPx > 0 ? { minHeight: pillsStackPx } : {}),
                               }}
                             >
@@ -3865,7 +3850,7 @@ function ScheduleManagementContent() {
                           : isMA
                             ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
                             : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
-                    const topPx = MULTI_DAY_TOP_OFFSET + row * (BAR_HEIGHT + TASK_GAP);
+                    const topPx = multiDayTopOffset + row * (BAR_HEIGHT + TASK_GAP);
                     return (
                       <div
                         key={event.id}

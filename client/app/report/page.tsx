@@ -241,20 +241,6 @@ function MonthlyTrendSummaryBarTooltip({
   );
 }
 
-/**
- * Display-only: normalize location strings to English in this panel (e.g. Thai floor words → "Floor N").
- * Regex matches Thai source data from the API, not user-facing copy.
- */
-function formatLocationLabelEn(s: string): string {
-  const t = s.trim();
-  if (!t) return '—';
-  return t
-    .replace(/ชั้น\s*(\d+)/gi, 'Floor $1')
-    .replace(/ชั้น/gi, 'Floor')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 const VENDOR_COLORS = ['#60a5fa', '#f87171', '#fbbf24', '#34d399', '#a78bfa', '#f472b6', '#2dd4bf', '#fb923c', '#38bdf8', '#a3e635'];
 
 function RankBadge({ rank }: { rank: number }) {
@@ -2591,65 +2577,44 @@ export default function ReportPage() {
 
             <div className="mb-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="font-semibold text-muted-foreground flex items-center gap-1.5 text-xs sm:text-sm">
-                <ChevronRight size={14} className="text-blue-500 mt-0.5 shrink-0" aria-hidden />
-                By organisation & locations
+                <MapPin size={14} className="text-blue-500 shrink-0" aria-hidden />
+                PM map
               </h3>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <span className="w-fit rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-blue-700 ring-1 ring-blue-100/80">
-                  {sitesLocationGroupedBySite.length} sites
+                  {siteRegistryCountsLoading
+                    ? '…'
+                    : siteRegistryCounts != null
+                      ? `${siteRegistryCounts.siteCount} sites`
+                      : `${sitesLocationGroupedBySite.length} sites`}
                 </span>
                 <span className="w-fit rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-sky-800 ring-1 ring-sky-100/80">
-                  {sitesLocationDetailRows.length} locations
+                  {siteRegistryCountsLoading
+                    ? '…'
+                    : siteRegistryCounts != null
+                      ? `${siteRegistryCounts.locationCount} locations`
+                      : `${sitesLocationDetailRows.length} locations`}
                 </span>
+                <a
+                  href="https://www.google.com/maps/d/viewer?mid=1MIVM-zq87_-QjcKCAnCLLhLlqZTB6Xw&hl=th"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-fit rounded-md bg-card px-2 py-0.5 text-[11px] font-semibold text-blue-600 ring-1 ring-border transition hover:bg-muted"
+                >
+                  Open full map
+                </a>
               </div>
             </div>
 
-            <div className="pm-registry-scroll max-h-[min(28rem,56vh)] space-y-2 overflow-y-auto pr-1">
-              {sitesLocationGroupedBySite.length === 0 ? (
-                <p className="py-6 text-center text-xs text-muted-foreground">No rows loaded.</p>
-              ) : (
-                sitesLocationGroupedBySite.map((group, i) => (
-                    <div
-                      key={group.locations.map((l) => l.SLid).join('-')}
-                      className="overflow-hidden rounded-xl border border-border bg-muted/60"
-                    >
-                      <div className="flex items-start gap-1.5 border-b border-border bg-blue-50/25 p-2.5">
-                        <RankBadge rank={i + 1} />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[9px] font-semibold uppercase tracking-wide text-blue-600/90">Site</p>
-                          <p className="font-semibold text-[12px] leading-tight text-foreground break-words">
-                            {group.siteName}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="min-w-0 bg-card p-2.5 sm:p-3">
-                        <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-wide text-sky-700/90">
-                          Locations
-                        </p>
-                        <ul className="grid gap-1 sm:grid-cols-2 xl:grid-cols-3" role="list">
-                          {group.locations.map((loc) => (
-                            <li
-                              key={loc.SLid}
-                              className="flex items-start gap-1.5 rounded border border-sky-100/80 bg-sky-50/35 px-2 py-1 text-[11px] leading-snug text-muted-foreground"
-                            >
-                              <MapPin
-                                className="mt-0.5 h-3 w-3 shrink-0 text-sky-500"
-                                strokeWidth={2}
-                                aria-hidden
-                              />
-                              <span className="min-w-0" title={loc.label}>
-                                {formatLocationLabelEn(loc.label)}
-                                {loc.sof ? (
-                                  <span className="mt-0.5 block text-[10px] text-muted-foreground">SOF: {loc.sof}</span>
-                                ) : null}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  ))
-              )}
+            <div className="overflow-hidden rounded-xl border border-border bg-muted/40 shadow-inner">
+              <iframe
+                title="PM Preventive maintenance map"
+                src="https://www.google.com/maps/d/embed?mid=1MIVM-zq87_-QjcKCAnCLLhLlqZTB6Xw&hl=th&ll=15.498042554268263%2C101.39663160981688&z=8"
+                className="h-[min(72vh,52rem)] min-h-[32rem] w-full border-0"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                allowFullScreen
+              />
             </div>
           </section>
         )}

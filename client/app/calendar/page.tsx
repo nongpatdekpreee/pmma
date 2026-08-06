@@ -1464,25 +1464,20 @@ function CalendarPageContent() {
               const multiDaySpansWithRow = assignRowsToMultiDaySpans(multiDaySpans);
               const multiDayRowCount = multiDaySpansWithRow.length > 0 ? Math.max(...multiDaySpansWithRow.map(s => s.row)) + 1 : 0;
               const BAR_HEIGHT = 28;
-              const TASK_GAP = 4; // ระยะห่างเท่ากันทุกที่: ระหว่างแถบ-แถบ, แถบ-pill, pill-pill
-              const MULTI_DAY_TOP_OFFSET = 32;
-              /** เผื่อหัวเลขวันจริงต่ำกว่า DAY_HEADER_PX — ไม่ให้ pill ถูกแถบหลายวัน (z-20) ทับ */
-              const PILL_BELOW_MULTI_DAY_EXTRA_PX = 8;
-              const multiDayAreaHeight = (rows: number) =>
-                MULTI_DAY_TOP_OFFSET + rows * BAR_HEIGHT + Math.max(0, rows - 1) * TASK_GAP + TASK_GAP;
-              const PILL_ROW_PX = 36;
-              /** ความสูงขั้นต่ำของช่องวัน = เทียบเท่ามี task วันเดียวกี่แถว (แสดงจริงตาม nPills) */
-              const MIN_VISIBLE_PILL_ROWS = 2;
+              const TASK_GAP = 4;
               const DAY_HEADER_PX = 28;
               const HOLIDAY_EXTRA_PX = 20;
               const CELL_PAD_PX = 16;
+              const PILL_ROW_PX = 36;
+              const MIN_VISIBLE_PILL_ROWS = 2;
+              const weekHasHoliday = week.some((d) => d !== null && Boolean(getHolidayForDay(d)));
+              const weekHeaderPx = DAY_HEADER_PX + (weekHasHoliday ? HOLIDAY_EXTRA_PX : 0);
               const multiDayEventIds = new Set(multiDaySpans.map(({ event }) => event.id));
               const dayLayouts = week.map((day, dayIndex) => {
                 const dayEvents = getEventsForDay(day);
                 const singleDayEventsOnly = dayEvents.filter(ev => !multiDayEventIds.has(ev.id));
                 const spansCoveringThisDay = multiDaySpansWithRow.filter(s => dayIndex >= s.colStart && dayIndex <= s.colEnd);
                 const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
-                const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
                 const holidayForDay = getHolidayForDay(day);
                 const dayKey = day === null ? '' : dayExpandKey(day);
                 const isDayExpanded = day !== null && expandedDayKeys.has(dayKey);
@@ -1496,81 +1491,59 @@ function CalendarPageContent() {
                 const nPills = visibleSingleDayEvents.length + (showMoreLink || showLessLink ? 1 : 0);
                 const nPillsForHeight = day === null ? 0 : Math.max(nPills, MIN_VISIBLE_PILL_ROWS);
                 const pillsStackPx = nPillsForHeight * PILL_ROW_PX;
-                const headerPx = DAY_HEADER_PX + (holidayForDay ? HOLIDAY_EXTRA_PX : 0);
-                const pillsMtPx = hasMultiDayBarAbove
-                  ? Math.max(
-                      0,
-                      multiDayAreaHeight(multiDayRowsThisDay) -
-                        MULTI_DAY_TOP_OFFSET +
-                        PILL_BELOW_MULTI_DAY_EXTRA_PX
-                    )
-                  : nPillsForHeight > 0
-                    ? 6
-                    : 0;
-                let cellMinH: number;
-                if (day === null) {
-                  cellMinH = 40;
-                } else if (multiDayRowCount > 0) {
-                  const barBlock = multiDayAreaHeight(multiDayRowCount);
-                  cellMinH = Math.ceil(
-                    barBlock + pillsMtPx + pillsStackPx + headerPx + CELL_PAD_PX + 10
-                  );
-                } else {
-                  cellMinH = Math.ceil(
-                    headerPx + pillsMtPx + pillsStackPx + CELL_PAD_PX + 10
-                  );
-                }
+                const pillsMinH = Math.ceil(pillsStackPx + (nPillsForHeight > 0 ? 8 : 0) + CELL_PAD_PX);
                 return {
-                  cellMinH,
                   singleDayEventsOnly: visibleSingleDayEvents,
                   hiddenPillCount,
                   showMoreLink,
                   showLessLink,
                   isDayExpanded,
                   hasMultiDayBarAbove,
-                  multiDayRowsThisDay,
                   holidayForDay,
                   pillsStackPx,
+                  pillsMinH,
                 };
               });
-              const weekRowMinH = Math.max(48, ...dayLayouts.map(l => l.cellMinH));
+              const pillsRowMinH = Math.max(40, ...dayLayouts.map((l) => l.pillsMinH));
               const expandCalendarByTasks = tasksInCurrentMonth.length > 0;
+              const weekMinH =
+                8 +
+                weekHeaderPx +
+                (multiDayRowCount > 0
+                  ? multiDayRowCount * BAR_HEIGHT + Math.max(0, multiDayRowCount - 1) * TASK_GAP
+                  : 0) +
+                pillsRowMinH;
+              const dayShellClass = (day: number | null, holidayForDay: ReturnType<typeof getHolidayForDay>, withTopBorder: boolean) =>
+                `relative min-w-0 overflow-hidden border-l border-border ${withTopBorder ? 'border-t' : ''} ${
+                  day === null ? 'bg-muted' : holidayForDay ? 'bg-red-100' : 'bg-card'
+                } ${
+                  day !== null && dragOverDay === day && draggedEvent
+                    ? 'outline outline-2 outline-blue-300 -outline-offset-2 bg-blue-50'
+                    : ''
+                }`;
+
               return (
                 <div
                   key={weekIndex}
                   className={
                     expandCalendarByTasks
-                      ? 'relative grid shrink-0 grid-cols-7 gap-px overflow-hidden'
-                      : 'relative grid min-h-[3.5rem] flex-1 grid-cols-7 grid-rows-[minmax(0,1fr)] gap-px overflow-hidden sm:min-h-[4rem] xl:min-h-[5rem]'
+                      ? 'flex shrink-0 flex-col overflow-hidden'
+                      : 'flex min-h-[3.5rem] flex-1 flex-col overflow-hidden sm:min-h-[4rem] xl:min-h-[5rem]'
                   }
-                  style={{ minHeight: weekRowMinH }}
+                  style={{ minHeight: weekMinH }}
                 >
-                  {week.map((day, dayIndex) => {
-                    const {
-                      cellMinH,
-                      singleDayEventsOnly,
-                      hiddenPillCount,
-                      showMoreLink,
-                      showLessLink,
-                      hasMultiDayBarAbove,
-                      multiDayRowsThisDay,
-                      holidayForDay,
-                      pillsStackPx,
-                    } = dayLayouts[dayIndex];
-                    return (
-                      <div
-                        key={dayIndex}
-                        onDrop={e => handleDrop(e, day)}
-                        onDragOver={e => handleDragOver(e, day)}
-                        className={`relative flex h-full min-h-0 flex-col overflow-hidden border-l border-t border-border p-2 ${day === null ? 'bg-muted' : holidayForDay ? 'bg-red-100' : 'bg-card'
-                          } ${day !== null && dragOverDay === day && draggedEvent
-                            ? 'border-2 border-blue-300 bg-blue-50'
-                            : ''
-                          }`}
-                        style={{ minHeight: cellMinH }}
-                      >
-                        {day !== null && (
-                          <>
+                  <div className="grid shrink-0 grid-cols-7 gap-px">
+                    {week.map((day, dayIndex) => {
+                      const { holidayForDay } = dayLayouts[dayIndex];
+                      return (
+                        <div
+                          key={`h-${dayIndex}`}
+                          onDrop={(e) => handleDrop(e, day)}
+                          onDragOver={(e) => handleDragOver(e, day)}
+                          className={`${dayShellClass(day, holidayForDay, true)} px-2 pt-2 pb-1`}
+                          style={{ minHeight: weekHeaderPx + 8 }}
+                        >
+                          {day !== null && (
                             <div className="shrink-0">
                               <span
                                 className={`text-xs font-bold ${
@@ -1582,26 +1555,175 @@ function CalendarPageContent() {
                                 {day}
                               </span>
                               {holidayForDay && (
-                                <span className="block mt-0.5 text-[10px] font-medium text-amber-700 truncate" title={holidayForDay.name}>
+                                <span className="mt-0.5 block truncate text-[10px] font-medium text-amber-700" title={holidayForDay.name}>
                                   {holidayForDay.name}
                                 </span>
                               )}
                             </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {multiDayRowCount > 0 && (
+                    <div
+                      className="relative z-0 grid shrink-0 grid-cols-7 gap-px overflow-hidden"
+                      style={{
+                        gridTemplateRows: `repeat(${multiDayRowCount}, ${BAR_HEIGHT}px)`,
+                        rowGap: `${TASK_GAP}px`,
+                        minHeight:
+                          multiDayRowCount * BAR_HEIGHT +
+                          Math.max(0, multiDayRowCount - 1) * TASK_GAP,
+                      }}
+                    >
+                      {week.map((day, dayIndex) => {
+                        const { holidayForDay } = dayLayouts[dayIndex];
+                        return (
+                          <div
+                            key={`m-${dayIndex}`}
+                            onDrop={(e) => handleDrop(e, day)}
+                            onDragOver={(e) => handleDragOver(e, day)}
+                            className={`${dayShellClass(day, holidayForDay, false)} pointer-events-auto`}
+                            style={{ gridColumn: dayIndex + 1, gridRow: `1 / ${multiDayRowCount + 1}` }}
+                          />
+                        );
+                      })}
+                      {multiDaySpansWithRow.map(({ event, colStart, colEnd, row }) => {
+                        const isMA = event.taskType === 'MA';
+                        const isDone = event.status === 'done';
+                        const hasReport = isMA ? reportedMATaskIds.has(Number(event.id)) : reportedPMTaskIds.has(Number(event.id));
+                        const endDateStr = event.endDate || event.startDate || '';
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const endDate = endDateStr ? new Date(endDateStr) : null;
+                        if (endDate) endDate.setHours(0, 0, 0, 0);
+                        const isOverdue = !isDone && endDate && endDate < today;
+                        const isInProcess = event.status === 'working';
+                        const barStyle = isDone
+                          ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
+                          : isInProcess
+                            ? 'border-l-4 border-l-amber-500 bg-amber-50/90 text-amber-950'
+                            : isOverdue
+                              ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
+                              : isMA
+                                ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
+                                : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
+                        return (
+                          <div
+                            key={event.id}
+                            style={{
+                              gridColumn: `${colStart + 1} / ${colEnd + 2}`,
+                              gridRow: row + 1,
+                              marginLeft: 8,
+                              marginRight: 8,
+                            }}
+                            draggable={!isDone}
+                            onDragStart={(e) => !isDone && handleDragStart(e, event)}
+                            onDragEnd={handleDragEnd}
+                            onClick={() => handleTaskClick(event)}
+                            onMouseEnter={(e) => {
+                              setHoveredEvent(event);
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const tooltipWidth = 320;
+                              const tooltipHeight = 400;
+                              const padding = 16;
+                              const spaceOnRight = window.innerWidth - rect.right;
+                              const spaceOnLeft = rect.left;
+                              const spaceOnBottom = window.innerHeight - rect.bottom;
+                              let x = rect.right + 10;
+                              let y = rect.top;
+                              if (spaceOnRight < tooltipWidth + 20 && spaceOnLeft >= tooltipWidth + 20) x = rect.left - tooltipWidth - 10;
+                              if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) y = rect.bottom - tooltipHeight;
+                              x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
+                              y = Math.max(padding, Math.min(y, window.innerHeight - tooltipHeight - padding));
+                              setTooltipPosition({ x, y });
+                            }}
+                            onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
+                            className={`relative z-[1] box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''}`}
+                          >
+                            <span className="mr-1.5 flex-shrink-0 rounded-none bg-card/60 px-1 py-0.5 text-[9px] font-bold leading-none">
+                              {isMA ? 'MA' : 'PM'}
+                            </span>
+                            <span className={`min-w-0 flex-1 truncate leading-none ${isDone ? 'line-through' : ''}`}>
+                              {calendarInProcessTitleText(event)}
+                            </span>
+                            {event.Eng_ids && event.Eng_ids.length > 0 && (
+                              <span className="relative ml-1.5 inline-block flex flex-shrink-0" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                                <span className="inline-flex h-5 w-5 overflow-hidden rounded-full border border-white bg-muted ring-1 ring-slate-300">
+                                  {event.Eng_ids[0].photo ? (
+                                    <Image
+                                      src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)}
+                                      alt=""
+                                      width={20}
+                                      height={20}
+                                      unoptimized
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
+                                      {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
+                                    </span>
+                                  )}
+                                </span>
+                                {event.Eng_ids.length > 1 && (
+                                  <span className="absolute -right-1 bottom-0.5 inline-flex h-3 w-3 items-center justify-center rounded-full border border-white bg-slate-300 text-[6px] font-bold leading-none text-muted-foreground ring-1 ring-slate-300">
+                                    +{event.Eng_ids.length - 1}
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                            {isDone && !hasReport && (
+                              <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
+                                <FileX2 size={12} strokeWidth={2.5} />
+                              </span>
+                            )}
+                            {hasReport && (
+                              <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
+                                <FileCheck size={12} strokeWidth={2.5} />
+                              </span>
+                            )}
+                            {isInProcess && (
+                              <span className="ml-1 flex-shrink-0 text-amber-700">
+                                <Clock3 size={12} strokeWidth={2.5} aria-hidden />
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div
+                    className={
+                      expandCalendarByTasks
+                        ? 'relative z-[1] grid shrink-0 grid-cols-7 gap-px'
+                        : 'relative z-[1] grid min-h-0 flex-1 grid-cols-7 gap-px'
+                    }
+                    style={{ minHeight: pillsRowMinH }}
+                  >
+                    {week.map((day, dayIndex) => {
+                      const {
+                        singleDayEventsOnly,
+                        hiddenPillCount,
+                        showMoreLink,
+                        showLessLink,
+                        hasMultiDayBarAbove,
+                        holidayForDay,
+                        pillsStackPx,
+                      } = dayLayouts[dayIndex];
+                      return (
+                        <div
+                          key={`p-${dayIndex}`}
+                          onDrop={(e) => handleDrop(e, day)}
+                          onDragOver={(e) => handleDragOver(e, day)}
+                          className={`${dayShellClass(day, holidayForDay, false)} flex h-full min-h-0 flex-col p-2 pt-1`}
+                          style={{ minHeight: dayLayouts[dayIndex].pillsMinH }}
+                        >
+                          {day !== null && (
                             <div
-                              className={`flex w-full flex-col overflow-x-hidden [scrollbar-width:thin] space-y-0.5 relative z-[5] ${expandCalendarByTasks ? 'flex-none overflow-y-auto' : 'min-h-0 flex-1 overflow-y-hidden'} ${hasMultiDayBarAbove ? '' : 'mt-1.5'}`}
-                              style={{
-                                ...(hasMultiDayBarAbove
-                                  ? {
-                                      marginTop: `${Math.max(
-                                        0,
-                                        multiDayAreaHeight(multiDayRowsThisDay) -
-                                          MULTI_DAY_TOP_OFFSET +
-                                          PILL_BELOW_MULTI_DAY_EXTRA_PX
-                                      )}px`,
-                                    }
-                                  : {}),
-                                ...(pillsStackPx > 0 ? { minHeight: pillsStackPx } : {}),
-                              }}
+                              className={`relative z-[5] flex w-full flex-col space-y-0.5 overflow-x-hidden [scrollbar-width:thin] ${expandCalendarByTasks ? 'flex-none overflow-y-auto' : 'min-h-0 flex-1 overflow-y-hidden'}`}
+                              style={pillsStackPx > 0 ? { minHeight: pillsStackPx } : undefined}
                             >
                               {singleDayEventsOnly.map((ev, eventIndex) => {
                                 const isMA = ev.taskType === 'MA';
@@ -1614,7 +1736,6 @@ function CalendarPageContent() {
                                 if (endDate) endDate.setHours(0, 0, 0, 0);
                                 const isOverdue = !isDone && endDate && endDate < today;
                                 const isInProcess = ev.status === 'working';
-                                // สีตามสถานะ: เสร็จแล้ว=เขียว, กำลังทำ=เหลือง, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
                                 const pillStyle = isDone
                                   ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
                                   : isInProcess
@@ -1649,17 +1770,17 @@ function CalendarPageContent() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${hasMultiDayBarAbove && eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
+                                    className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
                                   >
-                                    <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-card/60">
+                                    <span className="mr-1.5 flex-shrink-0 rounded-none bg-card/60 px-1 py-0.5 text-[9px] font-bold leading-none">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
-                                    <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
+                                    <span className={`min-w-0 flex-1 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                                       {calendarInProcessTitleText(ev)}
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
-                                      <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
-                                        <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
+                                      <span className="relative ml-1.5 inline-block flex flex-shrink-0" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                                        <span className="inline-flex h-5 w-5 overflow-hidden rounded-full border border-white bg-muted ring-1 ring-slate-300">
                                           {ev.Eng_ids[0].photo ? (
                                             <Image
                                               src={ev.Eng_ids[0].photo.startsWith('http') ? ev.Eng_ids[0].photo : apiUrl(ev.Eng_ids[0].photo)}
@@ -1676,7 +1797,7 @@ function CalendarPageContent() {
                                           )}
                                         </span>
                                         {ev.Eng_ids.length > 1 && (
-                                          <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-muted-foreground leading-none">
+                                          <span className="absolute -right-1 bottom-0.5 inline-flex h-3 w-3 items-center justify-center rounded-full border border-white bg-slate-300 text-[6px] font-bold leading-none text-muted-foreground ring-1 ring-slate-300">
                                             +{ev.Eng_ids.length - 1}
                                           </span>
                                         )}
@@ -1725,117 +1846,11 @@ function CalendarPageContent() {
                                 </button>
                               )}
                             </div>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {/* แถบงานหลายวัน — แสดงในช่องวันแรกและลากข้ามช่อง (จัดหลายแถวถ้าซ้อนกัน) */}
-                  {multiDaySpansWithRow.map(({ event, colStart, colEnd, row }) => {
-                    const isMA = event.taskType === 'MA';
-                    const isDone = event.status === 'done';
-                    const hasReport = isMA ? reportedMATaskIds.has(Number(event.id)) : reportedPMTaskIds.has(Number(event.id));
-                    const endDateStr = event.endDate || event.startDate || '';
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    const endDate = endDateStr ? new Date(endDateStr) : null;
-                    if (endDate) endDate.setHours(0, 0, 0, 0);
-                    const isOverdue = !isDone && endDate && endDate < today;
-                    const isInProcess = event.status === 'working';
-                    // สีตามสถานะ: เสร็จแล้ว=เขียว, กำลังทำ=เหลือง, เลยกำหนด=แดง, MA=ม่วง, PM=ฟ้า
-                    const barStyle = isDone
-                      ? 'border-l-4 border-l-emerald-500 bg-emerald-50/90 text-emerald-800'
-                      : isInProcess
-                        ? 'border-l-4 border-l-amber-500 bg-amber-50/90 text-amber-950'
-                        : isOverdue
-                          ? 'border-l-4 border-l-red-500 bg-red-50/90 text-red-800'
-                          : isMA
-                            ? 'border-l-4 border-l-purple-500 bg-purple-50/90 text-purple-800'
-                            : 'border-l-4 border-l-blue-500 bg-sky-50/90 text-blue-800';
-                    const topPx = MULTI_DAY_TOP_OFFSET + row * (BAR_HEIGHT + TASK_GAP);
-                    return (
-                      <div
-                        key={event.id}
-                        style={{
-                          gridColumn: `${colStart + 1} / ${colEnd + 2}`,
-                          position: 'absolute',
-                          top: `${topPx}px`,
-                          left: '8px',
-                          right: '8px',
-                        }}
-                        draggable={!isDone}
-                        onDragStart={(e) => !isDone && handleDragStart(e, event)}
-                        onDragEnd={handleDragEnd}
-                        onClick={() => handleTaskClick(event)}
-                        onMouseEnter={(e) => {
-                          setHoveredEvent(event);
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const tooltipWidth = 320;
-                          const tooltipHeight = 400;
-                          const padding = 16;
-                          const spaceOnRight = window.innerWidth - rect.right;
-                          const spaceOnLeft = rect.left;
-                          const spaceOnBottom = window.innerHeight - rect.bottom;
-                          let x = rect.right + 10;
-                          let y = rect.top;
-                          if (spaceOnRight < tooltipWidth + 20 && spaceOnLeft >= tooltipWidth + 20) x = rect.left - tooltipWidth - 10;
-                          if (spaceOnBottom < tooltipHeight && rect.top > tooltipHeight) y = rect.bottom - tooltipHeight;
-                          x = Math.max(padding, Math.min(x, window.innerWidth - tooltipWidth - padding));
-                          y = Math.max(padding, Math.min(y, window.innerHeight - tooltipHeight - padding));
-                          setTooltipPosition({ x, y });
-                        }}
-                        onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                        className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''} z-20`}
-                      >
-                        <span className="flex-shrink-0 mr-1.5 px-1 py-0.5 leading-none rounded-none text-[9px] font-bold bg-card/60">
-                          {isMA ? 'MA' : 'PM'}
-                        </span>
-                        <span className={`flex-1 min-w-0 truncate leading-none ${isDone ? 'line-through' : ''}`}>
-                          {calendarInProcessTitleText(event)}
-                        </span>
-                        {event.Eng_ids && event.Eng_ids.length > 0 && (
-                          <span className="flex flex-shrink-0 ml-1.5 relative inline-block" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
-                            <span className="inline-flex h-5 w-5 rounded-full overflow-hidden border border-white bg-muted ring-1 ring-slate-300">
-                              {event.Eng_ids[0].photo ? (
-                                <Image
-                                  src={event.Eng_ids[0].photo.startsWith('http') ? event.Eng_ids[0].photo : apiUrl(event.Eng_ids[0].photo)}
-                                  alt=""
-                                  width={20}
-                                  height={20}
-                                  unoptimized
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                <span className="flex h-full w-full items-center justify-center text-[9px] font-semibold text-muted-foreground">
-                                  {(event.Eng_ids[0].name?.[0] || event.Eng_ids[0].id?.[0] || '?').toUpperCase()}
-                                </span>
-                              )}
-                            </span>
-                            {event.Eng_ids.length > 1 && (
-                              <span className="absolute bottom-0.5 -right-1 inline-flex h-3 w-3 rounded-full border border-white bg-slate-300 ring-1 ring-slate-300 items-center justify-center text-[6px] font-bold text-muted-foreground leading-none">
-                                +{event.Eng_ids.length - 1}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                        {isDone && !hasReport && (
-                          <span className="ml-1 flex-shrink-0 text-rose-600" title="No report">
-                            <FileX2 size={12} strokeWidth={2.5} />
-                          </span>
-                        )}
-                        {hasReport && (
-                          <span className="ml-1 flex-shrink-0 text-emerald-600" title="Reported">
-                            <FileCheck size={12} strokeWidth={2.5} />
-                          </span>
-                        )}
-                        {isInProcess && (
-                          <span className="ml-1 flex-shrink-0 text-amber-700">
-                            <Clock3 size={12} strokeWidth={2.5} aria-hidden />
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })}
