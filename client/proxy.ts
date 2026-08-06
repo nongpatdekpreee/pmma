@@ -5,7 +5,7 @@ const REFRESH_COOKIE = process.env.REFRESH_TOKEN_COOKIE_NAME || 'refreshToken';
 
 const PUBLIC_PATHS = ['/login', '/register'];
 
-const ADMIN_PATHS = ['/schedule_management', '/schedule-management', '/user-management'];
+const ADMIN_PATHS = ['/schedule_management', '/schedule-management'];
 
 function getBackendUrl(): string {
   const target = process.env.API_PROXY_TARGET || process.env.BACKEND_URL || 'http://127.0.0.1:5000';
@@ -42,7 +42,7 @@ async function fetchSessionRole(request: NextRequest): Promise<'USER' | 'ADMIN' 
   }
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (

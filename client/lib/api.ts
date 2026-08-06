@@ -441,12 +441,18 @@ export async function importSofDetails(rows: Array<Record<string, unknown>>): Pr
 }
 
 /** GET /api/contracts?site_id=xxx - รายการ Contract ตาม site_id (ไม่ส่ง site_id = ดึงทั้งหมด) */
-export async function getContractsBySite(siteId?: number | string | null): Promise<{
+export async function getContractsBySite(
+  siteId?: number | string | null,
+  options?: { lite?: boolean }
+): Promise<{
   success: boolean;
-  data: { contract_id: number; contract_name?: string; start_date?: string; end_date?: string; site_id?: number; site_name?: string; sla_term?: string }[];
+  data: { contract_id: number; contract_name?: string; start_date?: string; end_date?: string; site_id?: number; site_name?: string; sla_term?: string; sof_name?: string }[];
 }> {
-  const url = siteId ? apiUrl(`/api/contracts?site_id=${encodeURIComponent(String(siteId))}`) : apiUrl('/api/contracts');
-  const res = await apiFetch(url);
+  const params = new URLSearchParams();
+  if (siteId != null && siteId !== '') params.set('site_id', String(siteId));
+  if (options?.lite) params.set('lite', '1');
+  const qs = params.toString();
+  const res = await apiFetch(apiUrl(qs ? `/api/contracts?${qs}` : '/api/contracts'));
   return jsonWithFallback(res, { success: false, data: [] });
 }
 
@@ -1128,6 +1134,11 @@ export async function getEmployees(params?: { limit?: number; page?: number; sea
     positionType: string;
     employmentType: string;
     photo?: string | null;
+    account?: {
+      id: number;
+      Username: string;
+      Role: 'USER' | 'ADMIN';
+    } | null;
   }>;
   pagination?: {
     page: number;
@@ -1164,7 +1175,7 @@ export async function getEmployees(params?: { limit?: number; page?: number; sea
   }
 }
 
-/** POST /api/employees - สร้าง Employee ใหม่ */
+/** POST /api/employees - สร้าง Employee ใหม่ (+ บัญชี Login) */
 export async function createEmployee(body: {
   name: string;
   gmail: string;
@@ -1172,6 +1183,10 @@ export async function createEmployee(body: {
   positionType?: string;
   employmentType?: string;
   photo?: string | null;
+  Username: string;
+  Password: string;
+  Role?: 'USER' | 'ADMIN';
+  adminPassword?: string;
 }): Promise<{ success: boolean; data?: object; message?: string }> {
   const res = await apiFetch(apiUrl('/api/employees'), {
     method: 'POST',

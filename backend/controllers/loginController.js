@@ -11,6 +11,10 @@ const {
   REFRESH_TOKEN_COOKIE_NAME,
 } = require('../services/refreshTokenService');
 const { normalizeRole, toDbRole } = require('../utils/roleUtils');
+const {
+  ensureAuthLinkReady,
+  createAndLinkLoginAccount,
+} = require('../lib/employeeAuthLink');
 
 // POST - สร้าง user ใหม่
 const createUser = async (req, res) => {
@@ -333,6 +337,194 @@ const getAllUsers = async (req, res) => {
   }
 };
 
+/** GET - พนักงาน + บัญชี Login ที่เชื่อม (ADMIN) */
+const getEmployeeAccounts = async (req, res) => {
+  try {
+    await ensureAuthLinkReady();
+    const [rows] = await db.execute(
+      `SELECT
+         p.user_id AS employee_id,
+         p.name,
+         p.gmail,
+         p.phone,
+         p.type,
+         p.employment,
+         p.em_picture,
+         p.auth_user_id,
+         u.Username,
+         u.Role
+       FROM user_profiles p
+       LEFT JOIN user u ON u.User_id = p.auth_user_id
+       ORDER BY CAST(p.user_id AS UNSIGNED) ASC`
+    );
+
+    const data = rows.map((row) => ({
+      employeeId: String(row.employee_id),
+      name: row.name ?? '',
+      gmail: row.gmail || '',
+      tel: row.phone || '',
+      positionType: row.type || 'Technical',
+      employmentType: row.employment || 'Full-Time',
+      photo: row.em_picture || null,
+      account: row.auth_user_id
+        ? {
+            id: Number(row.auth_user_id),
+            Username: row.Username || '',
+            Role: normalizeRole(row.Role),
+          }
+        : null,
+    }));
+
+    res.status(200).json({
+      success: true,
+      count: data.length,
+      data,
+    });
+  } catch (error) {
+    console.error('Error fetching employee accounts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการดึงข้อมูลพนักงานและบัญชี',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * POST - สร้างบัญชี Login ให้พนักงาน + เชื่อม auth_user_id
+ * body: { employeeId, Username, Password, Role?, adminPassword? }
+ */
+const createEmployeeAccount = async (req, res) => {
+  try {
+    const { employeeId, Username, Password, Role, adminPassword } = req.body || {};
+    const result = await createAndLinkLoginAccount({
+      employeeId,
+      Username,
+      Password,
+      Role,
+      adminPassword,
+      actorUserId: req.user.id,
+      actorRole: req.user.Role,
+    });
+    if (!result.ok) {
+      return res.status(result.status).json({ success: false, message: result.message });
+    }
+    res.status(201).json({
+      success: true,
+      message: 'สร้างบัญชีและเชื่อมกับพนักงานสำเร็จ',
+      data: {
+        employeeId: String(employeeId),
+        account: result.account,
+      },
+    });
+  } catch (error) {
+    console.error('Error creating employee account:', error);
+    if (error && error.code === 'ER_DUP_ENTRY') {
+      return res.status(400).json({
+        success: false,
+        message: 'บัญชีนี้ถูกเชื่อมกับพนักงานคนอื่นแล้ว',
+      });
+    }
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการสร้างบัญชีพนักงาน',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * PUT - เชื่อมพนักงานกับบัญชี Login ที่มีอยู่
+ * body: { authUserId } หรือ { Username }
+ */
+const linkEmployeeAccount = async (req, res) => {
+  try {
+    await ensureAuthLinkReady();
+    const empId = String(req.params.employeeId ?? '').trim();
+    const { authUserId, Username } = req.body || {};
+
+    if (!empId) {
+      return res.status(400).json({ success: false, message: 'ไม่พบรหัสพนักงาน' });
+    }
+
+    const [emps] = await db.execute(
+      'SELECT user_id, auth_user_id FROM user_profiles WHERE user_id = ?',
+      [empId]
+    );
+    if (emps.length === 0) {
+      return res.status(404).json({ success: false, message: 'ไม่พบพนักงาน' });
+    }
+    if (emps[0].auth_user_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'พนักงานคนนี้มีบัญชี Login แล้ว',
+      });
+    }
+
+    let targetId = authUserId != null ? Number(authUserId) : NaN;
+    if (!Number.isFinite(targetId) && Username) {
+      const [users] = await db.execute(
+        'SELECT User_id FROM user WHERE Username = ? LIMIT 1',
+        [String(Username).trim()]
+      );
+      if (users.length === 0) {
+        return res.status(404).json({ success: false, message: 'ไม่พบบัญชี Username นี้' });
+      }
+      targetId = Number(users[0].User_id);
+    }
+    if (!Number.isFinite(targetId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุ authUserId หรือ Username',
+      });
+    }
+
+    const [users] = await db.execute(
+      'SELECT User_id, Username, Role FROM user WHERE User_id = ?',
+      [targetId]
+    );
+    if (users.length === 0) {
+      return res.status(404).json({ success: false, message: 'ไม่พบบัญชี Login' });
+    }
+
+    const [taken] = await db.execute(
+      'SELECT user_id FROM user_profiles WHERE auth_user_id = ? LIMIT 1',
+      [targetId]
+    );
+    if (taken.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'บัญชีนี้ถูกเชื่อมกับพนักงานคนอื่นแล้ว',
+      });
+    }
+
+    await db.execute('UPDATE user_profiles SET auth_user_id = ? WHERE user_id = ?', [
+      targetId,
+      empId,
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: 'เชื่อมบัญชีสำเร็จ',
+      data: {
+        employeeId: empId,
+        account: {
+          id: Number(users[0].User_id),
+          Username: users[0].Username,
+          Role: normalizeRole(users[0].Role),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error linking employee account:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการเชื่อมบัญชี',
+      error: error.message,
+    });
+  }
+};
+
 // PUT - อัปเดต Username หรือ Password
 const updateUser = async (req, res) => {
   try {
@@ -497,6 +689,16 @@ const deleteUser = async (req, res) => {
       });
     }
 
+    try {
+      await ensureAuthLinkReady();
+      await db.execute(
+        'UPDATE user_profiles SET auth_user_id = NULL WHERE auth_user_id = ?',
+        [id]
+      );
+    } catch (unlinkErr) {
+      console.warn('Unlink employee auth_user_id skipped:', unlinkErr.message);
+    }
+
     await db.execute('DELETE FROM user WHERE User_id  = ?', [id]);
 
     res.status(200).json({
@@ -525,6 +727,9 @@ module.exports = {
   refresh,
   logout,
   getAllUsers,
+  getEmployeeAccounts,
+  createEmployeeAccount,
+  linkEmployeeAccount,
   updateUser,
   deleteUser
 };

@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
-import { LucideIcon, UserCheck, UserRoundCog, Wrench, Search, UserPlus, X, FileUp, Edit, Trash2, Download } from "lucide-react";
+import { UserRoundCog, Search, UserPlus, X, FileUp, Edit, Trash2, Download, Eye, EyeOff, MoreVertical, ChevronLeft, ChevronRight, Shield } from "lucide-react";
 import { getEmployees, createEmployee, importEmployees, uploadEmployeePhoto, updateEmployee, deleteEmployee } from "@/lib/api";
 import { InlineCatLoader } from '@/components/ui/CatLoader';
 import {
@@ -31,16 +31,15 @@ import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { useToast, ToastContainer } from "@/components/ui/Toast";
 import { useAlertModal } from "@/components/ui/useAlertModal";
 import { getErrorMessage } from "@/lib/unknownUtil";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import {
+  createEmployeeLoginAccount,
+  updateUserAccount,
+} from "@/lib/auth/authApi";
+import type { AppRole, AuthUser } from "@/lib/auth/types";
 
 /* ================= summary ================= */
-interface SummaryEM {
-  label: string;
-  value: string;
-  icon: LucideIcon;
-  growth?: string;
-}
-
-const ITEMS_PER_PAGE = 16;
+const ITEMS_PER_PAGE = 8;
 
 interface Employee {
   id: string;
@@ -50,12 +49,14 @@ interface Employee {
   positionType: string;
   employmentType: string;
   photo?: string | null;
+  account?: AuthUser | null;
 }
 
 const extractNumber = (id: string) =>
   Number(id.replace(/\D/g, ""));
 
 const EmployeeManagement = () => {
+  const { isAdmin, user: currentUser, refreshUser } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -71,7 +72,13 @@ const EmployeeManagement = () => {
     positionType: "Technical" as "Technical" | "Management" | "Engineer",
     employmentType: "Full-Time",
     photo: null as string | null,
+    username: "",
+    password: "",
+    role: "USER" as "USER" | "ADMIN",
+    adminPassword: "",
   });
+  const [addShowPassword, setAddShowPassword] = useState(false);
+  const [addShowAdminPassword, setAddShowAdminPassword] = useState(false);
   const [addPhotoUploading, setAddPhotoUploading] = useState(false);
   const [addModalTab, setAddModalTab] = useState<"form" | "import">("form");
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -91,12 +98,39 @@ const EmployeeManagement = () => {
   const [editSaving, setEditSaving] = useState(false);
   const [editPhotoUploading, setEditPhotoUploading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [addFormErrors, setAddFormErrors] = useState<{ name: string; gmail: string; tel: string }>({ name: "", gmail: "", tel: "" });
+  const [addFormErrors, setAddFormErrors] = useState<{
+    name: string;
+    gmail: string;
+    tel: string;
+    username: string;
+    password: string;
+    adminPassword: string;
+  }>({ name: "", gmail: "", tel: "", username: "", password: "", adminPassword: "" });
   const [editFormErrors, setEditFormErrors] = useState<{ name: string; gmail: string; tel: string }>({ name: "", gmail: "", tel: "" });
   const [fetchError, setFetchError] = useState<string | null>(null);
   const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const { showConfirm, alertModal } = useAlertModal();
 
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [savingAccountId, setSavingAccountId] = useState<number | null>(null);
+  const [roleConfirm, setRoleConfirm] = useState<{
+    emp: Employee;
+    account: AuthUser;
+    newRole: AppRole;
+  } | null>(null);
+  const [roleConfirmPassword, setRoleConfirmPassword] = useState("");
+  const [roleConfirmShowPassword, setRoleConfirmShowPassword] = useState(false);
+  const [roleConfirmSaving, setRoleConfirmSaving] = useState(false);
+  const [createAccountFor, setCreateAccountFor] = useState<Employee | null>(null);
+  const [createAccountForm, setCreateAccountForm] = useState({
+    username: "",
+    password: "",
+    role: "USER" as AppRole,
+    adminPassword: "",
+  });
+  const [createAccountShowPassword, setCreateAccountShowPassword] = useState(false);
+  const [createAccountShowAdminPassword, setCreateAccountShowAdminPassword] = useState(false);
+  const [createAccountSaving, setCreateAccountSaving] = useState(false);
   const addPhoneMainOverflowWarned = useRef(false);
   const addPhoneExtOverflowWarned = useRef(false);
   const editPhoneMainOverflowWarned = useRef(false);
@@ -108,7 +142,24 @@ const EmployeeManagement = () => {
       setFetchError(null);
       const data = await getEmployees({ limit: 1000 });
       if (data.success && data.data && Array.isArray(data.data)) {
-        setEmployees(data.data);
+        setEmployees(
+          data.data.map((row) => ({
+            id: String(row.id),
+            name: row.name || "",
+            gmail: row.gmail || "",
+            tel: row.tel || "",
+            positionType: row.positionType || "Technical",
+            employmentType: row.employmentType || "Full-Time",
+            photo: row.photo ?? null,
+            account: row.account
+              ? {
+                  id: row.account.id,
+                  Username: row.account.Username,
+                  Role: row.account.Role === "ADMIN" ? "ADMIN" : "USER",
+                }
+              : null,
+          }))
+        );
         setFetchError(null);
       } else {
         setEmployees([]);
@@ -126,6 +177,101 @@ const EmployeeManagement = () => {
   useEffect(() => {
     fetchEmployees();
   }, []);
+
+  const patchEmployeeAccount = (employeeId: string, account: AuthUser | null) => {
+    setEmployees((prev) =>
+      prev.map((e) => (e.id === employeeId ? { ...e, account } : e))
+    );
+  };
+
+  const requestRoleChange = (emp: Employee, newRole: AppRole) => {
+    if (!isAdmin || !emp.account || emp.account.Role === newRole) return;
+    if (currentUser?.id === emp.account.id && newRole !== "ADMIN") {
+      toastError("You cannot demote your own account.");
+      return;
+    }
+    setRoleConfirm({ emp, account: emp.account, newRole });
+    setRoleConfirmPassword("");
+    setRoleConfirmShowPassword(false);
+  };
+
+  const confirmRoleChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!roleConfirm || !isAdmin) return;
+    const adminPassword = roleConfirmPassword.trim();
+    if (!adminPassword) {
+      toastError("Enter your password to confirm.");
+      return;
+    }
+    const { emp, account, newRole } = roleConfirm;
+    setRoleConfirmSaving(true);
+    setSavingAccountId(account.id);
+    const result = await updateUserAccount(account.id, { Role: newRole, adminPassword });
+    if ("error" in result) {
+      toastError(result.error);
+    } else {
+      const next = result.user ?? { ...account, Role: newRole };
+      patchEmployeeAccount(emp.id, next);
+      if (currentUser?.id === account.id) await refreshUser();
+      toastSuccess(`Role updated to ${newRole}`);
+      setRoleConfirm(null);
+      setRoleConfirmPassword("");
+    }
+    setRoleConfirmSaving(false);
+    setSavingAccountId(null);
+  };
+
+  const openCreateAccount = (emp: Employee) => {
+    if (!isAdmin) return;
+    const suggestion =
+      (emp.gmail.includes("@") ? emp.gmail.split("@")[0] : "") ||
+      emp.name.trim().replace(/\s+/g, ".").toLowerCase() ||
+      "";
+    setCreateAccountFor(emp);
+    setCreateAccountForm({
+      username: suggestion,
+      password: "",
+      role: "USER",
+      adminPassword: "",
+    });
+    setCreateAccountShowPassword(false);
+    setCreateAccountShowAdminPassword(false);
+  };
+
+  const handleCreateAccountSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createAccountFor || !isAdmin) return;
+    const username = createAccountForm.username.trim();
+    if (!username || !createAccountForm.password) {
+      toastError("Username and password are required.");
+      return;
+    }
+    if (createAccountForm.password.length < 6) {
+      toastError("Password must be at least 6 characters.");
+      return;
+    }
+    if (createAccountForm.role === "ADMIN" && !createAccountForm.adminPassword.trim()) {
+      toastError("Enter your password to grant admin role.");
+      return;
+    }
+    setCreateAccountSaving(true);
+    const result = await createEmployeeLoginAccount({
+      employeeId: createAccountFor.id,
+      Username: username,
+      Password: createAccountForm.password,
+      Role: createAccountForm.role,
+      adminPassword:
+        createAccountForm.role === "ADMIN" ? createAccountForm.adminPassword : undefined,
+    });
+    if ("error" in result) {
+      toastError(result.error);
+    } else {
+      patchEmployeeAccount(result.row.employeeId, result.row.account);
+      setCreateAccountFor(null);
+      toastSuccess(`Login account created for ${createAccountFor.name}`);
+    }
+    setCreateAccountSaving(false);
+  };
 
   useEffect(() => {
     if (addModalOpen && addModalTab === "form") {
@@ -308,8 +454,27 @@ const EmployeeManagement = () => {
     const nameErr = validateEmpName(addForm.name);
     const gmailErr = validateEmpGmail(addForm.gmail);
     const telErr = validateEmployeePhoneSubmit(addForm.tel, addForm.telExt);
-    setAddFormErrors({ name: nameErr, gmail: gmailErr, tel: telErr });
-    if (nameErr || gmailErr || telErr) return;
+    const usernameTrim = addForm.username.trim();
+    const usernameErr = !usernameTrim ? "Username is required for login." : "";
+    const passwordErr =
+      !addForm.password
+        ? "Password is required for login."
+        : addForm.password.length < 6
+          ? "Password must be at least 6 characters."
+          : "";
+    const adminPasswordErr =
+      isAdmin && addForm.role === "ADMIN" && !addForm.adminPassword.trim()
+        ? "Enter your password to grant ADMIN role."
+        : "";
+    setAddFormErrors({
+      name: nameErr,
+      gmail: gmailErr,
+      tel: telErr,
+      username: usernameErr,
+      password: passwordErr,
+      adminPassword: adminPasswordErr,
+    });
+    if (nameErr || gmailErr || telErr || usernameErr || passwordErr || adminPasswordErr) return;
     const nameTrim = addForm.name.trim();
     const telTrim = formatTelLineForDb(addForm.tel, addForm.telExt);
     setAddSaving(true);
@@ -321,13 +486,39 @@ const EmployeeManagement = () => {
         positionType: addForm.positionType,
         employmentType: addForm.employmentType,
         photo: addForm.photo || undefined,
+        Username: usernameTrim,
+        Password: addForm.password,
+        Role: isAdmin ? addForm.role : "USER",
+        adminPassword:
+          isAdmin && addForm.role === "ADMIN" ? addForm.adminPassword : undefined,
       });
       if (res.success) {
         setAddModalOpen(false);
-        setAddForm({ name: "", gmail: "", tel: "", telExt: "", positionType: "Technical", employmentType: "Full-Time", photo: null });
-        setAddFormErrors({ name: "", gmail: "", tel: "" });
+        setAddForm({
+          name: "",
+          gmail: "",
+          tel: "",
+          telExt: "",
+          positionType: "Technical",
+          employmentType: "Full-Time",
+          photo: null,
+          username: "",
+          password: "",
+          role: "USER",
+          adminPassword: "",
+        });
+        setAddFormErrors({
+          name: "",
+          gmail: "",
+          tel: "",
+          username: "",
+          password: "",
+          adminPassword: "",
+        });
+        setAddShowPassword(false);
+        setAddShowAdminPassword(false);
         await fetchEmployees();
-        toastSuccess("Employee added successfully");
+        toastSuccess("Employee and login account added successfully");
       } else {
         toastError(res.message || "Employee add failed");
       }
@@ -579,244 +770,270 @@ const EmployeeManagement = () => {
 
   /* ================= pagination ================= */
   const totalItems = sortedEmployees.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE) || 1);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const paginatedEmployees = sortedEmployees.slice(
     startIndex,
     startIndex + ITEMS_PER_PAGE
   );
 
-  const getEmploymentTypeColor = (type: string) => {
-    const normalizedType = type?.toLowerCase() || '';
-    if (normalizedType.includes('full')) {
-      return "bg-green-100 text-green-700";
-    } else if (normalizedType.includes('contract')) {
-      return "bg-blue-100 text-blue-700";
-    } else if (normalizedType.includes('part')) {
-      return "bg-yellow-100 text-yellow-700";
-    }
-    return "bg-muted text-muted-foreground";
-  };
-
-  const getPositionTypeColor = (type: string) =>
-    type === "Management"
-      ? "bg-purple-100 text-purple-700"
-      : "bg-muted text-muted-foreground";
-
-  // Calculate summary statistics
-  const summaryStats = useMemo(() => {
-    const total = employees.length;
-    const technical = employees.filter(emp => emp.positionType === 'Technical').length;
-    const management = employees.filter(emp => emp.positionType === 'Management').length;
-    
-    return {
-      total: total.toString(),
-      technical: technical.toString(),
-      management: management.toString(),
-    };
-  }, [employees]);
-
-  const SUMMARY_CARDS_EM: SummaryEM[] = [
-    { label: "TOTAL EMPLOYEES", value: summaryStats.total, icon: UserCheck },
-    { label: "TECHNICAL", value: summaryStats.technical, icon: UserRoundCog },
-    { label: "MANAGEMENT", value: summaryStats.management, icon: Wrench },
-  ];
-
   return (
     <SidebarLayout>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#F4F7FC] dark:bg-background">
       <DashboardHeader />
 
-      <main className="flex min-h-0 w-full max-w-full flex-1 flex-col space-y-4 px-4 py-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 md:mt-0 mt-16">
-          {/* ================= Summary Cards ================= */}
-          <section className="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
-            {SUMMARY_CARDS_EM.map((card) => {
-              const Icon = card.icon;
-              return (
-                <article
-                  key={card.label}
-                  className="flex flex-row items-center justify-between rounded-xl border border-border bg-card px-4 py-3 shadow-sm shadow-slate-900/[0.04]"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500">
-                      <Icon className="h-5 w-5 text-blue-900" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {card.label}
-                      </p>
-                      <div className="text-2xl font-semibold tabular-nums">
-                        {loading ? "..." : card.value}
+      <main className="flex min-h-0 w-full max-w-full flex-1 flex-col px-4 py-5 sm:px-6 lg:px-8 xl:px-10 2xl:px-12 md:mt-0 mt-16">
+          {/* Header */}
+          <div className="mb-5 flex min-w-0 flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-foreground sm:text-[1.75rem]">
+              Employees{" "}
+              <span className="font-bold text-slate-900 dark:text-foreground">
+                ({loading ? "…" : employees.length})
+              </span>
+            </h1>
+
+            <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+              <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-2xl border border-white/80 bg-white px-3 text-sm text-slate-500 shadow-[0_4px_14px_rgba(15,23,42,0.04)] dark:border-border dark:bg-card sm:min-w-[240px] sm:flex-none sm:w-72">
+                <Search size={18} className="shrink-0 text-slate-400" />
+                <input
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  placeholder="Search name, email, phone…"
+                  className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-400 dark:text-foreground"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => { setAddModalOpen(true); setAddModalTab("form"); setImportFile(null); setImportRows([]); setAddFormErrors({ name: "", gmail: "", tel: "", username: "", password: "", adminPassword: "" }); }}
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full bg-[#4F86F7] px-5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(79,134,247,0.35)] transition hover:bg-[#3f76e8]"
+              >
+                <UserPlus size={18} />
+                Add Employee
+              </button>
+            </div>
+          </div>
+
+          {fetchError && (
+            <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {fetchError}
+            </div>
+          )}
+
+          {/* Card list */}
+          <div className="flex min-h-0 flex-1 flex-col">
+            {loading ? (
+              <div className="flex flex-1 items-center justify-center rounded-[20px] bg-white/70 dark:bg-card">
+                <InlineCatLoader label="Loading..." className="py-16" />
+              </div>
+            ) : paginatedEmployees.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center rounded-[20px] bg-white px-6 py-16 text-sm text-slate-500 shadow-[0_4px_10px_rgba(0,0,0,0.05)] dark:bg-card dark:text-muted-foreground">
+                No Employee found
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-2 [scrollbar-width:thin]">
+                {paginatedEmployees.map((emp) => (
+                  <article
+                    key={emp.id}
+                    className={`relative grid grid-cols-1 items-center gap-4 rounded-[20px] bg-white px-5 py-4 shadow-[0_4px_10px_rgba(0,0,0,0.05)] dark:bg-card dark:shadow-none dark:ring-1 dark:ring-border ${
+                      isAdmin
+                        ? "lg:grid-cols-[minmax(200px,1.4fr)_minmax(110px,0.7fr)_minmax(100px,0.6fr)_minmax(120px,0.7fr)_minmax(220px,1.1fr)_2.75rem]"
+                        : "lg:grid-cols-[minmax(220px,1.5fr)_minmax(120px,0.8fr)_minmax(110px,0.7fr)_minmax(180px,1fr)_2.75rem]"
+                    } lg:gap-5`}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 dark:bg-muted">
+                        {emp.photo ? (
+                          <Image
+                            src={employeePhotoSrc(emp.photo) ?? ""}
+                            alt=""
+                            width={48}
+                            height={48}
+                            unoptimized
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <UserRoundCog className="h-5 w-5 text-slate-400" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-[15px] font-semibold text-slate-900 dark:text-foreground">
+                          {emp.name || "—"}
+                          {isAdmin && emp.account && currentUser?.id === emp.account.id ? (
+                            <span className="ml-2 text-xs font-medium text-[#4F86F7]">You</span>
+                          ) : null}
+                        </p>
+                        <p className="truncate text-sm text-slate-400">
+                          {emp.gmail || "—"}
+                          {isAdmin && emp.account?.Username ? (
+                            <span className="text-slate-300"> · @{emp.account.Username}</span>
+                          ) : null}
+                        </p>
                       </div>
                     </div>
-                  </div>
 
-                  {card.growth && (
-                    <span className="rounded-full bg-green-50 px-3 py-1 text-xs text-green-600">
-                      {card.growth}
-                    </span>
-                  )}
-                </article>
-              );
-            })}
-          </section>
+                    <div className="min-w-0">
+                      <p className="text-xs text-slate-400">Phone</p>
+                      <p className="truncate text-sm font-medium text-slate-800 dark:text-foreground">
+                        {formatEmployeeTelForDisplay(emp.tel) || "—"}
+                      </p>
+                    </div>
 
-          {/* ================= Table Card ================= */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-border bg-card p-4 shadow-sm shadow-slate-900/[0.04] sm:p-5">
-            {/* Header */}
-            <div className="mb-4 flex min-w-0 flex-col gap-3 sm:mb-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-              <div className="min-w-0 shrink-0">
-                <h2 className="truncate text-base font-semibold text-foreground sm:text-lg">
-                  All Employees
-                </h2>
-                <p className="text-xs text-indigo-500 sm:text-sm">
-                  Active Members
-                </p>
-              </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-slate-400">Position</p>
+                      <p className="truncate text-sm font-medium text-slate-800 dark:text-foreground">
+                        {emp.positionType || "—"}
+                      </p>
+                    </div>
 
-              <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:max-w-none sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-                <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full bg-muted px-3 text-sm text-muted-foreground sm:min-w-[220px] sm:flex-1 sm:max-w-md lg:max-w-lg">
-                  <Search size={18} className="shrink-0 text-muted-foreground" />
-                  <input
-                    value={searchTerm}
-                    onChange={(e) => {
-                      setSearchTerm(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    placeholder="Search name, email, phone…"
-                    className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { setAddModalOpen(true); setAddModalTab("form"); setImportFile(null); setImportRows([]); setAddFormErrors({ name: "", gmail: "", tel: "" }); }}
-                  className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-full bg-indigo-500 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-600 sm:justify-start"
-                >
-                  <UserPlus size={18} />
-                  Add Employee
-                </button>
-              </div>
-            </div>
-
-            {/* Table */}
-            <div className="max-h-[min(70vh,calc(100vh-15rem))] min-h-[min(50vh,28rem)] min-w-0 flex-1 overflow-x-auto overflow-y-auto rounded-lg border border-border sm:max-h-[min(75vh,calc(100vh-13rem))]">
-              {fetchError && (
-                <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-                  {fetchError}
-                </div>
-              )}
-              {loading ? (
-                <InlineCatLoader label="Loading..." className="py-16" />
-              ) : (
-                <table className="min-w-[720px] w-full text-sm">
-                  <thead className="sticky top-0 z-[1] bg-muted text-xs uppercase text-muted-foreground shadow-sm">
-                    <tr>
-                      <th className="w-12 px-3 py-2.5 text-center">Picture</th>
-                      <th className="min-w-[140px] px-3 py-2.5 text-left">Name</th>
-                      <th className="min-w-[180px] px-3 py-2.5 text-left">Email</th>
-                      <th className="w-28 px-3 py-2.5 text-left">Phone</th>
-                      <th className="w-32 px-3 py-2.5 text-center">Type</th>
-                      <th className="w-36 px-3 py-2.5 text-center">Employment</th>
-                      <th className="w-16 px-3 py-2.5 text-center">Actions</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {paginatedEmployees.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                         No Employee found
-                        </td>
-                      </tr>
-                    ) : (
-                      paginatedEmployees.map((emp) => (
-                        <tr
-                          key={emp.id}
-                          className="border-b border-border last:border-0 hover:bg-muted/80"
+                    <div className="min-w-0">
+                      <p className="mb-1 text-xs text-slate-400">Employment</p>
+                      <div className="flex flex-nowrap items-center gap-2">
+                        <p className="truncate text-sm font-medium text-slate-800 dark:text-foreground">
+                          {emp.employmentType || "—"}
+                        </p>
+                        <span
+                          className={`inline-flex h-7 shrink-0 items-center rounded-full border px-2.5 text-[11px] font-medium ${
+                            emp.employmentType?.toLowerCase().includes("full")
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : emp.employmentType?.toLowerCase().includes("contract")
+                                ? "border-sky-200 bg-sky-50 text-sky-700"
+                                : "border-slate-200 bg-slate-50 text-slate-600"
+                          }`}
                         >
-                          <td className="px-3 py-2">
-                            <div className="mx-auto flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-muted">
-                              {emp.photo ? (
-                                <Image
-                                  src={employeePhotoSrc(emp.photo) ?? ''}
-                                  alt=""
-                                  width={36}
-                                  height={36}
-                                  unoptimized
-                                  className="h-full w-full object-cover"
-                                />
+                          {emp.positionType === "Management"
+                            ? "Management"
+                            : emp.positionType === "Engineer"
+                              ? "Engineer"
+                              : "Technical"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {isAdmin ? (
+                      <div className="min-w-0">
+                        <p className="mb-1 text-xs text-slate-400">Role</p>
+                        {emp.account ? (
+                          <div className="flex flex-nowrap items-center gap-2">
+                            <select
+                              value={emp.account.Role}
+                              disabled={
+                                savingAccountId === emp.account.id ||
+                                (currentUser?.id === emp.account.id && emp.account.Role === "ADMIN")
+                              }
+                              onChange={(e) =>
+                                requestRoleChange(emp, e.target.value as AppRole)
+                              }
+                              className="h-8 shrink-0 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold tracking-wide text-slate-800 outline-none disabled:opacity-50 dark:border-border dark:bg-card dark:text-foreground"
+                              aria-label={`Change role for ${emp.name}`}
+                            >
+                              <option value="USER">USER</option>
+                              <option value="ADMIN">ADMIN</option>
+                            </select>
+                            <span
+                              className={`inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium ${
+                                emp.account.Role === "ADMIN"
+                                  ? "border-[#c5d4f8] bg-[#eef3ff] text-[#4F86F7]"
+                                  : "border-slate-200 bg-slate-50 text-slate-600"
+                              }`}
+                            >
+                              {emp.account.Role === "ADMIN" ? (
+                                <>
+                                  <Shield className="h-3.5 w-3.5" strokeWidth={2} />
+                                  Admin
+                                </>
                               ) : (
-                                <UserRoundCog className="h-4 w-4 text-muted-foreground" />
+                                "User"
                               )}
-                            </div>
-                          </td>
-                          <td className="max-w-[220px] truncate px-3 py-2 font-medium text-foreground" title={emp.name}>
-                            {emp.name ?? '-'}
-                          </td>
-                          <td className="max-w-[240px] truncate px-3 py-2 text-muted-foreground" title={emp.gmail}>
-                            {emp.gmail || '-'}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">{formatEmployeeTelForDisplay(emp.tel) || '-'}</td>
-                          <td className="px-3 py-2 text-center">
-                            <span
-                              className={`inline-block max-w-full truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium ${getPositionTypeColor(
-                                emp.positionType
-                              )}`}
-                            >
-                              {emp.positionType}
                             </span>
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <span
-                              className={`inline-block max-w-full truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium ${getEmploymentTypeColor(
-                                emp.employmentType
-                              )}`}
-                            >
-                              {emp.employmentType}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-center">
+                          </div>
+                        ) : (
+                          <span className="inline-flex h-8 items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 text-[11px] font-medium text-amber-700">
+                            No account
+                          </span>
+                        )}
+                      </div>
+                    ) : null}
+
+                    <div className="absolute right-3 top-3 sm:static sm:justify-self-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMenuOpenId((id) => (id === emp.id ? null : emp.id))
+                        }
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 dark:hover:bg-muted"
+                        aria-label="Actions"
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                      {menuOpenId === emp.id ? (
+                        <>
+                          <button
+                            type="button"
+                            className="fixed inset-0 z-10 cursor-default"
+                            aria-label="Close menu"
+                            onClick={() => setMenuOpenId(null)}
+                          />
+                          <div className="absolute right-0 top-10 z-20 w-48 overflow-hidden rounded-xl border border-slate-100 bg-white py-1 shadow-lg dark:border-border dark:bg-card">
                             <button
                               type="button"
-                              onClick={() => openEditModal(emp)}
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-muted"
-                              title="Edit"
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-foreground dark:hover:bg-muted"
+                              onClick={() => {
+                                setMenuOpenId(null);
+                                openEditModal(emp);
+                              }}
                             >
-                              <Edit size={16} />
+                              <Edit size={14} />
+                              Edit
                             </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                            {isAdmin && !emp.account ? (
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-foreground dark:hover:bg-muted"
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  openCreateAccount(emp);
+                                }}
+                              >
+                                <UserPlus size={14} />
+                                Create login
+                              </button>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
 
             {/* Pagination */}
-            <div className="mt-3 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+            <div className="mt-4 flex shrink-0 items-center justify-end gap-3 text-sm text-slate-500">
               <span>
-                Showing {startIndex + 1}-
-                {Math.min(startIndex + ITEMS_PER_PAGE, totalItems)} of{" "}
-                {totalItems}
+                {totalItems === 0 ? "0-0" : `${startIndex + 1}-${Math.min(startIndex + ITEMS_PER_PAGE, totalItems)}`} of {totalItems}
               </span>
-
-              <div className="flex gap-1">
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                  (page) => (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`h-8 w-8 rounded-lg ${
-                        page === currentPage
-                          ? "bg-indigo-500 text-white"
-                          : "border bg-card"
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  )
-                )}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-[#4F86F7] transition hover:bg-white disabled:text-slate-300 disabled:hover:bg-transparent"
+                  aria-label="Previous page"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages || totalPages === 0}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-[#4F86F7] transition hover:bg-white disabled:text-slate-300 disabled:hover:bg-transparent"
+                  aria-label="Next page"
+                >
+                  <ChevronRight size={18} />
+                </button>
               </div>
             </div>
           </div>
@@ -907,7 +1124,13 @@ const EmployeeManagement = () => {
                       value={addForm.gmail}
                       onChange={(e) => {
                         const v = e.target.value;
-                        setAddForm((f) => ({ ...f, gmail: v }));
+                        setAddForm((f) => {
+                          const next = { ...f, gmail: v };
+                          if (!f.username.trim() && v.includes("@")) {
+                            next.username = v.split("@")[0] || "";
+                          }
+                          return next;
+                        });
                         setAddFormErrors((prev) => ({ ...prev, gmail: validateEmpGmail(v) }));
                       }}
                       onBlur={() => setAddFormErrors((prev) => ({ ...prev, gmail: validateEmpGmail(addForm.gmail) }))}
@@ -1009,6 +1232,127 @@ const EmployeeManagement = () => {
                       <option value="Part-Time">Part-Time</option>
                     </select>
                   </div>
+
+                  <div className="rounded-xl border border-border bg-muted/40 p-3 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Login account (required)
+                    </p>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-muted-foreground">Username</label>
+                      <input
+                        type="text"
+                        required
+                        autoComplete="off"
+                        value={addForm.username}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setAddForm((f) => ({ ...f, username: v }));
+                          setAddFormErrors((prev) => ({
+                            ...prev,
+                            username: v.trim() ? "" : "Username is required for login.",
+                          }));
+                        }}
+                        placeholder="Login username"
+                        className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 text-sm outline-none focus:border-indigo-500 box-border ${addFormErrors.username ? "border-red-400 bg-red-50/50" : "border-border bg-card"}`}
+                      />
+                      {addFormErrors.username && (
+                        <p className="mt-1 text-sm text-red-500">{addFormErrors.username}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-muted-foreground">Password</label>
+                      <div className="relative">
+                        <input
+                          type={addShowPassword ? "text" : "password"}
+                          required
+                          minLength={6}
+                          autoComplete="new-password"
+                          value={addForm.password}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setAddForm((f) => ({ ...f, password: v }));
+                            setAddFormErrors((prev) => ({
+                              ...prev,
+                              password: !v
+                                ? "Password is required for login."
+                                : v.length < 6
+                                  ? "Password must be at least 6 characters."
+                                  : "",
+                            }));
+                          }}
+                          placeholder="At least 6 characters"
+                          className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 pr-10 text-sm outline-none focus:border-indigo-500 box-border ${addFormErrors.password ? "border-red-400 bg-red-50/50" : "border-border bg-card"}`}
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setAddShowPassword((v) => !v)}
+                          aria-label={addShowPassword ? "Hide password" : "Show password"}
+                        >
+                          {addShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      {addFormErrors.password && (
+                        <p className="mt-1 text-sm text-red-500">{addFormErrors.password}</p>
+                      )}
+                    </div>
+                    {isAdmin ? (
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-muted-foreground">Role</label>
+                        <select
+                          value={addForm.role}
+                          onChange={(e) =>
+                            setAddForm((f) => ({
+                              ...f,
+                              role: e.target.value as "USER" | "ADMIN",
+                              adminPassword: e.target.value === "ADMIN" ? f.adminPassword : "",
+                            }))
+                          }
+                          className="w-full rounded-xl border-2 border-border bg-card px-4 py-2.5 text-sm outline-none focus:border-indigo-500"
+                        >
+                          <option value="USER">USER — standard access</option>
+                          <option value="ADMIN">ADMIN — full access</option>
+                        </select>
+                      </div>
+                    ) : null}
+                    {isAdmin && addForm.role === "ADMIN" ? (
+                      <div>
+                        <label className="mb-1 block text-sm font-medium text-muted-foreground">
+                          Your password <span className="font-normal">(confirm ADMIN)</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={addShowAdminPassword ? "text" : "password"}
+                            required
+                            autoComplete="current-password"
+                            value={addForm.adminPassword}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setAddForm((f) => ({ ...f, adminPassword: v }));
+                              setAddFormErrors((prev) => ({
+                                ...prev,
+                                adminPassword: v.trim() ? "" : "Enter your password to grant ADMIN role.",
+                              }));
+                            }}
+                            placeholder="Enter your password"
+                            className={`w-full max-w-full rounded-xl border-2 px-4 py-2.5 pr-10 text-sm outline-none focus:border-indigo-500 box-border ${addFormErrors.adminPassword ? "border-red-400 bg-red-50/50" : "border-border bg-card"}`}
+                          />
+                          <button
+                            type="button"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            onClick={() => setAddShowAdminPassword((v) => !v)}
+                            aria-label={addShowAdminPassword ? "Hide password" : "Show password"}
+                          >
+                            {addShowAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        {addFormErrors.adminPassword && (
+                          <p className="mt-1 text-sm text-red-500">{addFormErrors.adminPassword}</p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+
                   <div className="flex justify-end gap-2 pt-2">
                     <button
                       type="button"
@@ -1367,6 +1711,213 @@ const EmployeeManagement = () => {
       </div>
       {alertModal}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      {roleConfirm && isAdmin ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close"
+            onClick={() => !roleConfirmSaving && setRoleConfirm(null)}
+          />
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+            <div className="flex items-start justify-between border-b border-border px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Confirm role change</h3>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Change &quot;{roleConfirm.emp.name}&quot; from {roleConfirm.account.Role} to{" "}
+                  {roleConfirm.newRole}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !roleConfirmSaving && setRoleConfirm(null)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => void confirmRoleChange(e)} className="space-y-4 px-6 py-5">
+              <p className="text-sm text-muted-foreground">
+                Enter your password to confirm this role change.
+              </p>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">Your password</label>
+                <div className="relative">
+                  <input
+                    type={roleConfirmShowPassword ? "text" : "password"}
+                    required
+                    autoComplete="current-password"
+                    value={roleConfirmPassword}
+                    onChange={(e) => setRoleConfirmPassword(e.target.value)}
+                    className="w-full rounded-xl border border-input bg-background px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    placeholder="Enter your password"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    onClick={() => setRoleConfirmShowPassword((v) => !v)}
+                    aria-label={roleConfirmShowPassword ? "Hide password" : "Show password"}
+                  >
+                    {roleConfirmShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-border pt-4">
+                <button
+                  type="button"
+                  disabled={roleConfirmSaving}
+                  onClick={() => setRoleConfirm(null)}
+                  className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={roleConfirmSaving}
+                  className="rounded-xl bg-[#4F86F7] px-4 py-2 text-sm font-medium text-white hover:bg-[#3f76e8] disabled:opacity-60"
+                >
+                  {roleConfirmSaving ? "Confirming…" : "Confirm change"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {createAccountFor && isAdmin ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/40"
+            aria-label="Close"
+            onClick={() => !createAccountSaving && setCreateAccountFor(null)}
+          />
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+            <div className="flex items-start justify-between border-b border-border px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Create login account</h3>
+                <p className="mt-0.5 text-sm text-muted-foreground">{createAccountFor.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !createAccountSaving && setCreateAccountFor(null)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => void handleCreateAccountSubmit(e)} className="space-y-4 px-6 py-5">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">Username</label>
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  value={createAccountForm.username}
+                  onChange={(e) =>
+                    setCreateAccountForm((f) => ({ ...f, username: e.target.value }))
+                  }
+                  className="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">Password</label>
+                <div className="relative">
+                  <input
+                    type={createAccountShowPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    autoComplete="new-password"
+                    value={createAccountForm.password}
+                    onChange={(e) =>
+                      setCreateAccountForm((f) => ({ ...f, password: e.target.value }))
+                    }
+                    className="w-full rounded-xl border border-input bg-background px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    placeholder="At least 6 characters"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    onClick={() => setCreateAccountShowPassword((v) => !v)}
+                    aria-label={createAccountShowPassword ? "Hide password" : "Show password"}
+                  >
+                    {createAccountShowPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-foreground">Role</label>
+                <select
+                  value={createAccountForm.role}
+                  onChange={(e) =>
+                    setCreateAccountForm((f) => ({
+                      ...f,
+                      role: e.target.value as AppRole,
+                      adminPassword: e.target.value === "ADMIN" ? f.adminPassword : "",
+                    }))
+                  }
+                  className="w-full rounded-xl border border-input bg-background px-4 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="USER">USER</option>
+                  <option value="ADMIN">ADMIN</option>
+                </select>
+              </div>
+              {createAccountForm.role === "ADMIN" ? (
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-foreground">
+                    Your password <span className="font-normal text-muted-foreground">(confirm ADMIN)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={createAccountShowAdminPassword ? "text" : "password"}
+                      required
+                      autoComplete="current-password"
+                      value={createAccountForm.adminPassword}
+                      onChange={(e) =>
+                        setCreateAccountForm((f) => ({ ...f, adminPassword: e.target.value }))
+                      }
+                      className="w-full rounded-xl border border-input bg-background px-4 py-2.5 pr-10 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      onClick={() => setCreateAccountShowAdminPassword((v) => !v)}
+                      aria-label={createAccountShowAdminPassword ? "Hide password" : "Show password"}
+                    >
+                      {createAccountShowAdminPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex justify-end gap-2 border-t border-border pt-4">
+                <button
+                  type="button"
+                  disabled={createAccountSaving}
+                  onClick={() => setCreateAccountFor(null)}
+                  className="rounded-xl border border-border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createAccountSaving}
+                  className="rounded-xl bg-[#4F86F7] px-4 py-2 text-sm font-medium text-white hover:bg-[#3f76e8] disabled:opacity-60"
+                >
+                  {createAccountSaving ? "Creating…" : "Create account"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </SidebarLayout>
   );
 };

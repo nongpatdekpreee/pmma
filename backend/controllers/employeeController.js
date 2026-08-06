@@ -1,4 +1,10 @@
 const db = require('../config/database');
+const { normalizeRole } = require('../utils/roleUtils');
+const {
+  ensureAuthLinkReady,
+  createAndLinkLoginAccount,
+  unlinkAndDeleteLoginIfAny,
+} = require('../lib/employeeAuthLink');
 
 const normalizePositionType = (rawType) => {
   const type = String(rawType || '').trim().toLowerCase();
@@ -40,9 +46,10 @@ const generateNextUserId = async () => {
   }
 };
 
-// GET - ดึงข้อมูล Employees ทั้งหมด
+// GET - ดึงข้อมูล Employees ทั้งหมด (+ บัญชี Login ที่เชื่อม ถ้ามี)
 const getEmployees = async (req, res) => {
   try {
+    await ensureAuthLinkReady();
     // ดึง query parameters
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 1000;
@@ -56,31 +63,40 @@ const getEmployees = async (req, res) => {
     if (search) {
       const searchPattern = `%${search}%`;
       searchCondition = `WHERE (
-        user_id LIKE ? OR 
-        name LIKE ? OR 
-        gmail LIKE ? OR 
-        phone LIKE ?
+        p.user_id LIKE ? OR 
+        p.name LIKE ? OR 
+        p.gmail LIKE ? OR 
+        p.phone LIKE ? OR
+        u.Username LIKE ?
       )`;
-      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern];
+      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
     }
 
     // นับจำนวน records ทั้งหมด
-    const countSql = `SELECT COUNT(*) as total FROM user_profiles ${searchCondition}`;
+    const countSql = `
+      SELECT COUNT(*) as total
+      FROM user_profiles p
+      LEFT JOIN user u ON u.User_id = p.auth_user_id
+      ${searchCondition}`;
     const [countResult] = await db.execute(countSql, searchParams);
     const totalRecords = countResult[0].total;
 
     // ดึงข้อมูลตาม pagination (ไม่ส่ง profile_id ออก เรียงตาม user_id เป็นตัวเลข)
     const sql = `SELECT 
-      user_id,
-      name,
-      phone,
-      gmail,
-      type,
-      employment,
-      em_picture
-    FROM user_profiles 
+      p.user_id,
+      p.name,
+      p.phone,
+      p.gmail,
+      p.type,
+      p.employment,
+      p.em_picture,
+      p.auth_user_id,
+      u.Username,
+      u.Role
+    FROM user_profiles p
+    LEFT JOIN user u ON u.User_id = p.auth_user_id
     ${searchCondition}
-    ORDER BY CAST(user_id AS UNSIGNED) ASC 
+    ORDER BY CAST(p.user_id AS UNSIGNED) ASC 
     LIMIT ? OFFSET ?`;
 
     const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
@@ -95,6 +111,13 @@ const getEmployees = async (req, res) => {
       positionType: row.type || 'Technical',
       employmentType: row.employment || 'Full-Time',
       photo: row.em_picture || null,
+      account: row.auth_user_id
+        ? {
+            id: Number(row.auth_user_id),
+            Username: row.Username || '',
+            Role: normalizeRole(row.Role),
+          }
+        : null,
     }));
 
     console.log(`Mapped ${employees.length} employees for response`);
@@ -188,16 +211,43 @@ const uploadEmployeePhoto = (req, res) => {
   }
 };
 
-// POST - สร้าง Employee ใหม่
+// POST - สร้าง Employee ใหม่ (+ บัญชี Login ในครั้งเดียว)
 const createEmployee = async (req, res) => {
   try {
-    const { name, gmail, tel, positionType, employmentType, photo } = req.body;
+    await ensureAuthLinkReady();
+    const {
+      name,
+      gmail,
+      tel,
+      positionType,
+      employmentType,
+      photo,
+      Username,
+      Password,
+      Role,
+      adminPassword,
+    } = req.body;
 
     // ตรวจสอบข้อมูลที่จำเป็น
     if (!name || !gmail || !tel) {
       return res.status(400).json({
         success: false,
         message: 'Please provide complete data (name, Gmail or email, phone)',
+      });
+    }
+
+    const username = String(Username ?? '').trim();
+    const password = String(Password ?? '');
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username and Password are required so the employee can log in',
+      });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters',
       });
     }
 
@@ -246,6 +296,24 @@ const createEmployee = async (req, res) => {
       photo || defaultAvatar,
     ]);
 
+    const linkResult = await createAndLinkLoginAccount({
+      employeeId: newUserId,
+      Username: username,
+      Password: password,
+      Role,
+      adminPassword,
+      actorUserId: req.user?.id,
+      actorRole: req.user?.Role,
+    });
+
+    if (!linkResult.ok) {
+      await db.execute('DELETE FROM user_profiles WHERE user_id = ?', [newUserId]);
+      return res.status(linkResult.status).json({
+        success: false,
+        message: linkResult.message,
+      });
+    }
+
     // ดึงข้อมูล employee ที่สร้างใหม่
     const getSql = `SELECT 
       user_id,
@@ -269,11 +337,12 @@ const createEmployee = async (req, res) => {
       positionType: row.type || 'Technical',
       employmentType: row.employment || 'Full-Time',
       photo: row.em_picture || null,
+      account: linkResult.account,
     };
 
     res.status(201).json({
       success: true,
-      message: 'Employee created successfully',
+      message: 'Employee and login account created successfully',
       data: employee,
     });
   } catch (error) {
@@ -429,10 +498,16 @@ const updateEmployee = async (req, res) => {
   }
 };
 
-// DELETE - ลบ Employee ตาม ID
+// DELETE - ลบ Employee ตาม ID (+ บัญชี Login ที่เชื่อม ถ้ามี และไม่ใช่ตัวเอง)
 const deleteEmployee = async (req, res) => {
   try {
     const { id } = req.params;
+
+    try {
+      await unlinkAndDeleteLoginIfAny(id, { protectUserId: req.user?.id });
+    } catch (unlinkErr) {
+      console.warn('Unlink/delete login for employee skipped:', unlinkErr.message);
+    }
 
     const sql = `DELETE FROM user_profiles WHERE user_id = ?`;
     const [result] = await db.execute(sql, [id]);

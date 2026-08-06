@@ -159,6 +159,9 @@ function CalendarPageContent() {
   const [calendarViewMode, setCalendarViewMode] = useState<'calendar' | 'table'>('calendar');
   const TABLE_PAGE_SIZE = 15;
   const [tablePage, setTablePage] = useState(1);
+  /** วันที่ยืดดู task เกิน 2 รายการ (key = YYYY-M-D) */
+  const [expandedDayKeys, setExpandedDayKeys] = useState<Set<string>>(() => new Set());
+  const MAX_VISIBLE_DAY_PILLS = 2;
   const deepLinkOpenedForRef = useRef<string | null>(null);
 
   const deepLinkTaskId = useMemo(() => {
@@ -648,11 +651,25 @@ function CalendarPageContent() {
   
   // Navigation functions
   const goToPreviousMonth = () => {
+    setExpandedDayKeys(new Set());
     setCurrentDate(new Date(currentYear, currentMonth - 1, 1));
   };
   
   const goToNextMonth = () => {
+    setExpandedDayKeys(new Set());
     setCurrentDate(new Date(currentYear, currentMonth + 1, 1));
+  };
+
+  const dayExpandKey = (day: number) => `${currentYear}-${currentMonth}-${day}`;
+
+  const toggleDayExpanded = (day: number) => {
+    const key = dayExpandKey(day);
+    setExpandedDayKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   // Format date for display (YYYY-MM-DD format, no time) — ใช้ local date เพื่อไม่ให้ timezone เลื่อนวัน
@@ -1467,7 +1484,16 @@ function CalendarPageContent() {
                 const hasMultiDayBarAbove = spansCoveringThisDay.length > 0;
                 const multiDayRowsThisDay = hasMultiDayBarAbove ? Math.max(...spansCoveringThisDay.map(s => s.row)) + 1 : 0;
                 const holidayForDay = getHolidayForDay(day);
-                const nPills = singleDayEventsOnly.length;
+                const dayKey = day === null ? '' : dayExpandKey(day);
+                const isDayExpanded = day !== null && expandedDayKeys.has(dayKey);
+                const hiddenPillCount = Math.max(0, singleDayEventsOnly.length - MAX_VISIBLE_DAY_PILLS);
+                const visibleSingleDayEvents =
+                  isDayExpanded || hiddenPillCount === 0
+                    ? singleDayEventsOnly
+                    : singleDayEventsOnly.slice(0, MAX_VISIBLE_DAY_PILLS);
+                const showMoreLink = !isDayExpanded && hiddenPillCount > 0;
+                const showLessLink = isDayExpanded && hiddenPillCount > 0;
+                const nPills = visibleSingleDayEvents.length + (showMoreLink || showLessLink ? 1 : 0);
                 const nPillsForHeight = day === null ? 0 : Math.max(nPills, MIN_VISIBLE_PILL_ROWS);
                 const pillsStackPx = nPillsForHeight * PILL_ROW_PX;
                 const headerPx = DAY_HEADER_PX + (holidayForDay ? HOLIDAY_EXTRA_PX : 0);
@@ -1496,7 +1522,11 @@ function CalendarPageContent() {
                 }
                 return {
                   cellMinH,
-                  singleDayEventsOnly,
+                  singleDayEventsOnly: visibleSingleDayEvents,
+                  hiddenPillCount,
+                  showMoreLink,
+                  showLessLink,
+                  isDayExpanded,
                   hasMultiDayBarAbove,
                   multiDayRowsThisDay,
                   holidayForDay,
@@ -1519,6 +1549,9 @@ function CalendarPageContent() {
                     const {
                       cellMinH,
                       singleDayEventsOnly,
+                      hiddenPillCount,
+                      showMoreLink,
+                      showLessLink,
                       hasMultiDayBarAbove,
                       multiDayRowsThisDay,
                       holidayForDay,
@@ -1667,6 +1700,30 @@ function CalendarPageContent() {
                                   </div>
                                 );
                               })}
+                              {showMoreLink && day !== null && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleDayExpanded(day);
+                                  }}
+                                  className={`mt-1 w-full shrink-0 rounded-none px-1.5 py-0.5 text-left text-[10px] font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900 ${hasMultiDayBarAbove && singleDayEventsOnly.length === 0 ? 'mt-0' : ''}`}
+                                >
+                                  +{hiddenPillCount} more
+                                </button>
+                              )}
+                              {showLessLink && day !== null && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleDayExpanded(day);
+                                  }}
+                                  className="mt-1 w-full shrink-0 rounded-none px-1.5 py-0.5 text-left text-[10px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                >
+                                  Show less
+                                </button>
+                              )}
                             </div>
                           </>
                         )}

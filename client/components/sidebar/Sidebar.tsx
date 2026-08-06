@@ -19,7 +19,6 @@ import {
   FileText,
   X,
   AlertTriangle,
-  UserCog,
 } from 'lucide-react';
 import { useSidebar } from './SidebarContext';
 import { LucideIcon } from 'lucide-react';
@@ -40,7 +39,6 @@ const baseMenuItems: MenuItem[] = [
 
 const adminMenuItems: MenuItem[] = [
   { icon: CalendarCog, label: 'Schedule Management', href: '/schedule_management' },
-  { icon: UserCog, label: 'User Management', href: '/user-management' },
 ];
 
 export function Sidebar() {

@@ -160,23 +160,40 @@ const getContractsBySite = async (req, res) => {
   try {
     const siteId = req.query.site_id;
     const expandSites = req.query.expand === 'sites';
-    const { column: tsColumn } = await slc.resolveHistoryTimestamp(db);
+    const lite = String(req.query.lite ?? '') === '1' || String(req.query.lite ?? '').toLowerCase() === 'true';
+    const pageRaw = req.query.page != null && req.query.page !== '' ? Number(req.query.page) : null;
+    const limitRaw = req.query.limit != null && req.query.limit !== '' ? Number(req.query.limit) : null;
+    const usePaging =
+      Number.isInteger(pageRaw) &&
+      pageRaw >= 1 &&
+      Number.isInteger(limitRaw) &&
+      limitRaw >= 1 &&
+      limitRaw <= 500;
+
     const listSelect = await slc.buildSlListSelect(db);
-    let sql = `
-      SELECT ${listSelect},
+    let selectExtra = '';
+    if (lite) {
+      // ตัด correlated history subqueries — รายการขึ้นเร็ว; badge Renew โหลดรอบสองได้
+      selectExtra = `,
+        NULL AS history_status,
+        NULL AS renew_hist_old_sof,
+        NULL AS renew_hist_new_sof,
+        NULL AS renew_hist_at,
+        NULL AS hist_old_sofs`;
+    } else {
+      const { column: tsColumn } = await slc.resolveHistoryTimestamp(db);
+      selectExtra = `,
         ${slc.HISTORY_STATUS_SUBQUERY},
-        ${slc.buildRenewHistSubqueries(tsColumn)}
-      FROM sites_location sl
-      LEFT JOIN sites s ON sl.Sid = s.Sid
-      LEFT JOIN location l ON sl.lid = l.lid
-      WHERE sl.status <> 'not_renewing'
-    `;
+        ${slc.buildRenewHistSubqueries(tsColumn)}`;
+    }
+
+    let whereSql = ` WHERE sl.status <> 'not_renewing'`;
     const params = [];
 
     if (siteId) {
       const siteIdNum = parseInt(siteId, 10);
       if (!isNaN(siteIdNum)) {
-        sql += ` AND (
+        whereSql += ` AND (
           sl.SLid = ?
           OR sl.Sid = (SELECT sl0.Sid FROM sites_location sl0 WHERE sl0.SLid = ? LIMIT 1)
         )`;
@@ -184,12 +201,43 @@ const getContractsBySite = async (req, res) => {
       }
     }
 
-    sql += expandSites
+    const orderSql = expandSites
       ? ' ORDER BY sl.created_at DESC, sl.SLid DESC, s.Name ASC'
       : ' ORDER BY sl.created_at DESC, sl.SLid DESC';
 
-    const [rows] = await db.execute(sql, params);
-    return res.status(200).json({ success: true, data: rows });
+    const fromSql = `
+      FROM sites_location sl
+      LEFT JOIN sites s ON sl.Sid = s.Sid
+      LEFT JOIN location l ON sl.lid = l.lid
+      ${whereSql}`;
+
+    let total = null;
+    if (usePaging) {
+      const [countRows] = await db.execute(
+        `SELECT COUNT(*) AS total ${fromSql}`,
+        params
+      );
+      total = Number(countRows?.[0]?.total ?? 0);
+    }
+
+    let sql = `SELECT ${listSelect}${selectExtra} ${fromSql}${orderSql}`;
+    const queryParams = [...params];
+    if (usePaging) {
+      const offset = (pageRaw - 1) * limitRaw;
+      sql += ` LIMIT ${limitRaw} OFFSET ${offset}`;
+    }
+
+    const [rows] = await db.execute(sql, queryParams);
+    const payload = { success: true, data: rows };
+    if (usePaging) {
+      payload.pagination = {
+        page: pageRaw,
+        limit: limitRaw,
+        total,
+        totalPages: Math.max(1, Math.ceil((total || 0) / limitRaw)),
+      };
+    }
+    return res.status(200).json(payload);
   } catch (error) {
     console.error('Error getting contracts by site:', error);
     return res.status(500).json({

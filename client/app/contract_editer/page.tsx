@@ -255,9 +255,13 @@ function contractRowApiId(c: Contract): string {
   return c.linkedContractId ?? c.id;
 }
 
-/** รายการสัญญาแบบหนึ่งแถวต่อ (contract, site) */
-function contractsListApiUrl(siteIdFilter: string | null | undefined): string {
+/** รายการสัญญาแบบหนึ่งแถวต่อ (contract, site) — lite=1 ตัด history subquery ให้ขึ้นเร็ว */
+function contractsListApiUrl(
+  siteIdFilter: string | null | undefined,
+  options?: { lite?: boolean },
+): string {
   const params = new URLSearchParams({ expand: 'sites' });
+  if (options?.lite !== false) params.set('lite', '1');
   const sid = siteIdFilter != null ? String(siteIdFilter).trim() : '';
   if (sid) params.set('site_id', sid);
   return apiUrl(`/api/contracts?${params.toString()}`);
@@ -1226,7 +1230,8 @@ function ContractEditorPageContent() {
   };
 
   const fetchAndSetContracts = useCallback(async (cancelled: () => boolean) => {
-    const res = await apiFetch(contractsListApiUrl(siteIdFilter));
+    // รอบแรก: lite เร็ว → โชว์รายการทันที
+    const res = await apiFetch(contractsListApiUrl(siteIdFilter, { lite: true }));
     const json = await res.json();
     if (cancelled()) return false;
     if (!json.success || !Array.isArray(json.data)) {
@@ -1237,8 +1242,24 @@ function ContractEditorPageContent() {
     const list: Contract[] = json.data.map((c: Parameters<typeof mapApiRowToContract>[0]) =>
       mapApiRowToContract(c),
     );
-    const merged = await mergeTerminatedHistoryRows(list);
-    if (!cancelled()) setContracts(merged);
+    if (!cancelled()) setContracts(list);
+
+    // รอบสอง (background): enrich badge Renew + Terminated — ไม่บล็อกการเปิดหน้า
+    void (async () => {
+      try {
+        const fullRes = await apiFetch(contractsListApiUrl(siteIdFilter, { lite: false }));
+        const fullJson = await fullRes.json();
+        if (cancelled() || !fullJson.success || !Array.isArray(fullJson.data)) return;
+        const fullList: Contract[] = fullJson.data.map(
+          (c: Parameters<typeof mapApiRowToContract>[0]) => mapApiRowToContract(c),
+        );
+        const merged = await mergeTerminatedHistoryRows(fullList);
+        if (!cancelled()) setContracts(merged);
+      } catch (enrichErr) {
+        console.warn('Contract list enrich skipped:', enrichErr);
+      }
+    })();
+
     return true;
   }, [siteIdFilter]);
 
@@ -2969,35 +2990,29 @@ function ContractEditorPageContent() {
         ) : (
         <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[1080px] table-fixed">
               <thead>
                 <tr className="bg-muted border-b border-border">
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Site</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Location</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Province</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">SOF</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">
-  Start Date
-  <div className="text-xs text-muted-foreground mt-1">mm/dd/yyyy</div>
-</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">
-  End Date
-  <div className="text-xs text-muted-foreground mt-1">mm/dd/yyyy</div>
-</th>
-                  <th
-                    className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground whitespace-nowrap"
-
-                  >
+                  <th className="w-[18%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Site</th>
+                  <th className="w-[20%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Location</th>
+                  <th className="w-[10%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Province</th>
+                  <th className="w-[11%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">SOF</th>
+                  <th className="w-[9%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground whitespace-nowrap">
+                    Start Date
+                    <div className="text-xs font-normal text-muted-foreground mt-1">mm/dd/yyyy</div>
+                  </th>
+                  <th className="w-[9%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground whitespace-nowrap">
+                    End Date
+                    <div className="text-xs font-normal text-muted-foreground mt-1">mm/dd/yyyy</div>
+                  </th>
+                  <th className="w-[9%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground whitespace-nowrap">
                     Expiry Status
                   </th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Status</th>
-                  <th
-                    className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground min-w-[10rem]"
-                    title=""
-                  >
-                    
+                  <th className="w-[7%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Status</th>
+                  <th className="w-[8%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">
+                    Renew
                   </th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Actions</th>
+                  <th className="w-[11%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -3016,7 +3031,9 @@ function ContractEditorPageContent() {
                   >
                     <td className="py-4 px-4 text-sm font-medium text-foreground">
                       <div className="flex min-w-0 flex-col gap-1">
-                        <span>{contractListDisplaySiteName(contract)}</span>
+                        <span className="truncate" title={contractListDisplaySiteName(contract)}>
+                          {contractListDisplaySiteName(contract)}
+                        </span>
                         {contract.isSofGroupRow && (contract.sofGroupSize ?? 0) > 1 ? (
                           <span className="text-[11px] font-medium text-blue-700">
                             {contract.sofGroupSize} locations · same SOF
@@ -3025,10 +3042,20 @@ function ContractEditorPageContent() {
                       </div>
                     </td>
                     <td className="py-4 px-4 text-sm text-muted-foreground">
-                      {contractListDisplaySiteLocation(contract)}
+                      <span
+                        className="block truncate"
+                        title={contractListDisplaySiteLocation(contract)}
+                      >
+                        {contractListDisplaySiteLocation(contract)}
+                      </span>
                     </td>
                     <td className="py-4 px-4 text-sm text-muted-foreground">
-                      {contractListDisplaySiteProvince(contract)}
+                      <span
+                        className="block truncate"
+                        title={contractListDisplaySiteProvince(contract)}
+                      >
+                        {contractListDisplaySiteProvince(contract)}
+                      </span>
                     </td>
                     <td className="py-4 px-4 text-sm text-muted-foreground whitespace-nowrap">
                       {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
@@ -3057,20 +3084,20 @@ function ContractEditorPageContent() {
                         {getStatusText(statusBadgeKey)}
                       </span>
                     </td>
-                    <td className="py-4 px-4 align-top min-w-[10rem] max-w-[18rem]">
+                    <td className="py-4 px-4 align-top">
                       {renewCol ? (
                         <div
                           className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-snug text-muted-foreground"
                           title={[renewCol.sof, renewCol.dateLine].filter(Boolean).join('\n')}
                         >
-                          {renewCol.sof ? <span className="break-words">{renewCol.sof}</span> : null}
-                          {renewCol.dateLine ? <span className="break-words">{renewCol.dateLine}</span> : null}
+                          {renewCol.sof ? <span className="truncate">{renewCol.sof}</span> : null}
+                          {renewCol.dateLine ? <span className="truncate">{renewCol.dateLine}</span> : null}
                         </div>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="min-w-[11rem] py-4 px-4">
+                    <td className="py-4 px-4">
                       <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
                         <div className="flex items-center gap-1.5">
                           <button

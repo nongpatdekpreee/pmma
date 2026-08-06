@@ -1012,37 +1012,23 @@ function AddContractPageContent() {
   // โหลดข้อมูลสัญญาเพื่อแก้ไขเมื่อมี editContractId
   useEffect(() => {
     if (!editContractId) return;
-    
+
     const loadContractForEdit = async () => {
       setDataLoading(true);
       setFetchError('');
       try {
-        // โหลด referSOFList ก่อน
-        const referSOFRes = await apiFetch(apiUrl('/api/devices/refer-sof'));
-        const referSOFJson = await referSOFRes.json();
-        if (referSOFRes.ok && referSOFJson.data) {
-          setReferSOFList(referSOFJson.data);
-        }
-
-        // โหลด sitesLocation ก่อน (ใช้ตัวแปร local — อย่าใส่ sitesLocation ใน deps ของ effect นี้)
-        let currentSites: SiteLocation[] = [];
-        const sitesRes = await apiFetch(apiUrl('/api/sites/locations'));
-        const sitesJson = await sitesRes.json();
-        if (sitesRes.ok && sitesJson.data) {
-          currentSites = sitesJson.data as SiteLocation[];
-          setSitesLocation(currentSites);
-        }
-
-        const contractRes = await apiFetch(apiUrl(`/api/contracts/${editContractId}?include_history=0`));
+        // ไม่โหลด /sites/locations ทั้งก้อน และไม่ดึง refer-sof ซ้ำ (มี effect แยกแล้ว)
+        const contractRes = await apiFetch(
+          apiUrl(`/api/contracts/${editContractId}?include_history=0`),
+        );
         const contractJson = await contractRes.json();
-        
+
         if (!contractRes.ok || !contractJson.data) {
           throw new Error(contractJson.message || 'Load contract failed');
         }
 
         const contract = contractJson.data;
-        
-        // เติมข้อมูลลง form
+
         if (contract.contract_name) setContractName(contract.contract_name);
         if (contract.sof_name) {
           const sof = String(contract.sof_name).trim();
@@ -1062,35 +1048,47 @@ function AddContractPageContent() {
         if (contract.remark) setRemark(contract.remark);
         if (contract.start_date) setStartDate(String(contract.start_date).split('T')[0]);
         if (contract.end_date) setEndDate(String(contract.end_date).split('T')[0]);
-        if (contract.contract_sign_date) setContractSignDate(String(contract.contract_sign_date).split('T')[0]);
+        if (contract.contract_sign_date) {
+          setContractSignDate(String(contract.contract_sign_date).split('T')[0]);
+        }
         if (contract.pm_time_per_year) setPmTimePerYear(String(contract.pm_time_per_year));
-        
-        // คำนวณ duration
+
         if (contract.start_date && contract.end_date) {
           const start = new Date(contract.start_date);
           const end = new Date(contract.end_date);
-          const monthsDiff = (end.getFullYear() - start.getFullYear()) * 12 + 
-                             (end.getMonth() - start.getMonth());
+          const monthsDiff =
+            (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
           if (monthsDiff > 0) {
             setDuration(String(monthsDiff));
           }
         }
 
-        // โหลด file paths
         if (contract.file_paths) {
           try {
-            const files = typeof contract.file_paths === 'string' ? JSON.parse(contract.file_paths) : contract.file_paths;
+            const files =
+              typeof contract.file_paths === 'string'
+                ? JSON.parse(contract.file_paths)
+                : contract.file_paths;
             if (Array.isArray(files)) setFilePaths(files);
-          } catch {}
+          } catch {
+            /* ignore */
+          }
         }
         if (contract.image_paths) {
           try {
-            const images = typeof contract.image_paths === 'string' ? JSON.parse(contract.image_paths) : contract.image_paths;
+            const images =
+              typeof contract.image_paths === 'string'
+                ? JSON.parse(contract.image_paths)
+                : contract.image_paths;
             if (Array.isArray(images)) setImagePaths(images);
-          } catch {}
+          } catch {
+            /* ignore */
+          }
         }
 
-        // สร้าง site entries — ทุก sites_location ที่ใช้ SOF เดียวกัน (ไม่ใช่แค่ SLid ที่กด Edit)
+        // โชว์ฟอร์มพื้นฐานก่อน แล้วค่อยโหลด peer sites/devices
+        setDataLoading(false);
+
         const contractSof =
           contract.sof_name != null && String(contract.sof_name).trim() !== ''
             ? String(contract.sof_name).trim()
@@ -1121,6 +1119,22 @@ function AddContractPageContent() {
             : await fetchDevicesBySlids(slidsToLoad);
 
         const peerContacts = contactsMapFromPeerSites(peerSites);
+        const siteFromContract = (slid: number): SiteLocation => {
+          const fromPeers = peerSites.find((s) => s.SLid === slid);
+          if (fromPeers) return fromPeers;
+          const fromResp = (contract.sites as ContractSiteRow[] | undefined)?.find(
+            (s) => s.SLid === slid,
+          );
+          return {
+            SLid: slid,
+            Sid: 0,
+            lid: 0,
+            SiteName: fromResp?.SiteName || `Site ${slid}`,
+            Location2: fromResp?.Location2 || '',
+            Province: fromResp?.Province ?? '',
+          };
+        };
+
         if (peerSites.length > 0) {
           setSitesLocation(peerSites);
           const peerEntries = buildSiteEntriesFromPeerLocations(peerSites, allDevices);
@@ -1130,103 +1144,61 @@ function AddContractPageContent() {
           );
           setSiteEntries(attachContactsToSiteEntries(peerEntries, contacts));
         } else if (allDevices.length > 0 || slidsToLoad.length > 0) {
-          const fallbackPeerSites = slidsToLoad.map((slid) => {
-            const match = currentSites.find((s) => s.SLid === slid);
-            return (
-              match ?? {
-                SLid: slid,
-                Sid: 0,
-                lid: 0,
-                SiteName: `Site ${slid}`,
-                Location2: '',
-              }
-            );
-          });
+          const fallbackPeerSites = slidsToLoad.map((slid) => siteFromContract(slid));
+          setSitesLocation(fallbackPeerSites);
           const fallbackEntries = buildSiteEntriesFromPeerLocations(fallbackPeerSites, allDevices);
           const contacts = await loadSiteContactsBySlids(slidsToLoad, peerContacts);
           setSiteEntries(attachContactsToSiteEntries(fallbackEntries, contacts));
-        } else {
-          // ไม่มี SOF / ไม่มี peer — ใช้ข้อมูลจาก contract response เดิม
+        } else if (contract.sites && contract.sites.length > 0) {
           const devicesBySLid = new Map<number, DeviceItem[]>();
-          if (contract.devices && contract.devices.length > 0) {
-            contract.devices.forEach((device: DeviceItem) => {
+          if (Array.isArray(contract.devices)) {
+            for (const device of contract.devices as DeviceItem[]) {
               const slid = device.contract_SLid ?? device.SLid;
-              if (slid) {
-                if (!devicesBySLid.has(slid)) {
-                  devicesBySLid.set(slid, []);
-                }
-                devicesBySLid.get(slid)!.push(device);
-              }
-            });
+              if (!slid) continue;
+              if (!devicesBySLid.has(slid)) devicesBySLid.set(slid, []);
+              devicesBySLid.get(slid)!.push(device);
+            }
           }
-
-          if (contract.sites && contract.sites.length > 0) {
-            const newSiteEntries: SiteEntry[] = contract.sites.map((site: ContractSiteRow) => {
-              const slid = site.SLid;
-              const sl = currentSites.find((s) => s.SLid === slid);
-              const devices = devicesBySLid.get(slid) || [];
-              return createEmptySiteEntry({
-                selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
-                siteId: String(slid),
-                siteLabel: `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
-                province:
-                  provinceFromSiteLocation(sl) ||
-                  (site.Province != null ? String(site.Province).trim() : ''),
-                devices: devices.map((d) => ({
-                  id: String(d.Did),
-                  label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
-                  role: d.roleName || undefined,
-                  slid: d.contract_SLid ?? d.SLid ?? slid,
-                })),
-              });
+          const newSiteEntries: SiteEntry[] = (contract.sites as ContractSiteRow[]).map((site) => {
+            const slid = site.SLid;
+            const devices = devicesBySLid.get(slid) || [];
+            return createEmptySiteEntry({
+              siteId: String(slid),
+              siteLabel:
+                `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`,
+              province: site.Province != null ? String(site.Province).trim() : '',
+              devices: devices.map((d) => ({
+                id: String(d.Did),
+                label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
+                role: d.roleName || undefined,
+                slid: d.contract_SLid ?? d.SLid ?? slid,
+              })),
             });
-            const contacts = await loadSiteContactsBySlids(
-              newSiteEntries.map((e) => parseInt(e.siteId, 10)).filter((n) => !Number.isNaN(n)),
-            );
-            setSiteEntries(attachContactsToSiteEntries(newSiteEntries, contacts));
-          } else if (devicesBySLid.size > 0) {
-            const newSiteEntries: SiteEntry[] = [];
-            devicesBySLid.forEach((devices, slid) => {
-              const site =
-                currentSites.find((s) => s.SLid === slid) ||
-                contract.sites?.find((s: ContractSiteRow) => s.SLid === slid);
-              const siteLabel = site
-                ? `${site.SiteName || ''} – ${site.Location2 || ''}`.trim() || `Site ${slid}`
-                : `Site ${slid}`;
-              const sl = currentSites.find((s) => s.SLid === slid);
-              newSiteEntries.push(
-                createEmptySiteEntry({
-                  selectedSid: sl?.Sid != null ? String(sl.Sid) : undefined,
-                  siteId: String(slid),
-                  siteLabel,
-                  province:
-                    provinceFromSiteLocation(sl) ||
-                    (site && 'Province' in site && site.Province != null
-                      ? String(site.Province).trim()
-                      : ''),
-                  devices: devices.map((d) => ({
-                    id: String(d.Did),
-                    label: d.CI_Name || d.Asset_Number || `Device #${d.Did}`,
-                    role: d.roleName || undefined,
-                    slid: d.contract_SLid ?? d.SLid ?? slid,
-                  })),
-                }),
-              );
-            });
-            const contacts = await loadSiteContactsBySlids(
-              newSiteEntries.map((e) => parseInt(e.siteId, 10)).filter((n) => !Number.isNaN(n)),
-            );
-            setSiteEntries(attachContactsToSiteEntries(newSiteEntries, contacts));
+          });
+          setSitesLocation(
+            (contract.sites as ContractSiteRow[]).map((s) => ({
+              SLid: s.SLid,
+              Sid: 0,
+              lid: 0,
+              SiteName: s.SiteName || `Site ${s.SLid}`,
+              Location2: s.Location2 || '',
+              Province: s.Province ?? '',
+            })),
+          );
+          const contactRows = siteContactRowsFromDb(contract.contact);
+          const contacts = new Map<number, SiteContactRow[]>();
+          if (contactRows.length > 0 && Number.isFinite(editSlid)) {
+            contacts.set(editSlid, contactRows);
           }
+          setSiteEntries(attachContactsToSiteEntries(newSiteEntries, contacts));
         }
       } catch (e) {
         setFetchError(e instanceof Error ? e.message : 'Load contract data failed');
-      } finally {
         setDataLoading(false);
       }
     };
-    
-    loadContractForEdit();
+
+    void loadContractForEdit();
   }, [editContractId]);
 
   // โหลดข้อมูลสัญญาเก่าเมื่อมี renewContractId — ดึงทุก site/location/device ที่ใช้ SOF เดียวกัน

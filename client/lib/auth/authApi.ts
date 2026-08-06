@@ -5,7 +5,8 @@ import type {
   AuthLoginResponse,
   AuthMeResponse,
   AuthUser,
-  AuthUsersListResponse,
+  EmployeeAccountRow,
+  EmployeeAccountsListResponse,
 } from '@/lib/auth/types';
 
 const AUTH_FETCH_INIT: RequestInit = {
@@ -129,36 +130,110 @@ export async function fetchMe(): Promise<AuthUser | null> {
   return mapUser(body.data);
 }
 
-export async function fetchUsers(): Promise<
-  { ok: true; users: AuthUser[] } | { ok: false; error: string }
+export async function fetchEmployeeAccounts(): Promise<
+  { ok: true; rows: EmployeeAccountRow[] } | { ok: false; error: string }
 > {
   const token = (await import('@/lib/auth/tokenStore')).getAccessToken();
   if (!token) return { ok: false, error: 'Session expired. Please sign in again.' };
 
-  const res = await fetch(apiUrl('/api/auth/users'), {
+  const res = await fetch(apiUrl('/api/auth/employee-accounts'), {
     ...AUTH_FETCH_INIT,
     headers: {
       ...AUTH_FETCH_INIT.headers,
       Authorization: `Bearer ${token}`,
     },
   });
-  const body = await parseAuthJson<AuthUsersListResponse>(res);
+  const body = await parseAuthJson<EmployeeAccountsListResponse>(res);
   if (!res.ok || !body.success || !body.data) {
     return {
       ok: false,
-      error: ('message' in body && body.message) || 'Unable to load users.',
+      error: ('message' in body && body.message) || 'Unable to load employees.',
     };
   }
   return {
     ok: true,
-    users: body.data.map((u) =>
-      mapUser({
-        id: u.id ?? (u as { User_id?: number }).User_id ?? 0,
-        Username: u.Username,
-        Role: u.Role,
-      })
-    ),
+    rows: body.data.map((row) => ({
+      employeeId: String(row.employeeId),
+      name: row.name || '',
+      gmail: row.gmail || '',
+      tel: row.tel || '',
+      positionType: row.positionType || 'Technical',
+      employmentType: row.employmentType || 'Full-Time',
+      photo: row.photo ?? null,
+      account: row.account
+        ? mapUser({
+            id: row.account.id,
+            Username: row.account.Username,
+            Role: row.account.Role,
+          })
+        : null,
+    })),
   };
+}
+
+export async function createEmployeeLoginAccount(input: {
+  employeeId: string;
+  Username: string;
+  Password: string;
+  Role?: AuthUser['Role'];
+  adminPassword?: string;
+}): Promise<{ ok: true; row: { employeeId: string; account: AuthUser } } | { error: string }> {
+  const token = (await import('@/lib/auth/tokenStore')).getAccessToken();
+  if (!token) return { error: 'Session expired. Please sign in again.' };
+
+  const res = await fetch(apiUrl('/api/auth/employee-accounts'), {
+    ...AUTH_FETCH_INIT,
+    method: 'POST',
+    headers: {
+      ...AUTH_FETCH_INIT.headers,
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+  const body = await parseAuthJson<{
+    success: boolean;
+    message?: string;
+    data?: { employeeId: string; account: { id: number; Username: string; Role: string } };
+  }>(res);
+  if (!res.ok || !body.success || !body.data?.account) {
+    return { error: body.message || 'Unable to create account.' };
+  }
+  return {
+    ok: true,
+    row: {
+      employeeId: String(body.data.employeeId),
+      account: mapUser(body.data.account),
+    },
+  };
+}
+
+export async function linkEmployeeLoginAccount(
+  employeeId: string,
+  link: { authUserId?: number; Username?: string }
+): Promise<{ ok: true; account: AuthUser } | { error: string }> {
+  const token = (await import('@/lib/auth/tokenStore')).getAccessToken();
+  if (!token) return { error: 'Session expired. Please sign in again.' };
+
+  const res = await fetch(apiUrl(`/api/auth/employee-accounts/${encodeURIComponent(employeeId)}/link`), {
+    ...AUTH_FETCH_INIT,
+    method: 'PUT',
+    headers: {
+      ...AUTH_FETCH_INIT.headers,
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(link),
+  });
+  const body = await parseAuthJson<{
+    success: boolean;
+    message?: string;
+    data?: { account: { id: number; Username: string; Role: string } };
+  }>(res);
+  if (!res.ok || !body.success || !body.data?.account) {
+    return { error: body.message || 'Unable to link account.' };
+  }
+  return { ok: true, account: mapUser(body.data.account) };
 }
 
 export async function updateUserAccount(
@@ -224,35 +299,4 @@ export async function deleteUserAccount(
     return { error: body.message || 'Unable to delete user.' };
   }
   return { ok: true };
-}
-
-export async function adminCreateUser(
-  Username: string,
-  Password: string,
-  Role: AuthUser['Role'] = 'USER',
-  adminPassword?: string
-): Promise<{ ok: true; user: AuthUser } | { error: string }> {
-  const res = await fetch(apiUrl('/api/auth/register'), {
-    ...AUTH_FETCH_INIT,
-    method: 'POST',
-    headers: { ...AUTH_FETCH_INIT.headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ Username, Password }),
-  });
-  const body = await parseAuthJson<{
-    success: boolean;
-    message?: string;
-    data?: { id: number; Username: string; Role: string };
-  }>(res);
-  if (!res.ok || !body.success || !body.data?.id) {
-    return { error: body.message || 'Unable to create user.' };
-  }
-
-  let user = mapUser(body.data);
-  if (Role === 'ADMIN' && user.Role !== 'ADMIN') {
-    const updated = await updateUserAccount(user.id, { Role: 'ADMIN', adminPassword });
-    if ('error' in updated) return { error: updated.error };
-    if (updated.user) user = updated.user;
-    else user = { ...user, Role: 'ADMIN' };
-  }
-  return { ok: true, user };
 }

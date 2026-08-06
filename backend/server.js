@@ -83,6 +83,7 @@ app.use((req, res) => {
 const { startCronJobs } = require('./cron/scheduler');
 const { ensureRefreshTokensTable } = require('./scripts/runRefreshTokensMigration');
 const { ensureUserTable } = require('./scripts/runUserTableMigration');
+const { ensureEmployeeAuthLinkColumn } = require('./scripts/runEmployeeAuthLinkMigration');
 
 function requireJwtSecret() {
   const secret = process.env.JWT_SECRET;
@@ -95,6 +96,7 @@ async function startServer() {
   requireJwtSecret();
   await ensureUserTable();
   await ensureRefreshTokensTable();
+  await ensureEmployeeAuthLinkColumn();
   startCronJobs();
   app.listen(PORT, () => {
     console.log(`🚀 Server is running on port ${PORT}`);
