@@ -54,7 +54,7 @@ export async function loginRequest(
     if (msg === 'API route not found') {
       return {
         error:
-          'ไม่พบ API login — เปิดแอปที่ http://localhost (พอร์ต 80) หรือ rebuild frontend; login ต้องเป็น POST ไม่ใช่เปิด URL ใน browser',
+          'API login not found - please rebuild frontend; login must be POST, not open URL in browser',
       };
     }
     return { error: msg };
