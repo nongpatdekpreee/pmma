@@ -1226,8 +1226,15 @@ function AddContractPageContent() {
         if (oldSof) {
           setOldContractSOF(oldSof);
         }
-        if (contract.contract_name) {
-          setContractName(contract.contract_name);
+        // Renew: ค่าเริ่มต้น = Site - Location (ไม่ใช้ contract_name เก่า ที่มักเป็น contact legacy)
+        {
+          const siteName =
+            contract.site_name != null ? String(contract.site_name).trim() : '';
+          const loc =
+            contract.site_location != null ? String(contract.site_location).trim() : '';
+          const defaultName =
+            siteName && loc ? `${siteName} - ${loc}` : siteName || loc || '';
+          if (defaultName) setContractName(defaultName);
         }
         if (contract.Assigned_Service != null && String(contract.Assigned_Service).trim() !== '') {
           setAssignedService(String(contract.Assigned_Service).trim());

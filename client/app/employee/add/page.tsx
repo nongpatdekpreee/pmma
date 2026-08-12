@@ -3,7 +3,7 @@
 import React, { useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, UserPlus, Trash2 } from "lucide-react";
+import { ArrowLeft, UserPlus, Trash2, Eye, EyeOff } from "lucide-react";
 import DashboardHeader from "@/components/ui/Header";
 import { SidebarLayout } from "@/components/sidebar/SidebarLayout";
 import { createEmployee, uploadEmployeePhoto } from "@/lib/api";
@@ -27,9 +27,12 @@ import {
 } from "@/lib/employeePhoto";
 import { useToast, ToastContainer } from "@/components/ui/Toast";
 import { getErrorMessage } from "@/lib/unknownUtil";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import type { AppRole } from "@/lib/auth/types";
 
 const AddEmployeePage = () => {
   const router = useRouter();
+  const { isAdmin } = useAuth();
   const { toasts, removeToast, success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
@@ -40,7 +43,20 @@ const AddEmployeePage = () => {
   const [employmentType, setEmploymentType] = useState<string>("Full-Time");
   const [photo, setPhoto] = useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = useState(false);
-  const [errors, setErrors] = useState<{ name: string; gmail: string; tel: string }>({ name: "", gmail: "", tel: "" });
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState<AppRole>("USER");
+  const [adminPassword, setAdminPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showAdminPassword, setShowAdminPassword] = useState(false);
+  const [errors, setErrors] = useState<{
+    name: string;
+    gmail: string;
+    tel: string;
+    username: string;
+    password: string;
+    adminPassword: string;
+  }>({ name: "", gmail: "", tel: "", username: "", password: "", adminPassword: "" });
   const mainDigitsOverflowWarned = useRef(false);
   const extDigitsOverflowWarned = useRef(false);
 
@@ -63,8 +79,26 @@ const AddEmployeePage = () => {
     const nameErr = validateName(name);
     const gmailErr = validateGmail(gmail);
     const telErr = validateEmployeePhoneSubmit(tel, telExt);
-    setErrors({ name: nameErr, gmail: gmailErr, tel: telErr });
-    if (nameErr || gmailErr || telErr) return;
+    const usernameTrim = username.trim();
+    const usernameErr = !usernameTrim ? "Username is required for login." : "";
+    const passwordErr = !password
+      ? "Password is required for login."
+      : password.length < 6
+        ? "Password must be at least 6 characters."
+        : "";
+    const adminPasswordErr =
+      isAdmin && role === "ADMIN" && !adminPassword.trim()
+        ? "Enter your password to grant ADMIN role."
+        : "";
+    setErrors({
+      name: nameErr,
+      gmail: gmailErr,
+      tel: telErr,
+      username: usernameErr,
+      password: passwordErr,
+      adminPassword: adminPasswordErr,
+    });
+    if (nameErr || gmailErr || telErr || usernameErr || passwordErr || adminPasswordErr) return;
     const nameTrim = name.trim();
     const telForDb = formatTelLineForDb(tel, telExt);
     setSaving(true);
@@ -76,6 +110,10 @@ const AddEmployeePage = () => {
         positionType,
         employmentType,
         photo: photo || undefined,
+        Username: usernameTrim,
+        Password: password,
+        Role: isAdmin ? role : "USER",
+        adminPassword: isAdmin && role === "ADMIN" ? adminPassword : undefined,
       });
       if (res.success) {
         toastSuccess("Employee added successfully");
@@ -85,7 +123,7 @@ const AddEmployeePage = () => {
       }
     } catch (err) {
       console.error(err);
-      toastError("Error adding employee");
+      toastError(getErrorMessage(err) || "Error adding employee");
     } finally {
       setSaving(false);
     }
@@ -314,6 +352,125 @@ const AddEmployeePage = () => {
                 <option value="Contract">Contract</option>
                 <option value="Part-Time">Part-Time</option>
               </select>
+            </div>
+
+            <div className="rounded-xl border border-border bg-muted/40 p-4 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Login account (required)
+              </p>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
+                  Username <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoComplete="off"
+                  value={username}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setUsername(v);
+                    setErrors((prev) => ({
+                      ...prev,
+                      username: v.trim() ? "" : "Username is required for login.",
+                    }));
+                  }}
+                  placeholder="Login username"
+                  className={`w-full max-w-full rounded-xl border-2 px-4 py-3 text-sm outline-none focus:border-indigo-500 box-border ${errors.username ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
+                />
+                {errors.username && <p className="mt-1 text-sm text-red-500">{errors.username}</p>}
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
+                  Password <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setPassword(v);
+                      setErrors((prev) => ({
+                        ...prev,
+                        password: !v
+                          ? "Password is required for login."
+                          : v.length < 6
+                            ? "Password must be at least 6 characters."
+                            : "",
+                      }));
+                    }}
+                    placeholder="At least 6 characters"
+                    className={`w-full max-w-full rounded-xl border-2 px-4 py-3 pr-10 text-sm outline-none focus:border-indigo-500 box-border ${errors.password ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {errors.password && <p className="mt-1 text-sm text-red-500">{errors.password}</p>}
+              </div>
+              {isAdmin ? (
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-muted-foreground">Role</label>
+                  <select
+                    value={role}
+                    onChange={(e) => {
+                      const next = e.target.value as AppRole;
+                      setRole(next);
+                      if (next !== "ADMIN") {
+                        setAdminPassword("");
+                        setErrors((prev) => ({ ...prev, adminPassword: "" }));
+                      }
+                    }}
+                    className="w-full rounded-xl border-2 border-border bg-muted px-4 py-3 text-sm outline-none focus:border-indigo-500"
+                  >
+                    <option value="USER">USER</option>
+                    <option value="ADMIN">ADMIN</option>
+                  </select>
+                  {role === "ADMIN" && (
+                    <div className="mt-3">
+                      <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
+                        Confirm with your password <span className="text-red-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showAdminPassword ? "text" : "password"}
+                          value={adminPassword}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setAdminPassword(v);
+                            setErrors((prev) => ({
+                              ...prev,
+                              adminPassword: v.trim() ? "" : "Enter your password to grant ADMIN role.",
+                            }));
+                          }}
+                          placeholder="Your admin password"
+                          className={`w-full max-w-full rounded-xl border-2 px-4 py-3 pr-10 text-sm outline-none focus:border-indigo-500 box-border ${errors.adminPassword ? "border-red-400 bg-red-50/50" : "border-border bg-muted"}`}
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowAdminPassword((v) => !v)}
+                          aria-label={showAdminPassword ? "Hide password" : "Show password"}
+                        >
+                          {showAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                      {errors.adminPassword && (
+                        <p className="mt-1 text-sm text-red-500">{errors.adminPassword}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
