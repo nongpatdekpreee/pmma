@@ -10,7 +10,16 @@ export const BACKUP_SERIAL_ALIASES = [
   's/n',
 ];
 
-export const BACKUP_MODEL_ALIASES = ['model', 'device model', 'equipment name', 'asset', 'manufacturer'];
+export const BACKUP_MODEL_ALIASES = [
+  'model',
+  'model number',
+  'device model',
+  'product id',
+  'pid',
+  'equipment name',
+  'asset',
+  'manufacturer',
+];
 
 export const BACKUP_HOSTNAME_ALIASES = ['hostname', 'host name', 'host'];
 

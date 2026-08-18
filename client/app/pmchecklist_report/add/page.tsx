@@ -5,9 +5,9 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
-import { apiUrl, getTasks, getPmReportedTaskIds, type ApiTask, apiFetch} from '@/lib/api';
+import { apiUrl, getTasks, getPmReportedTaskIds, type ApiTask, apiFetch, fetchDeviceRecordsByIds } from '@/lib/api';
 import { apiTaskString } from '@/lib/apiTask';
-import { asRecord, readString } from '@/lib/unknownUtil';
+import { asRecord, readString, readNumber } from '@/lib/unknownUtil';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
 import { PmReportWizard, type PmReportWizardHandle, type PmSavePhase } from '@/components/pm-report-wizard/PmReportWizard';
 import { computePmNo, type PmTaskForRound } from '@/lib/pmWorkOrder';
@@ -69,9 +69,16 @@ function roleFromTaskAsset(raw: unknown): string {
 function mergePoolDeviceWithTaskAsset(poolDevice: Device, raw: unknown): Device {
   const a = asRecord(raw);
   const role = (poolDevice.roleName ?? poolDevice.role ?? roleFromTaskAsset(raw)).trim();
-  const model = (poolDevice.model ?? readString(a, 'model') ?? readString(a, 'type') ?? '').trim();
+  const serial = (
+    poolDevice.serial ||
+    readString(a, 'serial') ||
+    readString(a, 'serialNumber') ||
+    ''
+  ).trim();
+  const model = (poolDevice.model || readString(a, 'model') || '').trim();
   return {
     ...poolDevice,
+    serial: serial || poolDevice.serial,
     model: model || poolDevice.model,
     role: role || poolDevice.role,
     roleName: role || poolDevice.roleName,
@@ -87,7 +94,7 @@ function deviceFromTaskAssetSnapshot(raw: unknown, didNum: number): Device {
     CI_Name: readString(a, 'CI_Name') ?? readString(a, 'name') ?? '',
     Asset_Number: readString(a, 'Asset_Number') ?? readString(a, 'assetNumber') ?? '',
     serial: readString(a, 'serial') ?? readString(a, 'serialNumber') ?? '',
-    model: readString(a, 'model') ?? readString(a, 'type') ?? '',
+    model: readString(a, 'model') ?? '',
     role,
     roleName: role,
     Manufacturername: readString(a, 'Manufacturername'),
@@ -97,6 +104,29 @@ function deviceFromTaskAssetSnapshot(raw: unknown, didNum: number): Device {
     Vendor: readString(a, 'Vendor') ?? readString(a, 'vendor') ?? '',
     Refer_SOF: readString(a, 'Refer_SOF') ?? readString(a, 'refer_sof') ?? '',
     SLid: typeof a.SLid === 'number' ? a.SLid : undefined,
+  };
+}
+
+function deviceFromApiRow(row: Record<string, unknown>): Device | null {
+  const did = readNumber(row, 'Did');
+  if (did == null) return null;
+  const role = (readString(row, 'roleName') ?? readString(row, 'role') ?? '').trim();
+  return {
+    Did: did,
+    Asset_State: readString(row, 'Asset_State'),
+    CI_Name: readString(row, 'CI_Name') ?? '',
+    Asset_Number: readString(row, 'Asset_Number') ?? '',
+    serial: readString(row, 'serial') ?? '',
+    model: readString(row, 'model') ?? '',
+    role,
+    roleName: role,
+    Manufacturername: readString(row, 'manufacturername') ?? readString(row, 'Manufacturername'),
+    Sitename: readString(row, 'Sitename') ?? '',
+    Location2: readString(row, 'Location2') ?? '',
+    PR_No: readString(row, 'PR_No'),
+    Vendor: readString(row, 'Vendor'),
+    Refer_SOF: readString(row, 'Refer_SOF'),
+    SLid: readNumber(row, 'SLid'),
   };
 }
 
@@ -323,6 +353,40 @@ function AddPMReportPageContent() {
     };
     fetchDevices();
   }, []);
+
+  // Load serial/model for the selected task's devices (list API only returns newest 1000)
+  useEffect(() => {
+    if (selectedTaskId == null) return;
+    const task = availablePMTasks.find((t) => taskIdNum(t) === Number(selectedTaskId));
+    if (!task) return;
+
+    const ids = taskAssets(task).map(getDeviceIdFromAsset).filter(Boolean);
+    const replacementId = task.replacementDeviceId ?? task.replacement_device_id;
+    if (replacementId != null) ids.push(String(replacementId));
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    const load = async () => {
+      const recs = await fetchDeviceRecordsByIds(ids);
+      if (cancelled) return;
+      const extra = Object.values(recs)
+        .map((row) => deviceFromApiRow(row))
+        .filter((d): d is Device => d != null);
+      if (extra.length === 0) return;
+      setDevices((prev) => {
+        const byId = new Map(prev.map((d) => [String(d.Did), d]));
+        for (const d of extra) {
+          const existing = byId.get(String(d.Did));
+          byId.set(String(d.Did), existing ? { ...existing, ...d } : d);
+        }
+        return Array.from(byId.values());
+      });
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTaskId, availablePMTasks]);
 
   // Device ที่เลือกได้มาจาก Task (assets + replacement) — ใช้ snapshot ใน task ถ้าไม่พบในรายการ devices ที่โหลดมา
   const allowedDevices = useMemo(() => {

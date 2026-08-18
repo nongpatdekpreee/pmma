@@ -26,7 +26,7 @@ import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
-import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, syncContractsFromReferSof, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem, apiFetch} from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesBySite, syncContractsFromReferSof, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem, apiFetch} from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import { getErrorMessage, asRecord, readNumber, readString } from '@/lib/unknownUtil';
@@ -1842,79 +1842,26 @@ function ScheduleManagementContent() {
   };
 
   /* ===== Excel/CSV Import Functions ===== */
-  /** เทียบ Refer_SOF ในฐานข้อมูลกับ SOF ที่ import (รองรับเลขแบบมี/ไม่มี 0 นำหน้า, ช่องว่าง, คั่นตัวเลขใน DB) */
-  const importReferSofMatches = (referSofDb: unknown, importSof: string): boolean => {
-    const imp = String(importSof ?? '').replace(/\s+/g, '').trim();
-    if (!imp) return false;
-    const dbRaw =
-      referSofDb == null || referSofDb === ''
-        ? ''
-        : String(referSofDb).replace(/\s+/g, '').trim();
-    if (!dbRaw) return false;
-    const stripLeadZeros = (s: string) => (/^\d+$/.test(s) ? s.replace(/^0+/, '') || '0' : s);
-    // SOF ที่ import เป็นตัวเลขล้วน → เทียบกับ Refer_SOF ที่อาจมีช่องว่าง/ขีดคั่นใน DB
-    if (/^\d+$/.test(imp)) {
-      const dbDigits = dbRaw.replace(/\D/g, '');
-      if (dbDigits && /^\d+$/.test(dbDigits)) {
-        return stripLeadZeros(dbDigits) === stripLeadZeros(imp);
-      }
-    }
-    if (/^\d+$/.test(imp) || /^\d+$/.test(dbRaw)) {
-      return stripLeadZeros(dbRaw) === stripLeadZeros(imp);
-    }
-    return dbRaw.toLowerCase() === imp.toLowerCase();
-  };
-
-  // หลัง parse: มี SLid + SOF + สัญญาแล้ว — นับเครื่องให้ตรงหน้า contract / Add Plan
-  // 1) GET /api/contracts/:id/devices?site_id= (contract_device + SLid)
-  // 2) ถ้า 0 เครื่อง → ดึงทั้งสัญญาไม่กรอง site (เครื่องอาจผูก cd.SLid คนละ d.SLid)
-  // 3) fallback by-sof-and-site แล้วเทียบ Refer_SOF
+  // Import devices: เหมือน SQL
+  //   SELECT * FROM devices WHERE SLid = ? AND Asset_State = 'In Use'
+  // ไม่กรอง SOF / ไม่พึ่ง contract_device
   const fetchDevicesBySiteSOFLocation = async (
-    sofName: string, 
+    _sofName: string, 
     siteId: number | null, 
     _location: string | null,
-    contractId?: number | null
+    _contractId?: number | null
   ): Promise<{deviceIds: number[]; count: number; devices: ApiDeviceRow[]}> => {
-    if (!sofName || !siteId) {
+    if (!siteId) {
       return { deviceIds: [], count: 0, devices: [] };
     }
 
-    const doFetchByContractDevices = async (slid: number | null) => {
-      if (!contractId) return [];
-      const result = await getDevicesByContract(contractId, slid);
-      if (!result.success || !result.data) return [];
-      return result.data as ApiDeviceRow[];
-    };
-    const doFetchBySof = async (sof: string) => {
-      const res = await apiFetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sof)}&site_id=${siteId}`));
-      const json = await responseJsonSafe<{ success?: boolean; data?: unknown[] }>(res);
-      if (!json || !json.success || !json.data) return [];
-      return json.data as ApiDeviceRow[];
-    };
-
     try {
-      let devices: ApiDeviceRow[] = contractId ? await doFetchByContractDevices(siteId) : [];
-      if (devices.length === 0 && contractId) {
-        devices = await doFetchByContractDevices(null);
+      const result = await getDevicesBySite(siteId);
+      if (!result.success || !result.data) {
+        return { deviceIds: [], count: 0, devices: [] };
       }
 
-      if (devices.length === 0) {
-        devices = await doFetchBySof(sofName);
-        devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
-      }
-      if (devices.length === 0 && /^\d+$/.test(sofName)) {
-        const altSof = parseInt(sofName, 10).toString();
-        if (altSof !== sofName) {
-          devices = await doFetchBySof(altSof);
-          devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
-        }
-        if (devices.length === 0) {
-          devices = await doFetchBySof(sofName.padStart(4, '0'));
-          devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
-        }
-      }
-
-      devices = devices.filter(
+      const devices = (result.data as ApiDeviceRow[]).filter(
         (d) => String(d.Asset_State ?? '').trim().toLowerCase() === 'in use'
       );
 
@@ -1925,7 +1872,7 @@ function ScheduleManagementContent() {
         devices,
       };
     } catch (error) {
-      console.error(`Error fetching devices for SOF ${sofName}, Site ${siteId}:`, error);
+      console.error(`Error fetching devices for Site ${siteId}:`, error);
       return { deviceIds: [], count: 0, devices: [] };
     }
   };

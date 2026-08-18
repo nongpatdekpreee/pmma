@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 
 const SERIAL_HEADER_HINTS = ['serial', 'sn', 's/n'];
-const MODEL_HEADER_HINTS = ['model', 'devicemodel', 'product'];
+const MODEL_HEADER_HINTS = ['model', 'devicemodel', 'product', 'pid'];
 
 function normalizeKey(key: string): string {
   return key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -22,12 +22,33 @@ export function cellToString(val: unknown): string {
 export function pickField(row: Record<string, unknown>, aliases: string[]): string {
   const normalizedRow = new Map<string, unknown>();
   for (const [k, v] of Object.entries(row)) {
-    normalizedRow.set(normalizeKey(k), v);
+    const nk = normalizeKey(k);
+    if (!nk) continue;
+    if (!normalizedRow.has(nk)) normalizedRow.set(nk, v);
   }
+
   for (const alias of aliases) {
-    const val = normalizedRow.get(normalizeKey(alias));
-    const text = cellToString(val);
+    const text = cellToString(normalizedRow.get(normalizeKey(alias)));
     if (text) return text;
+  }
+
+  // Headers like "Serial Number (Chassis)" / "Product ID" / "Model Number"
+  // — header detection already treats these as serial/model, but exact alias keys miss them.
+  for (const alias of aliases) {
+    const na = normalizeKey(alias);
+    if (na.length < 4) continue;
+    let bestKey = '';
+    let bestVal = '';
+    for (const [k, v] of normalizedRow) {
+      if (!k.includes(na)) continue;
+      const text = cellToString(v);
+      if (!text) continue;
+      if (!bestKey || k.length < bestKey.length) {
+        bestKey = k;
+        bestVal = text;
+      }
+    }
+    if (bestVal) return bestVal;
   }
   return '';
 }
@@ -35,11 +56,16 @@ export function pickField(row: Record<string, unknown>, aliases: string[]): stri
 function cellMatchesHeaderHints(cell: string, hints: string[]): boolean {
   const n = normalizeKey(cell);
   if (!n) return false;
-  return hints.some((h) => n === h || n.includes(h));
+  return hints.some((h) => {
+    const nh = normalizeKey(h);
+    return n === nh || n.includes(nh);
+  });
 }
 
+/** -1 = no Serial header row in this sheet */
 function detectHeaderRowIndex(matrix: unknown[][]): number {
   const limit = Math.min(matrix.length, 30);
+  let serialOnly = -1;
   for (let i = 0; i < limit; i++) {
     const row = matrix[i];
     if (!Array.isArray(row)) continue;
@@ -48,11 +74,28 @@ function detectHeaderRowIndex(matrix: unknown[][]): number {
     const hasSerial = cells.some((c) => cellMatchesHeaderHints(c, SERIAL_HEADER_HINTS));
     const hasModel = cells.some((c) => cellMatchesHeaderHints(c, MODEL_HEADER_HINTS));
     if (hasSerial && hasModel) return i;
+    if (hasSerial && serialOnly < 0) serialOnly = i;
   }
-  return 0;
+  return serialOnly;
+}
+
+function applyMergedCells(matrix: unknown[][], sheet: XLSX.WorkSheet): void {
+  const merges = sheet['!merges'];
+  if (!merges?.length) return;
+  for (const range of merges) {
+    const src = matrix[range.s.r]?.[range.s.c];
+    if (src == null || cellToString(src) === '') continue;
+    for (let r = range.s.r; r <= range.e.r; r += 1) {
+      if (!matrix[r]) matrix[r] = [];
+      for (let c = range.s.c; c <= range.e.c; c += 1) {
+        if (!cellToString(matrix[r][c])) matrix[r][c] = src;
+      }
+    }
+  }
 }
 
 function matrixToRowObjects(matrix: unknown[][], headerRowIndex: number): Record<string, unknown>[] {
+  if (headerRowIndex < 0) return [];
   const headerRow = matrix[headerRowIndex];
   if (!Array.isArray(headerRow)) return [];
 
@@ -112,14 +155,22 @@ function parseJsonText(text: string): Record<string, unknown>[] {
   return [];
 }
 
-async function parseXlsxBuffer(buffer: ArrayBuffer): Promise<Record<string, unknown>[]> {
-  const workbook = XLSX.read(buffer, { type: 'array' });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return [];
-  const sheet = workbook.Sheets[sheetName];
+function sheetToRowObjects(sheet: XLSX.WorkSheet): Record<string, unknown>[] {
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+  applyMergedCells(matrix, sheet);
   const headerIdx = detectHeaderRowIndex(matrix);
   return matrixToRowObjects(matrix, headerIdx);
+}
+
+async function parseXlsxBuffer(buffer: ArrayBuffer): Promise<Record<string, unknown>[]> {
+  const workbook = XLSX.read(buffer, { type: 'array' });
+  const out: Record<string, unknown>[] = [];
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+    out.push(...sheetToRowObjects(sheet));
+  }
+  return out;
 }
 
 /** Parse .json / .csv / .xlsx / .xls → array of row objects */

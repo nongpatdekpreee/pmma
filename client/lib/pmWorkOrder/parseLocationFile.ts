@@ -1,7 +1,7 @@
 import type { PmLocationRecord } from './types';
 import { pickField, parseSpreadsheetFile, cellToString } from './parseSpreadsheet';
 import {
-  deviceModelForMatch,
+  modelCandidatesFromDevice,
   modelsLooselyMatch,
   modelsMatch,
   normalizeSerial,
@@ -12,6 +12,9 @@ const SERIAL_ALIASES = [
   'serial number',
   'serial no',
   'serialno',
+  'chassisserial',
+  'chassis serial',
+  'chassis serial number',
   'serial',
   'sn',
   'sn.',
@@ -21,9 +24,13 @@ const SERIAL_ALIASES = [
 
 const MODEL_ALIASES = [
   'model',
+  'model number',
+  'modelnumber',
   'device model',
   'devicemodel',
-  'device model',
+  'product id',
+  'productid',
+  'pid',
   'product',
   'equipment model',
 ];
@@ -65,7 +72,7 @@ function rowToLocationRecord(row: Record<string, unknown>): PmLocationRecord | n
   const ipAddress = pickField(row, IP_ALIASES);
   const rackCombined = pickField(row, ['rackno', 'rack no', 'rack no ru', 'rack noru', 'rack']);
 
-  if (!serialNumber || !model) return null;
+  if (!serialNumber) return null;
 
   const cabinetRackName = pickField(row, CABINET_RACK_ALIASES) || undefined;
 
@@ -155,7 +162,7 @@ export function buildLocationParseErrorMessage(meta: Omit<LocationParseResult, '
   const parts = [
     `No rows parsed from location file (${meta.rawRowCount} data row(s) read).`,
     `Headers found: ${headers}.`,
-    'Need columns "Serial Number" (or SN, SN., SN:) and "Model" with values on each row.',
+    'Need columns "Serial Number" (or SN, Chassis Serial) and "Model" (or Product ID, PID) with values on each row.',
   ];
 
   if (meta.skippedMissingSerial > 0) {
@@ -195,17 +202,23 @@ function locationModelMatches(record: PmLocationRecord, taskModel: string): bool
   return modelsMatch(record.model, taskModel) || modelsLooselyMatch(record.model, taskModel);
 }
 
-/** Match task device → location row by Serial + Model only (rack is copied, not compared) */
+/** Match task device → location row: Serial + Model, then unique Serial if model differs */
 export function findLocationForDevice(
   records: PmLocationRecord[],
-  device: { serial?: string; model?: string }
+  device: { serial?: string; model?: string; CI_Name?: string; Asset_Number?: string }
 ): PmLocationRecord | undefined {
   const serial = (device.serial ?? '').trim();
-  const taskModel = deviceModelForMatch(device);
-  if (!serial || !taskModel) return undefined;
+  if (!serial) return undefined;
 
   const targetSerial = normalizeSerial(serial);
-  return records.find(
-    (r) => recordMatchesSerial(r, targetSerial) && locationModelMatches(r, taskModel)
-  );
+  const serialHits = records.filter((r) => recordMatchesSerial(r, targetSerial));
+  if (serialHits.length === 0) return undefined;
+
+  const models = modelCandidatesFromDevice(device);
+  for (const rec of serialHits) {
+    if (models.some((m) => locationModelMatches(rec, m))) return rec;
+  }
+
+  if (serialHits.length === 1) return serialHits[0];
+  return undefined;
 }

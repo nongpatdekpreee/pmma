@@ -15,13 +15,13 @@ import {
 const A4_WIDTH_PX = 794;
 const A4_HEIGHT_PX = Math.round((A4_WIDTH_PX * 297) / 210);
 
-/** หน้าเอกสาร (ตัวอักษร) — คมชัด */
-const PDF_TEXT_PAGE_SCALE = 1.85;
-const PDF_TEXT_PAGE_JPEG_QUALITY = 0.86;
+/** หน้าเอกสาร (ตัวอักษร) — JPEG คุณภาพสูง กันตัวหนังสือแตก */
+const PDF_TEXT_PAGE_SCALE = 2;
+const PDF_TEXT_PAGE_JPEG_QUALITY = 0.95;
 
-/** หน้า checklist (รูป before/after) — รูปบีบอัดแล้ว ลด scale ประหยัดขนาด */
-const PDF_PHOTO_PAGE_SCALE = 1.4;
-const PDF_PHOTO_PAGE_JPEG_QUALITY = 0.76;
+/** หน้า checklist (รูป before/after) */
+const PDF_PHOTO_PAGE_SCALE = 2;
+const PDF_PHOTO_PAGE_JPEG_QUALITY = 0.92;
 
 type PdfPageCaptureProfile = { scale: number; jpegQuality: number };
 
@@ -91,19 +91,11 @@ function preparePagesForPdfCapture(pages: HTMLElement[]): number {
 
 function addCanvasToPdfPage(
   pdf: jsPDF,
-  canvas: HTMLCanvasElement,
   imgData: string,
   pageW: number,
   pageH: number
 ): void {
-  let renderW = pageW;
-  let renderH = (canvas.height * renderW) / canvas.width;
-  if (renderH > pageH) {
-    renderH = pageH;
-    renderW = (canvas.width * renderH) / canvas.height;
-  }
-  const x = (pageW - renderW) / 2;
-  pdf.addImage(imgData, 'JPEG', x, 0, renderW, renderH, undefined, 'FAST');
+  pdf.addImage(imgData, 'JPEG', 0, 0, pageW, pageH, undefined, 'NONE');
 }
 
 function preparePmInspectionForPdfCapture(root: HTMLElement): void {
@@ -239,8 +231,11 @@ async function capturePdf(data: PmFullDocument): Promise<jsPDF> {
             prepareHtml2CanvasClone(clonedDoc, clonedEl, exportCss);
             clonedEl.style.width = `${pageWidth}px`;
             clonedEl.style.maxWidth = `${pageWidth}px`;
+            clonedEl.style.height = `${A4_HEIGHT_PX}px`;
+            clonedEl.style.maxHeight = `${A4_HEIGHT_PX}px`;
             clonedEl.style.overflow = 'hidden';
             clonedEl.style.boxSizing = 'border-box';
+            clonedEl.style.backgroundColor = '#ffffff';
             if (clonedEl.classList.contains('pm-wo-inspection-page')) {
               preparePmInspectionForPdfCapture(clonedEl);
             }
@@ -249,7 +244,7 @@ async function capturePdf(data: PmFullDocument): Promise<jsPDF> {
       });
       const imgData = canvas.toDataURL('image/jpeg', jpegQuality);
       if (i > 0) pdf.addPage();
-      addCanvasToPdfPage(pdf, canvas, imgData, pageW, pageH);
+      addCanvasToPdfPage(pdf, imgData, pageW, pageH);
     }
     return pdf;
   } finally {

@@ -9,13 +9,14 @@ import {
   findMonitoringForLocation,
   monitoringToPmBackupRecord,
 } from './parsePmMonitoringBackupFile';
-import { deviceModelForMatch } from './normalizeMatch';
+import { modelCandidatesFromDevice } from './normalizeMatch';
 
 export type PmWizardDevice = {
   Did: number;
   CI_Name?: string;
   serial?: string;
   model?: string;
+  Asset_Number?: string;
   Sitename?: string;
 };
 
@@ -54,15 +55,9 @@ export function mapLocationRecordsToDevices(
   for (const device of devices) {
     const label = deviceLabelFromParts(device);
     const serial = (device.serial ?? '').trim();
-    const taskModel = deviceModelForMatch(device);
 
     if (!serial) {
       unmapped.push(`${label}: no serial in task — add serial to task assets`);
-      locationByDid.set(device.Did, null);
-      continue;
-    }
-    if (!taskModel) {
-      unmapped.push(`${label} (${serial}): no model in task — model must match location file`);
       locationByDid.set(device.Did, null);
       continue;
     }
@@ -72,8 +67,11 @@ export function mapLocationRecordsToDevices(
       mappedCount += 1;
       locationByDid.set(device.Did, loc);
     } else {
+      const models = modelCandidatesFromDevice(device);
+      const modelHint = models[0] || '(no model)';
       unmapped.push(
-        `${label}: no location row with Serial ${serial} + Model ${taskModel} (rack is not used for matching)`
+        `${label}: no location row with Serial ${serial}` +
+          (models.length ? ` (task model ${modelHint})` : '')
       );
       locationByDid.set(device.Did, null);
     }
@@ -123,7 +121,7 @@ export function mapMonitoringBackupToDevices(
   return { backupByDid, mappedCount, unmapped };
 }
 
-/** Step 4 rows: only devices with matched location file row that has location text */
+/** Step 4 rows: every device that matched a location file row */
 export function buildMaintenanceRowsFromMaps(
   devices: PmWizardDevice[],
   locationByDid: Map<number, PmLocationRecord | null>,
@@ -131,11 +129,7 @@ export function buildMaintenanceRowsFromMaps(
   monitoringByDid?: Map<number, PmMonitoringBackupRecord | null>
 ): PmMaintenanceItemDraft[] {
   return devices
-    .filter((d) => {
-      const loc = locationByDid.get(d.Did);
-      if (!loc) return false;
-      return buildLocationDisplayText(loc).trim() !== '';
-    })
+    .filter((d) => locationByDid.get(d.Did) != null)
     .map((d) => {
       const loc = locationByDid.get(d.Did)!;
       const mon = monitoringByDid?.get(d.Did);
@@ -144,7 +138,7 @@ export function buildMaintenanceRowsFromMaps(
         id: `row-${d.Did}`,
         deviceDid: d.Did,
         deviceLabel: deviceLabelFromParts(d),
-        location,
+        location: location || loc.hostname || '',
         rack,
         remark: mon?.remark?.trim() || '',
         technicianNote: '',

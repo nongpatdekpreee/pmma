@@ -17,7 +17,7 @@ import { PmWorkOrderDocument } from '@/components/pm-work-order';
 import { getContractById, postPmReport, uploadReportFile } from '@/lib/api';
 import { parseSiteContact1FromContractContact } from '@/lib/contractSiteContact';
 import { compressImageFile } from '@/lib/compressImage';
-import { prepareReportUploadFile } from '@/lib/prepareReportUploadFile';
+import { prepareReportUploadFile, REPORT_UPLOAD_MAX_BYTES } from '@/lib/prepareReportUploadFile';
 import {
   type PmBackupRecord,
   type PmFullDocument,
@@ -66,6 +66,7 @@ type Device = {
   CI_Name?: string;
   serial?: string;
   model?: string;
+  Asset_Number?: string;
   Location2?: string;
   Sitename?: string;
   role?: string;
@@ -229,11 +230,8 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   const allLocationMatched =
     locationMapped && locationMappedCount === allowedDevices.length && allowedDevices.length > 0;
 
-  /** Device rows need location text; manual Add row entries always show */
-  const photoStepRows = useMemo(
-    () => maintenanceRows.filter((r) => r.deviceDid == null || r.location.trim() !== ''),
-    [maintenanceRows]
-  );
+  /** Device rows from location match + manual Add row entries */
+  const photoStepRows = useMemo(() => maintenanceRows, [maintenanceRows]);
 
   const technicianPhotoPreviews = useMemo(
     () => technicianPhotos.map((p) => p.preview),
@@ -689,7 +687,11 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
       onSavePhase?.('uploading-pdf');
       let uploadPdfFile: File;
       try {
-        uploadPdfFile = await prepareReportUploadFile(pdfFile, 'pdf');
+        // Generated PDF is already JPEG pages — do not rasterize again unless over upload limit
+        uploadPdfFile =
+          pdfFile.size <= REPORT_UPLOAD_MAX_BYTES
+            ? pdfFile
+            : await prepareReportUploadFile(pdfFile, 'pdf');
       } catch (compressErr) {
         console.error(compressErr);
         toastError(
@@ -957,8 +959,9 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             <>
               <p className="text-sm text-muted-foreground">
                 <strong className="text-foreground">{allowedDevices.length}</strong> device(s) — matched
-                Matched by <strong className="text-foreground">Serial + Model</strong> — partial match is OK;
-                rack/room from the file is copied to the photo step.
+                Matched by <strong className="text-foreground">Serial</strong> (and Model when it
+                matches). Partial model match is OK; rack/room from the file is copied to the photo
+                step.
               </p>
               <div className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center">
                 <input
@@ -1190,12 +1193,12 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             </button>
           </div>
           <p className="text-sm text-muted-foreground">
-            Shows devices with <strong>location filled</strong> from the location file. Use{' '}
+            Shows devices mapped from the location file (Serial). Use{' '}
             <strong>Add row</strong> for extra items. Photos are optional.
           </p>
           {photoStepRows.length === 0 && (
             <p className="text-sm text-amber-700">
-              No devices with location data — check location file columns or click Add row.
+              No devices mapped from the location file — check Serial columns, or click Add row.
             </p>
           )}
           <div className="space-y-4">
