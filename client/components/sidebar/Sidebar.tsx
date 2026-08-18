@@ -59,8 +59,18 @@ export function Sidebar() {
     () => false,
   );
 
-  // เมื่อ collapsed และ hover ให้แสดง expanded
+  // Desktop: expand ตาม collapse/hover — Mobile drawer: แสดงแบบขยายเสมอเมื่อเปิด
   const isExpanded = !isCollapsed || isHovered;
+  const showLabels = isMobileOpen || isExpanded;
+
+  useEffect(() => {
+    if (!isMobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileOpen]);
 
   useEffect(() => {
     if (!logoutModalOpen) return;
@@ -160,24 +170,30 @@ export function Sidebar() {
 
       {/* Sidebar */}
       <aside
-        onMouseEnter={() => isCollapsed && setIsHovered(true)}
+        onMouseEnter={() => {
+          if (typeof window !== 'undefined' && window.innerWidth >= 768 && isCollapsed) {
+            setIsHovered(true);
+          }
+        }}
         onMouseLeave={() => setIsHovered(false)}
         className={`
-          fixed top-0 left-0 h-full bg-sidebar border-r border-sidebar-border
-          transition-all duration-300 ease-in-out z-50
+          fixed top-0 left-0 z-50 h-dvh max-h-dvh bg-sidebar border-r border-sidebar-border
+          transition-all duration-300 ease-in-out
           shadow-lg overflow-hidden
+          pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]
+          w-56
           ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}
           md:translate-x-0
-          ${isExpanded ? 'w-56' : 'w-16'}
+          ${isExpanded ? 'md:w-56' : 'md:w-16'}
           ${isHovered && isCollapsed ? 'shadow-2xl' : ''}
         `}
       >
-        <div className="flex flex-col h-full">
+        <div className="flex h-full min-h-0 w-full min-w-0 flex-col">
           {/* Header - กระชับตอนย่อ */}
-          <div className={`flex items-center border-b border-sidebar-border shrink-0 ${isExpanded ? 'p-4' : 'px-3 py-3'}`}>
+          <div className={`flex items-center border-b border-sidebar-border shrink-0 ${showLabels ? 'p-4' : 'px-3 py-3'}`}>
             <Link 
               href="/dashboard" 
-              className={`flex items-center gap-2 text-blue-600 cursor-pointer group ${!isExpanded ? 'justify-center w-full' : ''}`}
+              className={`flex min-w-0 items-center gap-2 text-blue-600 cursor-pointer group ${!showLabels ? 'justify-center w-full' : ''}`}
               onClick={closeMobile}
             >
               <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-white-600 to-white-700 p-2 text-white shadow-md shadow-grey-500/20 group-hover:shadow-blue-500/40 transition-all flex-shrink-0 flex items-center justify-center">
@@ -193,7 +209,7 @@ export function Sidebar() {
                 className={`
                   font-semibold text-sm text-sidebar-foreground
                   transition-all duration-300 ease-in-out overflow-hidden
-                  ${isExpanded 
+                  ${showLabels 
                     ? 'opacity-100 max-w-[180px] delay-150 truncate' 
                     : 'opacity-0 max-w-0 w-0 min-w-0 delay-0 invisible'
                   }
@@ -206,7 +222,7 @@ export function Sidebar() {
           </div>
 
           {/* Navigation Menu - ซ่อนแถบเลื่อน ระยะกระชับ */}
-          <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-2 pb-3 space-y-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 pt-2 pb-3 space-y-1 overscroll-contain [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             {menuItems.map((item, index) => {
               // Handle section headers
               if (item.type === 'section') {
@@ -216,7 +232,7 @@ export function Sidebar() {
                     className={`
                       px-2 py-0.5 mt-1 mb-0.5
                       transition-all duration-300 ease-in-out
-                      ${isExpanded 
+                      ${showLabels 
                         ? 'opacity-100 max-h-[20px] delay-150' 
                         : 'opacity-0 max-h-0 delay-0 overflow-hidden'
                       }
@@ -243,18 +259,18 @@ export function Sidebar() {
                   key={item.label} 
                   href={item.href}
                   onClick={closeMobile}
-                  className="block"
+                  className="block min-w-0"
                 >
                   <div
                     className={`
                       flex items-center gap-2 px-2 py-2.5 min-h-3 rounded-lg
                       cursor-pointer transition-all duration-200
-                      group relative
+                      group relative min-w-0
                       ${isActive
                         ? 'bg-gradient-to-r from-blue-50 to-blue-50/50 text-blue-600 font-medium shadow-sm shadow-blue-100/50 dark:from-blue-950/60 dark:to-blue-950/30 dark:text-blue-400 dark:shadow-blue-900/20'
                         : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'
                       }
-                      ${!isExpanded ? 'justify-center' : ''}
+                      ${!showLabels ? 'justify-center' : ''}
                     `}
                   >
                     <Icon 
@@ -266,9 +282,9 @@ export function Sidebar() {
                     />
                     <span 
                       className={`
-                        text-xs whitespace-nowrap overflow-hidden
+                        text-xs whitespace-nowrap overflow-hidden truncate
                         transition-all duration-300 ease-in-out
-                        ${isExpanded 
+                        ${showLabels 
                           ? 'opacity-100 max-w-[200px] delay-150' 
                           : 'opacity-0 max-w-0 w-0 min-w-0 delay-0 invisible'
                         }
@@ -276,10 +292,10 @@ export function Sidebar() {
                     >
                       {item.label}
                     </span>
-                    {isActive && isExpanded && (
+                    {isActive && showLabels && (
                       <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0.5 h-8 bg-blue-600 rounded-l-full" />
                     )}
-                    {isActive && !isExpanded && (
+                    {isActive && !showLabels && (
                       <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-8 bg-blue-600 rounded-r-full" />
                     )}
                   </div>
@@ -290,15 +306,15 @@ export function Sidebar() {
 
           {/* Theme + Logout */}
           <div className="shrink-0 px-2 py-2 border-t border-sidebar-border space-y-1">
-            <ThemeToggle expanded={isExpanded} />
+            <ThemeToggle expanded={showLabels} />
             <button
               type="button"
               onClick={openLogoutModal}
               className={`
                 flex items-center gap-2 px-2 py-2 min-h-11 rounded-lg
                 text-sidebar-foreground/70 hover:text-red-500 hover:bg-red-500/10
-                transition-all duration-200 w-full
-                ${!isExpanded ? 'justify-center' : ''}
+                transition-all duration-200 w-full min-w-0
+                ${!showLabels ? 'justify-center' : ''}
               `}
             >
               <LogOut size={18} className="flex-shrink-0" />
@@ -306,7 +322,7 @@ export function Sidebar() {
                 className={`
                   text-xs font-medium whitespace-nowrap overflow-hidden
                   transition-all duration-300 ease-in-out
-                  ${isExpanded 
+                  ${showLabels 
                     ? 'opacity-100 max-w-[200px] delay-150' 
                     : 'opacity-0 max-w-0 w-0 min-w-0 delay-0 invisible'
                   }
@@ -328,16 +344,20 @@ export function SidebarToggle() {
 
   return (
     <button
+      type="button"
       onClick={toggleMobile}
       className={`
-        md:hidden fixed top-4 left-4 z-50 
-        flex items-center justify-center w-10 h-10 
-        rounded-lg bg-card shadow-lg border border-border 
+        md:hidden fixed z-50
+        top-[max(1rem,env(safe-area-inset-top))]
+        left-[max(1rem,env(safe-area-inset-left))]
+        flex items-center justify-center size-10
+        rounded-lg bg-card shadow-lg border border-border
         text-foreground hover:bg-muted hover:shadow-xl
         transition-all duration-200
         ${isMobileOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}
       `}
       aria-label="Toggle menu"
+      aria-expanded={isMobileOpen}
     >
       <Menu size={20} />
     </button>

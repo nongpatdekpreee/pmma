@@ -6,17 +6,19 @@ import { SidebarLayout } from '@/components/sidebar/SidebarLayout';
 import DashboardHeader from '@/components/ui/Header';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
-import { apiUrl, getSitesLocation, syncContractsFromReferSof, apiFetch, fetchDeviceRecordsByIds } from '@/lib/api';
+import { apiUrl, getSitesLocation, syncContractsFromReferSof, apiFetch, fetchDeviceRecordsByIds, getAppFeatures } from '@/lib/api';
 import { isDefaultInStoreSiteName } from '@/lib/inStoreSite';
 import { asRecord, getErrorMessage, readString } from '@/lib/unknownUtil';
 import * as XLSX from 'xlsx';
 import { ContractSimpleSearchListDropdown } from '@/components/ui/ContractSearchListDropdown';
 import { ImportSofDetailsModal } from '@/components/ui/ImportSofDetailsModal';
+import { MergeContractsModal } from '@/components/ui/MergeContractsModal';
 import { PageCatLoader, InlineCatLoader } from '@/components/ui/CatLoader';
+import { useAuth } from '@/lib/auth/AuthProvider';
 import { 
   FileText, Calendar, Building2, MapPin, Hash,
   Clock, CheckCircle2, AlertCircle, XCircle, FileIcon, 
-  History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban, Undo2
+  History, X, Edit, Loader2, LayoutGrid, Table2, Check, Search, RefreshCw, Wrench,   Plus, Info, Download, FileSpreadsheet, ChevronLeft, ChevronRight, Ban, Undo2, GitMerge
 } from 'lucide-react';
 
 const EQUIPMENT_PAGE_SIZE = 5;
@@ -1082,6 +1084,7 @@ function ContractListPageJump(props: {
 function ContractEditorPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { isAdmin } = useAuth();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractsLoading, setContractsLoading] = useState(true);
   const [contractsError, setContractsError] = useState('');
@@ -1097,6 +1100,8 @@ function ContractEditorPageContent() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEquipmentModal, setShowEquipmentModal] = useState(false);
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  const [mergePrimaryId, setMergePrimaryId] = useState<number | null>(null);
   const [currentContract, setCurrentContract] = useState<Contract | null>(null);
   const [fullContractDetails, setFullContractDetails] = useState<FullContractDetails | null>(null);
   const [loadingContractDetails, setLoadingContractDetails] = useState(false);
@@ -1893,6 +1898,46 @@ function ContractEditorPageContent() {
   const renewContract = (contract: Contract) => {
     setRenewContractTarget(contract);
     setShowRenewModal(true);
+  };
+
+  const [contractMergeEnabled, setContractMergeEnabled] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await getAppFeatures();
+        if (cancelled) return;
+        if (res.success && res.data && typeof res.data.contractMerge === 'boolean') {
+          setContractMergeEnabled(res.data.contractMerge);
+        }
+      } catch {
+        /* keep default ON until API says otherwise */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openMergeContracts = (contract: Contract) => {
+    if (!contractMergeEnabled || !isAdmin || contract.isHistorySnapshotRow) return;
+    const id = parseInt(contractRowApiId(contract), 10);
+    if (Number.isNaN(id)) {
+      toastError('Invalid contract id');
+      return;
+    }
+    setMergePrimaryId(id);
+    setMergeModalOpen(true);
+  };
+
+  const canMergeContract = (contract: Contract): boolean => {
+    if (!contractMergeEnabled || !isAdmin || contract.isHistorySnapshotRow) return false;
+    if (contract.contractStatus === 'not_renewing') return false;
+    if (!contract.sofName || !String(contract.sofName).trim()) return false;
+    if (contract.isSofGroupRow && (contract.sofGroupSize ?? 0) > 1) return true;
+    // Non-grouped row: still allow open (API returns empty candidates if none)
+    return true;
   };
 
   const openTerminateContractModal = (contract: Contract) => {
@@ -2892,6 +2937,16 @@ function ContractEditorPageContent() {
                     >
                       <MapPin size={18} className="text-white" />
                     </button>
+                    {canMergeContract(actionTarget) && (
+                      <button
+                        type="button"
+                        onClick={() => openMergeContracts(actionTarget)}
+                        className="flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-violet-600 text-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-violet-700"
+                        title="Merge contracts (same SOF)"
+                      >
+                        <GitMerge size={18} className="text-white" />
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -2990,29 +3045,31 @@ function ContractEditorPageContent() {
         ) : (
         <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1080px] table-fixed">
+            <table className="w-full min-w-[1280px] table-fixed">
               <thead>
                 <tr className="bg-muted border-b border-border">
-                  <th className="w-[18%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Site</th>
-                  <th className="w-[20%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Location</th>
-                  <th className="w-[10%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Province</th>
-                  <th className="w-[11%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">SOF</th>
-                  <th className="w-[9%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground whitespace-nowrap">
+                  <th className="w-[14%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground">Site</th>
+                  <th className="w-[14%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground">Location</th>
+                  <th className="w-[8%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground">Province</th>
+                  <th className="w-[9%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground">SOF</th>
+                  <th className="w-[8%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground whitespace-nowrap">
                     Start Date
                     <div className="text-xs font-normal text-muted-foreground mt-1">mm/dd/yyyy</div>
                   </th>
-                  <th className="w-[9%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground whitespace-nowrap">
+                  <th className="w-[8%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground whitespace-nowrap">
                     End Date
                     <div className="text-xs font-normal text-muted-foreground mt-1">mm/dd/yyyy</div>
                   </th>
-                  <th className="w-[9%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground whitespace-nowrap">
-                    Expiry Status
+                  <th className="w-[12%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground">
+                    <span className="block truncate" title="Expiry Status">
+                      Expiry Status
+                    </span>
                   </th>
-                  <th className="w-[7%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Status</th>
-                  <th className="w-[8%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">
+                  <th className="w-[9%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground">Status</th>
+                  <th className="w-[8%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground">
                     Renew
                   </th>
-                  <th className="w-[11%] text-left py-4 px-4 text-sm font-semibold text-muted-foreground">Actions</th>
+                  <th className="w-[10%] text-left py-4 px-3 text-sm font-semibold text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -3029,19 +3086,30 @@ function ContractEditorPageContent() {
                     key={contract.id}
                     className="border-b border-border bg-card transition-colors hover:bg-muted/50"
                   >
-                    <td className="py-4 px-4 text-sm font-medium text-foreground">
+                    <td className="py-4 px-3 text-sm font-medium text-foreground overflow-hidden">
                       <div className="flex min-w-0 flex-col gap-1">
                         <span className="truncate" title={contractListDisplaySiteName(contract)}>
                           {contractListDisplaySiteName(contract)}
                         </span>
                         {contract.isSofGroupRow && (contract.sofGroupSize ?? 0) > 1 ? (
-                          <span className="text-[11px] font-medium text-blue-700">
-                            {contract.sofGroupSize} locations · same SOF
-                          </span>
+                          canMergeContract(actionTarget) ? (
+                            <button
+                              type="button"
+                              onClick={() => openMergeContracts(actionTarget)}
+                              className="text-left text-[11px] font-medium text-violet-700 hover:underline truncate"
+                              title="Merge contracts with the same SOF"
+                            >
+                              {contract.sofGroupSize} locations · same SOF · Merge
+                            </button>
+                          ) : (
+                            <span className="text-[11px] font-medium text-blue-700 truncate">
+                              {contract.sofGroupSize} locations · same SOF
+                            </span>
+                          )
                         ) : null}
                       </div>
                     </td>
-                    <td className="py-4 px-4 text-sm text-muted-foreground">
+                    <td className="py-4 px-3 text-sm text-muted-foreground overflow-hidden">
                       <span
                         className="block truncate"
                         title={contractListDisplaySiteLocation(contract)}
@@ -3049,7 +3117,7 @@ function ContractEditorPageContent() {
                         {contractListDisplaySiteLocation(contract)}
                       </span>
                     </td>
-                    <td className="py-4 px-4 text-sm text-muted-foreground">
+                    <td className="py-4 px-3 text-sm text-muted-foreground overflow-hidden">
                       <span
                         className="block truncate"
                         title={contractListDisplaySiteProvince(contract)}
@@ -3057,14 +3125,20 @@ function ContractEditorPageContent() {
                         {contractListDisplaySiteProvince(contract)}
                       </span>
                     </td>
-                    <td className="py-4 px-4 text-sm text-muted-foreground whitespace-nowrap">
-                      {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
+                    <td className="py-4 px-3 text-sm text-muted-foreground overflow-hidden">
+                      <span className="block truncate" title={contract.sofName || undefined}>
+                        {contract.sofName && String(contract.sofName).trim() ? contract.sofName : '—'}
+                      </span>
                     </td>
-                    <td className="py-4 px-4 text-sm text-muted-foreground">{contract.formattedStartDate}</td>
-                    <td className="py-4 px-4 text-sm text-muted-foreground">{contract.formattedEndDate}</td>
-                    <td className="py-4 px-4 text-sm whitespace-nowrap">
+                    <td className="py-4 px-3 text-sm text-muted-foreground overflow-hidden whitespace-nowrap">
+                      <span className="block truncate">{contract.formattedStartDate}</span>
+                    </td>
+                    <td className="py-4 px-3 text-sm text-muted-foreground overflow-hidden whitespace-nowrap">
+                      <span className="block truncate">{contract.formattedEndDate}</span>
+                    </td>
+                    <td className="py-4 px-3 text-sm overflow-hidden">
                       <span
-                        className={
+                        className={`block truncate ${
                           incoming.tone === 'future'
                             ? 'text-sky-700 font-medium'
                             : incoming.tone === 'overdue'
@@ -3072,19 +3146,21 @@ function ContractEditorPageContent() {
                               : incoming.tone === 'due'
                                 ? 'text-amber-800 font-medium'
                                 : 'text-muted-foreground'
-                        }
+                        }`}
+                        title={incoming.text}
                       >
                         {incoming.text}
                       </span>
                     </td>
-                    <td className="py-4 px-4 align-top">
+                    <td className="py-4 px-3 align-top overflow-hidden">
                       <span
-                        className={`inline-block w-fit px-3 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(statusBadgeKey)}`}
+                        className={`inline-flex max-w-full items-center truncate px-2.5 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClass(statusBadgeKey)}`}
+                        title={getStatusText(statusBadgeKey)}
                       >
                         {getStatusText(statusBadgeKey)}
                       </span>
                     </td>
-                    <td className="py-4 px-4 align-top">
+                    <td className="py-4 px-3 align-top overflow-hidden">
                       {renewCol ? (
                         <div
                           className="flex min-w-0 flex-col gap-0.5 text-[11px] leading-snug text-muted-foreground"
@@ -3097,7 +3173,7 @@ function ContractEditorPageContent() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="py-4 px-4">
+                    <td className="py-4 px-3 overflow-hidden">
                       <div className="flex w-full min-w-0 flex-nowrap items-center justify-start gap-2">
                         <div className="flex items-center gap-1.5">
                           <button
@@ -3129,6 +3205,16 @@ function ContractEditorPageContent() {
                           >
                             <MapPin size={14} className="text-white" />
                           </button>
+                          {canMergeContract(actionTarget) && (
+                            <button
+                              type="button"
+                              onClick={() => openMergeContracts(actionTarget)}
+                              className="flex size-8 shrink-0 items-center justify-center rounded-md bg-violet-600 text-white transition-all duration-200 hover:bg-violet-700"
+                              title="Merge contracts (same SOF)"
+                            >
+                              <GitMerge size={14} className="text-white" />
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <button
@@ -5252,6 +5338,22 @@ function ContractEditorPageContent() {
         }}
         onError={toastError}
         onInfo={toastSuccess}
+      />
+
+      <MergeContractsModal
+        open={mergeModalOpen}
+        primaryContractId={mergePrimaryId}
+        enabled={contractMergeEnabled}
+        onClose={() => {
+          setMergeModalOpen(false);
+          setMergePrimaryId(null);
+        }}
+        onMerged={async () => {
+          await loadContracts();
+          router.refresh();
+        }}
+        onError={toastError}
+        onSuccess={toastSuccess}
       />
 
       {/* Renew Contract Modal */}

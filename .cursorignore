@@ -1,0 +1,41 @@
+﻿# Secrets & environment (never index / never feed to AI context)
+.env
+.env.*
+!.env.example
+!.env*.example
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env*.example
+
+# Keys, certs, credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+**/secrets/
+**/credentials/
+**/service-account*.json
+**/google-credentials*.json
+**/firebase-adminsdk*.json
+**/*credentials*.json
+
+# Local DB dumps / backups
+*.sql
+*.sql.gz
+*.dump
+*.bak
+**/backups/
+
+# Uploaded / user content that may contain PII
+uploads/
+**/uploads/
+temp/
+**/temp/
+
+# Auth tokens / session stores if ever written to disk
+**/cookies.txt
+**/.npmrc
+!**/.npmrc.example

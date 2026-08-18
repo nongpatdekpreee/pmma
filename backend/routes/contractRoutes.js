@@ -21,7 +21,11 @@ const {
   getContractHistory,
   getContractById,
   updateContract,
+  getMergeCandidates,
+  mergeContracts,
 } = require('../controllers/contractController');
+const { requireRole } = require('../middleware/requireRole');
+const { requireContractMergeEnabled } = require('../middleware/requireFeature');
 
 // โฟลเดอร์เก็บไฟล์/รูปของ contract
 const uploadDir = path.join(__dirname, '..', 'uploads', 'contracts');
@@ -76,6 +80,22 @@ router.get('/history/:historyId', getContractHistoryDetailByHistoryId);
 
 // GET /api/contracts/devices-by-slids?slids=1,2,3 — batch devices (ต้องมาก่อน /:id)
 router.get('/devices-by-slids', getDevicesBySlids);
+
+// POST /api/contracts/merge — รวมสัญญา SOF เดียวกัน (ADMIN + ENABLE_CONTRACT_MERGE)
+router.post(
+  '/merge',
+  requireContractMergeEnabled,
+  requireRole('ADMIN'),
+  mergeContracts
+);
+
+// GET /api/contracts/:id/merge-candidates — peer SOF เดียวกันสำหรับ Merge (ADMIN + flag)
+router.get(
+  '/:id/merge-candidates',
+  requireContractMergeEnabled,
+  requireRole('ADMIN'),
+  getMergeCandidates
+);
 
 // GET /api/contracts/:id/devices — ดึง Devices ที่ผูกกับ Contract (ต้องมาก่อน GET / เพื่อไม่ให้ conflict)
 router.get('/:id/devices', getDevicesByContract);

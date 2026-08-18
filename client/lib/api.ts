@@ -479,6 +479,60 @@ export async function getContractById(contractId: number | string): Promise<{
   return jsonWithFallback(res, { success: false });
 }
 
+export interface ContractMergeCandidate {
+  contract_id: number;
+  contract_name: string;
+  site_name: string;
+  site_location: string;
+  site_province?: string;
+  sof_name: string;
+  status?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  device_count: number;
+  suggested_name: string;
+}
+
+/** GET /api/contracts/:id/merge-candidates — ADMIN */
+export async function getContractMergeCandidates(contractId: number | string): Promise<{
+  success: boolean;
+  message?: string;
+  data?: {
+    primary: ContractMergeCandidate;
+    candidates: ContractMergeCandidate[];
+  };
+}> {
+  const res = await apiFetch(
+    apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}/merge-candidates`)
+  );
+  return jsonWithFallback(res, { success: false });
+}
+
+/** POST /api/contracts/merge — ADMIN */
+export async function mergeContracts(body: {
+  primary_slid: number;
+  source_slids: number[];
+  contract_name?: string | null;
+}): Promise<{
+  success: boolean;
+  message?: string;
+  data?: {
+    primary_slid: number;
+    closed_slids: number[];
+    devices_moved: number;
+    primary_device_count: number;
+    contract_name?: string | null;
+    sof_name?: string;
+  };
+}> {
+  const res = await apiFetch(apiUrl('/api/contracts/merge'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return jsonWithFallback(res, { success: false });
+}
+
 /** GET /api/contracts/:id/devices - Devices ที่ผูกกับ Contract (จาก contract_device). ส่ง site_id (= SLid) เพื่อกรองเฉพาะ site นั้น */
 export async function getDevicesByContract(contractId: number | string, siteId?: number | string | null): Promise<{
   success: boolean;
@@ -1245,6 +1299,16 @@ export interface HolidayItem {
   date: string;
   name: string;
   source?: 'custom' | 'official';
+}
+
+export interface AppFeatures {
+  contractMerge: boolean;
+}
+
+/** GET /api/features — runtime flags from backend .env (e.g. ENABLE_CONTRACT_MERGE) */
+export async function getAppFeatures(): Promise<{ success: boolean; data?: AppFeatures; message?: string }> {
+  const res = await apiFetch(apiUrl('/api/features'));
+  return parseJsonResponse(res, { success: false });
 }
 
 /** GET /api/holidays - list holidays (backend API via apiUrl) */

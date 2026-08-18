@@ -14,6 +14,7 @@ const {
   findSlidsWithMatchingSof,
 } = require('../config/deviceSof');
 const slc = require('../lib/siteLocationContract');
+const { isContractMergeEnabled } = require('../lib/featureFlags');
 const { notifyTeamsContractEvent } = require('../services/teamsContractNotification');
 const { notifyContractExpiringOnChange } = require('../jobs/contractExpiringReminder');
 const { getTeamsActor } = require('../utils/teamsActor');
@@ -818,6 +819,7 @@ function shouldPropagateContractFields(
 
 async function applyContractFieldsToSlid(conn, slid, body, contractStatus, options = {}) {
   const { persistContractName = true, contact: contactOverride } = options;
+  const isDraft = String(contractStatus ?? '').trim().toLowerCase() === 'draft';
   const fields = { status: contractStatus };
 
   if (body.sof_name !== undefined || body.sof_id !== undefined) {
@@ -827,42 +829,64 @@ async function applyContractFieldsToSlid(conn, slid, body, contractStatus, optio
         : body.sof_name && String(body.sof_name).trim()
           ? body.sof_name.trim()
           : null;
-    fields.sof_name = sofValue;
+    // draft + empty → keep existing SOF (incomplete draft must not wipe)
+    if (!(isDraft && (sofValue == null || sofValue === ''))) {
+      fields.sof_name = sofValue;
+    }
   }
   if (persistContractName && body.contract_name !== undefined) {
-    fields.contract_name =
+    const nameVal =
       body.contract_name != null && String(body.contract_name).trim() !== ''
         ? String(body.contract_name).trim()
         : null;
+    if (!(isDraft && nameVal == null)) {
+      fields.contract_name = nameVal;
+    }
   }
-  if (body.start_date !== undefined) fields.start_date = body.start_date || null;
-  if (body.end_date !== undefined) fields.end_date = body.end_date || null;
+  if (body.start_date !== undefined) {
+    const v = body.start_date || null;
+    if (!(isDraft && !v)) fields.start_date = v;
+  }
+  if (body.end_date !== undefined) {
+    const v = body.end_date || null;
+    if (!(isDraft && !v)) fields.end_date = v;
+  }
   if (body.sla_term !== undefined) {
-    const v =
-      body.sla_term != null && String(body.sla_term).trim() !== ''
-        ? parseInt(String(body.sla_term).trim(), 10)
-        : NaN;
-    fields.sla_term = isNaN(v) ? 2 : v;
+    const raw = body.sla_term != null && String(body.sla_term).trim() !== ''
+      ? parseInt(String(body.sla_term).trim(), 10)
+      : NaN;
+    if (!(isDraft && isNaN(raw))) {
+      fields.sla_term = isNaN(raw) ? 2 : raw;
+    }
   }
   if (body.assigned_service !== undefined) {
-    fields.assigned_service =
+    const svc =
       body.assigned_service && String(body.assigned_service).trim()
         ? body.assigned_service.trim()
         : '';
+    if (!(isDraft && !svc)) {
+      fields.assigned_service = svc;
+    }
   }
   if (body.sale_account !== undefined) {
-    fields.sale_account = body.sale_account?.trim() || null;
+    const v = body.sale_account?.trim() || null;
+    if (!(isDraft && v == null)) fields.sale_account = v;
   }
   if (body.tel_acc !== undefined) {
-    fields.tel_acc =
+    const v =
       body.tel_acc != null && String(body.tel_acc).trim() !== '' ? String(body.tel_acc).trim() : null;
+    if (!(isDraft && v == null)) fields.tel_acc = v;
   }
   if (body.email_acc !== undefined) {
-    fields.email_acc =
-      body.email_acc != null && String(body.email_acc).trim() !== '' ? String(body.email_acc).trim() : '';
+    const v =
+      body.email_acc != null && String(body.email_acc).trim() !== ''
+        ? String(body.email_acc).trim()
+        : '';
+    if (!(isDraft && !v)) fields.email_acc = v;
   }
   if (body.coverage_scope !== undefined) {
-    fields.coverage_scope = body.coverage_scope?.trim() || null;
+    const v = body.coverage_scope?.trim() || null;
+    if (!(isDraft && v == null)) fields.coverage_scope = v;
   }
   if (contactOverride !== undefined) {
     fields.contact = jsonContact(contactOverride);
@@ -873,7 +897,9 @@ async function applyContractFieldsToSlid(conn, slid, body, contractStatus, optio
   if (body.image_paths !== undefined) fields.image_paths = jsonPaths(body.image_paths);
   if (body.pm_time_per_year !== undefined) {
     const pmRaw = body.pm_time_per_year != null ? String(body.pm_time_per_year).trim() : '';
-    fields.pm_time_per_year = ['1', '2', '3', '4', '5'].includes(pmRaw) ? pmRaw : '2';
+    if (!(isDraft && !pmRaw)) {
+      fields.pm_time_per_year = ['1', '2', '3', '4', '5'].includes(pmRaw) ? pmRaw : '2';
+    }
   }
 
   await slc.updateSiteLocationContract(conn, slid, fields);
@@ -906,16 +932,20 @@ const createContract = async (req, res) => {
     const contractStatus = body.status === 'draft' || body.status === 'official' ? body.status : 'official';
 
     if (!validateMultilineEmails(body.email_acc).ok) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide valid email address(es); one per line (e.g. example@domain.com)',
-      });
+      if (contractStatus !== 'draft') {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide valid email address(es); one per line (e.g. example@domain.com)',
+        });
+      }
     }
     if (!validateMultilineTels(body.tel_acc).ok) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide valid phone number(s); one per line (9–15 digits each)',
-      });
+      if (contractStatus !== 'draft') {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide valid phone number(s); one per line (9–15 digits each)',
+        });
+      }
     }
 
     const pairs = parsePairsFromBody(body, contractStatus);
@@ -932,6 +962,55 @@ const createContract = async (req, res) => {
       body.old_contract_id != null && body.old_contract_id !== ''
         ? parseInt(body.old_contract_id, 10)
         : null;
+
+    if (contractStatus === 'official') {
+      const name =
+        body.contract_name != null && String(body.contract_name).trim() !== ''
+          ? String(body.contract_name).trim()
+          : '';
+      if (name.length < 3) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter Contract Name (at least 3 characters)',
+        });
+      }
+      const sofValueCheck =
+        body.sof_id != null && body.sof_id !== ''
+          ? String(body.sof_id).trim()
+          : body.sof_name && String(body.sof_name).trim()
+            ? String(body.sof_name).trim()
+            : '';
+      if (!sofValueCheck) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select or enter SOF',
+        });
+      }
+      const svc =
+        body.assigned_service != null && String(body.assigned_service).trim() !== ''
+          ? String(body.assigned_service).trim()
+          : '';
+      if (!svc) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select or enter Service',
+        });
+      }
+      const sd = body.start_date != null ? String(body.start_date).trim() : '';
+      const ed = body.end_date != null ? String(body.end_date).trim() : '';
+      if (!sd || !ed) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter Start Date and End Date',
+        });
+      }
+      if (ed < sd) {
+        return res.status(400).json({
+          success: false,
+          message: 'End Date must be on or after Start Date',
+        });
+      }
+    }
 
     if (deviceIdList.length > 0 && !oldContractIdVal) {
       const taken = await slc.findDevicesOnOtherContracts(conn, deviceIdList, null);
@@ -965,48 +1044,86 @@ const createContract = async (req, res) => {
         return res.status(404).json({ success: false, message: 'Contract not found for renew' });
       }
       const oldSof = existing.SOF != null ? String(existing.SOF).trim() : null;
-      /** จับคู่ก่อนเปลี่ยน SOF/วันที่ — ใช้ sync วันที่ไปทุก location ที่ SOF เดิม */
-      const renewPeerSlids = oldSof
-        ? await findSlidsWithMatchingSof(conn, oldSof, primarySlid)
-        : [];
+      const oldStart =
+        existing.start_date != null ? String(existing.start_date).slice(0, 10) : '—';
+      const oldEnd = existing.end_date != null ? String(existing.end_date).slice(0, 10) : '—';
+      const isRenewDraft = contractStatus === 'draft';
 
-      await slc.insertSiteLocationHistory(conn, primarySlid, slc.HIST_ACTION.RENEW, {
-        oldSof,
-        newSof: sofValue,
-      });
-      renewHistorySaved = true;
+      if (isRenewDraft) {
+        /**
+         * Renew → draft (in-place): overwrite primary only; keep peer rows official.
+         * History "RenewDraft" stores previous values + old_sof before the update.
+         */
+        await slc.insertSiteLocationHistory(conn, primarySlid, slc.HIST_ACTION.RENEW_DRAFT, {
+          oldSof,
+          newSof: sofValue,
+          terminatedReason: `Renew draft (not finalized). Previous SOF: ${oldSof || '—'}; previous period: ${oldStart} – ${oldEnd}`,
+        });
+        renewHistorySaved = true;
 
-      await applyContractFieldsToSlid(conn, primarySlid, bodyWithoutContact(body), contractStatus, {
-        contact: pairContactForSlid(pairs, primarySlid),
-      });
+        await applyContractFieldsToSlid(conn, primarySlid, bodyWithoutContact(body), contractStatus, {
+          contact: pairContactForSlid(pairs, primarySlid),
+        });
 
-      for (const slid of renewPeerSlids) {
-        const peerRow = await slc.fetchSiteLocationRow(conn, slid);
-        if (!peerRow) continue;
-        const peerOldSof = peerRow.SOF != null ? String(peerRow.SOF).trim() : null;
-        await slc.insertSiteLocationHistory(conn, slid, slc.HIST_ACTION.RENEW, {
-          oldSof: peerOldSof,
+        for (const p of pairs) {
+          if (p.site_id !== primarySlid) continue;
+          if (p.province !== undefined) {
+            await slc.updateLocationProvinceBySlid(conn, p.site_id, p.province);
+          }
+          if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id, p.device_ids);
+        }
+      } else {
+        /** จับคู่ก่อนเปลี่ยน SOF/วันที่ — ใช้ sync วันที่ไปทุก location ที่ SOF เดิม */
+        const renewPeerSlids = oldSof
+          ? await findSlidsWithMatchingSof(conn, oldSof, primarySlid)
+          : [];
+
+        await slc.insertSiteLocationHistory(conn, primarySlid, slc.HIST_ACTION.RENEW, {
+          oldSof,
           newSof: sofValue,
         });
-        await applyContractFieldsToSlid(conn, slid, bodyWithoutContact(body), contractStatus, {
-          persistContractName: false,
-          contact: pairContactForSlid(pairs, slid),
+        renewHistorySaved = true;
+
+        await applyContractFieldsToSlid(conn, primarySlid, bodyWithoutContact(body), contractStatus, {
+          contact: pairContactForSlid(pairs, primarySlid),
         });
-      }
 
-      if (sofValue && oldSof && oldSof !== sofValue) {
-        await syncSofRenameToAllPeers(conn, oldSof, sofValue);
-      }
-
-      for (const p of pairs) {
-        if (p.province !== undefined) {
-          await slc.updateLocationProvinceBySlid(conn, p.site_id, p.province);
+        for (const slid of renewPeerSlids) {
+          const peerRow = await slc.fetchSiteLocationRow(conn, slid);
+          if (!peerRow) continue;
+          const peerOldSof = peerRow.SOF != null ? String(peerRow.SOF).trim() : null;
+          await slc.insertSiteLocationHistory(conn, slid, slc.HIST_ACTION.RENEW, {
+            oldSof: peerOldSof,
+            newSof: sofValue,
+          });
+          await applyContractFieldsToSlid(conn, slid, bodyWithoutContact(body), contractStatus, {
+            persistContractName: false,
+            contact: pairContactForSlid(pairs, slid),
+          });
         }
-        if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id, p.device_ids);
+
+        if (sofValue && oldSof && oldSof !== sofValue) {
+          await syncSofRenameToAllPeers(conn, oldSof, sofValue);
+        }
+
+        for (const p of pairs) {
+          if (p.province !== undefined) {
+            await slc.updateLocationProvinceBySlid(conn, p.site_id, p.province);
+          }
+          if (p.device_ids.length) await slc.assignDevicesToSlid(conn, p.site_id, p.device_ids);
+        }
       }
     } else {
       const targetPairs = pairs.length ? pairs : [];
       if (targetPairs.length === 0) {
+        if (contractStatus === 'draft') {
+          await conn.rollback();
+          return res.status(400).json({
+            success: false,
+            message:
+              'Draft still needs at least one site/location selected (other fields may be incomplete)',
+          });
+        }
         await conn.rollback();
         return res.status(400).json({ success: false, message: 'Please provide site_device_pairs' });
       }
@@ -1073,17 +1190,26 @@ const createContract = async (req, res) => {
 
     await conn.commit();
 
-    void maybeNotifyTeamsContract(primarySlid, {
-      event: oldContractIdVal ? 'renewed' : 'created',
-      actor: getTeamsActor(req.user),
-    });
+    const isRenewDraftSave =
+      oldContractIdVal != null && !isNaN(oldContractIdVal) && contractStatus === 'draft';
+    if (!isRenewDraftSave) {
+      void maybeNotifyTeamsContract(primarySlid, {
+        event: oldContractIdVal ? 'renewed' : 'created',
+        actor: getTeamsActor(req.user),
+      });
+    }
 
     return res.status(201).json({
       success: true,
-      message: oldContractIdVal ? 'Contract renewed successfully' : 'Contract created successfully',
+      message: isRenewDraftSave
+        ? 'Renew saved as draft'
+        : oldContractIdVal
+          ? 'Contract renewed successfully'
+          : 'Contract created successfully',
       data: {
         contract_id: primarySlid,
         renew_history_saved: renewHistorySaved,
+        renew_draft: isRenewDraftSave || undefined,
       },
     });
   } catch (error) {
@@ -1123,30 +1249,128 @@ const updateContract = async (req, res) => {
         ? String(existing.SOF).trim()
         : '';
     const prevDbStatus = existing.status;
+    const prevStatusNorm =
+      prevDbStatus != null ? String(prevDbStatus).trim().toLowerCase() : '';
     const isTransitionToNotRenewing =
       body.status === 'not_renewing' &&
       prevDbStatus != null &&
       String(prevDbStatus).toLowerCase() !== 'not_renewing';
+    const isFinalizeRenewDraft =
+      prevStatusNorm === 'draft' &&
+      body.status === 'official';
     const terminationReason =
       body.termination_reason != null ? String(body.termination_reason).trim() : '';
     if (isTransitionToNotRenewing && !terminationReason) {
       return res.status(400).json({ success: false, message: 'Please provide termination reason' });
     }
 
-    if (body.email_acc !== undefined && !validateMultilineEmails(body.email_acc).ok) {
+    if (
+      body.email_acc !== undefined &&
+      !validateMultilineEmails(body.email_acc).ok &&
+      body.status !== 'draft'
+    ) {
       return res.status(400).json({
         success: false,
         message: 'Please provide valid email address(es); one per line (e.g. example@domain.com)',
       });
     }
-    if (body.tel_acc !== undefined && !validateMultilineTels(body.tel_acc).ok) {
+    if (
+      body.tel_acc !== undefined &&
+      !validateMultilineTels(body.tel_acc).ok &&
+      body.status !== 'draft'
+    ) {
       return res.status(400).json({
         success: false,
         message: 'Please provide valid phone number(s); one per line (9–15 digits each)',
       });
     }
 
+    const nextStatusForValidation =
+      body.status === 'draft' || body.status === 'official' || body.status === 'not_renewing'
+        ? body.status
+        : String(prevDbStatus ?? 'official').trim().toLowerCase() === 'draft'
+          ? 'draft'
+          : 'official';
+    if (nextStatusForValidation === 'official' || isFinalizeRenewDraft) {
+      const nameRaw =
+        body.contract_name !== undefined
+          ? body.contract_name
+          : existing.contract_name ?? existing.contactname;
+      const name =
+        nameRaw != null && String(nameRaw).trim() !== '' ? String(nameRaw).trim() : '';
+      if (name.length < 3) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter Contract Name (at least 3 characters)',
+        });
+      }
+      const sofRaw =
+        body.sof_name !== undefined
+          ? body.sof_name
+          : existing.SOF;
+      const sofVal = sofRaw != null && String(sofRaw).trim() !== '' ? String(sofRaw).trim() : '';
+      if (!sofVal) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select or enter SOF',
+        });
+      }
+      const svcRaw =
+        body.assigned_service !== undefined
+          ? body.assigned_service
+          : existing.Assigned_Service;
+      const svc = svcRaw != null && String(svcRaw).trim() !== '' ? String(svcRaw).trim() : '';
+      if (!svc) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please select or enter Service',
+        });
+      }
+      const sd =
+        body.start_date !== undefined
+          ? body.start_date != null
+            ? String(body.start_date).trim()
+            : ''
+          : existing.start_date != null
+            ? String(existing.start_date).slice(0, 10)
+            : '';
+      const ed =
+        body.end_date !== undefined
+          ? body.end_date != null
+            ? String(body.end_date).trim()
+            : ''
+          : existing.end_date != null
+            ? String(existing.end_date).slice(0, 10)
+            : '';
+      if (!sd || !ed) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please enter Start Date and End Date',
+        });
+      }
+      if (ed < sd) {
+        return res.status(400).json({
+          success: false,
+          message: 'End Date must be on or after Start Date',
+        });
+      }
+    }
+
     await conn.beginTransaction();
+
+    /** Latest Renew Draft row (if any) — used when publishing draft → official */
+    let renewDraftOrigin = null;
+    if (isFinalizeRenewDraft) {
+      const [draftHistRows] = await conn.execute(
+        `SELECT old_sof, start_date, end_date, SOF, terminated_reason
+         FROM sites_location_sof_history
+         WHERE SLid = ? AND action_type = ?
+         ORDER BY log_id DESC
+         LIMIT 1`,
+        [cid, slc.HIST_ACTION.RENEW_DRAFT]
+      );
+      renewDraftOrigin = draftHistRows?.[0] || null;
+    }
 
     let sofChangeHistory = null;
     if (body.sof_name !== undefined) {
@@ -1157,10 +1381,12 @@ const updateContract = async (req, res) => {
           : null;
       if ((oldSof ?? '') !== (newSof ?? '')) {
         sofChangeHistory = { oldSof, newSof };
-        await slc.insertSiteLocationHistory(conn, cid, slc.HIST_ACTION.SOF_CHANGE, {
-          oldSof,
-          newSof,
-        });
+        if (!renewDraftOrigin) {
+          await slc.insertSiteLocationHistory(conn, cid, slc.HIST_ACTION.SOF_CHANGE, {
+            oldSof,
+            newSof,
+          });
+        }
       }
     }
 
@@ -1171,7 +1397,22 @@ const updateContract = async (req, res) => {
       existing.SOF != null && String(existing.SOF).trim() !== ''
         ? String(existing.SOF).trim()
         : null;
-    if (otherEdits && !sofChangeHistory) {
+
+    if (renewDraftOrigin) {
+      const originOldSof =
+        renewDraftOrigin.old_sof != null && String(renewDraftOrigin.old_sof).trim() !== ''
+          ? String(renewDraftOrigin.old_sof).trim()
+          : existingSofForHistory;
+      const newSofForRenew =
+        body.sof_name != null && String(body.sof_name).trim() !== ''
+          ? String(body.sof_name).trim()
+          : existingSofForHistory;
+      await slc.insertSiteLocationHistory(conn, cid, slc.HIST_ACTION.RENEW, {
+        oldSof: originOldSof,
+        newSof: newSofForRenew,
+        terminatedReason: 'Finalized renew draft',
+      });
+    } else if (otherEdits && !sofChangeHistory) {
       await slc.insertSiteLocationHistory(conn, cid, slc.HIST_ACTION.UPDATE, {
         oldSof: existingSofForHistory,
       });
@@ -1199,49 +1440,82 @@ const updateContract = async (req, res) => {
         : {}),
     });
 
-    const syncAllPeersOnSofRename =
-      syncSofRenameAll &&
-      sofChangeHistory?.oldSof &&
-      sofChangeHistory?.newSof &&
-      sofChangeHistory.oldSof !== sofChangeHistory.newSof;
-
-    if (syncAllPeersOnSofRename) {
-      await recordSofChangeHistoryForSlids(
-        conn,
-        peerSlidsWithOldSof,
-        {
-          oldSof: sofChangeHistory.oldSof,
-          newSof: sofChangeHistory.newSof,
-        },
-        { excludeSlid: cid }
-      );
-      for (const slid of peerSlidsWithOldSof) {
-        if (slid === cid) continue;
-        await applyContractFieldsToSlid(conn, slid, bodyWithoutContact(body), effStatus, {
+    if (renewDraftOrigin) {
+      const originOldSof =
+        renewDraftOrigin.old_sof != null && String(renewDraftOrigin.old_sof).trim() !== ''
+          ? String(renewDraftOrigin.old_sof).trim()
+          : null;
+      const newSofForPeers =
+        body.sof_name != null && String(body.sof_name).trim() !== ''
+          ? String(body.sof_name).trim()
+          : existingSofForHistory;
+      const renewPeerSlids = originOldSof
+        ? await findSlidsWithMatchingSof(conn, originOldSof, cid)
+        : [];
+      for (const slid of renewPeerSlids) {
+        const peerRow = await slc.fetchSiteLocationRow(conn, slid);
+        if (!peerRow) continue;
+        const peerStatus = String(peerRow.status ?? '').trim().toLowerCase();
+        if (peerStatus === 'not_renewing') continue;
+        const peerOldSof = peerRow.SOF != null ? String(peerRow.SOF).trim() : null;
+        await slc.insertSiteLocationHistory(conn, slid, slc.HIST_ACTION.RENEW, {
+          oldSof: peerOldSof,
+          newSof: newSofForPeers,
+          terminatedReason: 'Finalized renew draft (peer)',
+        });
+        await applyContractFieldsToSlid(conn, slid, bodyWithoutContact(body), 'official', {
           persistContractName: false,
+          contact: pairContactForSlid(pairs, slid),
         });
       }
+      if (originOldSof && newSofForPeers && originOldSof !== newSofForPeers) {
+        await syncSofRenameToAllPeers(conn, originOldSof, newSofForPeers);
+      }
     } else {
-      const peerBody =
-        sofChangeHistory && !syncSofRenameAll
-          ? bodyWithoutContact({ ...body, sof_name: undefined, sof_id: undefined })
-          : bodyWithoutContact(body);
+      const syncAllPeersOnSofRename =
+        syncSofRenameAll &&
+        sofChangeHistory?.oldSof &&
+        sofChangeHistory?.newSof &&
+        sofChangeHistory.oldSof !== sofChangeHistory.newSof;
 
-      if (
-        oldSofForPeers &&
-        shouldPropagateContractFields(peerBody, existing, {
-          sofChangeHistory: syncSofRenameAll ? sofChangeHistory : null,
-          otherEdits,
-          isTransitionToNotRenewing,
-        })
-      ) {
-        await propagateContractFieldsToSameSofPeers(
+      if (syncAllPeersOnSofRename) {
+        await recordSofChangeHistoryForSlids(
           conn,
-          oldSofForPeers,
-          cid,
-          peerBody,
-          effStatus
+          peerSlidsWithOldSof,
+          {
+            oldSof: sofChangeHistory.oldSof,
+            newSof: sofChangeHistory.newSof,
+          },
+          { excludeSlid: cid }
         );
+        for (const slid of peerSlidsWithOldSof) {
+          if (slid === cid) continue;
+          await applyContractFieldsToSlid(conn, slid, bodyWithoutContact(body), effStatus, {
+            persistContractName: false,
+          });
+        }
+      } else {
+        const peerBody =
+          sofChangeHistory && !syncSofRenameAll
+            ? bodyWithoutContact({ ...body, sof_name: undefined, sof_id: undefined })
+            : bodyWithoutContact(body);
+
+        if (
+          oldSofForPeers &&
+          shouldPropagateContractFields(peerBody, existing, {
+            sofChangeHistory: syncSofRenameAll ? sofChangeHistory : null,
+            otherEdits,
+            isTransitionToNotRenewing,
+          })
+        ) {
+          await propagateContractFieldsToSameSofPeers(
+            conn,
+            oldSofForPeers,
+            cid,
+            peerBody,
+            effStatus
+          );
+        }
       }
     }
 
@@ -1285,6 +1559,8 @@ const updateContract = async (req, res) => {
     if (isTransitionToNotRenewing) {
       notifyEvent = 'terminated';
       notifyMeta.terminationReason = terminationReason;
+    } else if (renewDraftOrigin) {
+      notifyEvent = 'renewed';
     } else if (sofChangeHistory) {
       notifyEvent = 'sof_changed';
       notifyMeta.oldSof = sofChangeHistory.oldSof;
@@ -1888,6 +2164,261 @@ const importSofDetails = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/contracts/:id/merge-candidates
+ * Peers with the same SOF (active only) for Merge UI.
+ */
+const getMergeCandidates = async (req, res) => {
+  if (!isContractMergeEnabled()) {
+    return res.status(404).json({ success: false, message: 'Not found' });
+  }
+  if (await dispatchLegacyContract('getContractById', req, res)) return;
+  const conn = await db.getConnection();
+  try {
+    const primarySlid = parseInt(req.params.id, 10);
+    if (Number.isNaN(primarySlid)) {
+      return res.status(400).json({ success: false, message: 'contract_id is not valid' });
+    }
+    const primary = await slc.fetchSiteLocationRow(conn, primarySlid);
+    if (!primary) {
+      return res.status(404).json({ success: false, message: 'Contract not found' });
+    }
+    const sof = primary.SOF != null ? String(primary.SOF).trim() : '';
+    if (!sof) {
+      return res.status(400).json({
+        success: false,
+        message: 'Primary contract has no SOF — cannot merge',
+      });
+    }
+
+    const peerSlids = await findSlidsWithMatchingSof(conn, sof, primarySlid);
+    const candidates = [];
+    for (const slid of peerSlids) {
+      const row = await slc.fetchSiteLocationRow(conn, slid);
+      if (!row) continue;
+      const status = String(row.status ?? '').trim().toLowerCase();
+      if (status === 'not_renewing') continue;
+      const detail = slc.mapSlRowToContractDetail(row);
+      const [countRows] = await conn.execute(
+        'SELECT COUNT(*) AS cnt FROM devices WHERE SLid = ?',
+        [slid]
+      );
+      const deviceCount = Number(countRows?.[0]?.cnt || 0);
+      candidates.push({
+        contract_id: slid,
+        contract_name: detail?.contract_name || '',
+        site_name: detail?.site_name || '',
+        site_location: detail?.site_location || '',
+        site_province: detail?.site_province || '',
+        sof_name: sof,
+        status: row.status,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        device_count: deviceCount,
+        suggested_name:
+          detail?.site_name && detail?.site_location
+            ? `${detail.site_name} - ${detail.site_location}`
+            : detail?.contract_name || `SLid ${slid}`,
+      });
+    }
+
+    const primaryDetail = slc.mapSlRowToContractDetail(primary);
+    const [primaryCountRows] = await conn.execute(
+      'SELECT COUNT(*) AS cnt FROM devices WHERE SLid = ?',
+      [primarySlid]
+    );
+    const primaryDeviceCount = Number(primaryCountRows?.[0]?.cnt || 0);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        primary: {
+          contract_id: primarySlid,
+          contract_name: primaryDetail?.contract_name || '',
+          site_name: primaryDetail?.site_name || '',
+          site_location: primaryDetail?.site_location || '',
+          site_province: primaryDetail?.site_province || '',
+          sof_name: sof,
+          status: primary.status,
+          start_date: primary.start_date,
+          end_date: primary.end_date,
+          device_count: primaryDeviceCount,
+          suggested_name:
+            primaryDetail?.site_name && primaryDetail?.site_location
+              ? `${primaryDetail.site_name} - ${primaryDetail.site_location}`
+              : primaryDetail?.contract_name || `SLid ${primarySlid}`,
+        },
+        candidates,
+      },
+    });
+  } catch (error) {
+    console.error('getMergeCandidates:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load merge candidates',
+      error: error.message,
+    });
+  } finally {
+    conn.release();
+  }
+};
+
+/**
+ * POST /api/contracts/merge
+ * Merge source SLids into primary (same SOF only). Moves devices, closes sources.
+ * Body: { primary_slid, source_slids: number[], contract_name?: string }
+ */
+const mergeContracts = async (req, res) => {
+  if (!isContractMergeEnabled()) {
+    return res.status(404).json({ success: false, message: 'Not found' });
+  }
+  if (await usesLegacyContractTable()) {
+    return res.status(400).json({
+      success: false,
+      message: 'Merge is not available in legacy contract mode',
+    });
+  }
+  const conn = await db.getConnection();
+  try {
+    const body = req.body || {};
+    const primarySlid = parseInt(body.primary_slid, 10);
+    const sourceRaw = Array.isArray(body.source_slids) ? body.source_slids : [];
+    const sourceSlids = [
+      ...new Set(
+        sourceRaw
+          .map((id) => parseInt(id, 10))
+          .filter((n) => !Number.isNaN(n) && n !== primarySlid)
+      ),
+    ];
+    const contractName =
+      body.contract_name != null && String(body.contract_name).trim() !== ''
+        ? String(body.contract_name).trim()
+        : null;
+
+    if (Number.isNaN(primarySlid)) {
+      return res.status(400).json({ success: false, message: 'primary_slid is required' });
+    }
+    if (sourceSlids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select at least one contract to merge into the primary',
+      });
+    }
+
+    const primary = await slc.fetchSiteLocationRow(conn, primarySlid);
+    if (!primary) {
+      return res.status(404).json({ success: false, message: 'Primary contract not found' });
+    }
+    const primaryStatus = String(primary.status ?? '').trim().toLowerCase();
+    if (primaryStatus === 'not_renewing') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot merge into a closed (not renewing) contract',
+      });
+    }
+    const sof = primary.SOF != null ? String(primary.SOF).trim() : '';
+    if (!sof) {
+      return res.status(400).json({
+        success: false,
+        message: 'Primary contract has no SOF — cannot merge',
+      });
+    }
+
+    const allowedPeers = new Set(
+      (await findSlidsWithMatchingSof(conn, sof, primarySlid)).map((id) => parseInt(id, 10))
+    );
+    for (const slid of sourceSlids) {
+      if (!allowedPeers.has(slid)) {
+        return res.status(400).json({
+          success: false,
+          message: `Contract ${slid} does not share the same SOF as the primary — merge blocked`,
+        });
+      }
+      const src = await slc.fetchSiteLocationRow(conn, slid);
+      if (!src) {
+        return res.status(404).json({ success: false, message: `Contract ${slid} not found` });
+      }
+      const st = String(src.status ?? '').trim().toLowerCase();
+      if (st === 'not_renewing') {
+        return res.status(400).json({
+          success: false,
+          message: `Contract ${slid} is already closed — skip or pick another`,
+        });
+      }
+    }
+
+    await conn.beginTransaction();
+
+    let devicesMoved = 0;
+    const closedSlids = [];
+
+    for (const slid of sourceSlids) {
+      await slc.insertSiteLocationHistory(conn, slid, slc.HIST_ACTION.MERGE, {
+        oldSof: sof,
+        newSof: sof,
+        terminatedReason: `Merged into SLid ${primarySlid}`,
+      });
+
+      const [devRows] = await conn.execute('SELECT Did FROM devices WHERE SLid = ?', [slid]);
+      const deviceIds = (devRows || [])
+        .map((r) => parseInt(r.Did, 10))
+        .filter((n) => !Number.isNaN(n));
+      if (deviceIds.length > 0) {
+        await slc.assignDevicesToSlid(conn, primarySlid, deviceIds);
+        devicesMoved += deviceIds.length;
+      }
+
+      await slc.updateSiteLocationContract(conn, slid, { status: 'not_renewing' });
+      closedSlids.push(slid);
+    }
+
+    await slc.insertSiteLocationHistory(conn, primarySlid, slc.HIST_ACTION.MERGE, {
+      oldSof: sof,
+      newSof: sof,
+      terminatedReason: `Merged from SLid(s): ${closedSlids.join(', ')}`,
+    });
+
+    if (contractName != null) {
+      await slc.updateSiteLocationContract(conn, primarySlid, { contract_name: contractName });
+    }
+
+    await conn.commit();
+
+    const [afterCountRows] = await conn.execute(
+      'SELECT COUNT(*) AS cnt FROM devices WHERE SLid = ?',
+      [primarySlid]
+    );
+    const primaryDeviceCount = Number(afterCountRows?.[0]?.cnt || 0);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Contracts merged successfully',
+      data: {
+        primary_slid: primarySlid,
+        closed_slids: closedSlids,
+        devices_moved: devicesMoved,
+        primary_device_count: primaryDeviceCount,
+        contract_name: contractName,
+        sof_name: sof,
+      },
+    });
+  } catch (error) {
+    try {
+      await conn.rollback();
+    } catch (_) {
+      /* ignore */
+    }
+    console.error('mergeContracts:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to merge contracts',
+      error: error.message,
+    });
+  } finally {
+    conn.release();
+  }
+};
+
 module.exports = {
   createContract,
   uploadContractFile,
@@ -1906,4 +2437,6 @@ module.exports = {
   getContractHistory,
   getContractById,
   updateContract,
+  getMergeCandidates,
+  mergeContracts,
 };

@@ -24,6 +24,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     const handleResize = () => {
       if (window.innerWidth < 768) {
         setIsMobileOpen(false);
+        setIsHovered(false);
       }
     };
 

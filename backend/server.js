@@ -60,6 +60,17 @@ app.use('/api/analytics', authenticateToken, analyticsRoutes);
 const holidayRoutes = require('./routes/holidayRoutes');
 app.use('/api/holidays', authenticateToken, holidayRoutes);
 
+const { isContractMergeEnabled } = require('./lib/featureFlags');
+/** Feature flags from backend .env (runtime) — client should prefer this over NEXT_PUBLIC_* */
+app.get('/api/features', authenticateToken, (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      contractMerge: isContractMergeEnabled(),
+    },
+  });
+});
+
 app.get('/', (req, res) => {
   res.json({
     message: 'MA/PM Plan API',

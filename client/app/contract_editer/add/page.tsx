@@ -778,6 +778,13 @@ function AddContractPageContent() {
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [saveLoadingMode, setSaveLoadingMode] = useState<'draft' | 'submit' | null>(null);
   const saveLoading = saveLoadingMode !== null;
+  /** When editing a renew draft — origin from history action "Renew Draft" */
+  const [renewDraftOrigin, setRenewDraftOrigin] = useState<{
+    oldSof: string;
+    newSof: string;
+    previousPeriod: string;
+    note: string;
+  } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [fetchError, setFetchError] = useState('');
   const [saveError, setSaveError] = useState('');
@@ -1019,7 +1026,7 @@ function AddContractPageContent() {
       try {
         // ไม่โหลด /sites/locations ทั้งก้อน และไม่ดึง refer-sof ซ้ำ (มี effect แยกแล้ว)
         const contractRes = await apiFetch(
-          apiUrl(`/api/contracts/${editContractId}?include_history=0`),
+          apiUrl(`/api/contracts/${editContractId}?include_history=1`),
         );
         const contractJson = await contractRes.json();
 
@@ -1028,6 +1035,33 @@ function AddContractPageContent() {
         }
 
         const contract = contractJson.data;
+        setRenewDraftOrigin(null);
+
+        const statusNorm =
+          contract.status != null ? String(contract.status).trim().toLowerCase() : '';
+        if (statusNorm === 'draft' && Array.isArray(contract.history)) {
+          type HistRow = {
+            status_history?: string | null;
+            old_sof?: string | null;
+            new_sof?: string | null;
+            terminated_reason?: string | null;
+            renewed_at?: string | null;
+          };
+          const draftHist = (contract.history as HistRow[]).find((h) => {
+            const t = String(h.status_history ?? '').trim().toLowerCase().replace(/\s+/g, '');
+            return t === 'renewdraft';
+          });
+          if (draftHist) {
+            const note = draftHist.terminated_reason != null ? String(draftHist.terminated_reason) : '';
+            const periodMatch = note.match(/previous period:\s*([^\n.]+)/i);
+            setRenewDraftOrigin({
+              oldSof: draftHist.old_sof != null ? String(draftHist.old_sof).trim() : '—',
+              newSof: draftHist.new_sof != null ? String(draftHist.new_sof).trim() : '',
+              previousPeriod: periodMatch?.[1]?.trim() || '—',
+              note,
+            });
+          }
+        }
 
         if (contract.contract_name) setContractName(contract.contract_name);
         if (contract.sof_name) {
@@ -1893,7 +1927,7 @@ function AddContractPageContent() {
     e?.preventDefault?.();
     setSaveError('');
 
-    // ถ้าไม่ใช่ draft ยังต้องกรอกข้อมูลบังคับให้ครบ
+    // ถ้าไม่ใช่ draft ยังต้องกรอกข้อมูลบังคับให้ครบ — draft บันทึกไม่ครบได้
     if (!isDraft) {
       if (!contractName.trim()) {
         const msg = 'Please enter Contract Name';
@@ -1941,63 +1975,86 @@ function AddContractPageContent() {
         return;
       }
 
-      if (renewContractId) {
-        if (!startDate.trim() || !endDate.trim()) {
-          const msg = 'Please enter new Start Date and End Date for the renewed contract';
-          setSaveError(msg);
-          toastError(msg);
-          return;
-        }
-        if (oldContractEndDate && startDate <= oldContractEndDate) {
-          const msg = 'New Start Date must be after the old contract End Date';
-          setSaveError(msg);
-          toastError(msg);
-          return;
-        }
-        if (endDate < startDate) {
-          const msg = 'End Date must be on or after Start Date';
-          setSaveError(msg);
-          toastError(msg);
-          return;
-        }
-      }
-    }
-
-    // ดักรูปแบบ Email และ Telephone ต่อผู้ติดต่อ (ถ้ามีการกรอก)
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    for (let si = 0; si < saleContacts.length; si++) {
-      const row = saleContacts[si];
-      const et = row.email.trim();
-      if (et && !emailRegex.test(et)) {
-        const msg = 'Please enter a valid email for each sale contact row.';
+      // Save / Renew / Save Changes — ต้องมีช่วงสัญญาครบ (draft ไม่บังคับ)
+      if (!startDate.trim() || !endDate.trim()) {
+        const msg = renewContractId || renewDraftOrigin
+          ? 'Please enter new Start Date and End Date for the renewed contract'
+          : 'Please enter Start Date and End Date';
         setSaveError(msg);
         toastError(msg);
         return;
       }
-      const mainD = row.tel.replace(/\D/g, '');
-      const extD = row.telExt.replace(/\D/g, '');
-      if (mainD || extD) {
-        const telErr = validateEmployeePhoneSubmit(row.tel, row.telExt);
-        if (telErr) {
-          const msg = `Sale contact row ${si + 1}: ${telErr}`;
+      if (endDate < startDate) {
+        const msg = 'End Date must be on or after Start Date';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
+      if (renewContractId && oldContractEndDate && startDate <= oldContractEndDate) {
+        const msg = 'New Start Date must be after the old contract End Date';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
+      // Finalize renew draft via Edit — บังคับวันที่เช่นเดียวกับ renew
+      if (renewDraftOrigin?.previousPeriod && renewDraftOrigin.previousPeriod !== '—') {
+        const parts = renewDraftOrigin.previousPeriod.split(/\s*[–-]\s*/);
+        const prevEnd = parts.length >= 2 ? parts[1].trim() : '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(prevEnd) && startDate <= prevEnd) {
+          const msg = 'New Start Date must be after the previous contract End Date';
           setSaveError(msg);
           toastError(msg);
           return;
         }
       }
+    } else if (slaTerm.trim()) {
+      // draft: ถ้าใส่ SLA มาแล้ว ต้องเป็นตัวเลขที่ถูกต้อง
+      const slaTermNum = parseFloat(slaTerm.trim());
+      if (isNaN(slaTermNum) || slaTermNum < 0 || slaTermNum > 100) {
+        const msg = 'SLA Term must be a number between 0 and 100';
+        setSaveError(msg);
+        toastError(msg);
+        return;
+      }
     }
 
-    for (const entry of siteEntries) {
-      for (let ci = 0; ci < entry.siteContactRows.length; ci++) {
-        const row = entry.siteContactRows[ci];
-        if (!row.tel.replace(/\D/g, '')) continue;
-        const telErr = validateOptionalContractPhoneLine(row.tel);
-        if (telErr) {
-          const siteLabel = entry.siteLabel?.trim() || entry.siteId || 'site';
-          const msg = `Site contact (${siteLabel}) row ${ci + 1}: ${telErr}`;
+    // รูปแบบ email/tel — บังคับเฉพาะตอน Save จริง (draft ข้ามได้แม้กรอกค้างไว้)
+    if (!isDraft) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      for (let si = 0; si < saleContacts.length; si++) {
+        const row = saleContacts[si];
+        const et = row.email.trim();
+        if (et && !emailRegex.test(et)) {
+          const msg = 'Please enter a valid email for each sale contact row.';
           setSaveError(msg);
           toastError(msg);
           return;
+        }
+        const mainD = row.tel.replace(/\D/g, '');
+        const extD = row.telExt.replace(/\D/g, '');
+        if (mainD || extD) {
+          const telErr = validateEmployeePhoneSubmit(row.tel, row.telExt);
+          if (telErr) {
+            const msg = `Sale contact row ${si + 1}: ${telErr}`;
+            setSaveError(msg);
+            toastError(msg);
+            return;
+          }
+        }
+      }
+
+      for (const entry of siteEntries) {
+        for (let ci = 0; ci < entry.siteContactRows.length; ci++) {
+          const row = entry.siteContactRows[ci];
+          if (!row.tel.replace(/\D/g, '')) continue;
+          const telErr = validateOptionalContractPhoneLine(row.tel);
+          if (telErr) {
+            const siteLabel = entry.siteLabel?.trim() || entry.siteId || 'site';
+            const msg = `Site contact (${siteLabel}) row ${ci + 1}: ${telErr}`;
+            setSaveError(msg);
+            toastError(msg);
+            return;
+          }
         }
       }
     }
@@ -2047,32 +2104,43 @@ function AddContractPageContent() {
       });
 
       if (pairsFromOld.length > 0) {
-        setSaveLoadingMode('submit');
+        setSaveLoadingMode(isDraft ? 'draft' : 'submit');
         try {
+          const sofForBody = (isNewContractFlow ? getEffectiveNewContractSof() : selectedSOF).trim();
           const body: Record<string, unknown> = {
-            contract_name: contractName.trim() || null,
-            start_date: startDate || null,
-            end_date: endDate || null,
             site_device_pairs: pairsFromOld,
             ...(pairsFromOld[0]?.site_id != null
               ? { site_id: pairsFromOld[0].site_id }
               : {}),
-            sof_name: (isNewContractFlow ? getEffectiveNewContractSof() : selectedSOF).trim() || null,
-            assigned_service: assignedService.trim() || null,
-            sla_term: slaTerm.trim(),
-            sale_account: saleFields.sale_account,
-            email_acc: saleFields.email_acc,
-            tel_acc: saleFields.tel_acc,
-            coverage_scope: coverageScope.trim() || null,
-            remark: remark.trim() || null,
-            contract_sign_date: contractSignDate || null,
-            pm_time_per_year: pmTimePerYear ? parseInt(pmTimePerYear, 10) : null,
-            file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
-            image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
             old_contract_id: renewContractId ? parseInt(renewContractId, 10) : null,
             old_sof: renewContractId && oldContractSOF ? oldContractSOF : null,
             status: isDraft ? 'draft' : 'official',
           };
+          if (!isDraft || contractName.trim()) body.contract_name = contractName.trim() || null;
+          if (!isDraft || startDate) body.start_date = startDate || null;
+          if (!isDraft || endDate) body.end_date = endDate || null;
+          if (!isDraft || sofForBody) body.sof_name = sofForBody || null;
+          if (!isDraft || assignedService.trim()) {
+            body.assigned_service = assignedService.trim() || null;
+          }
+          if (!isDraft || slaTerm.trim()) body.sla_term = slaTerm.trim() || null;
+          if (!isDraft || saleFields.sale_account) body.sale_account = saleFields.sale_account;
+          if (!isDraft || saleFields.email_acc) body.email_acc = saleFields.email_acc;
+          if (!isDraft || saleFields.tel_acc) body.tel_acc = saleFields.tel_acc;
+          if (!isDraft || coverageScope.trim()) {
+            body.coverage_scope = coverageScope.trim() || null;
+          }
+          if (!isDraft || remark.trim()) body.remark = remark.trim() || null;
+          if (!isDraft || contractSignDate) body.contract_sign_date = contractSignDate || null;
+          if (!isDraft || pmTimePerYear) {
+            body.pm_time_per_year = pmTimePerYear ? parseInt(pmTimePerYear, 10) : null;
+          }
+          if (!isDraft || filePaths.length) {
+            body.file_paths = filePaths.length ? JSON.stringify(filePaths) : null;
+          }
+          if (!isDraft || imagePaths.length) {
+            body.image_paths = imagePaths.length ? JSON.stringify(imagePaths) : null;
+          }
           const res = await apiFetch(apiUrl('/api/contracts'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2080,10 +2148,12 @@ function AddContractPageContent() {
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
-          let msg = `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`;
+          let msg = isDraft
+            ? `Renew saved as draft (from SOF: ${oldContractSOF || '—'})`
+            : `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`;
           if (data.data?.history_saved === false) {
-            msg += ' — แต่บันทึกประวัติ (contract_history) ไม่สำเร็จ ตรวจสอบ backend log';
-            toastError('บันทึกประวัติสัญญาไม่สำเร็จ — ตรวจสอบตาราง contract_history');
+            msg += ' — แต่บันทึกประวัติไม่สำเร็จ';
+            toastError('บันทึกประวัติสัญญาไม่สำเร็จ');
           }
           router.push('/contract_editer?toast=success&msg=' + encodeURIComponent(msg));
         } catch (err) {
@@ -2097,11 +2167,10 @@ function AddContractPageContent() {
       }
     }
 
-    // ถ้าเป็น draft ปล่อยช่อง site และ device ว่างได้
-    // ถ้ากด Save Changes (ไม่ใช่ draft) ต้องมี site และ device อย่างน้อย 1 รายการ (ทั้งสร้างใหม่ แก้ไข และต่อสัญญา)
+    // Save จริงต้องมี site+device — draft ปล่อยว่างได้ (ยกเว้น renew ที่ยังใช้ device เก่าได้)
     if (!isDraft) {
       if (validPairs.length === 0 && oldDeviceIds.length === 0) {
-        const msg = renewContractId
+        const msg = renewContractId || renewDraftOrigin
           ? 'Please select at least 1 device (from old contract or add new)'
           : 'Please select at least 1 site and device';
         setSaveError(msg);
@@ -2176,25 +2245,59 @@ function AddContractPageContent() {
 
       const primaryContractSlid = primaryContractSiteIdFromEntries(validPairs);
 
+      const sofForBody = (isNewContractFlow ? getEffectiveNewContractSof() : selectedSOF).trim();
+      /** Draft: omit empty fields so we don't wipe existing DB values; Save: send null to clear */
       const body: Record<string, unknown> = {
-        contract_name: contractName.trim() || null,
-        start_date: startDate || null,
-        end_date: endDate || null,
-        ...(primaryContractSlid != null ? { site_id: primaryContractSlid } : {}),
-        sof_name: (isNewContractFlow ? getEffectiveNewContractSof() : selectedSOF).trim() || null,
-        assigned_service: assignedService.trim() || null,
-        sla_term: slaTerm.trim() ? slaTerm.trim() : null,
-        sale_account: saleFields.sale_account,
-        email_acc: saleFields.email_acc,
-        tel_acc: saleFields.tel_acc,
-        coverage_scope: coverageScope.trim() || null,
-        remark: remark.trim() || null,
-        contract_sign_date: contractSignDate || null,
-        pm_time_per_year: pmTimePerYear ? parseInt(pmTimePerYear, 10) : null,
-        file_paths: filePaths.length ? JSON.stringify(filePaths) : null,
-        image_paths: imagePaths.length ? JSON.stringify(imagePaths) : null,
         status: isDraft ? 'draft' : 'official',
       };
+      if (!isDraft || contractName.trim()) {
+        body.contract_name = contractName.trim() || null;
+      }
+      if (!isDraft || startDate) {
+        body.start_date = startDate || null;
+      }
+      if (!isDraft || endDate) {
+        body.end_date = endDate || null;
+      }
+      if (primaryContractSlid != null) {
+        body.site_id = primaryContractSlid;
+      }
+      if (!isDraft || sofForBody) {
+        body.sof_name = sofForBody || null;
+      }
+      if (!isDraft || assignedService.trim()) {
+        body.assigned_service = assignedService.trim() || null;
+      }
+      if (!isDraft || slaTerm.trim()) {
+        body.sla_term = slaTerm.trim() ? slaTerm.trim() : null;
+      }
+      if (!isDraft || saleFields.sale_account) {
+        body.sale_account = saleFields.sale_account;
+      }
+      if (!isDraft || saleFields.email_acc) {
+        body.email_acc = saleFields.email_acc;
+      }
+      if (!isDraft || saleFields.tel_acc) {
+        body.tel_acc = saleFields.tel_acc;
+      }
+      if (!isDraft || coverageScope.trim()) {
+        body.coverage_scope = coverageScope.trim() || null;
+      }
+      if (!isDraft || remark.trim()) {
+        body.remark = remark.trim() || null;
+      }
+      if (!isDraft || contractSignDate) {
+        body.contract_sign_date = contractSignDate || null;
+      }
+      if (!isDraft || pmTimePerYear) {
+        body.pm_time_per_year = pmTimePerYear ? parseInt(pmTimePerYear, 10) : null;
+      }
+      if (!isDraft || filePaths.length) {
+        body.file_paths = filePaths.length ? JSON.stringify(filePaths) : null;
+      }
+      if (!isDraft || imagePaths.length) {
+        body.image_paths = imagePaths.length ? JSON.stringify(imagePaths) : null;
+      }
 
       if (isNewContractFlow && !editContractId) {
         body.create_with_new_sof = true;
@@ -2238,15 +2341,23 @@ function AddContractPageContent() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error || 'Save failed');
       let message = editContractId
-        ? (isDraft ? 'Saved as draft' : 'Contract updated successfully')
+        ? isDraft
+          ? renewDraftOrigin
+            ? `Renew draft updated (from SOF: ${renewDraftOrigin.oldSof})`
+            : 'Saved as draft'
+          : renewDraftOrigin
+            ? `Renew finalized (from SOF: ${renewDraftOrigin.oldSof} → ${selectedSOF || renewDraftOrigin.newSof || '—'})`
+            : 'Contract updated successfully'
         : renewContractId
-          ? `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`
+          ? isDraft
+            ? `Renew saved as draft (from SOF: ${oldContractSOF || '—'})`
+            : `Contract renewed successfully (Old SOF: ${oldContractSOF} → New SOF: ${selectedSOF})`
           : isDraft
             ? 'Saved as draft'
             : 'New contract saved successfully';
       if (renewContractId && data.data?.history_saved === false) {
-        message += ' — แต่บันทึกประวัติ (contract_history) ไม่สำเร็จ';
-        toastError('บันทึกประวัติสัญญาไม่สำเร็จ — ตรวจสอบตาราง contract_history');
+        message += ' — แต่บันทึกประวัติไม่สำเร็จ';
+        toastError('บันทึกประวัติสัญญาไม่สำเร็จ');
       }
       router.push('/contract_editer?toast=success&msg=' + encodeURIComponent(message));
     } catch (err) {
@@ -2306,10 +2417,24 @@ function AddContractPageContent() {
                   ) : (
                     <FilePlus size={28} className="shrink-0 text-sky-600" aria-hidden />
                   )}
-                  <span>{editContractId ? 'Edit Contract' : 'Add New Contract'}</span>
+                  <span>
+                    {editContractId
+                      ? renewDraftOrigin
+                        ? 'Edit Renew Draft'
+                        : 'Edit Contract'
+                      : renewContractId
+                        ? 'Renew Contract'
+                        : 'Add New Contract'}
+                  </span>
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {editContractId ? 'Edit contract information' : 'Enter contract information completely'}
+                  {editContractId
+                    ? renewDraftOrigin
+                      ? `Renew draft from SOF ${renewDraftOrigin.oldSof} · previous period ${renewDraftOrigin.previousPeriod}`
+                      : 'Edit contract information'
+                    : renewContractId
+                      ? 'Renew contract — Save as draft keeps a Renew Draft history of the previous values'
+                      : 'Enter contract information completely'}
                 </p>
               </div>
             </div>
@@ -2427,6 +2552,48 @@ function AddContractPageContent() {
                   )}
                 </>
               )}
+            </FormSection>
+          )}
+
+          {editContractId && renewDraftOrigin && (
+            <FormSection
+              title="Renew draft — origin"
+              description="This draft overwrote the contract in place. Values below are from before the renew draft."
+              icon={RefreshCw}
+              gradient="from-amber-50 to-orange-50"
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Previous SOF">
+                  <input
+                    type="text"
+                    value={renewDraftOrigin.oldSof}
+                    readOnly
+                    className={`${inputBase} bg-muted cursor-not-allowed`}
+                  />
+                </FormField>
+                <FormField label="Intended new SOF (at draft save)">
+                  <input
+                    type="text"
+                    value={renewDraftOrigin.newSof || selectedSOF || '—'}
+                    readOnly
+                    className={`${inputBase} bg-muted cursor-not-allowed`}
+                  />
+                </FormField>
+                <FormField label="Previous period">
+                  <input
+                    type="text"
+                    value={renewDraftOrigin.previousPeriod}
+                    readOnly
+                    className={`${inputBase} bg-muted cursor-not-allowed`}
+                  />
+                </FormField>
+              </div>
+              {renewDraftOrigin.note ? (
+                <p className="mt-3 text-xs text-amber-700">{renewDraftOrigin.note}</p>
+              ) : null}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Save as draft keeps status draft. Save Changes publishes as official renew (history: Renew).
+              </p>
             </FormSection>
           )}
 
@@ -2998,7 +3165,6 @@ function AddContractPageContent() {
                   }}
                   onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
                   className={inputBase}
-                  required={Boolean(renewContractId)}
                 />
                 {renewContractId && oldContractEndDate ? (
                   <p className="mt-1 text-xs text-amber-600">
@@ -3068,7 +3234,6 @@ function AddContractPageContent() {
                   }}
                   onClick={(e) => (e.currentTarget as HTMLInputElement).showPicker?.()}
                   className={inputBase}
-                  required={Boolean(renewContractId)}
                 />
               </FormField>
               <FormField label="PM Time Per Year">
@@ -4027,26 +4192,24 @@ function AddContractPageContent() {
               <span>Back</span>
             </Link>
             <div className="flex flex-wrap gap-3">
-              {!renewContractId && (
-                <button
-                  type="button"
-                  onClick={(e) => handleSubmit(e, true)}
-                  disabled={saveLoading}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-border/90 bg-muted/90 px-6 py-3 font-semibold text-muted-foreground shadow-sm transition-all hover:border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {saveLoadingMode === 'draft' ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FileText size={18} aria-hidden />
-                      <span>Save as draft</span>
-                    </>
-                  )}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={(e) => handleSubmit(e, true)}
+                disabled={saveLoading}
+                className="flex items-center justify-center gap-2 rounded-xl border border-border/90 bg-muted/90 px-6 py-3 font-semibold text-muted-foreground shadow-sm transition-all hover:border-border hover:bg-muted disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {saveLoadingMode === 'draft' ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText size={18} aria-hidden />
+                    <span>Save as draft</span>
+                  </>
+                )}
+              </button>
               <button
                 type="submit"
                 disabled={saveLoading}

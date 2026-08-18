@@ -7,9 +7,12 @@ const { noSofWhere } = require('../config/deviceSof');
 
 const HIST_ACTION = {
   RENEW: 'Renew',
+  /** In-place renew saved as draft — keep ≤10 chars (legacy action_type width) */
+  RENEW_DRAFT: 'RenewDraft',
   TERMINATED: 'Terminated',
   SOF_CHANGE: 'SOF Change',
   UPDATE: 'Update',
+  MERGE: 'Merge',
 };
 
 const SITE_LOCATION_NAME_EXPR = `CONCAT(COALESCE(s.Name, ''), CASE WHEN l.Location2 IS NOT NULL AND TRIM(l.Location2) != '' THEN CONCAT(' - ', l.Location2) ELSE '' END)`;
@@ -176,6 +179,26 @@ async function ensureHistoryCompatColumns(conn) {
     if (!(await columnExists(conn, 'sites_location_sof_history', col))) {
       await conn.execute(`ALTER TABLE sites_location_sof_history ADD COLUMN \`${col}\` ${def}`);
     }
+  }
+  // Legacy action_type may be varchar(10); widen so values like RenewDraft / SOF Change fit safely
+  try {
+    const [cols] = await conn.execute(
+      `SELECT CHARACTER_MAXIMUM_LENGTH AS maxlen, DATA_TYPE AS dtype
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'sites_location_sof_history'
+         AND COLUMN_NAME = 'action_type'
+       LIMIT 1`
+    );
+    const maxlen = cols?.[0]?.maxlen != null ? Number(cols[0].maxlen) : null;
+    const dtype = cols?.[0]?.dtype != null ? String(cols[0].dtype).toLowerCase() : '';
+    if (dtype === 'varchar' && Number.isFinite(maxlen) && maxlen < 32) {
+      await conn.execute(
+        'ALTER TABLE sites_location_sof_history MODIFY COLUMN `action_type` varchar(32) DEFAULT NULL'
+      );
+    }
+  } catch (err) {
+    console.warn('[history] could not widen action_type:', err?.message || err);
   }
 }
 

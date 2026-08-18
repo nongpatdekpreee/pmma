@@ -101,10 +101,13 @@ export function ensureAuthSession(): Promise<AuthUser | null> {
       .then((user) => {
         if (user) {
           scheduleAccessTokenRefresh();
-        } else {
+          return user;
+        }
+        // อย่า logout ถ้า refresh อื่นตั้ง token ไว้แล้ว (กัน race ตอน rotation)
+        if (!getAccessToken()) {
           handleSessionExpired();
         }
-        return user;
+        return null;
       })
       .finally(() => {
         inflight = null;
@@ -113,10 +116,12 @@ export function ensureAuthSession(): Promise<AuthUser | null> {
   return inflight;
 }
 
-/** หลัง 401 — ล้าง token แล้ว refresh ใหม่ */
+/**
+ * หลัง 401 — ล้าง access token แล้ว refresh ใหม่
+ * สำคัญ: อย่าเคลียร์ inflight (ถ้ายกเลิก refresh ที่หมุน cookie ไปแล้ว จะได้ cookie เก่า → session หลุด)
+ */
 export async function recoverAuthSession(): Promise<AuthUser | null> {
   setAccessToken(null);
   clearRefreshTimer();
-  inflight = null;
   return ensureAuthSession();
 }

@@ -88,16 +88,26 @@ export async function GET(req: Request) {
           type?: string;
           substitute?: boolean;
           start?: Date;
+          date?: string;
         }>;
 
         return holidays
           .filter((h) => h.type === 'public' && h.start instanceof Date)
           .map((h, idx) => {
-            const d = h.start as Date;
-            const yyyy = d.getFullYear();
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            const dd = String(d.getDate()).padStart(2, '0');
-            const date = `${yyyy}-${mm}-${dd}`;
+            // Prefer library calendar date string. Do NOT use Date#getDate() —
+            // date-holidays stores TH midnight as previous-day 17:00Z, so UTC servers
+            // shift holidays back by 1 day (e.g. New Year → Dec 31).
+            let date = '';
+            if (typeof h.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(h.date)) {
+              date = h.date.slice(0, 10);
+            } else {
+              date = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Bangkok',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+              }).format(h.start as Date);
+            }
             const name = h.substitute ? `${h.name || 'วันหยุดราชการ'} (ชดเชย)` : (h.name || 'วันหยุดราชการ');
             return {
               id: `official-${year}-${idx}-${date}`,

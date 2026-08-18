@@ -26,7 +26,7 @@ import { AddTaskModal } from '@/components/ui/AddTaskModal';
 import { TaskDetailModal } from '@/components/ui/detail';
 import { useToast, ToastContainer } from '@/components/ui/Toast';
 import { useAlertModal } from '@/components/ui/useAlertModal';
-import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocationWithContracts, getEmployees, getContractsBySite, syncContractsFromReferSof, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem, apiFetch} from '@/lib/api';
+import { apiUrl, responseJsonSafe, responseJsonOrThrow, getSitesLocationWithContracts, getEmployees, getContractsBySite, getDevicesByContract, syncContractsFromReferSof, getImportLocation2HintsByContractAndSof, getPmReportedTaskIds, getMaReportedTaskIds, getHolidays, addHoliday, deleteHoliday, restoreOfficialHolidays, getTasks, type HolidayItem, apiFetch} from '@/lib/api';
 import { mapEmployeesToEngineerRoster, engineerRosterLabel, rawEngineerIdFromTaskJson } from '@/lib/engineerRoster';
 import { composeRescheduleNoteWithOrigin } from '@/lib/rescheduleNote';
 import { getErrorMessage, asRecord, readNumber, readString } from '@/lib/unknownUtil';
@@ -1865,10 +1865,10 @@ function ScheduleManagementContent() {
     return dbRaw.toLowerCase() === imp.toLowerCase();
   };
 
-  // หลัง parse: มี SLid แล้ว (จาก Site+Location → sites_location หรือ slid / sid+lid) + SOF+สัญญา แล้วค่อยดึง device:
-  // 1) contract_device (contract_id + SLid) แล้วกรอง Refer_SOF ให้ตรง SOF ที่ import
-  // 2) fallback GET by-sof-and-site (Refer_SOF + SLid ใน SQL อยู่แล้ว) ถ้าขั้นแรกไม่มีเครื่องที่ SOF ตรง
-  // ไม่กรอง Location2 ซ้ำหลัง API — siteId คือ SLid แล้ว (sites_location ระบุโลเคชันแล้ว); พารามิเตอร์ location เก็บไว้สำหรับ log/อนาคต
+  // หลัง parse: มี SLid + SOF + สัญญาแล้ว — นับเครื่องให้ตรงหน้า contract / Add Plan
+  // 1) GET /api/contracts/:id/devices?site_id= (contract_device + SLid)
+  // 2) ถ้า 0 เครื่อง → ดึงทั้งสัญญาไม่กรอง site (เครื่องอาจผูก cd.SLid คนละ d.SLid)
+  // 3) fallback by-sof-and-site แล้วเทียบ Refer_SOF
   const fetchDevicesBySiteSOFLocation = async (
     sofName: string, 
     siteId: number | null, 
@@ -1878,42 +1878,45 @@ function ScheduleManagementContent() {
     if (!sofName || !siteId) {
       return { deviceIds: [], count: 0, devices: [] };
     }
-    
-    const doFetchByContract = async () => {
+
+    const doFetchByContractDevices = async (slid: number | null) => {
       if (!contractId) return [];
-      const res = await apiFetch(apiUrl(`/api/devices/by-contract-and-site?contract_id=${contractId}&slid=${siteId}`));
-      const json = await responseJsonSafe<{ success?: boolean; data?: unknown[] }>(res);
-      if (!json || !json.success || !json.data) return [];
-      return json.data;
+      const result = await getDevicesByContract(contractId, slid);
+      if (!result.success || !result.data) return [];
+      return result.data as ApiDeviceRow[];
     };
     const doFetchBySof = async (sof: string) => {
       const res = await apiFetch(apiUrl(`/api/devices/by-sof-and-site?refer_sof=${encodeURIComponent(sof)}&site_id=${siteId}`));
       const json = await responseJsonSafe<{ success?: boolean; data?: unknown[] }>(res);
       if (!json || !json.success || !json.data) return [];
-      return json.data;
+      return json.data as ApiDeviceRow[];
     };
 
     try {
-      // 1) contract_device ที่ SLid นี้ — กรองเฉพาะเครื่องที่ Refer_SOF ตรง SOF ที่ import
-      let devices: ApiDeviceRow[] = contractId ? (await doFetchByContract()) as ApiDeviceRow[] : [];
-      devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
+      let devices: ApiDeviceRow[] = contractId ? await doFetchByContractDevices(siteId) : [];
+      if (devices.length === 0 && contractId) {
+        devices = await doFetchByContractDevices(null);
+      }
 
-      // 2) ถ้าไม่มีเครื่องที่ SOF ตรง ให้ลองจาก devices โดย Refer_SOF + SLid
       if (devices.length === 0) {
-        devices = (await doFetchBySof(sofName)) as ApiDeviceRow[];
+        devices = await doFetchBySof(sofName);
         devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
       }
       if (devices.length === 0 && /^\d+$/.test(sofName)) {
-        const altSof = parseInt(sofName, 10).toString(); // 0987 → 987
+        const altSof = parseInt(sofName, 10).toString();
         if (altSof !== sofName) {
-          devices = (await doFetchBySof(altSof)) as ApiDeviceRow[];
+          devices = await doFetchBySof(altSof);
           devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
         }
         if (devices.length === 0) {
-          devices = (await doFetchBySof(sofName.padStart(4, '0'))) as ApiDeviceRow[]; // 987 → 0987
+          devices = await doFetchBySof(sofName.padStart(4, '0'));
           devices = devices.filter((d) => importReferSofMatches(d.Refer_SOF, sofName));
         }
       }
+
+      devices = devices.filter(
+        (d) => String(d.Asset_State ?? '').trim().toLowerCase() === 'in use'
+      );
 
       const deviceIds = devices.map((d) => d.Did).filter((id): id is number => id != null);
       return {

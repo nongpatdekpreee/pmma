@@ -43,7 +43,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${plusJakarta.variable} ${notoSansThai.variable} ${geistMono.variable} font-sans antialiased`}
+        className={`${plusJakarta.variable} ${notoSansThai.variable} ${geistMono.variable} min-w-0 max-w-[100vw] overflow-x-clip font-sans antialiased`}
       >
         <ThemeProvider>
           <AuthProvider>

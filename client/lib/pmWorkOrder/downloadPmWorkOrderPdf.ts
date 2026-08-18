@@ -13,6 +13,7 @@ import {
 } from '@/lib/maWorkOrder/sanitizeColorsForHtml2Canvas';
 
 const A4_WIDTH_PX = 794;
+const A4_HEIGHT_PX = Math.round((A4_WIDTH_PX * 297) / 210);
 
 /** หน้าเอกสาร (ตัวอักษร) — คมชัด */
 const PDF_TEXT_PAGE_SCALE = 1.85;
@@ -79,6 +80,8 @@ function preparePagesForPdfCapture(pages: HTMLElement[]): number {
   for (const pageEl of pages) {
     pageEl.style.width = `${A4_WIDTH_PX}px`;
     pageEl.style.maxWidth = `${A4_WIDTH_PX}px`;
+    pageEl.style.height = `${A4_HEIGHT_PX}px`;
+    pageEl.style.maxHeight = `${A4_HEIGHT_PX}px`;
     pageEl.style.margin = '0';
     pageEl.style.overflow = 'hidden';
     pageEl.style.boxSizing = 'border-box';
@@ -226,7 +229,9 @@ async function capturePdf(data: PmFullDocument): Promise<jsPDF> {
         logging: false,
         backgroundColor: '#ffffff',
         width: pageWidth,
+        height: A4_HEIGHT_PX,
         windowWidth: pageWidth,
+        windowHeight: A4_HEIGHT_PX,
         scrollX: 0,
         scrollY: 0,
         onclone: (clonedDoc, clonedEl) => {

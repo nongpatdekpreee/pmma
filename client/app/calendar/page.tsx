@@ -1085,24 +1085,24 @@ function CalendarPageContent() {
     <SidebarLayout>
       <DashboardHeader />
 
-      <main className="flex min-h-0 w-full min-w-0 flex-1 flex-col px-4 pb-6 sm:px-6 lg:px-8 xl:px-10 2xl:px-12">
+      <main className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-clip px-3 pb-6 sm:px-6 lg:px-8 xl:px-10 2xl:px-12">
         {loadError && (
           <div className="mb-3 rounded-xl bg-red-50 px-4 py-2 text-sm text-red-600 border border-red-100">
             {loadError}
           </div>
         )}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <h1 className="page-heading">
+        <div className="mb-4 flex min-w-0 flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <h1 className="page-heading shrink-0">
             Calendar
           </h1>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative flex items-center gap-2 flex-1 sm:flex-none sm:min-w-[240px] max-w-[320px]" ref={engineerFilterRef}>
-              <label htmlFor="engineer-filter-input-calendar" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+          <div className="flex min-w-0 w-full flex-col gap-2 sm:w-auto sm:max-w-full sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div className="relative flex min-w-0 w-full max-w-full flex-col gap-1.5 sm:w-auto sm:min-w-[220px] sm:max-w-[320px] sm:flex-1 sm:flex-row sm:items-center md:flex-none" ref={engineerFilterRef}>
+              <label htmlFor="engineer-filter-input-calendar" className="shrink-0 text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Engineer:
               </label>
               <div
                 id="engineer-filter-calendar"
-                className={`flex-1 sm:min-w-[160px] min-h-[40px] px-3 py-1.5 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground shadow-sm flex flex-wrap gap-1.5 items-center ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
+                className={`flex min-h-[40px] min-w-0 w-full flex-1 flex-wrap items-center gap-1.5 rounded-xl border-0 bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground shadow-sm sm:min-w-[160px] ${showEngineerFilterDropdown && filteredEngineersForFilter.length > 0 ? 'ring-2 ring-blue-500' : ''}`}
                 onClick={() => document.getElementById('engineer-filter-input-calendar')?.focus()}
               >
                 {selectedEngineerFilter.length === 0 && !engineerFilterInput && (
@@ -1180,30 +1180,31 @@ function CalendarPageContent() {
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <label htmlFor="task-type-filter-calendar" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+            <div className="flex min-w-0 w-full gap-2 sm:w-auto sm:contents">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+              <label htmlFor="task-type-filter-calendar" className="shrink-0 text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Type:
               </label>
               <select
                 id="task-type-filter-calendar"
                 value={selectedTaskTypeFilter}
                 onChange={(e) => setSelectedTaskTypeFilter(e.target.value as 'all' | 'PM' | 'MA')}
-                className="px-4 py-2 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[100px] shadow-sm transition-colors"
+                className="min-w-0 flex-1 cursor-pointer rounded-xl border-0 bg-card px-3 py-2 text-sm font-medium text-muted-foreground shadow-sm outline-none transition-colors focus:ring-2 focus:ring-blue-500 sm:min-w-[100px] sm:flex-none sm:px-4"
               >
                 <option value="all">All</option>
                 <option value="PM">PM</option>
                 <option value="MA">MA</option>
               </select>
             </div>
-            <div className="flex items-center gap-2">
-              <label htmlFor="status-filter-calendar" className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+              <label htmlFor="status-filter-calendar" className="shrink-0 text-sm font-medium text-muted-foreground whitespace-nowrap">
                 Status:
               </label>
               <select
                 id="status-filter-calendar"
                 value={selectedStatusFilter}
                 onChange={(e) => setSelectedStatusFilter(e.target.value as 'all' | 'done' | 'in-progress' | 'pending' | 'overdue')}
-                className="px-4 py-2 rounded-xl border-0 bg-card text-sm font-medium text-muted-foreground focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer min-w-[120px] shadow-sm transition-colors"
+                className="min-w-0 flex-1 cursor-pointer rounded-xl border-0 bg-card px-3 py-2 text-sm font-medium text-muted-foreground shadow-sm outline-none transition-colors focus:ring-2 focus:ring-blue-500 sm:min-w-[120px] sm:flex-none sm:px-4"
               >
                 <option value="all">All</option>
                 <option value="done">Done</option>
@@ -1212,74 +1213,81 @@ function CalendarPageContent() {
                 <option value="pending">Pending</option>
               </select>
             </div>
+            </div>
           </div>
         </div>
 
         <div
-          className={`rounded-[2.5rem] bg-card border border-border p-6 shadow-sm ${
+          className={`min-w-0 max-w-full rounded-2xl border border-border bg-card p-3 shadow-sm sm:rounded-3xl sm:p-4 md:rounded-[2.5rem] md:p-6 ${
             calendarViewMode === 'calendar'
               ? 'flex min-h-0 flex-1 flex-col xl:min-h-[calc(100dvh-9rem)]'
               : ''
           }`}
         >
           {/* Calendar Header */}
-          <div className="mb-6 grid shrink-0 grid-cols-3 items-center gap-4">
-            <div />
-            <div className="flex items-center justify-center gap-8">
+          <div className="mb-4 flex min-w-0 shrink-0 flex-col gap-3 sm:mb-6 sm:gap-4 lg:grid lg:grid-cols-3 lg:items-center">
+            <div className="hidden lg:block" />
+            <div className="flex items-center justify-center gap-4 sm:gap-6 lg:gap-8">
               <button 
                 onClick={goToPreviousMonth}
-                className="text-blue-500 hover:text-blue-700 transition-colors"
+                className="shrink-0 text-blue-500 transition-colors hover:text-blue-700"
+                type="button"
+                aria-label="Previous month"
               >
-                <ChevronLeft size={24} />
+                <ChevronLeft className="h-5 w-5 sm:h-6 sm:w-6" />
               </button>
-              <span className="page-heading">
+              <span className="page-heading min-w-0 truncate text-center">
                 {monthNames[currentMonth]}, {currentYear}
               </span>
               <button 
                 onClick={goToNextMonth}
-                className="text-blue-500 hover:text-blue-700 transition-colors"
+                className="shrink-0 text-blue-500 transition-colors hover:text-blue-700"
+                type="button"
+                aria-label="Next month"
               >
-                <ChevronRight size={24} />
+                <ChevronRight className="h-5 w-5 sm:h-6 sm:w-6" />
               </button>
             </div>
-            <div className="flex justify-end">
-              <div className="flex rounded-xl border border-border p-0.5 bg-muted">
+            <div className="flex justify-center lg:justify-end">
+              <div className="flex max-w-full rounded-xl border border-border bg-muted p-0.5">
                 <button
                   type="button"
                   onClick={() => setCalendarViewMode('calendar')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'calendar' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-muted-foreground'}`}
+                  aria-label="Calendar view"
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors sm:px-3 ${calendarViewMode === 'calendar' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-muted-foreground'}`}
                 >
-                  <LayoutGrid size={16} />
-                  Calendar
+                  <LayoutGrid size={16} className="shrink-0" />
+                  <span className="hidden sm:inline">Calendar</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setCalendarViewMode('table')}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${calendarViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-muted-foreground'}`}
+                  aria-label="Table view"
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors sm:px-3 ${calendarViewMode === 'table' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-muted-foreground'}`}
                 >
-                  <List size={16} />
-                  Table
+                  <List size={16} className="shrink-0" />
+                  <span className="hidden sm:inline">Table</span>
                 </button>
               </div>
             </div>
           </div>
 
           {calendarViewMode === 'table' ? (
-            <div className="rounded-xl border border-border overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+            <div className="min-w-0 overflow-hidden rounded-xl border border-border">
+              <div className="overflow-x-auto overscroll-x-contain">
+                <table className="w-full min-w-[44rem] text-sm md:min-w-[52rem]">
                   <thead>
-                    <tr className="bg-muted border-b border-border">
-                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">
+                    <tr className="border-b border-border bg-muted">
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground sm:px-4 sm:py-3">
                         <span className="block">Date</span>
-                        <span className="block text-[10px] font-normal text-muted-foreground normal-case">mm/dd/yyyy</span>
+                        <span className="block text-[10px] font-normal normal-case text-muted-foreground">mm/dd/yyyy</span>
                       </th>
-                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground whitespace-nowrap">Status Date</th>
-                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Task</th>
-                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Type</th>
-                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Engineer</th>
-                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground">Status</th>
-                      <th className="text-left py-3 px-4 font-semibold text-muted-foreground w-20"></th>
+                      <th className="whitespace-nowrap px-3 py-2.5 text-left font-semibold text-muted-foreground sm:px-4 sm:py-3">Status Date</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground sm:px-4 sm:py-3">Task</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground sm:px-4 sm:py-3">Type</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground sm:px-4 sm:py-3">Engineer</th>
+                      <th className="px-3 py-2.5 text-left font-semibold text-muted-foreground sm:px-4 sm:py-3">Status</th>
+                      <th className="w-16 px-3 py-2.5 text-left font-semibold text-muted-foreground sm:w-20 sm:px-4 sm:py-3"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1336,7 +1344,7 @@ function CalendarPageContent() {
                             key={ev.id}
                             className="border-b border-border hover:bg-muted/50 transition-colors"
                           >
-                            <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
+                            <td className="whitespace-nowrap px-3 py-2 text-muted-foreground sm:px-4 sm:py-2.5">
                               {ev.startDate === ev.endDate || !ev.endDate
                                 ? formatDateMonthDayYear(
                                     ev.startDate ||
@@ -1344,7 +1352,7 @@ function CalendarPageContent() {
                                   )
                                 : `${formatDateMonthDayYear(ev.startDate)} – ${formatDateMonthDayYear(ev.endDate)}`}
                             </td>
-                            <td className="py-2.5 px-4 text-xs whitespace-nowrap">
+                            <td className="whitespace-nowrap px-3 py-2 text-xs sm:px-4 sm:py-2.5">
                               <span
                                 className={
                                   incomingTone === 'future'
@@ -1359,14 +1367,14 @@ function CalendarPageContent() {
                                 {incomingText}
                               </span>
                             </td>
-                            <td className="py-2.5 px-4 font-medium text-foreground max-w-[280px] truncate xl:max-w-none" title={ev.title}>{ev.title}</td>
-                            <td className="py-2.5 px-4">
+                            <td className="max-w-[12rem] truncate px-3 py-2 font-medium text-foreground sm:max-w-[18rem] sm:px-4 sm:py-2.5 xl:max-w-none" title={ev.title}>{ev.title}</td>
+                            <td className="px-3 py-2 sm:px-4 sm:py-2.5">
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${isMA ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>
                                 {ev.taskType || 'PM'}
                               </span>
                             </td>
-                            <td className="py-2.5 px-4 text-muted-foreground">{ev.engineer || '—'}</td>
-                            <td className="py-2.5 px-4 align-top min-w-[9rem] max-w-[min(100%,240px)]">
+                            <td className="max-w-[8rem] truncate px-3 py-2 text-muted-foreground sm:max-w-[12rem] sm:px-4 sm:py-2.5" title={ev.engineer || undefined}>{ev.engineer || '—'}</td>
+                            <td className="min-w-[9rem] max-w-[min(100%,240px)] px-3 py-2 align-top sm:px-4 sm:py-2.5">
                               <span
                                 className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs ${
                                   isDone
@@ -1388,11 +1396,11 @@ function CalendarPageContent() {
                                 </p>
                               )}
                             </td>
-                            <td className="py-2.5 px-4">
+                            <td className="px-3 py-2 sm:px-4 sm:py-2.5">
                               <button
                                 type="button"
                                 onClick={() => { setSelectedTask(ev); setIsDetailModalOpen(true); }}
-                                className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                                className="whitespace-nowrap text-xs font-medium text-blue-600 hover:text-blue-800"
                               >
                                 View
                               </button>
@@ -1405,27 +1413,27 @@ function CalendarPageContent() {
                 </table>
               </div>
               {tasksInCurrentMonth.length > TABLE_PAGE_SIZE && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted">
-                  <p className="text-xs text-muted-foreground">
+                <div className="flex flex-col gap-2 border-t border-border bg-muted px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+                  <p className="min-w-0 text-xs text-muted-foreground">
                     Showing {(tablePage - 1) * TABLE_PAGE_SIZE + 1}–{Math.min(tablePage * TABLE_PAGE_SIZE, tasksInCurrentMonth.length)} of {tasksInCurrentMonth.length}
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setTablePage((p) => Math.max(1, p - 1))}
                       disabled={tablePage <= 1}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Previous
                     </button>
-                    <span className="text-sm text-muted-foreground">
+                    <span className="whitespace-nowrap text-sm text-muted-foreground">
                       Page {tablePage} of {totalTablePages}
                     </span>
                     <button
                       type="button"
                       onClick={() => setTablePage((p) => Math.min(totalTablePages, p + 1))}
                       disabled={tablePage >= totalTablePages}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium border border-border bg-card text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Next
                     </button>
@@ -1434,19 +1442,22 @@ function CalendarPageContent() {
               )}
             </div>
           ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-muted xl:min-h-[calc(100dvh-14rem)]">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-muted xl:min-h-[calc(100dvh-14rem)]">
+            <div className="min-h-0 min-w-0 flex-1 overflow-x-auto overscroll-x-contain">
+              <div className="flex min-h-full min-w-[36rem] flex-col sm:min-w-0">
             {/* Calendar Grid header row */}
             <div className="grid shrink-0 grid-cols-7 gap-px">
               {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => (
                 <div 
                   key={day} 
-                  className={`bg-muted p-3 text-center text-xs font-bold uppercase xl:py-4 ${
+                  className={`bg-muted p-1.5 text-center text-[10px] font-bold uppercase sm:p-2 sm:text-xs md:p-3 xl:py-4 ${
                     index === 0 || index === 6 
                       ? 'bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent' 
                       : 'bg-gradient-to-r from-slate-500 to-slate-600 bg-clip-text text-transparent'
                   }`}
                 >
-                  {day}
+                  <span className="sm:hidden">{day.charAt(0)}</span>
+                  <span className="hidden sm:inline">{day}</span>
                 </div>
               ))}
             </div>
@@ -1540,11 +1551,11 @@ function CalendarPageContent() {
                           key={`h-${dayIndex}`}
                           onDrop={(e) => handleDrop(e, day)}
                           onDragOver={(e) => handleDragOver(e, day)}
-                          className={`${dayShellClass(day, holidayForDay, true)} px-2 pt-2 pb-1`}
+                          className={`${dayShellClass(day, holidayForDay, true)} px-1 pt-1.5 pb-0.5 sm:px-2 sm:pt-2 sm:pb-1`}
                           style={{ minHeight: weekHeaderPx + 8 }}
                         >
                           {day !== null && (
-                            <div className="shrink-0">
+                            <div className="min-w-0 shrink-0">
                               <span
                                 className={`text-xs font-bold ${
                                   isToday(day)
@@ -1555,7 +1566,7 @@ function CalendarPageContent() {
                                 {day}
                               </span>
                               {holidayForDay && (
-                                <span className="mt-0.5 block truncate text-[10px] font-medium text-amber-700" title={holidayForDay.name}>
+                                <span className="mt-0.5 block truncate text-[9px] font-medium text-amber-700 sm:text-[10px]" title={holidayForDay.name}>
                                   {holidayForDay.name}
                                 </span>
                               )}
@@ -1640,16 +1651,16 @@ function CalendarPageContent() {
                               setTooltipPosition({ x, y });
                             }}
                             onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                            className={`relative z-[1] box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''}`}
+                            className={`relative z-[1] box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 shrink-0 flex-nowrap items-center overflow-hidden rounded-none py-1 pl-1.5 pr-1.5 text-[9px] font-semibold leading-none shadow-sm sm:pl-2.5 sm:pr-3 sm:text-[10px] ${barStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === event.id ? 'opacity-50' : ''}`}
                           >
-                            <span className="mr-1.5 flex-shrink-0 rounded-none bg-card/60 px-1 py-0.5 text-[9px] font-bold leading-none">
+                            <span className="mr-1 flex-shrink-0 rounded-none bg-card/60 px-0.5 py-0.5 text-[8px] font-bold leading-none sm:mr-1.5 sm:px-1 sm:text-[9px]">
                               {isMA ? 'MA' : 'PM'}
                             </span>
                             <span className={`min-w-0 flex-1 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                               {calendarInProcessTitleText(event)}
                             </span>
                             {event.Eng_ids && event.Eng_ids.length > 0 && (
-                              <span className="relative ml-1.5 inline-block flex flex-shrink-0" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                              <span className="relative ml-1 hidden flex-shrink-0 sm:ml-1.5 sm:inline-flex" title={event.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
                                 <span className="inline-flex h-5 w-5 overflow-hidden rounded-full border border-white bg-muted ring-1 ring-slate-300">
                                   {event.Eng_ids[0].photo ? (
                                     <Image
@@ -1717,7 +1728,7 @@ function CalendarPageContent() {
                           key={`p-${dayIndex}`}
                           onDrop={(e) => handleDrop(e, day)}
                           onDragOver={(e) => handleDragOver(e, day)}
-                          className={`${dayShellClass(day, holidayForDay, false)} flex h-full min-h-0 flex-col p-2 pt-1`}
+                          className={`${dayShellClass(day, holidayForDay, false)} flex h-full min-h-0 flex-col p-1 pt-0.5 sm:p-2 sm:pt-1`}
                           style={{ minHeight: dayLayouts[dayIndex].pillsMinH }}
                         >
                           {day !== null && (
@@ -1770,16 +1781,16 @@ function CalendarPageContent() {
                                       setTooltipPosition({ x, y });
                                     }}
                                     onMouseLeave={() => { setHoveredEvent(null); setTooltipPosition(null); }}
-                                    className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center leading-none rounded-none pl-2.5 pr-3 py-1 text-[10px] font-semibold shadow-sm overflow-hidden ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
+                                    className={`box-border flex h-[28px] min-h-[28px] max-h-[28px] min-w-0 w-full shrink-0 flex-nowrap items-center overflow-hidden rounded-none py-1 pl-1.5 pr-1.5 text-[9px] font-semibold leading-none shadow-sm sm:pl-2.5 sm:pr-3 sm:text-[10px] ${pillStyle} ${isDone ? 'cursor-pointer opacity-90' : 'cursor-move'} transition-colors ${draggedEvent?.id === ev.id ? 'opacity-50' : ''} ${eventIndex === 0 ? 'mt-0' : 'mt-1'}`}
                                   >
-                                    <span className="mr-1.5 flex-shrink-0 rounded-none bg-card/60 px-1 py-0.5 text-[9px] font-bold leading-none">
+                                    <span className="mr-1 flex-shrink-0 rounded-none bg-card/60 px-0.5 py-0.5 text-[8px] font-bold leading-none sm:mr-1.5 sm:px-1 sm:text-[9px]">
                                       {isMA ? 'MA' : 'PM'}
                                     </span>
                                     <span className={`min-w-0 flex-1 truncate leading-none ${isDone ? 'line-through' : ''}`}>
                                       {calendarInProcessTitleText(ev)}
                                     </span>
                                     {ev.Eng_ids && ev.Eng_ids.length > 0 && (
-                                      <span className="relative ml-1.5 inline-block flex flex-shrink-0" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
+                                      <span className="relative ml-1 hidden flex-shrink-0 sm:ml-1.5 sm:inline-flex" title={ev.Eng_ids.map(e => `${e.name}${e.lastName ? ' ' + e.lastName : ''}`).join(', ')}>
                                         <span className="inline-flex h-5 w-5 overflow-hidden rounded-full border border-white bg-muted ring-1 ring-slate-300">
                                           {ev.Eng_ids[0].photo ? (
                                             <Image
@@ -1855,6 +1866,8 @@ function CalendarPageContent() {
               );
             })}
             </div>
+              </div>
+            </div>
           </div>
           )}
         </div>
@@ -1863,7 +1876,7 @@ function CalendarPageContent() {
       {/* Task Detail Tooltip - เหมือน schedule_management */}
       {hoveredEvent && tooltipPosition && (
         <div
-          className="fixed z-[300] bg-card rounded-lg shadow-2xl border border-border p-4 max-w-sm pointer-events-none max-h-[calc(100vh-32px)] overflow-y-auto"
+          className="pointer-events-none fixed z-[300] max-h-[calc(100vh-32px)] max-w-[min(20rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-border bg-card p-3 shadow-2xl sm:p-4"
           style={{
             left: `${tooltipPosition.x}px`,
             top: `${tooltipPosition.y}px`,
@@ -1995,7 +2008,7 @@ function CalendarPageContent() {
       {/* Move Task Reason Modal */}
       {isMoveModalOpen && pendingMove && (
         <div 
-          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-3 backdrop-blur-sm sm:p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               cancelMoveTask();
@@ -2003,7 +2016,7 @@ function CalendarPageContent() {
           }}
         >
           <div 
-            className="bg-card w-full max-w-sm rounded-2xl shadow-xl p-5 flex flex-col"
+            className="flex w-full max-w-sm flex-col rounded-2xl bg-card p-4 shadow-xl sm:p-5"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -2050,17 +2063,17 @@ function CalendarPageContent() {
             </div>
 
             {/* Actions */}
-            <div className="flex gap-2 justify-end pt-3 border-t border-border">
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
               <button
                 onClick={cancelMoveTask}
-                className="px-4 py-2 text-xs font-semibold text-muted-foreground bg-muted rounded-lg hover:bg-muted transition-colors"
+                className="rounded-lg bg-muted px-4 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmMoveTask}
                 disabled={!moveReason.trim()}
-                className={`px-4 py-2 text-xs font-bold text-white rounded-lg transition-all ${
+                className={`rounded-lg px-4 py-2 text-xs font-bold text-white transition-all ${
                   moveReason.trim()
                     ? 'bg-blue-500 hover:bg-blue-600'
                     : 'bg-gray-300 cursor-not-allowed'

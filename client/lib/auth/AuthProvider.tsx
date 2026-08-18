@@ -52,7 +52,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       startAccessTokenRefreshScheduler();
       return;
     }
-    await ensureAuthSession();
+    const refreshed = await ensureAuthSession();
+    if (refreshed) {
+      setUser(refreshed);
+      startAccessTokenRefreshScheduler();
+      return;
+    }
     const meAfter = await fetchMe();
     setUser(meAfter);
     if (meAfter) {
