@@ -17,8 +17,8 @@ const FIELD_ALIASES: Record<keyof Omit<PmBackupRecord, 'serialNumber'>, string[]
   equipmentType: ['equipmenttype', 'equipment_type', 'type', 'type of equipment', 'device type'],
   equipmentLocation: ['equipmentlocation', 'equipment_location', 'location'],
   hostname: ['hostname', 'host name', 'host'],
-  product: ['product'],
-  model: ['model'],
+  product: ['vendor', 'vender', 'vendors', 'vendor name', 'manufacturer', 'brand', 'product'],
+  model: ['model', 'manufacturer'],
   rackRu: ['rackru', 'rack_ru', 'rack', 'rack/ru', 'ru'],
   osVersion: [
     'softwareversion',

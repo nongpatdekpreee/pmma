@@ -12,7 +12,7 @@ const {
   tenantTaskFilter,
   isTaskVisibleToTenant,
   isSlidVisibleToTenant,
-  projectOwenForManualDevice,
+  ownerForManualDevice,
 } = require('../utils/tenantScope');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
@@ -462,6 +462,7 @@ const mapTaskRow = (row) => {
     row.site_db_name != null && String(row.site_db_name).trim() !== ''
       ? String(row.site_db_name).trim()
       : null;
+  const siteContactRaw = row.site_contact;
   return {
   id: row.id,
   contractId: row.contract_id,
@@ -473,6 +474,7 @@ const mapTaskRow = (row) => {
   ...(siteDbName ? { siteDbName } : {}),
   ...(siteLocation ? { location: siteLocation } : {}),
   ...(siteProvince ? { province: siteProvince } : {}),
+  ...(siteContactRaw != null && siteContactRaw !== '' ? { siteContact: siteContactRaw } : {}),
   vendorName: row.vendor_name,
   vendorTel: row.vendor_tel,
   reporterName: row.reporter_name,
@@ -514,7 +516,7 @@ const mapTaskRow = (row) => {
 
 async function buildTaskQueryFragments(existingSiteLocationAlias) {
   const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
-  const siteLoc = resolveTaskSiteLocationSql(
+  const siteLoc = await resolveTaskSiteLocationSql(
     existingSiteLocationAlias ? { existingSiteLocationAlias } : {},
   );
   return {
@@ -525,7 +527,7 @@ async function buildTaskQueryFragments(existingSiteLocationAlias) {
 
 async function buildTaskQueryFragmentsWithSlFilter() {
   const { select: contractSelect, join: contractJoin } = await resolveTaskContractJoin();
-  const siteLoc = resolveTaskSiteLocationSql({ existingSiteLocationAlias: 'sl' });
+  const siteLoc = await resolveTaskSiteLocationSql({ existingSiteLocationAlias: 'sl' });
   return {
     select: `${contractSelect}, ${siteLoc.select}`,
     join: `${contractJoin} LEFT JOIN sites_location sl ON sl.SLid = t.site_id ${siteLoc.join}`.trim(),
@@ -610,7 +612,7 @@ const isManualMaAsset = (asset) => {
   return parsePositiveDeviceId(rawId) == null;
 };
 
-const MANUAL_REPLACEMENT_PROJECT_OWEN = 'TCC';
+const MANUAL_REPLACEMENT_OWNER = 'TCC';
 
 const resolveSiteNameForProjectOwen = async (siteId, fallbackName) => {
   const slid = parsePositiveDeviceId(siteId);
@@ -641,7 +643,7 @@ const resolveSiteNameForProjectOwen = async (siteId, fallbackName) => {
  * — broken: In Use ที่ site ของงานก่อน พอ Done ค่อยเปลี่ยน Asset_State + ย้าย site
  * — replacement: In Store ที่คลังก่อน พอ Done ค่อย In Use + ย้ายไป site งาน
  */
-const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, initialAssetState, projectOwenOverride }) => {
+const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, initialAssetState, ownerOverride }) => {
   const name = String(deviceLike.name ?? deviceLike.CI_Name ?? '').trim();
   if (!name) {
     throw new Error('Manual device requires a name (CI_Name)');
@@ -663,14 +665,16 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
     parsePositiveDeviceId(siteId);
   const dtypeid = parsePositiveDeviceId(deviceLike.Dtypeid);
   const deroleid = parsePositiveDeviceId(deviceLike.DeRoleid);
-  const projectOwen = String(
-    projectOwenOverride ??
+  const owner = String(
+    ownerOverride ??
+      deviceLike.Owner ??
+      deviceLike.owner ??
       deviceLike.Project_Owen ??
       deviceLike.projectOwen ??
       ''
   ).trim();
-  if (!projectOwen) {
-    throw new Error('Manual device requires Project Owen');
+  if (!owner) {
+    throw new Error('Manual device requires Owner');
   }
   const cid =
     parsePositiveDeviceId(deviceLike.contract_id) ??
@@ -694,9 +698,9 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
              Asset_State = COALESCE(NULLIF(TRIM(Asset_State), ''), ?),
              Dtypeid = COALESCE(?, Dtypeid),
              DeRoleid = COALESCE(?, DeRoleid),
-             Project_Owen = ?
+             Owner = ?
          WHERE Did = ?`,
-        [name, serial, slid, assetState, dtypeid, deroleid, projectOwen, did]
+        [name, serial, slid, assetState, dtypeid, deroleid, owner, did]
       );
     }
   }
@@ -704,9 +708,9 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
   if (did == null) {
     const [insertResult] = await db.execute(
       `INSERT INTO devices (
-        Asset_State, serial, CI_Name, Asset_Number, SLid, Dtypeid, DeRoleid, Project_Owen
+        Asset_State, serial, CI_Name, Asset_Number, SLid, Dtypeid, DeRoleid, Owner
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [assetState, serial, name, assetNumber, slid, dtypeid, deroleid, projectOwen]
+      [assetState, serial, name, assetNumber, slid, dtypeid, deroleid, owner]
     );
     did = parsePositiveDeviceId(insertResult.insertId);
   }
@@ -723,7 +727,7 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
     slid,
     dtypeid,
     deroleid,
-    projectOwen,
+    owner,
     cid,
   };
 };
@@ -731,21 +735,21 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
 const persistManualMaAssets = async (assets, { siteId, contractId, siteName, tenant } = {}) => {
   if (!Array.isArray(assets) || assets.length === 0) return assets;
 
-  const brokenProjectOwen = await resolveSiteNameForProjectOwen(siteId, siteName);
+  const brokenOwner = await resolveSiteNameForProjectOwen(siteId, siteName);
   const resolved = [];
   for (const asset of assets) {
     let nextAsset = asset;
 
     if (isManualMaAsset(asset)) {
-      const po = projectOwenForManualDevice(tenant, brokenProjectOwen);
-      if (!po) {
-        throw new Error('Manual broken device requires site name for Project Owen');
+      const owner = ownerForManualDevice(tenant, brokenOwner);
+      if (!owner) {
+        throw new Error('Manual broken device requires site name for Owner');
       }
       const saved = await insertOrUpdateManualDeviceRow(asset, {
         siteId,
         contractId,
         initialAssetState: 'In Use',
-        projectOwenOverride: po,
+        ownerOverride: owner,
       });
       nextAsset = {
         ...asset,
@@ -760,7 +764,7 @@ const persistManualMaAssets = async (assets, { siteId, contractId, siteName, ten
         SLid: saved.slid ?? asset.SLid,
         Dtypeid: saved.dtypeid ?? asset.Dtypeid,
         DeRoleid: saved.deroleid ?? asset.DeRoleid,
-        Project_Owen: saved.projectOwen,
+        Owner: saved.owner,
         contract_id: saved.cid ?? asset.contract_id,
         source: 'manual',
       };
@@ -785,7 +789,7 @@ const persistManualMaAssets = async (assets, { siteId, contractId, siteName, ten
           siteId: warehouseSlid ?? siteId,
           contractId,
           initialAssetState: 'In Store',
-          projectOwenOverride: projectOwenForManualDevice(tenant, MANUAL_REPLACEMENT_PROJECT_OWEN),
+          ownerOverride: ownerForManualDevice(tenant, MANUAL_REPLACEMENT_OWNER),
         }
       );
       const { replacementDevice: _omitRep, ...rest } = nextAsset;

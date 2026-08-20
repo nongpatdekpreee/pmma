@@ -8,7 +8,7 @@ const {
   REFER_SOF_DROPDOWN_SQL,
   applyReferSofToSiteLocation,
 } = require('../config/deviceSof');
-const { tenantDeviceFilter, projectOwenForCreate } = require('../utils/tenantScope');
+const { tenantDeviceFilter, ownerForCreate } = require('../utils/tenantScope');
 
 function tenantClause(req, alias = 'devices') {
   return tenantDeviceFilter(req.user && req.user.tenant, alias);
@@ -95,7 +95,7 @@ const createDevice = async (req, res) => {
               Refer_Ticket, Assigned_Service, Reason, Dtypeid, DeRoleid,
               Project_code_purchase, Waranty_start, Waranty_end, Received_date, Asset_Type, Owner,
               Project_Owen
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               device.Asset_State || null,
               device.serial || null,
@@ -118,8 +118,11 @@ const createDevice = async (req, res) => {
               device.Waranty_end || null,
               device.Received_date || null,
               device.Asset_Type || null,
-              device.Owner || null,
-              projectOwenForCreate(req.user && req.user.tenant, device.Project_Owen),
+              ownerForCreate(
+                req.user && req.user.tenant,
+                device.Owner ?? device.Project_Owen
+              ),
+              device.Project_Owen || null,
             ]
           );
 

@@ -152,13 +152,8 @@ async function resolveContractNameDbColumn(conn, table) {
 }
 
 function parseSiteContactField(raw) {
-  if (raw == null || raw === '') return null;
-  if (typeof raw === 'object') return raw;
-  try {
-    return JSON.parse(String(raw));
-  } catch {
-    return null;
-  }
+  const { normalizeSiteContactRaw } = require('../utils/siteContactParse');
+  return normalizeSiteContactRaw(raw);
 }
 
 function storedContractNameFromRow(slRow) {

@@ -94,18 +94,26 @@ async function fetchTaskSlaTerm(taskId) {
   return rows[0]?.contract_sla_term ?? null;
 }
 
-/** Location2 + Province จาก sites_location → location (สำหรับชื่อแสดงบน calendar/schedule) */
-function resolveTaskSiteLocationSql({ existingSiteLocationAlias } = {}) {
-  const select = `IFNULL(l_task.Location2, '') AS site_location, IFNULL(l_task.Province, '') AS site_province, IFNULL(s_task.Name, '') AS site_db_name`;
+/** Location2 + Province + site contact จาก sites_location (COALESCE contract_id, site_id) */
+async function resolveTaskSiteLocationSql({ existingSiteLocationAlias } = {}) {
+  const hasContact = await tableColumnExists('sites_location', 'contact');
+  const contactSelect = hasContact
+    ? `, COALESCE(sl_contract_contact.contact, ${existingSiteLocationAlias ? 'sl.contact' : 'sl_task.contact'}) AS site_contact`
+    : ', NULL AS site_contact';
+  const contractContactJoin = hasContact
+    ? 'LEFT JOIN sites_location sl_contract_contact ON sl_contract_contact.SLid = t.contract_id'
+    : '';
+  const select = `IFNULL(l_task.Location2, '') AS site_location, IFNULL(l_task.Province, '') AS site_province, IFNULL(s_task.Name, '') AS site_db_name${contactSelect}`;
+
   if (existingSiteLocationAlias) {
     return {
       select,
-      join: `LEFT JOIN location l_task ON l_task.lid = ${existingSiteLocationAlias}.lid LEFT JOIN sites s_task ON s_task.Sid = ${existingSiteLocationAlias}.Sid`,
+      join: `${contractContactJoin} LEFT JOIN location l_task ON l_task.lid = ${existingSiteLocationAlias}.lid LEFT JOIN sites s_task ON s_task.Sid = ${existingSiteLocationAlias}.Sid`.trim(),
     };
   }
   return {
     select,
-    join: `LEFT JOIN sites_location sl_task ON sl_task.SLid = t.site_id LEFT JOIN location l_task ON l_task.lid = sl_task.lid LEFT JOIN sites s_task ON s_task.Sid = sl_task.Sid`,
+    join: `${contractContactJoin} LEFT JOIN sites_location sl_task ON sl_task.SLid = t.site_id LEFT JOIN location l_task ON l_task.lid = sl_task.lid LEFT JOIN sites s_task ON s_task.Sid = sl_task.Sid`.trim(),
   };
 }
 

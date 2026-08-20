@@ -1,5 +1,6 @@
 import { PM_DEFAULT_PROJECT_SUFFIX, PM_INSPECTION_TITLE } from './constants';
 import { buildRackDisplayText } from './parseLocationFile';
+import { isBlankProductValue } from './parseSpreadsheet';
 import type {
   PmBackupRecord,
   PmFullDocument,
@@ -96,12 +97,14 @@ export function applyBackupToInspection(
   inspection: PmInspectionSection,
   backup: PmBackupRecord
 ): PmInspectionSection {
+  const backupProduct = (backup.product ?? '').trim();
   return {
     ...inspection,
-    equipmentType: inspection.equipmentType,
+    equipmentType: inspection.equipmentType.trim() || (backup.equipmentType ?? '').trim(),
     equipmentLocation: backup.equipmentLocation || inspection.equipmentLocation,
     hostname: inspection.hostname,
-    product: backup.product || inspection.product,
+    product:
+      backupProduct && !isBlankProductValue(backupProduct) ? backupProduct : inspection.product,
     model: backup.model || inspection.model,
     rackRu: inspection.rackRu,
     osVersion: backup.osVersion || inspection.osVersion,
@@ -156,6 +159,12 @@ type DeviceLike = {
   Location2?: string;
   role?: string;
   roleName?: string;
+  Vendor?: string;
+  vendor?: string;
+  Brand?: string;
+  brand?: string;
+  Manufacturername?: string;
+  manufacturername?: string;
 };
 
 /** Type of equipment = device role (e.g. Core Switch), never model or backup fields */
@@ -163,14 +172,44 @@ export function deviceRoleLabel(device: DeviceLike): string {
   return (device.roleName ?? device.role ?? '').trim();
 }
 
+/** Product fallback from device DB — Brand/Manufacturer first (Vendor may be service company) */
+export function deviceProductLabel(device: DeviceLike): string {
+  const candidates = [
+    device.Brand,
+    device.brand,
+    device.Manufacturername,
+    device.manufacturername,
+    device.Vendor,
+    device.vendor,
+  ];
+  for (const raw of candidates) {
+    const t = (raw ?? '').trim();
+    if (t && !isBlankProductValue(t)) return t;
+  }
+  return '';
+}
+
 function applyDeviceRoleToInspection(
   inspection: PmInspectionSection,
   device: DeviceLike
 ): PmInspectionSection {
+  const role = deviceRoleLabel(device);
   return {
     ...inspection,
-    equipmentType: deviceRoleLabel(device),
+    equipmentType: role || inspection.equipmentType,
   };
+}
+
+function applyDeviceProductToInspection(
+  inspection: PmInspectionSection,
+  device: DeviceLike
+): PmInspectionSection {
+  if (inspection.product.trim() && !isBlankProductValue(inspection.product)) {
+    return inspection;
+  }
+  const fromDevice = deviceProductLabel(device);
+  if (!fromDevice) return inspection;
+  return { ...inspection, product: fromDevice };
 }
 
 export function buildDeviceTaskContext(base: PmTaskContext, device: DeviceLike): PmTaskContext {
@@ -228,6 +267,12 @@ export function buildPmFullDocumentMulti(
     const loc = locationByDid.get(device.Did);
     if (loc) inspection = applyLocationFieldsToInspection(inspection, loc);
     inspection = applyDeviceRoleToInspection(inspection, device);
+    inspection = applyDeviceProductToInspection(inspection, device);
+    if (loc?.vendor?.trim() && !isBlankProductValue(loc.vendor)) {
+      if (!inspection.product.trim() || isBlankProductValue(inspection.product)) {
+        inspection = { ...inspection, product: loc.vendor.trim() };
+      }
+    }
     inspection.comment = noteByDid.get(device.Did) ?? '';
     return inspection;
   });

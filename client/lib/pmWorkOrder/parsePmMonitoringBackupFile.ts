@@ -1,5 +1,5 @@
 import type { PmBackupRecord, PmMonitoringBackupRecord } from './types';
-import { pickField, parseSpreadsheetFile } from './parseSpreadsheet';
+import { pickField, pickVendorField, isBlankProductValue, parseSpreadsheetFile } from './parseSpreadsheet';
 import {
   BACKUP_CONFIGURATION_ALIASES,
   BACKUP_CPU_USAGE_ALIASES,
@@ -55,7 +55,7 @@ function rowToMonitoringRecord(row: Record<string, unknown>): PmMonitoringBackup
     backupConfig: pickField(row, BACKUP_CONFIGURATION_ALIASES) || undefined,
     remark: pickField(row, BACKUP_REMARK_ALIASES) || undefined,
     equipmentName,
-    manufacturer: pickField(row, ['manufacturer']) || undefined,
+    vendor: pickVendorField(row) || undefined,
     gps: pickField(row, ['gps']) || undefined,
     substation: pickField(row, ['substation']) || undefined,
     installationDate: pickField(row, ['installationdate', 'installation date']) || undefined,
@@ -89,10 +89,23 @@ export function findMonitoringForLocation(
   );
   if (bySerialModel.length === 1) return bySerialModel[0];
   if (bySerialModel.length > 1) {
-    return bySerialModel.find((m) => modelsMatch(m.model, locModel)) ?? bySerialModel[0];
+    return (
+      bySerialModel.find((m) => (m.vendor ?? '').trim() && modelsMatch(m.model, locModel)) ??
+      bySerialModel.find((m) => (m.vendor ?? '').trim()) ??
+      bySerialModel.find((m) => modelsMatch(m.model, locModel)) ??
+      bySerialModel[0]
+    );
   }
 
   return undefined;
+}
+
+function productFromParts(...parts: Array<string | undefined | null>): string {
+  for (const part of parts) {
+    const t = (part ?? '').trim();
+    if (t && !isBlankProductValue(t)) return t;
+  }
+  return '';
 }
 
 /** Hostname + IP always from location file (not backup) */
@@ -104,7 +117,7 @@ export function monitoringToPmBackupRecord(
     serialNumber: mon.serialNumber,
     model: mon.model || mon.equipmentName || '',
     hostname: (location?.hostname ?? '').trim(),
-    product: mon.manufacturer || location?.vendor || '',
+    product: productFromParts(mon.vendor, location?.vendor),
     ipAddress: (location?.ipAddress ?? '').trim(),
     osVersion: mon.osVersion || '',
     systemUptime: mon.systemUptime || '',
@@ -128,7 +141,14 @@ export function deviceLabelFromParts(parts: {
   serial?: string;
   Did: number;
 }): string {
-  return parts.CI_Name || parts.model || parts.serial || `Device ${parts.Did}`;
+  const model = (parts.model || parts.CI_Name || '').trim();
+  const serial = (parts.serial || '').trim();
+  if (model && serial && !model.toUpperCase().includes(serial.toUpperCase())) {
+    return `${model} · ${serial}`;
+  }
+  if (model) return model;
+  if (serial) return serial;
+  return `Device ${parts.Did}`;
 }
 
 export { normalizeSerial, normalizeModel };

@@ -137,7 +137,12 @@ export function buildMaintenanceRowsFromMaps(
       return {
         id: `row-${d.Did}`,
         deviceDid: d.Did,
-        deviceLabel: deviceLabelFromParts(d),
+        deviceLabel: deviceLabelFromParts({
+          Did: d.Did,
+          CI_Name: d.CI_Name,
+          model: d.model || loc.model,
+          serial: d.serial || loc.serialNumber,
+        }),
         location: location || loc.hostname || '',
         rack,
         remark: mon?.remark?.trim() || '',

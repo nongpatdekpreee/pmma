@@ -2,7 +2,10 @@ const db = require('../config/database');
 
 const TENANT_SNS = 'SNS';
 const TENANT_TCC = 'TCC';
-const PROJECT_OWEN_SNS = 'SNS';
+/** Value in devices.Owner that marks SNS tenant */
+const OWNER_SNS = 'SNS';
+/** @deprecated use OWNER_SNS — kept for callers that still import this name */
+const PROJECT_OWEN_SNS = OWNER_SNS;
 
 function snsEmailDomain() {
   return String(process.env.TENANT_SNS_EMAIL_DOMAIN || 'shinasub.com')
@@ -45,12 +48,12 @@ async function resolveTenantForUserId(userId) {
 }
 
 /**
- * SNS: Project_Owen = SNS
+ * SNS: Owner = SNS
  * TCC: everything that is not SNS (including NULL / empty / site names)
  */
 function tenantDeviceFilter(tenant, alias = 'devices') {
-  const col = `${alias}.Project_Owen`;
-  const isSns = `UPPER(TRIM(COALESCE(${col}, ''))) = '${PROJECT_OWEN_SNS}'`;
+  const col = `${alias}.Owner`;
+  const isSns = `UPPER(TRIM(COALESCE(${col}, ''))) = '${OWNER_SNS}'`;
   const normalized = normalizeTenant(tenant);
   if (normalized === TENANT_SNS) {
     return { sql: ` AND ${isSns}`, params: [] };
@@ -61,19 +64,25 @@ function tenantDeviceFilter(tenant, alias = 'devices') {
   return { sql: ' AND 1=0', params: [] };
 }
 
-function projectOwenForCreate(tenant, requested) {
-  if (normalizeTenant(tenant) === TENANT_SNS) return PROJECT_OWEN_SNS;
+/** Resolve devices.Owner for create — SNS users always get SNS */
+function ownerForCreate(tenant, requested) {
+  if (normalizeTenant(tenant) === TENANT_SNS) return OWNER_SNS;
   const raw = String(requested || '').trim();
   if (!raw) return null;
-  if (raw.toUpperCase() === PROJECT_OWEN_SNS) return null;
+  if (raw.toUpperCase() === OWNER_SNS) return null;
   return raw;
+}
+
+/** @deprecated use ownerForCreate */
+function projectOwenForCreate(tenant, requested) {
+  return ownerForCreate(tenant, requested);
 }
 
 function snsDeviceExistsSql(slidExpr) {
   return `EXISTS (
     SELECT 1 FROM devices d_tn
     WHERE d_tn.SLid = ${slidExpr}
-      AND UPPER(TRIM(COALESCE(d_tn.Project_Owen, ''))) = '${PROJECT_OWEN_SNS}'
+      AND UPPER(TRIM(COALESCE(d_tn.Owner, ''))) = '${OWNER_SNS}'
   )`;
 }
 
@@ -126,11 +135,17 @@ async function isTaskVisibleToTenant(taskId, tenant) {
   return rows.length > 0;
 }
 
-function projectOwenForManualDevice(tenant, requested) {
-  if (normalizeTenant(tenant) === TENANT_SNS) return PROJECT_OWEN_SNS;
+/** Resolve devices.Owner for manual MA devices */
+function ownerForManualDevice(tenant, requested) {
+  if (normalizeTenant(tenant) === TENANT_SNS) return OWNER_SNS;
   const raw = String(requested || '').trim();
-  if (!raw || raw.toUpperCase() === PROJECT_OWEN_SNS) return TENANT_TCC;
+  if (!raw || raw.toUpperCase() === OWNER_SNS) return TENANT_TCC;
   return raw;
+}
+
+/** @deprecated use ownerForManualDevice */
+function projectOwenForManualDevice(tenant, requested) {
+  return ownerForManualDevice(tenant, requested);
 }
 
 async function isSlidVisibleToTenant(slid, tenant) {
@@ -178,17 +193,20 @@ function webhookUrlForTenant(tenant, kind = 'default') {
 module.exports = {
   TENANT_SNS,
   TENANT_TCC,
+  OWNER_SNS,
   PROJECT_OWEN_SNS,
   normalizeTenant,
   tenantFromEmail,
   resolveTenantForUserId,
   tenantDeviceFilter,
+  ownerForCreate,
   projectOwenForCreate,
   tenantContractFilter,
   tenantTaskFilter,
   tenantEmployeeFilter,
   isSlidVisibleToTenant,
   isTaskVisibleToTenant,
+  ownerForManualDevice,
   projectOwenForManualDevice,
   webhookUrlForTenant,
 };

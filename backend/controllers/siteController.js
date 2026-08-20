@@ -2,7 +2,8 @@ const db = require('../config/database');
 const { applyReferSofToSiteLocation, syncSofRenameOnSiteLocations } = require('../config/deviceSof');
 const { resolveSlSofSchema } = require('../lib/slSofSchema');
 const { columnExists } = require('../lib/siteLocationContract');
-const { tenantContractFilter, tenantDeviceFilter } = require('../utils/tenantScope');
+const { tenantContractFilter, tenantDeviceFilter, isSlidVisibleToTenant } = require('../utils/tenantScope');
+const { normalizeSiteContactRaw } = require('../utils/siteContactParse');
 
 // POST - สร้าง Site ใหม่
 const createSite = async (req, res) => {
@@ -60,6 +61,56 @@ const getSitesLocation = async (req, res) => {
       success: false,
       message: 'Error getting sites-location',
       error: error.message
+    });
+  }
+};
+
+// GET - sites_location ตาม SLid (contact จาก column contact โดยตรง)
+const getSiteLocationBySlid = async (req, res) => {
+  try {
+    const slid = parseInt(req.params.slid, 10);
+    if (!Number.isFinite(slid) || slid <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid SLid' });
+    }
+    if (!(await isSlidVisibleToTenant(slid, req.user && req.user.tenant))) {
+      return res.status(404).json({ success: false, message: 'Site location not found' });
+    }
+
+    const hasContact = await columnExists(db, 'sites_location', 'contact');
+    const contactSelect = hasContact ? 'SL.contact' : 'NULL AS contact';
+    const slSof = await resolveSlSofSchema();
+    const [rows] = await db.execute(
+      `SELECT SL.SLid, SL.Sid, SL.lid, ${slSof.locationSofSelect('SL')},
+              S.Name AS SiteName, L.Location2, IFNULL(L.Province, '') AS Province, ${contactSelect}
+       FROM sites_location SL
+       JOIN sites S ON SL.Sid = S.Sid
+       JOIN location L ON SL.lid = L.lid
+       WHERE SL.SLid = ?`,
+      [slid]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Site location not found' });
+    }
+    const row = rows[0];
+    res.status(200).json({
+      success: true,
+      data: {
+        SLid: row.SLid,
+        Sid: row.Sid,
+        lid: row.lid,
+        SiteName: row.SiteName,
+        Location2: row.Location2,
+        Province: row.Province,
+        SOF: row.SOF ?? row.Refer_SOF ?? null,
+        contact: normalizeSiteContactRaw(row.contact),
+      },
+    });
+  } catch (error) {
+    console.error('Error getting site location by SLid:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error getting site location',
+      error: error.message,
     });
   }
 };
@@ -380,6 +431,7 @@ module.exports = {
   createSite,                    // POST
   getSites,                      // GET
   getSitesLocation,              // GET /locations
+  getSiteLocationBySlid,         // GET /locations/:slid
   getSitesLocationBySOF,         // GET /locations-by-sof?refer_sof=XXX
   getSitesLocationWithContracts, // GET /locations-with-contracts
   getSiteRegistryCounts,         // GET /registry-counts

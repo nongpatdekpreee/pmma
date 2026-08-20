@@ -1,10 +1,15 @@
 import * as XLSX from 'xlsx';
 
 const SERIAL_HEADER_HINTS = ['serial', 'sn', 's/n'];
-const MODEL_HEADER_HINTS = ['model', 'devicemodel', 'product', 'pid'];
+const MODEL_HEADER_HINTS = ['model', 'devicemodel', 'product', 'pid', 'manufacturer'];
 
 function normalizeKey(key: string): string {
   return key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function keepPreferredCell(existing: unknown, next: unknown): unknown {
+  if (cellToString(existing)) return existing;
+  return next;
 }
 
 /** Excel may store long serials as numbers — avoid scientific notation */
@@ -24,7 +29,7 @@ export function pickField(row: Record<string, unknown>, aliases: string[]): stri
   for (const [k, v] of Object.entries(row)) {
     const nk = normalizeKey(k);
     if (!nk) continue;
-    if (!normalizedRow.has(nk)) normalizedRow.set(nk, v);
+    normalizedRow.set(nk, keepPreferredCell(normalizedRow.get(nk), v));
   }
 
   for (const alias of aliases) {
@@ -49,6 +54,56 @@ export function pickField(row: Record<string, unknown>, aliases: string[]): stri
       }
     }
     if (bestVal) return bestVal;
+  }
+  return '';
+}
+
+const VENDOR_HEADER_SKIP = /support|tel|phone|email|mail|fax/;
+
+/** Treat "-", "N/A", etc. as empty so fallbacks can run */
+export function isBlankProductValue(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  return /^(?:-|—|–|n\/?a|none|null|undefined|\.+)$/i.test(t);
+}
+
+/**
+ * Backup Excel → report Product.
+ * Priority: Vendor → Manufacturer → Brand → Product (not Product ID)
+ */
+export function pickVendorField(row: Record<string, unknown>): string {
+  const preferredKeys = ['vendor', 'vender', 'vendors', 'vendorname'];
+  const fallbackKeys = ['manufacturer', 'manufacturername', 'brand', 'product'];
+  const byKey = new Map<string, string>();
+  for (const [k, v] of Object.entries(row)) {
+    const nk = normalizeKey(k);
+    if (!nk) continue;
+    const text = cellToString(v);
+    if (!text || isBlankProductValue(text)) continue;
+    byKey.set(nk, keepPreferredCell(byKey.get(nk), text) as string);
+  }
+
+  for (const key of preferredKeys) {
+    const val = byKey.get(key);
+    if (val && !isBlankProductValue(val)) return val;
+  }
+
+  let bestKey = '';
+  let bestVal = '';
+  for (const [nk, text] of byKey) {
+    if (!nk.startsWith('vendor') && !nk.startsWith('vender')) continue;
+    if (VENDOR_HEADER_SKIP.test(nk)) continue;
+    if (isBlankProductValue(text)) continue;
+    if (!bestKey || nk.length < bestKey.length) {
+      bestKey = nk;
+      bestVal = text;
+    }
+  }
+  if (bestVal) return bestVal;
+
+  for (const key of fallbackKeys) {
+    const val = byKey.get(key);
+    if (val && !isBlankProductValue(val)) return val;
   }
   return '';
 }
@@ -114,7 +169,7 @@ function matrixToRowObjects(matrix: unknown[][], headerRowIndex: number): Record
     headers.forEach((h, c) => {
       const val = dataRow[c] ?? '';
       if (cellToString(val)) hasAny = true;
-      obj[h] = val ?? '';
+      obj[h] = keepPreferredCell(obj[h], val ?? '');
     });
     if (hasAny) out.push(obj);
   }

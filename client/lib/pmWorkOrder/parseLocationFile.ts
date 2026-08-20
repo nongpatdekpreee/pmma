@@ -84,7 +84,8 @@ function rowToLocationRecord(row: Record<string, unknown>): PmLocationRecord | n
     model,
     ipAddress,
     hostname: pickField(row, HOSTNAME_ALIASES) || undefined,
-    vendor: pickField(row, ['vendor']) || undefined,
+    vendor:
+      pickField(row, ['vendor', 'vender', 'manufacturer', 'brand', 'product']) || undefined,
     assetTag: pickField(row, ['assettag', 'asset tag']) || undefined,
     serviceTag: pickField(row, ['servicetag', 'service tag']) || undefined,
     locationLevel: pickField(row, LOCATION_LEVEL_ALIASES) || undefined,

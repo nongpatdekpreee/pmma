@@ -26,8 +26,12 @@ export interface ApiTask {
   end_date?: string;
   siteId?: number | string;
   site_id?: number | string;
+  contractId?: number | string;
+  contract_id?: number | string;
   Sid?: number | string;
   siteName?: string;
+  siteContact?: unknown;
+  site_contact?: unknown;
   engineer?: string;
   [key: string]: unknown;
 }
@@ -271,6 +275,22 @@ async function parseJsonResponse<T>(res: Response, fallback: T): Promise<T> {
   }
 }
 
+/** GET /api/sites/locations/:slid — sites_location + contact column */
+export async function getSiteLocationBySlid(slid: number | string): Promise<{
+  success: boolean;
+  data?: {
+    SLid: number;
+    SiteName?: string;
+    Location2?: string;
+    Province?: string;
+    contact?: unknown;
+  };
+  message?: string;
+}> {
+  const res = await apiFetch(apiUrl(`/api/sites/locations/${encodeURIComponent(String(slid))}`));
+  return jsonWithFallback(res, { success: false });
+}
+
 /** GET /api/sites/locations - สำหรับ dropdown Site (SLid, Sid, lid, SiteName, Location2, SOF) */
 export async function getSitesLocation(): Promise<{
   success: boolean;
@@ -466,7 +486,10 @@ export async function getSitesByContract(contractId: number | string): Promise<{
 }
 
 /** GET /api/contracts/:id - ดึง Contract เดียว (สำหรับ fallback sla_term) */
-export async function getContractById(contractId: number | string): Promise<{
+export async function getContractById(
+  contractId: number | string,
+  options?: { includeHistory?: boolean },
+): Promise<{
   success: boolean;
   data?: {
     contract_id: number;
@@ -475,7 +498,11 @@ export async function getContractById(contractId: number | string): Promise<{
     contact?: unknown;
   };
 }> {
-  const res = await apiFetch(apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}`));
+  const includeHistory = options?.includeHistory !== false;
+  const q = includeHistory ? '' : '?include_history=0';
+  const res = await apiFetch(
+    apiUrl(`/api/contracts/${encodeURIComponent(String(contractId))}${q}`)
+  );
   return jsonWithFallback(res, { success: false });
 }
 

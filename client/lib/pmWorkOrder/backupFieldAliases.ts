@@ -14,11 +14,22 @@ export const BACKUP_MODEL_ALIASES = [
   'model',
   'model number',
   'device model',
+  'manufacturer',
   'product id',
   'pid',
   'equipment name',
   'asset',
+];
+
+/** Report "Product" field — Vendor → Manufacturer → Brand → Product */
+export const BACKUP_VENDOR_ALIASES = [
+  'vendor',
+  'vender',
+  'vendors',
+  'vendor name',
   'manufacturer',
+  'brand',
+  'product',
 ];
 
 export const BACKUP_HOSTNAME_ALIASES = ['hostname', 'host name', 'host'];

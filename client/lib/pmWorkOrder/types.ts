@@ -43,7 +43,10 @@ export interface PmMonitoringBackupRecord {
   remark?: string;
   /** Legacy / display */
   equipmentName?: string;
+  /** Backup column Manufacturer (same meaning as model for matching) */
   manufacturer?: string;
+  /** Backup column Vendor → report Product */
+  vendor?: string;
   gps?: string;
   substation?: string;
   installationDate?: string;

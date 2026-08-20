@@ -130,6 +130,7 @@ interface Device {
   source?: 'site' | 'available' | 'manual';
   Dtypeid?: number;
   DeRoleid?: number;
+  Owner?: string;
   Project_Owen?: string;
   SLid?: number; // สำหรับกรองตาม site
   role?: string;
@@ -277,7 +278,7 @@ function buildManualMaBrokenDevice(params: {
   type?: string;
   Dtypeid?: number;
   DeRoleid?: number;
-  projectOwen: string;
+  owner: string;
   contractId: number;
   siteName?: string;
   slid?: number;
@@ -287,6 +288,7 @@ function buildManualMaBrokenDevice(params: {
   const assetNumber = params.assetNumber?.trim() || undefined;
   const role = params.role?.trim() || undefined;
   const type = params.type?.trim() || role;
+  const owner = params.owner.trim();
   return {
     id: `manual-${randomUUID()}`,
     name,
@@ -296,7 +298,7 @@ function buildManualMaBrokenDevice(params: {
     type,
     ...(params.Dtypeid != null ? { Dtypeid: params.Dtypeid } : {}),
     ...(params.DeRoleid != null ? { DeRoleid: params.DeRoleid } : {}),
-    Project_Owen: params.projectOwen.trim(),
+    Owner: owner,
     contract_id: params.contractId,
     site: params.siteName,
     SLid: params.slid,
@@ -3745,7 +3747,7 @@ function SearchableDeviceSelect({
 }
 
 /* ================= MA manual broken device modal ================= */
-const MANUAL_REPLACEMENT_PROJECT_OWEN = 'TCC';
+const MANUAL_REPLACEMENT_OWNER = 'TCC';
 
 interface MaManualBrokenDeviceModalProps {
   open: boolean;
@@ -3798,9 +3800,9 @@ function MaManualBrokenDeviceModal({
   const showContractPicker = selectedContractIds.length > 1;
   const selectedRole = deviceRoles.find((r) => String(r.DeRoleid) === roleId);
   const selectedType = deviceTypes.find((t) => String(t.Dtypeid) === typeId);
-  const resolvedProjectOwen =
+  const resolvedOwner =
     kind === 'replacement'
-      ? MANUAL_REPLACEMENT_PROJECT_OWEN
+      ? MANUAL_REPLACEMENT_OWNER
       : (siteName?.trim() || '');
 
   const handleConfirm = () => {
@@ -3814,11 +3816,11 @@ function MaManualBrokenDeviceModal({
       onValidationError('Please enter serial number');
       return;
     }
-    if (!resolvedProjectOwen) {
+    if (!resolvedOwner) {
       onValidationError(
         kind === 'replacement'
-          ? 'Replacement Project Owen must be TCC'
-          : 'Please select a site first (Project Owen uses the site name)',
+          ? 'Replacement Owner must be TCC'
+          : 'Please select a site first (Owner uses the site name)',
       );
       return;
     }
@@ -3841,7 +3843,7 @@ function MaManualBrokenDeviceModal({
           : undefined,
         Dtypeid: dtypeid != null && !Number.isNaN(dtypeid) ? dtypeid : undefined,
         DeRoleid: deroleid != null && !Number.isNaN(deroleid) ? deroleid : undefined,
-        projectOwen: resolvedProjectOwen,
+        owner: resolvedOwner,
         contractId: contractNum,
         siteName: siteName?.trim() || undefined,
         slid,
@@ -3898,15 +3900,15 @@ function MaManualBrokenDeviceModal({
           </div>
 
           <div>
-            <label className={fieldLabel}>Project Owen (Owner)</label>
+            <label className={fieldLabel}>Owner</label>
             <div className={`${inputBase} bg-muted text-foreground`}>
-              {resolvedProjectOwen ||
-                (kind === 'replacement' ? MANUAL_REPLACEMENT_PROJECT_OWEN : 'Select a site first')}
+              {resolvedOwner ||
+                (kind === 'replacement' ? MANUAL_REPLACEMENT_OWNER : 'Select a site first')}
             </div>
             <p className="mt-1 text-[10px] text-muted-foreground">
               {kind === 'replacement'
                 ? 'Replacement devices are owned by TCC.'
-                : 'Broken devices use the selected site name as Project Owen.'}
+                : 'Broken devices use the selected site name as Owner.'}
             </p>
           </div>
 

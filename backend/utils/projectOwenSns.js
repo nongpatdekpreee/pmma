@@ -1,6 +1,9 @@
 const db = require('../config/database');
 
-const PROJECT_OWEN_SNS = 'SNS';
+/** SNS marker in devices.Owner */
+const OWNER_SNS = 'SNS';
+/** @deprecated use OWNER_SNS */
+const PROJECT_OWEN_SNS = OWNER_SNS;
 
 const parsePositiveDeviceId = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -52,9 +55,9 @@ async function hasSnsDeviceByIds(deviceIds) {
   const [rows] = await db.execute(
     `SELECT 1 FROM devices
      WHERE Did IN (${placeholders})
-       AND UPPER(TRIM(Project_Owen)) = ?
+       AND UPPER(TRIM(Owner)) = ?
      LIMIT 1`,
-    [...ids, PROJECT_OWEN_SNS]
+    [...ids, OWNER_SNS]
   );
   return rows.length > 0;
 }
@@ -65,9 +68,9 @@ async function hasSnsDeviceByContractId(contractId) {
   const [rows] = await db.execute(
     `SELECT 1 FROM devices d
      WHERE d.SLid = ?
-       AND UPPER(TRIM(d.Project_Owen)) = ?
+       AND UPPER(TRIM(d.Owner)) = ?
      LIMIT 1`,
-    [cid, PROJECT_OWEN_SNS]
+    [cid, OWNER_SNS]
   );
   return rows.length > 0;
 }
@@ -79,15 +82,15 @@ async function hasSnsDeviceBySiteId(siteId) {
     `SELECT 1 FROM devices d
      INNER JOIN sites_location sl ON sl.SLid = d.SLid
      WHERE sl.Sid = ?
-       AND UPPER(TRIM(d.Project_Owen)) = ?
+       AND UPPER(TRIM(d.Owner)) = ?
      LIMIT 1`,
-    [sid, PROJECT_OWEN_SNS]
+    [sid, OWNER_SNS]
   );
   return rows.length > 0;
 }
 
 /**
- * งานนี้เป็นของ Project_Owen SNS หรือไม่
+ * งานนี้เป็นของ Owner SNS หรือไม่
  * — ตรวจจาก devices ใน assets / replacement, สัญญา, หรือ site
  */
 async function isProjectOwenSnsPlan({ assets = [], replacementDeviceId, contractId, siteId }) {
@@ -101,7 +104,7 @@ async function isProjectOwenSnsPlan({ assets = [], replacementDeviceId, contract
   return false;
 }
 
-/** สัญญานี้เกี่ยวกับ Project_Owen SNS หรือไม่ (จาก device ในคำขอหรือ SLid หลังบันทึก) */
+/** สัญญานี้เกี่ยวกับ Owner SNS หรือไม่ (จาก device ในคำขอหรือ SLid หลังบันทึก) */
 async function isProjectOwenSnsContract({ contractId, deviceIds = [] }) {
   const ids = (Array.isArray(deviceIds) ? deviceIds : [])
     .map((id) => parsePositiveDeviceId(id))
@@ -112,6 +115,7 @@ async function isProjectOwenSnsContract({ contractId, deviceIds = [] }) {
 }
 
 module.exports = {
+  OWNER_SNS,
   PROJECT_OWEN_SNS,
   collectDeviceIdsFromAssets,
   isProjectOwenSnsPlan,

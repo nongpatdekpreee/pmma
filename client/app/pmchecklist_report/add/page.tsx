@@ -10,6 +10,7 @@ import { apiTaskString } from '@/lib/apiTask';
 import { asRecord, readString, readNumber } from '@/lib/unknownUtil';
 import { formatTaskEngineersLine } from '@/lib/taskEngineers';
 import { PmReportWizard, type PmReportWizardHandle, type PmSavePhase } from '@/components/pm-report-wizard/PmReportWizard';
+import { positiveSlidFromTaskFields } from '@/lib/contractSiteContact';
 import { computePmNo, type PmTaskForRound } from '@/lib/pmWorkOrder';
 import { 
   AlertCircle,
@@ -101,6 +102,7 @@ function deviceFromTaskAssetSnapshot(raw: unknown, didNum: number): Device {
     Sitename: readString(a, 'Sitename') ?? readString(a, 'sitename') ?? readString(a, 'siteName') ?? '',
     Location2: readString(a, 'Location2') ?? readString(a, 'location2') ?? '',
     PR_No: readString(a, 'PR_No'),
+    Brand: readString(a, 'Brand') ?? readString(a, 'brand') ?? '',
     Vendor: readString(a, 'Vendor') ?? readString(a, 'vendor') ?? '',
     Refer_SOF: readString(a, 'Refer_SOF') ?? readString(a, 'refer_sof') ?? '',
     SLid: typeof a.SLid === 'number' ? a.SLid : undefined,
@@ -124,6 +126,7 @@ function deviceFromApiRow(row: Record<string, unknown>): Device | null {
     Sitename: readString(row, 'Sitename') ?? '',
     Location2: readString(row, 'Location2') ?? '',
     PR_No: readString(row, 'PR_No'),
+    Brand: readString(row, 'Brand') ?? readString(row, 'brand') ?? '',
     Vendor: readString(row, 'Vendor'),
     Refer_SOF: readString(row, 'Refer_SOF'),
     SLid: readNumber(row, 'SLid'),
@@ -156,6 +159,7 @@ interface Device {
   Manufacturername?: string;
   Sitename?: string;
   PR_No?: string;
+  Brand?: string;
   Vendor?: string;
   SLid?: number;
   Location2?: string;
@@ -438,12 +442,15 @@ function AddPMReportPageContent() {
     return availablePMTasks.find((t) => taskIdNum(t) === Number(selectedTaskId)) ?? null;
   }, [availablePMTasks, selectedTaskId]);
 
-  const selectedTaskContractId = useMemo((): number | null => {
+  const selectedTaskContractSlid = useMemo((): number | null => {
     if (!selectedTask) return null;
-    const raw = selectedTask.contractId ?? selectedTask.contract_id;
-    if (raw == null || raw === '') return null;
-    const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
-    return Number.isFinite(n) && n > 0 ? n : null;
+    return positiveSlidFromTaskFields(selectedTask.contractId, selectedTask.contract_id);
+  }, [selectedTask]);
+
+  /** site_id ใน tasks = SLid (sites_location) — fallback เมื่อ contract_id ว่าง */
+  const selectedTaskSiteSlid = useMemo((): number | null => {
+    if (!selectedTask) return null;
+    return positiveSlidFromTaskFields(selectedTask.siteId, selectedTask.site_id);
   }, [selectedTask]);
 
   const selectedDevice = useMemo(() => {
@@ -780,7 +787,9 @@ function AddPMReportPageContent() {
             <PmReportWizard
               ref={wizardRef}
               selectedTaskId={selectedTaskId}
-              contractId={selectedTaskContractId}
+              contractId={selectedTaskContractSlid}
+              siteSlid={selectedTaskSiteSlid}
+              siteContact={selectedTask?.siteContact ?? selectedTask?.site_contact}
               technicianName={technicianName}
               pmDate={pmDate}
               siteName={selectedSiteDisplayName}

@@ -14,8 +14,8 @@ import {
   X,
 } from 'lucide-react';
 import { PmWorkOrderDocument } from '@/components/pm-work-order';
-import { getContractById, postPmReport, uploadReportFile } from '@/lib/api';
-import { parseSiteContact1FromContractContact } from '@/lib/contractSiteContact';
+import { getSiteLocationBySlid, postPmReport, uploadReportFile } from '@/lib/api';
+import { contactFieldsFromRaw } from '@/lib/contractSiteContact';
 import { compressImageFile } from '@/lib/compressImage';
 import { prepareReportUploadFile, REPORT_UPLOAD_MAX_BYTES } from '@/lib/prepareReportUploadFile';
 import {
@@ -69,8 +69,12 @@ type Device = {
   Asset_Number?: string;
   Location2?: string;
   Sitename?: string;
+  SLid?: number;
   role?: string;
   roleName?: string;
+  Vendor?: string;
+  Brand?: string;
+  Manufacturername?: string;
 };
 
 type TechnicianPhotoItem = {
@@ -87,8 +91,12 @@ type Props = {
   siteName?: string;
   /** PM ครั้งที่ (จากลำดับ task PM ของ site ในปี) */
   pmNo?: string;
-  /** contract_id จาก task (= SLid) — โหลด site_contact_1 อัตโนมัติ */
+  /** contract_id / site_id (= SLid) — โหลด contact จาก sites_location.contact */
   contractId?: number | null;
+  /** site_id จาก task (= SLid) — fallback SLid */
+  siteSlid?: number | null;
+  /** site contact จาก task API — ใช้ก่อน fetch sites_location */
+  siteContact?: unknown;
   allowedDevices: Device[];
   loadingDevices: boolean;
   toastSuccess: (msg: string, ms?: number) => void;
@@ -108,6 +116,8 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     siteName = '',
     pmNo = '1',
     contractId = null,
+    siteSlid = null,
+    siteContact = null,
     allowedDevices,
     loadingDevices,
     toastSuccess,
@@ -190,26 +200,54 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     setStep(1);
   }, [selectedTaskId]);
 
-  /** โหลด Contact Name / Tel จาก site_contact_1 ของสัญญา */
+  /** โหลด Contact Name / Tel จาก sites_location.contact */
   useEffect(() => {
     let cancelled = false;
-    if (selectedTaskId == null || contractId == null || contractId <= 0) {
+
+    const applyContact = (raw: unknown): boolean => {
+      const { name, tel } = contactFieldsFromRaw(raw);
+      if (!name && !tel) return false;
+      setContactName(name);
+      setContactTel(tel);
+      return true;
+    };
+
+    if (selectedTaskId == null) {
       setContactName('');
       setContactTel('');
       return;
     }
+
+    if (siteContact != null && applyContact(siteContact)) {
+      return;
+    }
+
+    const deviceSlid = allowedDevices
+      .map((d) => d.SLid)
+      .find((n) => n != null && n > 0);
+    const slids = [
+      ...new Set(
+        [siteSlid, contractId, deviceSlid].filter((n): n is number => n != null && n > 0)
+      ),
+    ];
+    if (slids.length === 0) {
+      setContactName('');
+      setContactTel('');
+      return;
+    }
+
     void (async () => {
       try {
-        const res = await getContractById(contractId);
-        if (cancelled) return;
-        if (!res.success || !res.data) {
+        for (const slid of slids) {
+          const res = await getSiteLocationBySlid(slid);
+          if (cancelled) return;
+          if (!res.success || !res.data) continue;
+          if (applyContact(res.data.contact)) return;
+        }
+        if (!cancelled) {
           setContactName('');
           setContactTel('');
-          return;
         }
-        const { name, tel } = parseSiteContact1FromContractContact(res.data.contact);
-        setContactName(name);
-        setContactTel(tel.replace(/\D/g, '').slice(0, 15));
       } catch {
         if (!cancelled) {
           setContactName('');
@@ -220,7 +258,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     return () => {
       cancelled = true;
     };
-  }, [selectedTaskId, contractId]);
+  }, [selectedTaskId, contractId, siteSlid, siteContact, allowedDevices]);
 
   useEffect(() => {
     onExternalPdfModeChange?.(Boolean(externalPdfFile));
@@ -1056,8 +1094,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             <>
               <p className="text-sm text-muted-foreground">
                 <strong>Optional.</strong> Match by <strong className="text-foreground">Serial + Model</strong>.
-                Reads Hostname, IP, Software Version, Uptime, Stack/HA, CPU, Memory, Alarm, Temp, File Size, Fan,
-                Backup Config into the inspection PDF.
+                Reads <strong className="text-foreground">Vendor / Manufacturer / Brand → Product</strong> (fallback: device Brand), Software Version, Uptime, Stack/HA, CPU, Memory, Alarm, Temp, File Size, Fan, Backup Config into the inspection PDF.
               </p>
               <div className="rounded-xl border-2 border-dashed border-border bg-muted p-8 text-center">
                 <input
@@ -1116,7 +1153,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
                         >
                           <span className="col-span-2 font-medium">{insp.serialNumber || '—'}</span>
                           <span>Host: {insp.hostname || '—'}</span>
-                          <span>IP: {insp.ipAddress || '—'}</span>
+                          <span>Product: {insp.product || '—'}</span>
                           <span>SW: {insp.osVersion || '—'}</span>
                           <span>Temp: {insp.temperature || '—'}</span>
                         </div>
