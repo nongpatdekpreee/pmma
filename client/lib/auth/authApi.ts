@@ -19,11 +19,15 @@ function normalizeRole(role: string | undefined): AuthUser['Role'] {
   return r === 'ADMIN' ? 'ADMIN' : 'USER';
 }
 
-function mapUser(data: { id: number; Username: string; Role: string }): AuthUser {
+function mapUser(data: { id: number; Username: string; Role: string; tenant?: string }): AuthUser {
+  const tenantRaw = String(data.tenant ?? '').trim().toUpperCase();
+  const tenant: AuthUser['tenant'] | undefined =
+    tenantRaw === 'SNS' ? 'SNS' : tenantRaw === 'TCC' ? 'TCC' : undefined;
   return {
     id: data.id,
     Username: data.Username,
     Role: normalizeRole(data.Role),
+    ...(tenant ? { tenant } : {}),
   };
 }
 
@@ -68,13 +72,19 @@ export async function loginRequest(
 
 export async function registerRequest(
   Username: string,
-  Password: string
+  Password: string,
+  profile: { gmail: string; tel: string }
 ): Promise<{ ok: true } | { error: string }> {
   const res = await fetch(apiUrl('/api/auth/register'), {
     ...AUTH_FETCH_INIT,
     method: 'POST',
     headers: { ...AUTH_FETCH_INIT.headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ Username, Password }),
+    body: JSON.stringify({
+      Username,
+      Password,
+      gmail: profile.gmail,
+      tel: profile.tel,
+    }),
   });
   const body = await parseAuthJson<{ success: boolean; message?: string }>(res);
   if (!res.ok || !body.success) {

@@ -10,13 +10,12 @@ import {
   AlertTriangle,
   Calendar,
   ChevronDown,
-  Building2,
 } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import DashboardHeader from '@/components/ui/Header';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getTasks, getTopSitesHeatmap, getEmployees, apiUrl, getPmDashboard, getSitesLocation } from '@/lib/api';
+import { getTasks, getTopSitesHeatmap, getEmployees, apiUrl, getPmDashboard } from '@/lib/api';
 import {
   formatDashboardRangeLabel,
   getDashboardPeriodBounds,
@@ -197,7 +196,6 @@ export default function DashboardPage() {
   const [periodMenuPos, setPeriodMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [periodRange, setPeriodRange] = useState<{ start: string; endExclusive: string } | null>(null);
   const [periodMetaLoading, setPeriodMetaLoading] = useState(true);
-  const [systemSiteCount, setSystemSiteCount] = useState<number | null>(null);
 
   const PM_CARDS_PAGE_SIZE = 3;
   const NEAREST_EVENTS_PAGE_SIZE = 3;
@@ -250,20 +248,6 @@ export default function DashboardPage() {
       }
     };
     load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    getSitesLocation()
-      .then((res) => {
-        if (!cancelled && res?.success && Array.isArray(res.data)) setSystemSiteCount(res.data.length);
-      })
-      .catch(() => {
-        if (!cancelled) setSystemSiteCount(null);
-      });
     return () => {
       cancelled = true;
     };
@@ -882,18 +866,8 @@ export default function DashboardPage() {
         <div className="flex flex-nowrap gap-6 min-w-0 overflow-x-auto items-start">
           <div className="flex-[2] space-y-6 min-w-0">
           <div>
-            <div className="flex justify-between items-center gap-2 mb-4 flex-wrap">
+            <div className="mb-4">
               <h3 className="section-heading">Preventive Maintenance</h3>
-              <Link
-                href="/report#pm-sites-registry"
-                className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/90 px-3 py-1.5 text-xs text-blue-900 shadow-sm transition-colors hover:bg-blue-100/90 hover:border-blue-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-1"
-                title="Open Sites & locations on Report (registry from sites / sites_location)"
-              >
-                <Building2 size={16} className="text-blue-500 shrink-0" aria-hidden />
-                <span>
-                  Total <span className="font-bold tabular-nums">{systemSiteCount ?? '—'}</span> sites in the system
-                </span>
-              </Link>
             </div>
             <div className="space-y-3">
               {loadingTasks ? (

@@ -28,7 +28,6 @@ import {
   Calendar,
   Wrench,
   Building2,
-  MapPin,
   Server,
   AlertTriangle,
   Clock,
@@ -47,7 +46,6 @@ import {
   getPmDashboard,
   getDeviceRoles,
   getSitesLocation,
-  getSiteRegistryCounts,
 } from '@/lib/api';
 import {
   formatDashboardRangeLabel,
@@ -369,8 +367,6 @@ export default function ReportPage() {
   const [completedModalOpen, setCompletedModalOpen] = useState(false);
   const [inprocessModalOpen, setInprocessModalOpen] = useState(false);
   const [pendingModalOpen, setPendingModalOpen] = useState(false);
-  const [siteRegistryCounts, setSiteRegistryCounts] = useState<{ siteCount: number; locationCount: number } | null>(null);
-  const [siteRegistryCountsLoading, setSiteRegistryCountsLoading] = useState(false);
   const summaryCardsScrollRef = useRef<HTMLDivElement>(null);
   const [summaryAtScrollStart, setSummaryAtScrollStart] = useState(true);
   const [summaryAtScrollEnd, setSummaryAtScrollEnd] = useState(false);
@@ -407,33 +403,6 @@ export default function ReportPage() {
     });
     return () => { cancelled = true; };
   }, []);
-
-  useEffect(() => {
-    if (reportType !== 'pm') return;
-    let cancelled = false;
-    setSiteRegistryCountsLoading(true);
-    getSiteRegistryCounts()
-      .then((res) => {
-        if (cancelled) return;
-        if (res?.success && res.data && typeof res.data.siteCount === 'number' && typeof res.data.locationCount === 'number') {
-          setSiteRegistryCounts({
-            siteCount: res.data.siteCount,
-            locationCount: res.data.locationCount,
-          });
-        } else {
-          setSiteRegistryCounts(null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setSiteRegistryCounts(null);
-      })
-      .finally(() => {
-        if (!cancelled) setSiteRegistryCountsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [reportType]);
 
   useEffect(() => {
     const el = summaryCardsScrollRef.current;
@@ -992,47 +961,6 @@ export default function ReportPage() {
     }
     return Array.from(map.values()).sort((a, b) => b.total - a.total).slice(0, 3);
   }, [equipmentRanking]);
-
-  /** PM — location rows from /api/sites/locations, sorted by site then location */
-  const sitesLocationDetailRows = useMemo(() => {
-    return [...sitesList].sort((a, b) => {
-      const an = (a.SiteName || '').localeCompare(b.SiteName || '', undefined, { sensitivity: 'base' });
-      if (an !== 0) return an;
-      return (a.Location2 || '').localeCompare(b.Location2 || '', undefined, { sensitivity: 'base' });
-    });
-  }, [sitesList]);
-
-  /** PM — group by Site (Sid): organisation on the left, child locations on the right */
-  const sitesLocationGroupedBySite = useMemo(() => {
-    const map = new Map<
-      string,
-      { siteName: string; sid: number; locations: { SLid: number; label: string; sof?: string }[] }
-    >();
-    for (const row of sitesLocationDetailRows) {
-      const siteName = row.SiteName?.trim() || '—';
-      const key =
-        typeof row.Sid === 'number' && row.Sid > 0 ? `sid:${row.Sid}` : `name:${siteName}`;
-      const locLabel = row.Location2?.trim() || '—';
-      const sof = String(row.SOF ?? row.Refer_SOF ?? '').trim() || undefined;
-      const sid = typeof row.Sid === 'number' && row.Sid > 0 ? row.Sid : 0;
-      const cur = map.get(key);
-      if (!cur) {
-        map.set(key, { siteName, sid, locations: [{ SLid: row.SLid, label: locLabel, sof }] });
-      } else {
-        cur.locations.push({ SLid: row.SLid, label: locLabel, sof });
-        if (siteName !== '—') cur.siteName = siteName;
-        if (sid > 0) cur.sid = sid;
-      }
-    }
-    return Array.from(map.values())
-      .map((g) => ({
-        ...g,
-        locations: [...g.locations].sort((a, b) =>
-          a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
-        ),
-      }))
-      .sort((a, b) => a.siteName.localeCompare(b.siteName, undefined, { sensitivity: 'base' }));
-  }, [sitesLocationDetailRows]);
 
   useEffect(() => {
     const models = new Set(equipmentModels.map((m) => m.toLowerCase()));
@@ -2512,111 +2440,6 @@ export default function ReportPage() {
               </div>
             </div>
           </div>
-        )}
-
-        {reportType === 'pm' && (
-          <section
-            id="pm-sites-registry"
-            className="w-full scroll-mt-24 rounded-[2rem] border border-border bg-card p-4 shadow-sm sm:p-5"
-            aria-labelledby="pm-sites-registry-heading"
-          >
-            <h2
-              id="pm-sites-registry-heading"
-              className="section-heading-lg-responsive mb-1 flex items-center gap-2"
-            >
-              <Building2 size={18} className="text-blue-500 shrink-0" aria-hidden />
-              Sites & locations
-            </h2>
-            <p className="mb-2 text-[11px] leading-snug text-muted-foreground">
-              Registry totals from <span className="font-medium text-muted-foreground">sites</span> /{' '}
-              <span className="font-medium text-muted-foreground">sites_location</span>.
-            </p>
-
-            <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <div className="flex flex-col gap-0.5 rounded-2xl border border-blue-300 bg-blue-50/80 p-3 shadow-sm">
-                <div className="relative flex items-center">
-                  <span className="flex-1 text-center text-[11px] font-semibold uppercase tracking-wide text-blue-500">
-                    Sites
-                  </span>
-                  <Building2
-                    size={15}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 shrink-0 text-blue-400"
-                    aria-hidden
-                  />
-                </div>
-                <p className="pt-1 text-center text-xl font-black text-blue-700 tabular-nums leading-tight">
-                  {siteRegistryCountsLoading
-                    ? '…'
-                    : siteRegistryCounts != null
-                      ? siteRegistryCounts.siteCount.toLocaleString()
-                      : '—'}
-                </p>
-                <p className="pt-1 text-center text-[10px] text-blue-400/90">Sites table</p>
-              </div>
-              <div className="flex flex-col gap-0.5 rounded-2xl border border-sky-300 bg-sky-50/80 p-3 shadow-sm">
-                <div className="relative flex items-center">
-                  <span className="flex-1 text-center text-[11px] font-semibold uppercase tracking-wide text-sky-600">
-                    Locations
-                  </span>
-                  <MapPin
-                    size={15}
-                    className="absolute right-0 top-1/2 -translate-y-1/2 shrink-0 text-sky-500"
-                    aria-hidden
-                  />
-                </div>
-                <p className="pt-1 text-center text-xl font-black text-sky-700 tabular-nums leading-tight">
-                  {siteRegistryCountsLoading
-                    ? '…'
-                    : siteRegistryCounts != null
-                      ? siteRegistryCounts.locationCount.toLocaleString()
-                      : '—'}
-                </p>
-                <p className="pt-1 text-center text-[10px] text-sky-500">sites_location table</p>
-              </div>
-            </div>
-
-            <div className="mb-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="font-semibold text-muted-foreground flex items-center gap-1.5 text-xs sm:text-sm">
-                <MapPin size={14} className="text-blue-500 shrink-0" aria-hidden />
-                PM map
-              </h3>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="w-fit rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-blue-700 ring-1 ring-blue-100/80">
-                  {siteRegistryCountsLoading
-                    ? '…'
-                    : siteRegistryCounts != null
-                      ? `${siteRegistryCounts.siteCount} sites`
-                      : `${sitesLocationGroupedBySite.length} sites`}
-                </span>
-                <span className="w-fit rounded-md bg-sky-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-sky-800 ring-1 ring-sky-100/80">
-                  {siteRegistryCountsLoading
-                    ? '…'
-                    : siteRegistryCounts != null
-                      ? `${siteRegistryCounts.locationCount} locations`
-                      : `${sitesLocationDetailRows.length} locations`}
-                </span>
-                <a
-                  href="https://www.google.com/maps/d/viewer?mid=1MIVM-zq87_-QjcKCAnCLLhLlqZTB6Xw&hl=th"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-fit rounded-md bg-card px-2 py-0.5 text-[11px] font-semibold text-blue-600 ring-1 ring-border transition hover:bg-muted"
-                >
-                  Open full map
-                </a>
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-border bg-muted/40 shadow-inner">
-              <iframe
-                title="PM Preventive maintenance map"
-                src="https://www.google.com/maps/d/embed?mid=1MIVM-zq87_-QjcKCAnCLLhLlqZTB6Xw&hl=th&ll=15.498042554268263%2C101.39663160981688&z=8"
-                className="h-[min(72vh,52rem)] min-h-[32rem] w-full border-0"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                allowFullScreen
-              />
-            </div>
-          </section>
         )}
 
         </div>

@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { normalizeRole } = require('../utils/roleUtils');
+const { tenantEmployeeFilter } = require('../utils/tenantScope');
 const {
   ensureAuthLinkReady,
   createAndLinkLoginAccount,
@@ -57,8 +58,9 @@ const getEmployees = async (req, res) => {
     const offset = (page - 1) * limit;
 
     // สร้าง WHERE condition สำหรับ search
+    const ef = tenantEmployeeFilter(req.user && req.user.tenant, 'p.gmail');
     let searchCondition = '';
-    let searchParams = [];    
+    let searchParams = [];
 
     if (search) {
       const searchPattern = `%${search}%`;
@@ -68,8 +70,11 @@ const getEmployees = async (req, res) => {
         p.gmail LIKE ? OR 
         p.phone LIKE ? OR
         u.Username LIKE ?
-      )`;
-      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern];
+      )${ef.sql}`;
+      searchParams = [searchPattern, searchPattern, searchPattern, searchPattern, searchPattern, ...ef.params];
+    } else {
+      searchCondition = `WHERE 1=1${ef.sql}`;
+      searchParams = [...ef.params];
     }
 
     // นับจำนวน records ทั้งหมด
@@ -148,6 +153,7 @@ const getEmployeeById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    const ef = tenantEmployeeFilter(req.user && req.user.tenant, 'gmail');
     const sql = `SELECT 
       user_id,
       name,
@@ -157,9 +163,9 @@ const getEmployeeById = async (req, res) => {
       employment,
       em_picture
     FROM user_profiles 
-    WHERE user_id = ?`;
+    WHERE user_id = ?${ef.sql}`;
 
-    const [rows] = await db.execute(sql, [id]);
+    const [rows] = await db.execute(sql, [id, ...ef.params]);
 
     if (rows.length === 0) {
       return res.status(404).json({

@@ -4,6 +4,7 @@
  */
 
 const { noSofWhere } = require('../config/deviceSof');
+const { tenantDeviceFilter } = require('../utils/tenantScope');
 
 const HIST_ACTION = {
   RENEW: 'Renew',
@@ -37,12 +38,13 @@ const SL_LIST_SELECT = `
   (SELECT COUNT(*) FROM devices d WHERE d.SLid = sl.SLid) AS device_count,
   1 AS devices_slid_aligned`;
 
-async function buildSlListSelect(conn) {
+async function buildSlListSelect(conn, tenant) {
   const col = await resolveContractNameDbColumn(conn, 'sites_location');
   const nameExpr =
     col === 'contract_name'
       ? `COALESCE(NULLIF(TRIM(sl.contract_name), ''), ${SITE_LOCATION_NAME_EXPR})`
       : `COALESCE(NULLIF(TRIM(sl.contactname), ''), ${SITE_LOCATION_NAME_EXPR})`;
+  const tf = tenantDeviceFilter(tenant, 'd');
   return `
   sl.SLid AS contract_id,
   ${nameExpr} AS contract_name,
@@ -60,7 +62,7 @@ async function buildSlListSelect(conn) {
   s.Name AS site_name,
   IFNULL(l.Location2, '') AS site_location,
   IFNULL(l.Province, '') AS site_province,
-  (SELECT COUNT(*) FROM devices d WHERE d.SLid = sl.SLid) AS device_count,
+  (SELECT COUNT(*) FROM devices d WHERE d.SLid = sl.SLid${tf.sql}) AS device_count,
   1 AS devices_slid_aligned`;
 }
 

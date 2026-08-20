@@ -2,6 +2,7 @@ const db = require('../config/database');
 const { applyReferSofToSiteLocation, syncSofRenameOnSiteLocations } = require('../config/deviceSof');
 const { resolveSlSofSchema } = require('../lib/slSofSchema');
 const { columnExists } = require('../lib/siteLocationContract');
+const { tenantContractFilter, tenantDeviceFilter } = require('../utils/tenantScope');
 
 // POST - สร้าง Site ใหม่
 const createSite = async (req, res) => {
@@ -41,15 +42,17 @@ const createSite = async (req, res) => {
 const getSitesLocation = async (req, res) => {
   try {
     const slSof = await resolveSlSofSchema();
+    const cf = tenantContractFilter(req.user && req.user.tenant, 'SL');
     const sql = `
       SELECT SL.SLid, SL.Sid, SL.lid, ${slSof.locationSofSelect('SL')},
              S.Name AS SiteName, L.Location2, IFNULL(L.Province, '') AS Province
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
+      WHERE 1=1${cf.sql}
       ORDER BY S.Name, L.Location2
     `;
-    const [rows] = await db.execute(sql);
+    const [rows] = await db.execute(sql, cf.params);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting sites-location:', error);
@@ -75,16 +78,17 @@ const getSitesLocationBySOF = async (req, res) => {
     const slSof = await resolveSlSofSchema();
     const hasContact = await columnExists(db, 'sites_location', 'contact');
     const contactSelect = hasContact ? 'SL.contact' : 'NULL AS contact';
+    const cf = tenantContractFilter(req.user && req.user.tenant, 'SL');
     const sql = `
       SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2,
         IFNULL(L.Province, '') AS Province, ${contactSelect}
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
-      WHERE ${slSof.sofMatchWhere('SL')}
+      WHERE ${slSof.sofMatchWhere('SL')}${cf.sql}
       ORDER BY S.Name, L.Location2
     `;
-    const [rows] = await db.execute(sql, slSof.sofMatchParams(referSOF, referSOFTrim));
+    const [rows] = await db.execute(sql, [...slSof.sofMatchParams(referSOF, referSOFTrim), ...cf.params]);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting sites-location by SOF:', error);
@@ -119,15 +123,16 @@ const getSitesLocationWithContracts = async (req, res) => {
     }
 
     const placeholders = siteIds.map(() => '?').join(',');
+    const cf = tenantContractFilter(req.user && req.user.tenant, 'SL');
     const sql = `
       SELECT DISTINCT SL.SLid, SL.Sid, SL.lid, S.Name AS SiteName, L.Location2, IFNULL(L.Province, '') AS Province
       FROM sites_location SL
       JOIN sites S ON SL.Sid = S.Sid
       JOIN location L ON SL.lid = L.lid
-      WHERE SL.SLid IN (${placeholders})
+      WHERE SL.SLid IN (${placeholders})${cf.sql}
       ORDER BY S.Name, L.Location2
     `;
-    const [rows] = await db.execute(sql, siteIds);
+    const [rows] = await db.execute(sql, [...siteIds, ...cf.params]);
     const list = rows || [];
     /** หนึ่งแถวต่อที่ตั้งจริง (Sid+lid) — ใช้ SLid ล่าสุดเป็นตัวแทน */
     const byPhysical = new Map();
@@ -153,7 +158,8 @@ const getSitesLocationWithContracts = async (req, res) => {
 // GET - ดึงข้อมูล Sites
 const getSites = async (req, res) => {
   try {
-    // app_db: devices.SLid = sites_location.SLid, sites_location.Sid = sites.Sid
+    const cf = tenantContractFilter(req.user && req.user.tenant, 'sl');
+    const df = tenantDeviceFilter(req.user && req.user.tenant, 'd');
     const sql = `
       SELECT 
         s.Sid, 
@@ -162,12 +168,13 @@ const getSites = async (req, res) => {
         s.Status,
         COUNT(d.Did) AS device_count
       FROM sites s
-      LEFT JOIN sites_location sl ON sl.Sid = s.Sid
-      LEFT JOIN devices d ON d.SLid = sl.SLid
+      INNER JOIN sites_location sl ON sl.Sid = s.Sid
+      LEFT JOIN devices d ON d.SLid = sl.SLid${df.sql}
+      WHERE 1=1${cf.sql}
       GROUP BY s.Sid, s.Name, s.Slug, s.Status
       ORDER BY s.Sid DESC
     `;
-    const [rows] = await db.execute(sql);
+    const [rows] = await db.execute(sql, [...df.params, ...cf.params]);
 
     res.status(200).json({
       success: true,
@@ -343,8 +350,15 @@ const updateSitesLocationSof = async (req, res) => {
 /** GET — จำนวน Site (ตาราง sites) และ Location (ตาราง sites_location) จาก DB */
 const getSiteRegistryCounts = async (req, res) => {
   try {
-    const [[siteRow]] = await db.execute('SELECT COUNT(*) AS c FROM sites');
-    const [[locRow]] = await db.execute('SELECT COUNT(*) AS c FROM sites_location');
+    const cf = tenantContractFilter(req.user && req.user.tenant, 'sl');
+    const [[siteRow]] = await db.execute(
+      `SELECT COUNT(DISTINCT sl.Sid) AS c FROM sites_location sl WHERE 1=1${cf.sql}`,
+      cf.params
+    );
+    const [[locRow]] = await db.execute(
+      `SELECT COUNT(*) AS c FROM sites_location sl WHERE 1=1${cf.sql}`,
+      cf.params
+    );
     res.status(200).json({
       success: true,
       data: {

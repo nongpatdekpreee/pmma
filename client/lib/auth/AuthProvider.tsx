@@ -32,7 +32,11 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isAdmin: boolean;
   login: (username: string, password: string) => Promise<string | null>;
-  register: (username: string, password: string) => Promise<string | null>;
+  register: (
+    username: string,
+    password: string,
+    profile: { gmail: string; tel: string }
+  ) => Promise<string | null>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -110,8 +114,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    async (username: string, password: string): Promise<string | null> => {
-      const result = await registerRequest(username, password);
+    async (
+      username: string,
+      password: string,
+      profile: { gmail: string; tel: string }
+    ): Promise<string | null> => {
+      const result = await registerRequest(username, password, profile);
       if ('error' in result) return result.error;
       router.replace('/login');
       return null;

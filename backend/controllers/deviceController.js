@@ -8,6 +8,11 @@ const {
   REFER_SOF_DROPDOWN_SQL,
   applyReferSofToSiteLocation,
 } = require('../config/deviceSof');
+const { tenantDeviceFilter, projectOwenForCreate } = require('../utils/tenantScope');
+
+function tenantClause(req, alias = 'devices') {
+  return tenantDeviceFilter(req.user && req.user.tenant, alias);
+}
 
 //
 // devices_history is populated by DB triggers (trg_devices_insert, trg_devices_update)
@@ -88,8 +93,9 @@ const createDevice = async (req, res) => {
               Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
               Project_purchase, SLid, PO_No, Loan_Start, Request_Date,
               Refer_Ticket, Assigned_Service, Reason, Dtypeid, DeRoleid,
-              Project_code_purchase, Waranty_start, Waranty_end, Received_date, Asset_Type, Owner
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              Project_code_purchase, Waranty_start, Waranty_end, Received_date, Asset_Type, Owner,
+              Project_Owen
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               device.Asset_State || null,
               device.serial || null,
@@ -112,7 +118,8 @@ const createDevice = async (req, res) => {
               device.Waranty_end || null,
               device.Received_date || null,
               device.Asset_Type || null,
-              device.Owner || null
+              device.Owner || null,
+              projectOwenForCreate(req.user && req.user.tenant, device.Project_Owen),
             ]
           );
 
@@ -346,6 +353,7 @@ const createDevice = async (req, res) => {
 // GET - ดึงข้อมูล Devices (พร้อม Pagination และ Search)
 const getDevices = async (req, res) => {
   try {
+    const tf = tenantClause(req, 'devices');
     // ดึง query parameters
     const page = parseInt(req.query.page) || 1; // หน้าปัจจุบัน (default: 1)
     const limit = parseInt(req.query.limit) || 50; // จำนวน records ต่อหน้า (default: 50)
@@ -376,8 +384,8 @@ const getDevices = async (req, res) => {
                       JOIN manufacturer ON device_type.Mid = manufacturer.Mid
                       LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
                       LEFT JOIN sites ON sites_location.Sid = sites.Sid
-                      WHERE 1=1 ${searchCondition}`;
-    const [countResult] = await db.execute(countSql, searchParams);
+                      WHERE 1=1 ${tf.sql} ${searchCondition}`;
+    const [countResult] = await db.execute(countSql, [...tf.params, ...searchParams]);
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
@@ -391,11 +399,11 @@ const getDevices = async (req, res) => {
                  LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
                  LEFT JOIN sites ON sl.Sid = sites.Sid
                  LEFT JOIN location L ON sl.lid = L.lid
-                 WHERE 1=1 ${searchCondition}
+                 WHERE 1=1 ${tf.sql} ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
 
-    const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
+    const [rows] = await db.execute(sql, [...tf.params, ...searchParams, limit, offset]);
 
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
     let assetStateStats = [];
@@ -406,9 +414,9 @@ const getDevices = async (req, res) => {
                              JOIN manufacturer ON device_type.Mid = manufacturer.Mid
                              LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
                              LEFT JOIN sites ON sites_location.Sid = sites.Sid
-                             WHERE 1=1 ${searchCondition}
+                             WHERE 1=1 ${tf.sql} ${searchCondition}
                              GROUP BY devices.Asset_State`;
-      const [assetStateResult] = await db.execute(assetStateSql, searchParams);
+      const [assetStateResult] = await db.execute(assetStateSql, [...tf.params, ...searchParams]);
       assetStateStats = assetStateResult;
     }
 
@@ -440,6 +448,7 @@ const getDevices = async (req, res) => {
 // GET - ดึงข้อมูล Devices ที่ไม่ใช่ Asset_State = "In Store" (พร้อม Pagination และ Search)
 const getDevicesExcludeInStore = async (req, res) => {
   try {
+    const tf = tenantClause(req, 'devices');
     // ดึง query parameters
     const page = parseInt(req.query.page) || 1; // หน้าปัจจุบัน (default: 1)
     const limit = parseInt(req.query.limit) || 50; // จำนวน records ต่อหน้า (default: 50)
@@ -470,8 +479,9 @@ const getDevicesExcludeInStore = async (req, res) => {
                       LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
                       LEFT JOIN sites ON sites_location.Sid = sites.Sid
                       WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
+                      ${tf.sql}
                       ${searchCondition}`;
-    const [countResult] = await db.execute(countSql, searchParams);
+    const [countResult] = await db.execute(countSql, [...tf.params, ...searchParams]);
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
@@ -485,11 +495,12 @@ const getDevicesExcludeInStore = async (req, res) => {
                  LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
                  LEFT JOIN sites ON sites_location.Sid = sites.Sid
                  WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
+                 ${tf.sql}
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
 
-    const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
+    const [rows] = await db.execute(sql, [...tf.params, ...searchParams, limit, offset]);
 
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
     let assetStateStats = [];
@@ -501,9 +512,10 @@ const getDevicesExcludeInStore = async (req, res) => {
                              LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
                              LEFT JOIN sites ON sites_location.Sid = sites.Sid
                              WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'In Store')
+                             ${tf.sql}
                              ${searchCondition}
                              GROUP BY devices.Asset_State`;
-      const [assetStateResult] = await db.execute(assetStateSql, searchParams);
+      const [assetStateResult] = await db.execute(assetStateSql, [...tf.params, ...searchParams]);
       assetStateStats = assetStateResult;
     }
 
@@ -536,6 +548,7 @@ const getDevicesExcludeInStore = async (req, res) => {
 // GET - ดึงข้อมูล Devices ที่ไม่ใช่ Asset_State = "Out Store" (พร้อม Pagination และ Search)
 const getDevicesExcludeOutStore = async (req, res) => {
   try {
+    const tf = tenantClause(req, 'devices');
     // ดึง query parameters
     const page = parseInt(req.query.page) || 1; // หน้าปัจจุบัน (default: 1)
     const limit = parseInt(req.query.limit) || 50; // จำนวน records ต่อหน้า (default: 50)
@@ -566,8 +579,9 @@ const getDevicesExcludeOutStore = async (req, res) => {
                       LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
                       LEFT JOIN sites ON sites_location.Sid = sites.Sid
                       WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
+                      ${tf.sql}
                       ${searchCondition}`;
-    const [countResult] = await db.execute(countSql, searchParams);
+    const [countResult] = await db.execute(countSql, [...tf.params, ...searchParams]);
     const totalRecords = countResult[0].total;
     const totalPages = Math.ceil(totalRecords / limit);
 
@@ -581,11 +595,12 @@ const getDevicesExcludeOutStore = async (req, res) => {
                  LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
                  LEFT JOIN sites ON sites_location.Sid = sites.Sid
                  WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
+                 ${tf.sql}
                  ${searchCondition}
                  ORDER BY Did DESC 
                  LIMIT ? OFFSET ?`;
 
-    const [rows] = await db.execute(sql, [...searchParams, limit, offset]);
+    const [rows] = await db.execute(sql, [...tf.params, ...searchParams, limit, offset]);
 
     // นับจำนวนแยกตาม Asset_State สำหรับผลลัพธ์ที่ค้นหาได้ (ถ้ามี search)
     let assetStateStats = [];
@@ -597,9 +612,10 @@ const getDevicesExcludeOutStore = async (req, res) => {
                              LEFT JOIN sites_location ON devices.SLid = sites_location.SLid
                              LEFT JOIN sites ON sites_location.Sid = sites.Sid
                              WHERE (devices.Asset_State IS NULL OR devices.Asset_State != 'Out Store')
+                             ${tf.sql}
                              ${searchCondition}
                              GROUP BY devices.Asset_State`;
-      const [assetStateResult] = await db.execute(assetStateSql, searchParams);
+      const [assetStateResult] = await db.execute(assetStateSql, [...tf.params, ...searchParams]);
       assetStateStats = assetStateResult;
     }
 
@@ -633,6 +649,7 @@ const getDevicesExcludeOutStore = async (req, res) => {
 const getDeviceById = async (req, res) => {
   try {
     const { id } = req.params;
+    const tf = tenantClause(req, 'devices');
 
     const sql = `SELECT Did, Asset_State, serial, CI_Name, Asset_Number, PR_No, Vendor,
                  devices.SLid, L.Location2, PO_No, Loan_Start, Request_Date, sl.SOF AS Refer_SOF, 
@@ -646,9 +663,9 @@ const getDeviceById = async (req, res) => {
                  LEFT JOIN sites_location sl ON devices.SLid = sl.SLid
                  LEFT JOIN sites ON sl.Sid = sites.Sid
                  LEFT JOIN location L ON sl.lid = L.lid
-                 WHERE devices.Did = ?`;
+                 WHERE devices.Did = ?${tf.sql}`;
 
-    const [rows] = await db.execute(sql, [id]);
+    const [rows] = await db.execute(sql, [id, ...tf.params]);
 
     if (rows.length === 0) {
       return res.status(404).json({
@@ -871,6 +888,18 @@ const updateDevice = async (req, res) => {
       });
     }
 
+    const vis = tenantClause(req, 'devices');
+    const [visible] = await db.execute(
+      `SELECT Did FROM devices WHERE Did = ?${vis.sql}`,
+      [id, ...vis.params]
+    );
+    if (visible.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Device not found'
+      });
+    }
+
     const oldAssetState = existing[0].Asset_State;
 
     // สร้าง SQL query แบบ dynamic
@@ -1033,8 +1062,11 @@ const deleteDevice = async (req, res) => {
     const { id } = req.params;
 
     // ตรวจสอบว่า Device มีอยู่จริงหรือไม่
-    const checkSql = 'SELECT Did, CI_Name FROM devices WHERE Did = ?';
-    const [existing] = await db.execute(checkSql, [id]);
+    const vis = tenantClause(req, 'devices');
+    const [existing] = await db.execute(
+      `SELECT Did, CI_Name FROM devices WHERE Did = ?${vis.sql}`,
+      [id, ...vis.params]
+    );
 
     if (existing.length === 0) {
       return res.status(404).json({
@@ -1068,52 +1100,58 @@ const deleteDevice = async (req, res) => {
 // GET - Dashboard Statistics
 const getDashboard = async (req, res) => {
   try {
+    const tfD = tenantClause(req, 'd');
+    const tf = tenantClause(req, 'devices');
     const siteStatsSql = `SELECT s.Name AS site_name, COUNT(*) AS total
                           FROM devices d
                           JOIN sites_location sl ON d.SLid = sl.SLid
                           JOIN sites s ON sl.Sid = s.Sid
+                          WHERE 1=1 ${tfD.sql}
                           GROUP BY s.Name`;
-    const [siteStats] = await db.execute(siteStatsSql);
+    const [siteStats] = await db.execute(siteStatsSql, tfD.params);
 
     // 2. จำนวน Devices ทั้งหมด
-    const totalDevicesSql = `SELECT COUNT(*) AS total_devices FROM devices`;
-    const [totalDevicesResult] = await db.execute(totalDevicesSql);
+    const totalDevicesSql = `SELECT COUNT(*) AS total_devices FROM devices WHERE 1=1 ${tf.sql}`;
+    const [totalDevicesResult] = await db.execute(totalDevicesSql, tf.params);
     const totalDevices = totalDevicesResult[0].total_devices;
 
     // 3. จำนวน Devices ต่อ Asset_State
     const assetStateSql = `SELECT Asset_State, COUNT(*) AS total
                            FROM devices
+                           WHERE 1=1 ${tf.sql}
                            GROUP BY Asset_State`;
-    const [assetStateStats] = await db.execute(assetStateSql);
+    const [assetStateStats] = await db.execute(assetStateSql, tf.params);
 
     // 4. จำนวน Devices ที่ available (Request_Date IS NULL)
     const availableSql = `SELECT COUNT(*) AS available_devices
                          FROM devices
-                         WHERE Request_Date IS NULL`;
-    const [availableResult] = await db.execute(availableSql);
+                         WHERE Request_Date IS NULL ${tf.sql}`;
+    const [availableResult] = await db.execute(availableSql, tf.params);
     const availableDevices = availableResult[0].available_devices;
 
     // 5. จำนวน Devices ที่ requested (Request_Date IS NOT NULL)
     const requestedSql = `SELECT COUNT(*) AS requested_devices
                          FROM devices
-                         WHERE Request_Date IS NOT NULL`;
-    const [requestedResult] = await db.execute(requestedSql);
+                         WHERE Request_Date IS NOT NULL ${tf.sql}`;
+    const [requestedResult] = await db.execute(requestedSql, tf.params);
     const requestedDevices = requestedResult[0].requested_devices;
 
     // 6. จำนวน Devices ต่อ Model
     const modelStatsSql = `SELECT dt.model, COUNT(*) AS total
                           FROM devices d
                           JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+                          WHERE 1=1 ${tfD.sql}
                           GROUP BY dt.model`;
-    const [modelStats] = await db.execute(modelStatsSql);
+    const [modelStats] = await db.execute(modelStatsSql, tfD.params);
 
     // 7. จำนวน Devices ต่อ manufacturer
     const manufacturerStatsSql = `SELECT m.name AS manufacturer, COUNT(*) AS total
                                  FROM devices d
                                  JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
                                  JOIN manufacturer m ON dt.Mid = m.Mid
+                                 WHERE 1=1 ${tfD.sql}
                                  GROUP BY m.name`;
-    const [manufacturerStats] = await db.execute(manufacturerStatsSql);
+    const [manufacturerStats] = await db.execute(manufacturerStatsSql, tfD.params);
 
     res.status(200).json({
       success: true,
@@ -1140,6 +1178,7 @@ const getDashboard = async (req, res) => {
 // GET - ดึงข้อมูล Devices แยกตาม Model (พร้อม Asset_State breakdown และ manufacturer)
 const getDevicesByModel = async (req, res) => {
   try {
+    const tf = tenantClause(req, 'd');
     // ดึงข้อมูล model, manufacturer, และจำนวนทั้งหมด
     const modelSql = `SELECT 
                       dt.model,
@@ -1148,10 +1187,11 @@ const getDevicesByModel = async (req, res) => {
                       FROM devices d
                       JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
                       JOIN manufacturer m ON dt.Mid = m.Mid
+                      WHERE 1=1 ${tf.sql}
                       GROUP BY dt.model, m.name
                       ORDER BY dt.model`;
 
-    const [modelRows] = await db.execute(modelSql);
+    const [modelRows] = await db.execute(modelSql, tf.params);
 
     // ดึงข้อมูล Asset_State breakdown สำหรับแต่ละ model
     const assetStateSql = `SELECT 
@@ -1160,10 +1200,11 @@ const getDevicesByModel = async (req, res) => {
                           COUNT(*) AS count
                           FROM devices d
                           JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
+                          WHERE 1=1 ${tf.sql}
                           GROUP BY dt.model, d.Asset_State
                           ORDER BY dt.model, d.Asset_State`;
 
-    const [assetStateRows] = await db.execute(assetStateSql);
+    const [assetStateRows] = await db.execute(assetStateSql, tf.params);
 
     // รวมข้อมูล Asset_State เข้ากับแต่ละ model
     const result = modelRows.map(model => {
@@ -1201,18 +1242,23 @@ const getDevicesByModel = async (req, res) => {
 // ถ้า Project_purchase ไม่มีใช้ Vendor แทน
 const getVendors = async (req, res) => {
   try {
+    const tf = tenantClause(req, 'devices');
     let rows;
     try {
       [rows] = await db.execute(
         `SELECT DISTINCT Project_purchase AS name FROM devices
          WHERE Project_purchase IS NOT NULL AND TRIM(Project_purchase) != ''
-         ORDER BY Project_purchase ASC`
+         ${tf.sql}
+         ORDER BY Project_purchase ASC`,
+        tf.params
       );
     } catch (e) {
       [rows] = await db.execute(
         `SELECT DISTINCT Vendor AS name FROM devices
          WHERE Vendor IS NOT NULL AND TRIM(Vendor) != ''
-         ORDER BY Vendor ASC`
+         ${tf.sql}
+         ORDER BY Vendor ASC`,
+        tf.params
       );
     }
     res.status(200).json({ success: true, data: rows.map((r) => r.name) });
@@ -1248,11 +1294,14 @@ const getReferSOFList = async (req, res) => {
 // GET - ดึง unique Assigned_Service values จาก Devices table (สำหรับ dropdown Service ใน Add Contract)
 const getAssignedServicesList = async (req, res) => {
   try {
+    const tf = tenantClause(req, 'devices');
     const [rows] = await db.execute(
       `SELECT DISTINCT Assigned_Service AS assigned_service
        FROM devices
        WHERE Assigned_Service IS NOT NULL AND TRIM(Assigned_Service) != ''
-       ORDER BY Assigned_Service ASC`
+       ${tf.sql}
+       ORDER BY Assigned_Service ASC`,
+      tf.params
     );
     res.status(200).json({
       success: true,
@@ -1293,6 +1342,7 @@ const getDevicesBySOFAndSite = async (req, res) => {
   
     const sofMatch = sofMatchWhere('sl');
     const sofSelect = deviceSofSelect('sl');
+    const tf = tenantClause(req, 'd');
     let rows;
     if (sid) {
       const sidNum = parseInt(sid, 10);
@@ -1307,9 +1357,9 @@ const getDevicesBySOFAndSite = async (req, res) => {
          LEFT JOIN manufacturer m ON dt.Mid = m.Mid
          INNER JOIN sites_location sl ON d.SLid = sl.SLid
          LEFT JOIN location L ON sl.lid = L.lid
-         WHERE sl.Sid = ? AND ${sofMatch}
+         WHERE sl.Sid = ? AND ${sofMatch}${tf.sql}
          ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
-        [sidNum, referSOF, referSOFTrim]
+        [sidNum, referSOF, referSOFTrim, ...tf.params]
       );
     } else {
       [rows] = await db.execute(
@@ -1320,9 +1370,9 @@ const getDevicesBySOFAndSite = async (req, res) => {
          LEFT JOIN manufacturer m ON dt.Mid = m.Mid
          INNER JOIN sites_location sl ON d.SLid = sl.SLid
          LEFT JOIN location L ON sl.lid = L.lid
-         WHERE d.SLid = ? AND ${sofMatch}
+         WHERE d.SLid = ? AND ${sofMatch}${tf.sql}
          ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
-        [siteId, referSOF, referSOFTrim]
+        [siteId, referSOF, referSOFTrim, ...tf.params]
       );
     }
     
@@ -1357,6 +1407,7 @@ const getImportLocation2HintsByContractAndSof = async (req, res) => {
     const referSOFTrim = normalizeReferSofKey(referSOF) || '0';
     const sofMatch = sofMatchWhere('sl');
     const slid = parseInt(contractId, 10);
+    const tf = tenantClause(req, 'd');
     const [rows] = await db.execute(
       `SELECT DISTINCT d.SLid AS SLid,
               TRIM(L.Location2) AS Location2
@@ -1366,8 +1417,9 @@ const getImportLocation2HintsByContractAndSof = async (req, res) => {
        WHERE d.SLid = ?
          AND ${sofMatch}
          AND TRIM(COALESCE(L.Location2, '')) != ''
+         ${tf.sql}
        ORDER BY Location2 ASC, d.SLid ASC`,
-      [slid, referSOF, referSOFTrim]
+      [slid, referSOF, referSOFTrim, ...tf.params]
     );
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
@@ -1395,6 +1447,7 @@ const getDevicesByContractAndSite = async (req, res) => {
     const contractSlid = parseInt(contractId, 10);
     const siteSlid = parseInt(slid, 10);
     const filterSlid = !Number.isNaN(siteSlid) ? siteSlid : contractSlid;
+    const tf = tenantClause(req, 'd');
     const [rows] = await db.execute(
       `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${deviceSofSelect('sl')}, dt.model, dr.name as roleName, m.name as manufacturername, L.Location2
        FROM devices d
@@ -1403,9 +1456,9 @@ const getDevicesByContractAndSite = async (req, res) => {
        LEFT JOIN manufacturer m ON dt.Mid = m.Mid
        LEFT JOIN sites_location sl ON d.SLid = sl.SLid
        LEFT JOIN location L ON sl.lid = L.lid
-       WHERE d.SLid = ?
+       WHERE d.SLid = ?${tf.sql}
        ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`,
-      [filterSlid]
+      [filterSlid, ...tf.params]
     );
 
     res.status(200).json({ success: true, data: rows });
@@ -1429,8 +1482,9 @@ const getDevicesBySerials = async (req, res) => {
       return res.status(200).json({ success: true, data: [] });
     }
     const placeholders = list.map(() => 'TRIM(serial) = ?').join(' OR ');
-    const sql = `SELECT Did, serial FROM devices WHERE ${placeholders}`;
-    const [rows] = await db.execute(sql, list);
+    const tf = tenantClause(req, 'devices');
+    const sql = `SELECT Did, serial FROM devices WHERE (${placeholders})${tf.sql}`;
+    const [rows] = await db.execute(sql, [...list, ...tf.params]);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting devices by serials:', error);
@@ -1453,6 +1507,7 @@ const getDevicesBySiteNoSOF = async (req, res) => {
     const sofSelect = deviceSofSelect('sl');
     const notInContract = `(d.SLid IS NULL OR sl.SLid IS NULL OR sl.status = 'draft' OR ${noSofCondition})`;
     const inStore = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
+    const tf = tenantClause(req, 'd');
     
     if (sid) {
       const sidNum = parseInt(sid, 10);
@@ -1469,8 +1524,9 @@ const getDevicesBySiteNoSOF = async (req, res) => {
                AND ${inStore}
                AND ${noSofCondition}
                AND (${notInContract})
+             ${tf.sql}
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
-      params = [sidNum];
+      params = [sidNum, ...tf.params];
     } else if (siteId) {
       sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername
              FROM devices d
@@ -1482,8 +1538,9 @@ const getDevicesBySiteNoSOF = async (req, res) => {
                AND ${inStore}
                AND ${noSofCondition}
                AND (${notInContract})
+             ${tf.sql}
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
-      params = [siteId];
+      params = [siteId, ...tf.params];
     } else {
       sql = `SELECT d.Did, d.CI_Name, d.Asset_Number, d.Asset_State, d.serial, d.SLid, d.Dtypeid, d.DeRoleid, ${sofSelect}, dt.model, dr.name as roleName, m.name as manufacturername
              FROM devices d
@@ -1496,8 +1553,9 @@ const getDevicesBySiteNoSOF = async (req, res) => {
              WHERE ${inStore}
                AND ${noSofCondition}
                AND (${notInContract})
+             ${tf.sql}
              ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
-      params = [DEFAULT_IN_STORE_SITE_NAME];
+      params = [DEFAULT_IN_STORE_SITE_NAME, ...tf.params];
     }
     
     const [rows] = await db.execute(sql, params);
@@ -1520,6 +1578,7 @@ const getDevicesNoSofInStore = async (req, res) => {
     const noSofCondition = noSofWhere('sl', 'd');
     const sofSelect = deviceSofSelect('sl');
     const inStoreCondition = `(LOWER(TRIM(COALESCE(d.Asset_State,''))) = 'in store')`;
+    const tf = tenantClause(req, 'd');
     const onOtherContract = `(
       sl.SLid IS NOT NULL
       AND sl.status = 'official'
@@ -1551,8 +1610,9 @@ const getDevicesNoSofInStore = async (req, res) => {
                  WHERE ${noSofCondition}
                    AND ${inStoreCondition}
                    ${contractExclusionCondition}
+                   ${tf.sql}
                  ORDER BY COALESCE(d.CI_Name, d.Asset_Number, d.Did) ASC`;
-    const [rows] = await db.execute(sql, params);
+    const [rows] = await db.execute(sql, [...params, ...tf.params]);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting devices (no SOF, In Store):', error);
@@ -1573,13 +1633,14 @@ const getDevicesBySite = async (req, res) => {
         message: 'Please provide site'
       });
     }
+    const tf = tenantClause(req, 'devices');
     // TccStock: devices.SLid -> sites_location.SLid
     const [rows] = await db.execute(
       `SELECT Did, CI_Name, Asset_Number, Asset_State, serial, SLid, Dtypeid, DeRoleid
        FROM devices
-       WHERE SLid = ?
+       WHERE SLid = ?${tf.sql}
        ORDER BY COALESCE(CI_Name, Asset_Number, Did) ASC`,
-      [siteId]
+      [siteId, ...tf.params]
     );
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
@@ -1610,6 +1671,7 @@ const getDevicesByAssetState = async (req, res) => {
     }
 
     const placeholders = states.map(() => '?').join(', ');
+    const tf = tenantClause(req, 'devices');
     const params = [...states];
     let searchSql = '';
 
@@ -1628,11 +1690,12 @@ const getDevicesByAssetState = async (req, res) => {
       FROM devices
       WHERE Asset_State IN (${placeholders})
       ${searchSql}
+      ${tf.sql}
       ORDER BY COALESCE(CI_Name, Asset_Number, Did) ASC
       LIMIT 200
     `;
 
-    const [rows] = await db.execute(sql, params);
+    const [rows] = await db.execute(sql, [...params, ...tf.params]);
     res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting devices by asset state:', error);
@@ -1649,6 +1712,7 @@ const getDevicesByAssetState = async (req, res) => {
 // GET - ดึง Devices In Store ในคลังตามชื่อ site (DEFAULT_IN_STORE_SITE_NAME) — ไม่กรอง Dtypeid/DeRoleid
 const getReplacementDevices = async (req, res) => {
   try {
+    const tf = tenantClause(req, 'd');
     const sql = `
       SELECT 
         d.Did,
@@ -1668,11 +1732,12 @@ const getReplacementDevices = async (req, res) => {
       LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
       LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
       WHERE (LOWER(TRIM(COALESCE(d.Asset_State, ''))) = 'in store')
+      ${tf.sql}
       ORDER BY d.CI_Name ASC, d.Asset_Number ASC
       LIMIT 500
     `;
 
-    const [rows] = await db.execute(sql, [DEFAULT_IN_STORE_SITE_NAME]);
+    const [rows] = await db.execute(sql, [DEFAULT_IN_STORE_SITE_NAME, ...tf.params]);
 
     res.status(200).json({
       success: true,
@@ -1890,6 +1955,7 @@ const getDeviceHistory = async (req, res) => {
 // GET - ดึง Devices พร้อม PM Information สำหรับ Asset & Site Database
 const getDevicesWithPM = async (req, res) => {
   try {
+    const tf = tenantClause(req, 'devices');
     console.log('[getDevicesWithPM] Request received:', {
       search: req.query.search,
       deviceType: req.query.DeRoleid,
@@ -1956,11 +2022,12 @@ const getDevicesWithPM = async (req, res) => {
       LEFT JOIN sites ON sl.Sid = sites.Sid
       LEFT JOIN location L ON sl.lid = L.lid
       WHERE 1=1 
+      ${tf.sql}
       ${searchCondition} 
       ${deviceRoleCondition} 
       ${siteCondition}
       ORDER BY devices.Did DESC`;
-    const [devices] = await db.execute(devicesSql, searchParams);
+    const [devices] = await db.execute(devicesSql, [...tf.params, ...searchParams]);
 
     // Get all PM tasks (task_type = 'PM'); updated_at ใช้เป็น Last PM เมื่อ status = 'done'
     const [pmTasks] = await db.execute(`
@@ -2114,10 +2181,11 @@ const getDevicesWithPM = async (req, res) => {
       LEFT JOIN sites ON sl.Sid = sites.Sid
       LEFT JOIN location L ON sl.lid = L.lid
       WHERE 1=1 
+      ${tf.sql}
       ${statsDeviceRoleCondition} 
       ${statsSiteCondition}
       ORDER BY devices.Did DESC`;
-    const [allDevicesForStats] = await db.execute(statsSql, statsParams);
+    const [allDevicesForStats] = await db.execute(statsSql, [...tf.params, ...statsParams]);
 
     // Process all devices for statistics (same logic as devicesWithPM but without search filter)
     const allDevicesWithPM = allDevicesForStats.map(device => {

@@ -1,8 +1,7 @@
 const { withCardImage } = require('./teamsCardImages');
 const { formatChangesMarkdown } = require('../utils/teamsMessageFormat');
 const { isProjectOwenSnsPlan } = require('../utils/projectOwenSns');
-
-const WEBHOOK_ENV = 'TEAMS_WEBHOOK_PROJECT_OWEN_SNS';
+const { TENANT_SNS, TENANT_TCC, webhookUrlForTenant } = require('../utils/tenantScope');
 
 const STATUS_LABELS = {
   'not-started': 'Pending',
@@ -11,9 +10,8 @@ const STATUS_LABELS = {
   done: 'Done',
 };
 
-function getWebhookUrl() {
-  const url = process.env[WEBHOOK_ENV];
-  return url && String(url).trim() ? String(url).trim() : null;
+function getWebhookUrl(tenant) {
+  return webhookUrlForTenant(tenant || TENANT_SNS, 'default');
 }
 
 function dash(value) {
@@ -202,10 +200,10 @@ function buildMessageCard(task, options = {}) {
   };
 }
 
-async function postTeamsCard(payload, logTag) {
-  const webhookUrl = getWebhookUrl();
+async function postTeamsCard(payload, logTag, tenant) {
+  const webhookUrl = getWebhookUrl(tenant);
   if (!webhookUrl) {
-    console.warn(`[${logTag}] skip: set ${WEBHOOK_ENV} in backend/.env for Teams plan alerts`);
+    console.warn(`[${logTag}] skip: set Teams webhook env for tenant ${tenant || '?'}`);
     return { sent: false, reason: 'no_webhook' };
   }
 
@@ -229,20 +227,14 @@ async function postTeamsCard(payload, logTag) {
   }
 }
 
-async function assertSnsPlanOrSkip(task, logTag) {
+async function resolvePlanTenant(task) {
   const isSns = await isProjectOwenSnsPlan({
     assets: task?.assets,
     replacementDeviceId: task?.replacementDeviceId ?? task?.replacement_device_id,
     contractId: task?.contractId ?? task?.contract_id,
     siteId: task?.siteId ?? task?.site_id,
   });
-  if (!isSns) {
-    console.log(
-      `[${logTag}] skip: plan #${task?.id ?? '?'} is not Project_Owen SNS`
-    );
-    return { sent: false, reason: 'not_sns' };
-  }
-  return null;
+  return isSns ? TENANT_SNS : TENANT_TCC;
 }
 
 /**
@@ -250,10 +242,9 @@ async function assertSnsPlanOrSkip(task, logTag) {
  * @param {{ actor?: object }} [options]
  */
 async function notifyTeamsPlanCreated(task, options = {}) {
-  const skip = await assertSnsPlanOrSkip(task, 'teamsPlanNotification');
-  if (skip) return skip;
+  const tenant = await resolvePlanTenant(task);
   const card = buildMessageCard(task, { event: 'created', ...options });
-  return postTeamsCard(card, 'teamsPlanNotification');
+  return postTeamsCard(card, 'teamsPlanNotification', tenant);
 }
 
 /**
@@ -261,10 +252,9 @@ async function notifyTeamsPlanCreated(task, options = {}) {
  * @param {{ actor?: object, changes?: Array }} [options]
  */
 async function notifyTeamsPlanUpdated(task, options = {}) {
-  const skip = await assertSnsPlanOrSkip(task, 'teamsPlanNotification');
-  if (skip) return skip;
+  const tenant = await resolvePlanTenant(task);
   const card = buildMessageCard(task, { event: 'updated', ...options });
-  return postTeamsCard(card, 'teamsPlanNotification');
+  return postTeamsCard(card, 'teamsPlanNotification', tenant);
 }
 
 module.exports = {

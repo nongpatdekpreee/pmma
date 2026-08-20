@@ -1,8 +1,7 @@
 const { withCardImage } = require('./teamsCardImages');
 const { formatChangesMarkdown } = require('../utils/teamsMessageFormat');
 const { isProjectOwenSnsContract } = require('../utils/projectOwenSns');
-
-const WEBHOOK_ENV = 'TEAMS_WEBHOOK_PROJECT_OWEN_SNS';
+const { TENANT_SNS, TENANT_TCC, webhookUrlForTenant } = require('../utils/tenantScope');
 
 const EVENT_META = {
   created: { emoji: '📄', title: 'New Contract', themeColor: '059669', actorLabel: 'Created by' },
@@ -12,9 +11,8 @@ const EVENT_META = {
   terminated: { emoji: '⛔', title: 'Contract Not Renewing', themeColor: 'DC2626', actorLabel: 'Updated by' },
 };
 
-function getWebhookUrl() {
-  const url = process.env[WEBHOOK_ENV];
-  return url && String(url).trim() ? String(url).trim() : null;
+function getWebhookUrl(tenant) {
+  return webhookUrlForTenant(tenant || TENANT_SNS, 'default');
 }
 
 function dash(value) {
@@ -165,17 +163,12 @@ async function notifyTeamsContractEvent(payload) {
     contractId: contract.contract_id ?? contract.SLid ?? contract.site_id,
     deviceIds,
   });
-  if (!isSns) {
-    console.log(
-      `[teamsContractNotification] skip: contract #${contract.contract_id ?? '?'} is not Project_Owen SNS`
-    );
-    return { sent: false, reason: 'not_sns' };
-  }
+  const tenant = isSns ? TENANT_SNS : TENANT_TCC;
 
-  const webhookUrl = getWebhookUrl();
+  const webhookUrl = getWebhookUrl(tenant);
   if (!webhookUrl) {
     console.warn(
-      `[teamsContractNotification] skip: set ${WEBHOOK_ENV} in backend/.env`
+      `[teamsContractNotification] skip: set Teams webhook for tenant ${tenant}`
     );
     return { sent: false, reason: 'no_webhook' };
   }

@@ -1,18 +1,11 @@
 const { withCardImage } = require('./teamsCardImages');
 const { isProjectOwenSnsContract } = require('../utils/projectOwenSns');
-
-const WEBHOOK_ENV = 'TEAMS_WEBHOOK_CONTRACT_EXPIRING';
-const FALLBACK_WEBHOOK_ENVS = ['TEAMS_WEBHOOK_PROJECT_OWEN_SNS', 'TEAMS_WEBHOOK_SNS_UPCOMING_PLANS'];
+const { TENANT_SNS, TENANT_TCC, webhookUrlForTenant } = require('../utils/tenantScope');
 
 const MAX_LIST = 20;
 
-function getWebhookUrl() {
-  const candidates = [WEBHOOK_ENV, ...FALLBACK_WEBHOOK_ENVS];
-  for (const key of candidates) {
-    const url = process.env[key];
-    if (url && String(url).trim()) return String(url).trim();
-  }
-  return null;
+function getWebhookUrl(tenant) {
+  return webhookUrlForTenant(tenant || TENANT_SNS, 'expiring');
 }
 
 function dash(value) {
@@ -167,44 +160,35 @@ function buildExpiringMessageCard({ contracts, windowDays, trigger = 'daily' }) 
   };
 }
 
-async function filterSnsContracts(contracts) {
+async function partitionContractsByTenant(contracts) {
   const list = Array.isArray(contracts) ? contracts : [];
-  const out = [];
+  const sns = [];
+  const tcc = [];
   for (const contract of list) {
     const isSns = await isProjectOwenSnsContract({
       contractId: contract?.contract_id ?? contract?.SLid ?? contract?.site_id,
       deviceIds: [],
     });
-    if (isSns) out.push(contract);
+    if (isSns) sns.push(contract);
+    else tcc.push(contract);
   }
-  return out;
+  return { sns, tcc };
 }
 
-async function notifyTeamsExpiringContracts({ contracts, windowDays, trigger = 'daily' }) {
-  const webhookUrl = getWebhookUrl();
+async function postExpiringForTenant(tenant, tenantContracts, windowDays, trigger) {
+  const webhookUrl = getWebhookUrl(tenant);
   if (!webhookUrl) {
-    console.warn(
-      `[teamsExpiringContracts] skip: set ${WEBHOOK_ENV} (or TEAMS_WEBHOOK_PROJECT_OWEN_SNS) in backend/.env`
-    );
-    return { sent: false, reason: 'no_webhook' };
+    console.warn(`[teamsExpiringContracts] skip ${tenant}: set Teams expiring webhook`);
+    return { sent: false, reason: 'no_webhook', tenant, contractCount: 0 };
   }
-
-  if (!contracts.length) {
-    return { sent: false, reason: 'none_expiring', contractCount: 0 };
+  if (!tenantContracts.length) {
+    return { sent: false, reason: 'none_expiring', tenant, contractCount: 0 };
   }
-
-  const snsContracts = await filterSnsContracts(contracts);
-  if (snsContracts.length === 0) {
-    console.log('[teamsExpiringContracts] skip: no Project_Owen SNS contracts in window');
-    return { sent: false, reason: 'not_sns', contractCount: 0 };
-  }
-
   const payload = buildExpiringMessageCard({
-    contracts: snsContracts,
+    contracts: tenantContracts,
     windowDays,
     trigger,
   });
-
   try {
     const res = await fetch(webhookUrl, {
       method: 'POST',
@@ -213,14 +197,29 @@ async function notifyTeamsExpiringContracts({ contracts, windowDays, trigger = '
     });
     const text = await res.text().catch(() => '');
     if (!res.ok) {
-      console.error(`[teamsExpiringContracts] HTTP ${res.status}: ${text.slice(0, 500)}`);
-      return { sent: false, reason: 'http_error', status: res.status };
+      console.error(`[teamsExpiringContracts] ${tenant} HTTP ${res.status}: ${text.slice(0, 500)}`);
+      return { sent: false, reason: 'http_error', status: res.status, tenant };
     }
-    return { sent: true, contractCount: snsContracts.length };
+    return { sent: true, tenant, contractCount: tenantContracts.length };
   } catch (err) {
-    console.error('[teamsExpiringContracts] request failed:', err.message);
-    return { sent: false, reason: 'network_error' };
+    console.error(`[teamsExpiringContracts] ${tenant} request failed:`, err.message);
+    return { sent: false, reason: 'network_error', tenant };
   }
+}
+
+async function notifyTeamsExpiringContracts({ contracts, windowDays, trigger = 'daily' }) {
+  if (!contracts.length) {
+    return { sent: false, reason: 'none_expiring', contractCount: 0 };
+  }
+  const { sns, tcc } = await partitionContractsByTenant(contracts);
+  const snsResult = await postExpiringForTenant(TENANT_SNS, sns, windowDays, trigger);
+  const tccResult = await postExpiringForTenant(TENANT_TCC, tcc, windowDays, trigger);
+  return {
+    sent: Boolean(snsResult.sent || tccResult.sent),
+    sns: snsResult,
+    tcc: tccResult,
+    contractCount: (snsResult.contractCount || 0) + (tccResult.contractCount || 0),
+  };
 }
 
 module.exports = {

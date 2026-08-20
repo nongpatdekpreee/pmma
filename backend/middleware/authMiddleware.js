@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const { normalizeRole } = require('../utils/roleUtils');
 const { logAuthFailure } = require('../utils/authLogger');
 const { requireSession } = require('./requireSession');
+const { normalizeTenant, resolveTenantForUserId } = require('../utils/tenantScope');
 
 function getJwtSecret() {
   const secret = process.env.JWT_SECRET;
@@ -16,7 +17,7 @@ function isMaNoticeFileGet(req) {
 }
 
 // Middleware ตรวจสอบ JWT Token
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
@@ -33,9 +34,21 @@ const authenticateToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, getJwtSecret());
+    let tenant = normalizeTenant(decoded.tenant);
+    if (!tenant && decoded.id != null) {
+      tenant = await resolveTenantForUserId(decoded.id);
+    }
+    if (!tenant) {
+      logAuthFailure('missing_tenant', { path: req.originalUrl, userId: decoded.id });
+      return res.status(403).json({
+        success: false,
+        message: 'บัญชีนี้ยังไม่ได้ผูกอีเมลบริษัท',
+      });
+    }
     req.user = {
       ...decoded,
       Role: normalizeRole(decoded.Role),
+      tenant,
     };
     next();
   } catch (error) {

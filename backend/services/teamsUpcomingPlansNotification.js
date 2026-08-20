@@ -1,7 +1,6 @@
 const { withCardImage } = require('./teamsCardImages');
 const { isProjectOwenSnsPlan } = require('../utils/projectOwenSns');
-
-const WEBHOOK_ENV = 'TEAMS_WEBHOOK_SNS_UPCOMING_PLANS';
+const { TENANT_SNS, TENANT_TCC, webhookUrlForTenant } = require('../utils/tenantScope');
 
 const STATUS_LABELS = {
   'not-started': 'Pending',
@@ -12,9 +11,8 @@ const STATUS_LABELS = {
 
 const MAX_LIST_PER_TYPE = 15;
 
-function getWebhookUrl() {
-  const url = process.env[WEBHOOK_ENV];
-  return url && String(url).trim() ? String(url).trim() : null;
+function getWebhookUrl(tenant) {
+  return webhookUrlForTenant(tenant || TENANT_SNS, 'upcoming');
 }
 
 function dash(value) {
@@ -181,9 +179,10 @@ function buildUpcomingMessageCard({ plans, windowDays }) {
   };
 }
 
-async function filterSnsPlans(plans) {
+async function partitionPlansByTenant(plans) {
   const list = Array.isArray(plans) ? plans : [];
-  const out = [];
+  const sns = [];
+  const tcc = [];
   for (const plan of list) {
     const isSns = await isProjectOwenSnsPlan({
       assets: plan?.assets,
@@ -191,28 +190,22 @@ async function filterSnsPlans(plans) {
       contractId: plan?.contractId ?? plan?.contract_id,
       siteId: plan?.siteId ?? plan?.site_id,
     });
-    if (isSns) out.push(plan);
+    if (isSns) sns.push(plan);
+    else tcc.push(plan);
   }
-  return out;
+  return { sns, tcc };
 }
 
-async function notifyTeamsUpcomingPlans({ plans, windowDays }) {
-  const webhookUrl = getWebhookUrl();
+async function postUpcomingForTenant(tenant, tenantPlans, windowDays) {
+  const webhookUrl = getWebhookUrl(tenant);
   if (!webhookUrl) {
-    console.warn(
-      `[teamsUpcomingPlans] skip: set ${WEBHOOK_ENV} in backend/.env`
-    );
-    return { sent: false, reason: 'no_webhook' };
+    console.warn(`[teamsUpcomingPlans] skip ${tenant}: set Teams upcoming webhook`);
+    return { sent: false, reason: 'no_webhook', tenant };
   }
-
-  const snsPlans = await filterSnsPlans(plans);
-  if (snsPlans.length === 0) {
-    console.log('[teamsUpcomingPlans] skip: no Project_Owen SNS plans in window');
-    return { sent: false, reason: 'not_sns', pmCount: 0, maCount: 0 };
+  if (!tenantPlans.length) {
+    return { sent: false, reason: 'none', tenant, pmCount: 0, maCount: 0 };
   }
-
-  const payload = buildUpcomingMessageCard({ plans: snsPlans, windowDays });
-
+  const payload = buildUpcomingMessageCard({ plans: tenantPlans, windowDays });
   try {
     const res = await fetch(webhookUrl, {
       method: 'POST',
@@ -221,18 +214,32 @@ async function notifyTeamsUpcomingPlans({ plans, windowDays }) {
     });
     const text = await res.text().catch(() => '');
     if (!res.ok) {
-      console.error(`[teamsUpcomingPlans] HTTP ${res.status}: ${text.slice(0, 500)}`);
-      return { sent: false, reason: 'http_error', status: res.status };
+      console.error(`[teamsUpcomingPlans] ${tenant} HTTP ${res.status}: ${text.slice(0, 500)}`);
+      return { sent: false, reason: 'http_error', status: res.status, tenant };
     }
     return {
       sent: true,
-      pmCount: snsPlans.filter((p) => String(p.taskType).toUpperCase() === 'PM').length,
-      maCount: snsPlans.filter((p) => String(p.taskType).toUpperCase() === 'MA').length,
+      tenant,
+      pmCount: tenantPlans.filter((p) => String(p.taskType).toUpperCase() === 'PM').length,
+      maCount: tenantPlans.filter((p) => String(p.taskType).toUpperCase() === 'MA').length,
     };
   } catch (err) {
-    console.error('[teamsUpcomingPlans] request failed:', err.message);
-    return { sent: false, reason: 'network_error' };
+    console.error(`[teamsUpcomingPlans] ${tenant} request failed:`, err.message);
+    return { sent: false, reason: 'network_error', tenant };
   }
+}
+
+async function notifyTeamsUpcomingPlans({ plans, windowDays }) {
+  const { sns, tcc } = await partitionPlansByTenant(plans);
+  const snsResult = await postUpcomingForTenant(TENANT_SNS, sns, windowDays);
+  const tccResult = await postUpcomingForTenant(TENANT_TCC, tcc, windowDays);
+  return {
+    sent: Boolean(snsResult.sent || tccResult.sent),
+    sns: snsResult,
+    tcc: tccResult,
+    pmCount: (snsResult.pmCount || 0) + (tccResult.pmCount || 0),
+    maCount: (snsResult.maCount || 0) + (tccResult.maCount || 0),
+  };
 }
 
 module.exports = {

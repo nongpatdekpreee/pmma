@@ -8,6 +8,7 @@ const path = require('path');
 const db = require('../config/database');
 const { computeDownTimeTotalHours } = require('../utils/downtimeHours');
 const { fetchTaskSlaTerm } = require('../lib/taskContractJoin');
+const { tenantTaskFilter, isTaskVisibleToTenant } = require('../utils/tenantScope');
 
 async function updateTaskUptimeColumns(taskId, endD, timeSql) {
   try {
@@ -134,6 +135,10 @@ const submitReport = async (req, res) => {
       pmDate,
       maDate,
     } = body;
+
+    if (taskId && !(await isTaskVisibleToTenant(taskId, req.user && req.user.tenant))) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
 
     let uptimeDateIn = body.uptimeDate ?? body.downTimeEndDate;
     let uptimeTimeIn = body.uptimeTime ?? body.downTimeEndTime;
@@ -309,13 +314,15 @@ const getReports = async (req, res) => {
     let lastJoinErr = null;
     for (const suf of taskHoursSuffixes) {
       try {
+        const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
         const [r] = await db.execute(
           `${reportsJoinSelect}${suf}
          FROM report r
          INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
+         WHERE 1=1${tf.sql}
          ORDER BY r.report_id DESC
          LIMIT ? OFFSET ?`,
-          [taskType, limitNum, offsetNum]
+          [taskType, ...tf.params, limitNum, offsetNum]
         );
         rows = r;
         break;
@@ -329,9 +336,10 @@ const getReports = async (req, res) => {
       throw lastJoinErr || new Error('getReports: SELECT failed');
     }
 
+    const tfCount = tenantTaskFilter(req.user && req.user.tenant, 't');
     const [countRows] = await db.execute(
-      `SELECT COUNT(*) AS total FROM report r INNER JOIN tasks t ON t.id = r.id WHERE t.task_type = ?`,
-      [taskType]
+      `SELECT COUNT(*) AS total FROM report r INNER JOIN tasks t ON t.id = r.id WHERE t.task_type = ?${tfCount.sql}`,
+      [taskType, ...tfCount.params]
     );
     const total = countRows[0]?.total || 0;
 
@@ -472,12 +480,13 @@ const deleteReport = async (req, res) => {
     const base = (req.baseUrl || '').toLowerCase();
     const taskType = base.includes('ma-reports') ? 'MA' : 'PM';
 
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
     const [rows] = await db.execute(
       `SELECT r.report_id, r.file_path, r.image_path
        FROM report r
        INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
-       WHERE r.report_id = ?`,
-      [taskType, reportId]
+       WHERE r.report_id = ?${tf.sql}`,
+      [taskType, reportId, ...tf.params]
     );
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Report not found' });
@@ -503,11 +512,13 @@ const getReportedTaskIds = async (req, res) => {
     const base = (req.baseUrl || '').toLowerCase();
     const taskType = base.includes('ma-reports') ? 'MA' : 'PM';
 
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
     const [rows] = await db.execute(
       `SELECT DISTINCT r.id AS taskId FROM report r
        INNER JOIN tasks t ON t.id = r.id AND t.task_type = ?
+       WHERE 1=1${tf.sql}
        ORDER BY r.id`,
-      [taskType]
+      [taskType, ...tf.params]
     );
 
     const taskIds = rows

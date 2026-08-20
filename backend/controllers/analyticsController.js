@@ -1,4 +1,5 @@
 const db = require('../config/database');
+const { tenantTaskFilter, tenantDeviceFilter } = require('../utils/tenantScope');
 
 /** จำนวนอันดับสูงสุดของ Vendor / Site บน MA & PM dashboard (กราฟ + ranking) */
 const DASHBOARD_RANKING_TOP_N = 5;
@@ -132,6 +133,8 @@ const getMaPmAnalytics = async (req, res) => {
   try {
     const months = clampInt(req.query.months, { min: 1, max: 24, fallback: 6 });
     const { start, endExclusive } = getRange(months);
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
+    const rangeParams = [toISODate(start), toISODate(endExclusive), ...tf.params];
 
     // Monthly (PM/MA) completion % (month_key matches GROUP BY for ONLY_FULL_GROUP_BY)
     const [monthlyRows] = await db.execute(
@@ -143,11 +146,11 @@ const getMaPmAnalytics = async (req, res) => {
         SUM(CASE WHEN t.task_type = 'PM' THEN 1 ELSE 0 END) AS pm_total,
         SUM(CASE WHEN t.task_type = 'PM' AND t.status = 'done' THEN 1 ELSE 0 END) AS pm_done
       FROM tasks t
-      WHERE t.start_date >= ? AND t.start_date < ?
+      WHERE t.start_date >= ? AND t.start_date < ?${tf.sql}
       GROUP BY DATE_FORMAT(t.start_date, '%Y-%m')
       ORDER BY month_key ASC
       `,
-      [toISODate(start), toISODate(endExclusive)]
+      rangeParams
     );
 
     // Vendor completion % (uses tasks.vendor_name)
@@ -160,11 +163,11 @@ const getMaPmAnalytics = async (req, res) => {
         SUM(CASE WHEN t.task_type = 'PM' THEN 1 ELSE 0 END) AS pm_total,
         SUM(CASE WHEN t.task_type = 'PM' AND t.status = 'done' THEN 1 ELSE 0 END) AS pm_done
       FROM tasks t
-      WHERE t.start_date >= ? AND t.start_date < ?
+      WHERE t.start_date >= ? AND t.start_date < ?${tf.sql}
       GROUP BY COALESCE(NULLIF(TRIM(t.vendor_name), ''), 'Unknown')
       ORDER BY vendor ASC
       `,
-      [toISODate(start), toISODate(endExclusive)]
+      rangeParams
     );
 
     // Site completion % (uses tasks.site_name)
@@ -177,11 +180,11 @@ const getMaPmAnalytics = async (req, res) => {
         SUM(CASE WHEN t.task_type = 'PM' THEN 1 ELSE 0 END) AS pm_total,
         SUM(CASE WHEN t.task_type = 'PM' AND t.status = 'done' THEN 1 ELSE 0 END) AS pm_done
       FROM tasks t
-      WHERE t.start_date >= ? AND t.start_date < ?
+      WHERE t.start_date >= ? AND t.start_date < ?${tf.sql}
       GROUP BY COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown')
       ORDER BY site ASC
       `,
-      [toISODate(start), toISODate(endExclusive)]
+      rangeParams
     );
 
     const comparisonData = monthlyRows.map((r) => {
@@ -247,6 +250,8 @@ const getSlaAnalytics = async (req, res) => {
   try {
     const months = clampInt(req.query.months, { min: 1, max: 24, fallback: 6 });
     const { start, endExclusive } = getRange(months);
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
+    const rangeParams = [toISODate(start), toISODate(endExclusive), ...tf.params];
 
     const [monthlyRows] = await db.execute(
       `
@@ -257,11 +262,11 @@ const getSlaAnalytics = async (req, res) => {
       FROM report r
       INNER JOIN tasks t ON t.id = r.id
       WHERE t.contract_id IS NOT NULL
-        AND t.start_date >= ? AND t.start_date < ?
+        AND t.start_date >= ? AND t.start_date < ?${tf.sql}
       GROUP BY DATE_FORMAT(t.start_date, '%Y-%m')
       ORDER BY month_key ASC
       `,
-      [toISODate(start), toISODate(endExclusive)]
+      rangeParams
     );
 
     const [vendorRows] = await db.execute(
@@ -273,12 +278,12 @@ const getSlaAnalytics = async (req, res) => {
       FROM report r
       INNER JOIN tasks t ON t.id = r.id
       WHERE t.contract_id IS NOT NULL
-        AND t.start_date >= ? AND t.start_date < ?
+        AND t.start_date >= ? AND t.start_date < ?${tf.sql}
       GROUP BY COALESCE(NULLIF(TRIM(t.vendor_name), ''), 'Unknown')
       ORDER BY total_reports DESC, name ASC
       LIMIT 20
       `,
-      [toISODate(start), toISODate(endExclusive)]
+      rangeParams
     );
 
     const [siteRows] = await db.execute(
@@ -290,12 +295,12 @@ const getSlaAnalytics = async (req, res) => {
       FROM report r
       INNER JOIN tasks t ON t.id = r.id
       WHERE t.contract_id IS NOT NULL
-        AND t.start_date >= ? AND t.start_date < ?
+        AND t.start_date >= ? AND t.start_date < ?${tf.sql}
       GROUP BY COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown')
       ORDER BY total_reports DESC, name ASC
       LIMIT 20
       `,
-      [toISODate(start), toISODate(endExclusive)]
+      rangeParams
     );
 
     const lineChartData = monthlyRows.map((r) => {
@@ -347,6 +352,7 @@ const getSlaContracts = async (req, res) => {
   try {
     const months = clampInt(req.query.months, { min: 1, max: 24, fallback: 6 });
     const { start, endExclusive } = getRange(months);
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
 
     const [rows] = await db.execute(
       `
@@ -359,12 +365,12 @@ const getSlaContracts = async (req, res) => {
       FROM report r
       INNER JOIN tasks t ON t.id = r.id
       WHERE t.contract_id IS NOT NULL
-        AND t.start_date >= ? AND t.start_date < ?
+        AND t.start_date >= ? AND t.start_date < ?${tf.sql}
       GROUP BY t.contract_id, vendor, site
       ORDER BY t.contract_id DESC
       LIMIT 2000
       `,
-      [toISODate(start), toISODate(endExclusive)]
+      [toISODate(start), toISODate(endExclusive), ...tf.params]
     );
 
     const data = rows.map((r) => {
@@ -453,6 +459,8 @@ const getMaDashboard = async (req, res) => {
     }
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
+    const rangeParams = [startISO, endISO, ...tf.params];
 
     // 1) Monthly MA task counts by task status (month_key matches GROUP BY for ONLY_FULL_GROUP_BY)
     const [monthlyMA] = await db.execute(
@@ -467,10 +475,10 @@ const getMaDashboard = async (req, res) => {
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
        LEFT JOIN report r ON r.id = t.id
-       WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?
+       WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?${tf.sql}
        GROUP BY DATE_FORMAT(t.start_date, '%Y-%m')
        ORDER BY month_key ASC`,
-      [startISO, endISO]
+      rangeParams
     );
 
     // 2) Vendor MA ranking (top 10) – use vendor from device DB, not tasks.vendor_name
@@ -480,8 +488,8 @@ const getMaDashboard = async (req, res) => {
               r.status AS report_status
        FROM tasks t
        LEFT JOIN report r ON r.id = t.id
-       WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?`,
-      [startISO, endISO]
+       WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?${tf.sql}`,
+      rangeParams
     );
     const deviceIdsFromTasks = new Set();
     for (const row of vendorTaskRows) {
@@ -632,11 +640,11 @@ const getMaDashboard = async (req, res) => {
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
        LEFT JOIN report r ON r.id = t.id
-       WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?
+       WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?${tf.sql}
        GROUP BY COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown')
        ORDER BY total DESC
        LIMIT ?`,
-      [startISO, endISO, DASHBOARD_RANKING_TOP_N]
+      [...rangeParams, DASHBOARD_RANKING_TOP_N]
     );
 
     // 4) Equipment MA ranking - parse assets JSON + join report for pass/fail
@@ -645,8 +653,8 @@ const getMaDashboard = async (req, res) => {
               r.status AS report_status
        FROM tasks t
        LEFT JOIN report r ON r.id = t.id
-       WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?`,
-      [startISO, endISO]
+       WHERE t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?${tf.sql}`,
+      rangeParams
     );
 
     const equipMap = {};
@@ -792,9 +800,10 @@ const getMaDashboard = async (req, res) => {
          FROM report r
          INNER JOIN tasks t ON t.id = r.id AND t.task_type = 'MA' AND t.start_date >= ? AND t.start_date < ?
          LEFT JOIN devices d ON d.Did = r.device_id
+         WHERE 1=1${tf.sql}
          GROUP BY COALESCE(NULLIF(TRIM(d.Vendor), ''), 'Unknown')
          ORDER BY total_reports DESC`,
-        [startISO, endISO]
+        rangeParams
       );
       vendorReportStats = mergeVendorReportStatsRows(
         vrRows.map((r) => ({
@@ -942,6 +951,9 @@ const getPmDashboard = async (req, res) => {
     }
     const startISO = toISODate(start);
     const endISO = toISODate(endExclusive);
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
+    const df = tenantDeviceFilter(req.user && req.user.tenant, 'd');
+    const rangeParams = [startISO, endISO, ...tf.params];
 
     const [monthlyMA] = await db.execute(
       `SELECT
@@ -955,10 +967,10 @@ const getPmDashboard = async (req, res) => {
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
        LEFT JOIN report r ON r.id = t.id
-       WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?
+       WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?${tf.sql}
        GROUP BY DATE_FORMAT(t.start_date, '%Y-%m')
        ORDER BY month_key ASC`,
-      [startISO, endISO]
+      rangeParams
     );
 
     const [vendorTaskRows] = await db.execute(
@@ -966,8 +978,8 @@ const getPmDashboard = async (req, res) => {
               r.status AS report_status
        FROM tasks t
        LEFT JOIN report r ON r.id = t.id
-       WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?`,
-      [startISO, endISO]
+       WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?${tf.sql}`,
+      rangeParams
     );
     const deviceIdsFromTasks = new Set();
     for (const row of vendorTaskRows) {
@@ -1061,11 +1073,11 @@ const getPmDashboard = async (req, res) => {
          COUNT(DISTINCT CASE WHEN r.status = 'Pass' THEN t.id END) AS report_pass
        FROM tasks t
        LEFT JOIN report r ON r.id = t.id
-       WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?
+       WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?${tf.sql}
        GROUP BY COALESCE(NULLIF(TRIM(t.site_name), ''), 'Unknown')
        ORDER BY total DESC
        LIMIT ?`,
-      [startISO, endISO, DASHBOARD_RANKING_TOP_N]
+      [...rangeParams, DASHBOARD_RANKING_TOP_N]
     );
 
     const [equipRows] = await db.execute(
@@ -1073,8 +1085,8 @@ const getPmDashboard = async (req, res) => {
               r.status AS report_status
        FROM tasks t
        LEFT JOIN report r ON r.id = t.id
-       WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?`,
-      [startISO, endISO]
+       WHERE t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?${tf.sql}`,
+      rangeParams
     );
 
     const equipMap = {};
@@ -1147,7 +1159,7 @@ const getPmDashboard = async (req, res) => {
        INNER JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
        LEFT JOIN sites_location sl ON d.SLid = sl.SLid
        LEFT JOIN sites s ON sl.Sid = s.Sid
-       WHERE LOWER(TRIM(COALESCE(d.Asset_State, ''))) = 'in use'`
+       WHERE LOWER(TRIM(COALESCE(d.Asset_State, ''))) = 'in use'${df.sql}`
     );
 
     const inUseByModel = {};
@@ -1272,9 +1284,10 @@ const getPmDashboard = async (req, res) => {
          FROM report r
          INNER JOIN tasks t ON t.id = r.id AND t.task_type = 'PM' AND t.start_date >= ? AND t.start_date < ?
          LEFT JOIN devices d ON d.Did = r.device_id
+         WHERE 1=1${tf.sql}
          GROUP BY COALESCE(NULLIF(TRIM(d.Vendor), ''), 'Unknown')
          ORDER BY total_reports DESC`,
-        [startISO, endISO]
+        rangeParams
       );
       vendorReportStats = mergeVendorReportStatsRows(
         vrRows.map((r) => ({

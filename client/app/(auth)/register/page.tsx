@@ -2,26 +2,53 @@
 
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
-import { ArrowRight, Eye, EyeOff, Lock, User } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Lock, Mail, Phone, User } from 'lucide-react';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { AuthBrandLogo } from '@/components/auth/AuthBrandLogo';
 import { AuthRegisterHeroPanel } from '@/components/auth/AuthRegisterHeroPanel';
+import {
+  formatTelLineForDb,
+  formatTenDigitUsDisplay,
+  PHONE_EXT_MAX_DIGITS,
+  validateEmployeePhoneInline,
+  validateEmployeePhoneSubmit,
+} from '@/lib/phoneFormat';
+
+const COMPANY_EMAIL_RE = /^[^\s@]+@(tcc-technology\.com|shinasub\.com)$/i;
+
+function validateGmail(val: string): string {
+  const t = val.trim();
+  if (!t) return 'Email is required.';
+  if (!COMPANY_EMAIL_RE.test(t)) return 'Please enter a valid email address.';
+  return '';
+}
 
 export default function RegisterPage() {
   const { register } = useAuth();
   const [username, setUsername] = useState('');
+  const [gmail, setGmail] = useState('');
+  const [tel, setTel] = useState('');
+  const [telExt, setTelExt] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ gmail: string; tel: string }>({
+    gmail: '',
+    tel: '',
+  });
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    const gmailErr = validateGmail(gmail);
+    const telErr = validateEmployeePhoneSubmit(tel, telExt);
+    setFieldErrors({ gmail: gmailErr, tel: telErr });
+    if (gmailErr || telErr) return;
     if (password !== confirm) {
       setError('Passwords do not match');
       return;
@@ -31,18 +58,22 @@ export default function RegisterPage() {
       return;
     }
     setSubmitting(true);
-    const err = await register(username.trim(), password);
+    const err = await register(username.trim(), password, {
+      gmail: gmail.trim(),
+      tel: formatTelLineForDb(tel, telExt),
+    });
     if (err) setError(err);
     setSubmitting(false);
   }
 
   const inputCls =
     'w-full rounded-xl border border-border/80 bg-muted/30 py-2.5 pl-10 pr-4 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground/50 hover:border-border focus:border-primary/40 focus:bg-background focus:ring-2 focus:ring-primary/15';
+  const inputErrCls = 'border-red-400 bg-red-50/50 focus:border-red-400 focus:ring-red-400/20 dark:bg-red-950/20';
 
   return (
     <div className="grid h-dvh grid-cols-1 overflow-hidden lg:grid-cols-2">
       {/* Form — left */}
-      <div className="relative flex h-full min-h-0 flex-col overflow-y-auto bg-background lg:overflow-hidden lg:border-r lg:border-border/50">
+      <div className="relative flex h-full min-h-0 flex-col overflow-y-auto bg-background lg:border-r lg:border-border/50">
         <div className="pointer-events-none absolute inset-0" aria-hidden>
           <div className="absolute left-0 top-0 h-72 w-72 rounded-full bg-primary/[0.04] blur-3xl" />
         </div>
@@ -70,7 +101,7 @@ export default function RegisterPage() {
               <p className="text-sm font-medium text-primary">Get started</p>
               <h2 className="mt-1 text-2xl font-bold tracking-tight text-foreground">Create account</h2>
               <p className="mt-1.5 text-sm text-muted-foreground">
-                Set up your username and password below
+                Use your company email and phone, then set a password
               </p>
             </div>
 
@@ -93,6 +124,100 @@ export default function RegisterPage() {
                     className={inputCls}
                   />
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="gmail" className="text-sm font-medium text-foreground">
+                  Email <span className="text-red-500">*</span>
+                </label>
+                <div className="group relative">
+                  <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
+                  <input
+                    id="gmail"
+                    name="gmail"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={gmail}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setGmail(v);
+                      setFieldErrors((prev) => ({ ...prev, gmail: validateGmail(v) }));
+                    }}
+                    onBlur={() => setFieldErrors((prev) => ({ ...prev, gmail: validateGmail(gmail) }))}
+                    placeholder="example@tcc-technology.com"
+                    className={`${inputCls} ${fieldErrors.gmail ? inputErrCls : ''}`}
+                  />
+                </div>
+                {fieldErrors.gmail && <p className="text-sm text-red-500">{fieldErrors.gmail}</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="tel" className="text-sm font-medium text-foreground">
+                  Phone <span className="text-red-500">*</span>
+                </label>
+                <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+                  <div className="group relative min-w-0 flex-1">
+                    <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
+                    <input
+                      id="tel"
+                      name="tel"
+                      type="text"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      required
+                      value={tel}
+                      onChange={(e) => {
+                        const v = formatTenDigitUsDisplay(e.target.value);
+                        setTel(v);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          tel: validateEmployeePhoneInline(v, telExt),
+                        }));
+                      }}
+                      onBlur={() =>
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          tel: validateEmployeePhoneInline(tel, telExt),
+                        }))
+                      }
+                      placeholder="0xx-xxx-xxxx"
+                      className={`${inputCls} tabular-nums ${fieldErrors.tel ? inputErrCls : ''}`}
+                    />
+                  </div>
+                  <span className="shrink-0 select-none text-base font-medium text-muted-foreground" aria-hidden>
+                    -
+                  </span>
+                  <div className="w-[4.5rem] shrink-0 sm:w-24">
+                    <input
+                      id="telExt"
+                      name="telExt"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={telExt}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/\D/g, '').slice(0, PHONE_EXT_MAX_DIGITS);
+                        setTelExt(v);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          tel: validateEmployeePhoneInline(tel, v),
+                        }));
+                      }}
+                      onBlur={() =>
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          tel: validateEmployeePhoneInline(tel, telExt),
+                        }))
+                      }
+                      placeholder="Ext"
+                      aria-label="Extension (max 6 digits)"
+                      title="Extension (max 6 digits)"
+                      className={`w-full rounded-xl border border-border/80 bg-muted/30 px-2.5 py-2.5 text-left text-sm tabular-nums text-foreground outline-none transition-all placeholder:text-muted-foreground/50 hover:border-border focus:border-primary/40 focus:bg-background focus:ring-2 focus:ring-primary/15 ${fieldErrors.tel ? inputErrCls : ''}`}
+                    />
+                  </div>
+                </div>
+                {fieldErrors.tel && <p className="text-sm text-red-500">{fieldErrors.tel}</p>}
               </div>
 
               <div className="space-y-1.5">

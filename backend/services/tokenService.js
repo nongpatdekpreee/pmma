@@ -4,12 +4,13 @@ const { normalizeRole } = require('../utils/roleUtils');
 
 const ACCESS_TOKEN_TTL = process.env.ACCESS_TOKEN_TTL || '15m';
 
-function signAccessToken({ id, Username, Role }) {
+function signAccessToken({ id, Username, Role, tenant }) {
   return jwt.sign(
     {
       id,
       Username,
       Role: normalizeRole(Role),
+      tenant,
     },
     getJwtSecret(),
     { expiresIn: ACCESS_TOKEN_TTL }

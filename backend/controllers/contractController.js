@@ -22,6 +22,20 @@ const { collectContractChanges } = require('../utils/contractChangeSummary');
 const { resolveSlSofSchema } = require('../lib/slSofSchema');
 const legacyContracts = require('./contractController.legacy');
 const { usesLegacyContractTable } = require('../lib/contractSchemaMode');
+const {
+  tenantContractFilter,
+  tenantDeviceFilter,
+  isSlidVisibleToTenant,
+} = require('../utils/tenantScope');
+
+async function denyIfContractHidden(req, res, slid) {
+  const ok = await isSlidVisibleToTenant(slid, req.user && req.user.tenant);
+  if (!ok) {
+    res.status(404).json({ success: false, message: 'Contract not found' });
+    return true;
+  }
+  return false;
+}
 
 async function dispatchLegacyContract(handler, req, res) {
   if (!(await usesLegacyContractTable())) return false;
@@ -171,7 +185,7 @@ const getContractsBySite = async (req, res) => {
       limitRaw >= 1 &&
       limitRaw <= 500;
 
-    const listSelect = await slc.buildSlListSelect(db);
+    const listSelect = await slc.buildSlListSelect(db, req.user && req.user.tenant);
     let selectExtra = '';
     if (lite) {
       // ตัด correlated history subqueries — รายการขึ้นเร็ว; badge Renew โหลดรอบสองได้
@@ -190,6 +204,9 @@ const getContractsBySite = async (req, res) => {
 
     let whereSql = ` WHERE sl.status <> 'not_renewing'`;
     const params = [];
+    const cf = tenantContractFilter(req.user && req.user.tenant, 'sl');
+    whereSql += cf.sql;
+    params.push(...cf.params);
 
     if (siteId) {
       const siteIdNum = parseInt(siteId, 10);
@@ -261,8 +278,13 @@ const getContractById = async (req, res) => {
     if (!slRow) {
       return res.status(404).json({ success: false, message: 'Contract not found' });
     }
+    if (await denyIfContractHidden(req, res, cid)) return;
 
-    const [devicesRows] = await db.execute(slc.DEVICES_BY_SLID_SQL, [cid]);
+    const tf = tenantDeviceFilter(req.user && req.user.tenant, 'd');
+    const [devicesRows] = await db.execute(
+      `${slc.DEVICES_BY_SLID_SQL.replace('ORDER BY', `${tf.sql} ORDER BY`)}`,
+      [cid, ...tf.params]
+    );
     const sitesRows = [
       {
         SLid: cid,
@@ -333,9 +355,10 @@ const getAvailableDevices = async (req, res) => {
       }
     }
 
+    const tf = tenantDeviceFilter(req.user && req.user.tenant, 'd');
     const [rows] = await db.execute(
-      `${slc.AVAILABLE_DEVICES_BASE} ${where} ORDER BY d.CI_Name ASC, d.Asset_Number ASC`,
-      params
+      `${slc.AVAILABLE_DEVICES_BASE} ${where}${tf.sql} ORDER BY d.CI_Name ASC, d.Asset_Number ASC`,
+      [...params, ...tf.params]
     );
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
@@ -359,6 +382,7 @@ const getSitesByContract = async (req, res) => {
     if (!slRow) {
       return res.status(404).json({ success: false, message: 'Contract not found' });
     }
+    if (await denyIfContractHidden(req, res, cid)) return;
     return res.status(200).json({
       success: true,
       data: [{ SLid: cid, SiteName: slRow.site_name, Location2: slRow.site_location || null }],
@@ -380,7 +404,12 @@ const getDevicesByContract = async (req, res) => {
     if (isNaN(cid)) {
       return res.status(400).json({ success: false, message: 'contract_id is not valid' });
     }
-    const [rows] = await db.execute(slc.DEVICES_BY_SLID_SQL, [cid]);
+    if (await denyIfContractHidden(req, res, cid)) return;
+    const tf = tenantDeviceFilter(req.user && req.user.tenant, 'd');
+    const [rows] = await db.execute(
+      `${slc.DEVICES_BY_SLID_SQL.replace('ORDER BY', `${tf.sql} ORDER BY`)}`,
+      [cid, ...tf.params]
+    );
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting devices by contract:', error);
@@ -410,6 +439,7 @@ const getDevicesBySlids = async (req, res) => {
       return res.status(200).json({ success: true, data: [] });
     }
     const ph = slids.map(() => '?').join(',');
+    const tf = tenantDeviceFilter(req.user && req.user.tenant, 'd');
     const sql = `
   SELECT d.Did, d.CI_Name, d.Asset_Number, d.serial, d.Asset_State, d.SLid,
     d.SLid AS contract_SLid, sl.SLid AS contract_id,
@@ -421,9 +451,9 @@ const getDevicesBySlids = async (req, res) => {
   LEFT JOIN location l ON sl.lid = l.lid
   LEFT JOIN device_type dt ON d.Dtypeid = dt.Dtypeid
   LEFT JOIN device_role dr ON d.DeRoleid = dr.DeRoleid
-  WHERE d.SLid IN (${ph})
+  WHERE d.SLid IN (${ph})${tf.sql}
   ORDER BY d.SLid ASC, d.CI_Name ASC, d.Asset_Number ASC`;
-    const [rows] = await db.execute(sql, slids);
+    const [rows] = await db.execute(sql, [...slids, ...tf.params]);
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
     console.error('Error getting devices by slids:', error);
@@ -442,6 +472,7 @@ const getContractHistory = async (req, res) => {
     if (isNaN(cid)) {
       return res.status(400).json({ success: false, message: 'contract_id is not valid' });
     }
+    if (await denyIfContractHidden(req, res, cid)) return;
     const { tsColumn, hasTerm } = await historySchemaFlags();
     const histSelect = await historySelectSql(tsColumn, hasTerm);
     const [rows] = await db.execute(
@@ -521,7 +552,22 @@ const postContractHistoryDisplayRows = async (req, res) => {
       return res.status(200).json({ success: true, data: [] });
     }
 
-    const slids = [...new Set(histRows.map((r) => Number(r.SLid)).filter((n) => !Number.isNaN(n)))];
+    const slidsAll = [...new Set(histRows.map((r) => Number(r.SLid)).filter((n) => !Number.isNaN(n)))];
+    let slids = slidsAll;
+    if (slids.length) {
+      const cfHist = tenantContractFilter(req.user && req.user.tenant, 'sl');
+      const phVis = slids.map(() => '?').join(',');
+      const [visRows] = await db.execute(
+        `SELECT sl.SLid FROM sites_location sl WHERE sl.SLid IN (${phVis})${cfHist.sql}`,
+        [...slids, ...cfHist.params]
+      );
+      const visSet = new Set((visRows || []).map((r) => Number(r.SLid)));
+      histRows = histRows.filter((r) => visSet.has(Number(r.SLid)));
+      slids = [...visSet];
+    }
+    if (!histRows.length) {
+      return res.status(200).json({ success: true, data: [] });
+    }
     const siteBySlid = new Map();
     if (slids.length) {
       const ph2 = slids.map(() => '?').join(',');
@@ -545,9 +591,10 @@ const postContractHistoryDisplayRows = async (req, res) => {
     const deviceCountBySlid = new Map();
     if (slids.length) {
       const ph3 = slids.map(() => '?').join(',');
+      const tfCount = tenantDeviceFilter(req.user && req.user.tenant, 'devices');
       const [countRows] = await db.execute(
-        `SELECT SLid, COUNT(*) AS cnt FROM devices WHERE SLid IN (${ph3}) GROUP BY SLid`,
-        slids
+        `SELECT SLid, COUNT(*) AS cnt FROM devices WHERE SLid IN (${ph3})${tfCount.sql} GROUP BY SLid`,
+        [...slids, ...tfCount.params]
       );
       for (const r of countRows || []) {
         deviceCountBySlid.set(Number(r.SLid), Number(r.cnt) || 0);
@@ -619,6 +666,7 @@ const getContractHistoryDetailByHistoryId = async (req, res) => {
     const histRow = rows[0];
     const legacy = slc.mapHistoryRowToLegacy(histRow);
     const cid = Number(histRow.SLid);
+    if (await denyIfContractHidden(req, res, cid)) return;
 
     const slRow = await slc.fetchSiteLocationRow(db, cid);
     const siteInfo = slRow
@@ -627,7 +675,11 @@ const getContractHistoryDetailByHistoryId = async (req, res) => {
     const liveDetail = slRow ? slc.mapSlRowToContractDetail(slRow) : null;
     const snap = slc.mapHistoryRowToContractDetail(histRow, siteInfo);
     const merged = slc.mergeHistoryDetailWithLive(snap, liveDetail);
-    const [devicesRows] = await db.execute(slc.DEVICES_BY_SLID_SQL, [cid]);
+    const tfHistDev = tenantDeviceFilter(req.user && req.user.tenant, 'd');
+    const [devicesRows] = await db.execute(
+      slc.DEVICES_BY_SLID_SQL.replace('ORDER BY', `${tfHistDev.sql} ORDER BY`),
+      [cid, ...tfHistDev.params]
+    );
 
     const contractBase = {
       ...(merged || snap || liveDetail || {}),
@@ -1242,6 +1294,7 @@ const updateContract = async (req, res) => {
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Contract not found' });
     }
+    if (await denyIfContractHidden(req, res, cid)) return;
 
     const body = req.body;
     const oldSofForPeers =
@@ -1611,6 +1664,8 @@ const getVendorStatistics = async (req, res) => {
       WHERE d.Vendor IS NOT NULL AND d.Vendor != ''
         AND ${slSof.officialContractWhere('sl')}
         AND ${slSof.sofIsValidWhere('sl')}
+        ${tenantDeviceFilter(req.user && req.user.tenant, 'd').sql}
+        ${tenantContractFilter(req.user && req.user.tenant, 'sl').sql}
       GROUP BY d.Vendor
       ORDER BY contract_count DESC, d.Vendor ASC
     `);
@@ -1660,6 +1715,8 @@ const getTopSitesByContractDevice = async (req, res) => {
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
       WHERE ${slSof.sofIsValidWhere('sl')}${periodFilter}
+        ${tenantDeviceFilter(req.user && req.user.tenant, 'd').sql}
+        ${tenantContractFilter(req.user && req.user.tenant, 'sl').sql}
       GROUP BY sl.SLid, s.Name, l.Location2
       ORDER BY device_count DESC
       LIMIT ?
@@ -1673,6 +1730,7 @@ const getTopSitesByContractDevice = async (req, res) => {
       FROM devices d
       INNER JOIN sites_location sl ON d.SLid = sl.SLid
       WHERE ${slSof.sofIsValidWhere('sl')}${periodFilter}
+        ${tenantDeviceFilter(req.user && req.user.tenant, 'd').sql}
       `,
       periodBind
     );
@@ -1723,6 +1781,8 @@ const getTopSitesHeatmap = async (req, res) => {
       LEFT JOIN sites s ON sl.Sid = s.Sid
       LEFT JOIN location l ON sl.lid = l.lid
       WHERE ${slSof.sofIsValidWhere('sl')}
+        ${tenantDeviceFilter(req.user && req.user.tenant, 'd').sql}
+        ${tenantContractFilter(req.user && req.user.tenant, 'sl').sql}
       GROUP BY sl.SLid, s.Name, l.Location2
       ORDER BY total_devices DESC
       LIMIT ?
@@ -2183,6 +2243,9 @@ const getMergeCandidates = async (req, res) => {
     if (!primary) {
       return res.status(404).json({ success: false, message: 'Contract not found' });
     }
+    if (!(await isSlidVisibleToTenant(primarySlid, req.user && req.user.tenant))) {
+      return res.status(404).json({ success: false, message: 'Contract not found' });
+    }
     const sof = primary.SOF != null ? String(primary.SOF).trim() : '';
     if (!sof) {
       return res.status(400).json({
@@ -2194,14 +2257,16 @@ const getMergeCandidates = async (req, res) => {
     const peerSlids = await findSlidsWithMatchingSof(conn, sof, primarySlid);
     const candidates = [];
     for (const slid of peerSlids) {
+      if (!(await isSlidVisibleToTenant(slid, req.user && req.user.tenant))) continue;
       const row = await slc.fetchSiteLocationRow(conn, slid);
       if (!row) continue;
       const status = String(row.status ?? '').trim().toLowerCase();
       if (status === 'not_renewing') continue;
       const detail = slc.mapSlRowToContractDetail(row);
+      const tf = tenantDeviceFilter(req.user && req.user.tenant, 'devices');
       const [countRows] = await conn.execute(
-        'SELECT COUNT(*) AS cnt FROM devices WHERE SLid = ?',
-        [slid]
+        `SELECT COUNT(*) AS cnt FROM devices WHERE SLid = ?${tf.sql}`,
+        [slid, ...tf.params]
       );
       const deviceCount = Number(countRows?.[0]?.cnt || 0);
       candidates.push({
@@ -2223,9 +2288,10 @@ const getMergeCandidates = async (req, res) => {
     }
 
     const primaryDetail = slc.mapSlRowToContractDetail(primary);
+    const tfPrimary = tenantDeviceFilter(req.user && req.user.tenant, 'devices');
     const [primaryCountRows] = await conn.execute(
-      'SELECT COUNT(*) AS cnt FROM devices WHERE SLid = ?',
-      [primarySlid]
+      `SELECT COUNT(*) AS cnt FROM devices WHERE SLid = ?${tfPrimary.sql}`,
+      [primarySlid, ...tfPrimary.params]
     );
     const primaryDeviceCount = Number(primaryCountRows?.[0]?.cnt || 0);
 
@@ -2309,6 +2375,9 @@ const mergeContracts = async (req, res) => {
     if (!primary) {
       return res.status(404).json({ success: false, message: 'Primary contract not found' });
     }
+    if (!(await isSlidVisibleToTenant(primarySlid, req.user && req.user.tenant))) {
+      return res.status(404).json({ success: false, message: 'Primary contract not found' });
+    }
     const primaryStatus = String(primary.status ?? '').trim().toLowerCase();
     if (primaryStatus === 'not_renewing') {
       return res.status(400).json({
@@ -2336,6 +2405,9 @@ const mergeContracts = async (req, res) => {
       }
       const src = await slc.fetchSiteLocationRow(conn, slid);
       if (!src) {
+        return res.status(404).json({ success: false, message: `Contract ${slid} not found` });
+      }
+      if (!(await isSlidVisibleToTenant(slid, req.user && req.user.tenant))) {
         return res.status(404).json({ success: false, message: `Contract ${slid} not found` });
       }
       const st = String(src.status ?? '').trim().toLowerCase();

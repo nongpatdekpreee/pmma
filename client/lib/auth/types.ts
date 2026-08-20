@@ -1,9 +1,11 @@
 export type AppRole = 'USER' | 'ADMIN';
+export type AppTenant = 'SNS' | 'TCC';
 
 export interface AuthUser {
   id: number;
   Username: string;
   Role: AppRole;
+  tenant?: AppTenant;
 }
 
 export interface EmployeeAccountRow {

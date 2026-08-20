@@ -11,30 +11,105 @@ const {
   REFRESH_TOKEN_COOKIE_NAME,
 } = require('../services/refreshTokenService');
 const { normalizeRole, toDbRole } = require('../utils/roleUtils');
+const { resolveTenantForUserId, tenantFromEmail } = require('../utils/tenantScope');
 const {
   ensureAuthLinkReady,
   createAndLinkLoginAccount,
 } = require('../lib/employeeAuthLink');
+const { parseTelLineFromDb, PHONE_MAIN_MAX_DIGITS, PHONE_EXT_MAX_DIGITS } = require('../utils/phoneFormat');
+
+async function generateNextProfileUserId() {
+  const [rows] = await db.execute('SELECT user_id FROM user_profiles');
+  if (rows.length === 0) return '1';
+  const numericIds = [];
+  for (const row of rows) {
+    const num = typeof row.user_id === 'number' ? row.user_id : parseInt(String(row.user_id).replace(/\D/g, '') || '0', 10);
+    if (!Number.isNaN(num) && num > 0) numericIds.push(num);
+  }
+  if (numericIds.length === 0) return '1';
+  const maxId = Math.max(...numericIds);
+  const idSet = new Set(numericIds);
+  for (let i = 1; i <= maxId; i++) {
+    if (!idSet.has(i)) return String(i);
+  }
+  return String(maxId + 1);
+}
+
+function validateRegisterPhone(telLine) {
+  const parsed = parseTelLineFromDb(String(telLine || '').trim());
+  const mainD = String(parsed.tel || '').replace(/\D/g, '');
+  const extD = String(parsed.telExt || '').replace(/\D/g, '');
+  if (!mainD) return 'Phone is required.';
+  if (mainD.length !== PHONE_MAIN_MAX_DIGITS) return 'Phone must be 10 digits.';
+  if (extD && (extD.length < 1 || extD.length > PHONE_EXT_MAX_DIGITS)) {
+    return 'Extension must be 1–6 digits when provided.';
+  }
+  return '';
+}
+
+async function buildAuthSession(user) {
+  const tenant = await resolveTenantForUserId(user.User_id);
+  if (!tenant) {
+    return { ok: false };
+  }
+  const role = normalizeRole(user.Role);
+  const payload = {
+    id: user.User_id,
+    Username: user.Username,
+    Role: role,
+    tenant,
+  };
+  return {
+    ok: true,
+    payload,
+    token: signAccessToken(payload),
+  };
+}
 
 // POST - สร้าง user ใหม่
 const createUser = async (req, res) => {
   try {
-    const { Username, Password } = req.body;
+    const Username = String(req.body?.Username ?? '').trim();
+    const Password = String(req.body?.Password ?? '');
+    const gmail = String(req.body?.gmail ?? req.body?.email ?? '').trim().toLowerCase();
+    const tel = String(req.body?.tel ?? req.body?.phone ?? '').trim();
 
-    // ตรวจสอบข้อมูลที่จำเป็น
     if (!Username || !Password) {
       return res.status(400).json({
         success: false,
         message: 'กรุณากรอก Username และ Password'
       });
     }
+    if (Password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters',
+      });
+    }
+    if (!gmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required.',
+      });
+    }
+    if (!tenantFromEmail(gmail)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid email address.',
+      });
+    }
+    const phoneErr = validateRegisterPhone(tel);
+    if (phoneErr) {
+      return res.status(400).json({
+        success: false,
+        message: phoneErr,
+      });
+    }
 
-    // ตรวจสอบว่า Username ซ้ำหรือไม่
     const [existing] = await db.execute(
       'SELECT Username FROM user WHERE Username = ?',
       [Username]
     );
-
     if (existing.length > 0) {
       return res.status(400).json({
         success: false,
@@ -42,22 +117,59 @@ const createUser = async (req, res) => {
       });
     }
 
-    // เข้ารหัส Password ด้วย argon2
-    const hashedPassword = await argon2.hash(Password);
+    const [dupMail] = await db.execute(
+      'SELECT user_id FROM user_profiles WHERE LOWER(TRIM(gmail)) = ? LIMIT 1',
+      [gmail]
+    );
+    if (dupMail.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email already exists in the system',
+      });
+    }
 
-    // INSERT user
+    await ensureAuthLinkReady();
+    const hashedPassword = await argon2.hash(Password);
     const [result] = await db.execute(
       'INSERT INTO user (Username, Password, Role) VALUES (?, ?, ?)',
       [Username, hashedPassword, toDbRole('user')]
     );
+    const authUserId = result.insertId;
+
+    try {
+      let profileId = await generateNextProfileUserId();
+      const [existingProfile] = await db.execute(
+        'SELECT user_id FROM user_profiles WHERE user_id = ?',
+        [profileId]
+      );
+      if (existingProfile.length > 0) {
+        profileId = await generateNextProfileUserId();
+      }
+      const defaultAvatar = `https://api.dicebear.com/7.x/avataaars/png?seed=${profileId}`;
+      await db.execute(
+        `INSERT INTO user_profiles
+          (user_id, name, gmail, phone, type, employment, em_picture, auth_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [profileId, Username, gmail, tel, 'Technical', 'Full-Time', defaultAvatar, authUserId]
+      );
+    } catch (profileErr) {
+      await db.execute('DELETE FROM user WHERE User_id = ?', [authUserId]);
+      if (profileErr.code === 'ER_DUP_ENTRY' || (profileErr.message && profileErr.message.includes('Duplicate'))) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already exists in the system',
+        });
+      }
+      throw profileErr;
+    }
 
     res.status(201).json({
       success: true,
       message: 'สร้าง user สำเร็จ',
       data: {
-        id: result.insertId,
-        Username: Username,
-        Role: 'user'
+        id: authUserId,
+        Username,
+        Role: 'USER'
       }
     });
   } catch (error) {
@@ -113,12 +225,13 @@ const login = async (req, res) => {
       });
     }
 
-    const role = normalizeRole(user.Role);
-    const token = signAccessToken({
-      id: user.User_id,
-      Username: user.Username,
-      Role: role,
-    });
+    const session = await buildAuthSession(user);
+    if (!session.ok) {
+      return res.status(401).json({
+        success: false,
+        message: 'Username หรือ Password ไม่ถูกต้อง',
+      });
+    }
     const refreshToken = await createRefreshToken(user.User_id);
     setRefreshCookie(res, refreshToken);
 
@@ -126,10 +239,8 @@ const login = async (req, res) => {
       success: true,
       message: 'Login สำเร็จ',
       data: {
-        id: user.User_id,
-        Username: user.Username,
-        Role: role,
-        token: token
+        ...session.payload,
+        token: session.token,
       }
     });
   } catch (error) {
@@ -159,13 +270,16 @@ const getMe = async (req, res) => {
     }
 
     const user = users[0];
+    const session = await buildAuthSession(user);
+    if (!session.ok) {
+      return res.status(403).json({
+        success: false,
+        message: 'บัญชีนี้ยังไม่ได้ผูกอีเมลบริษัท',
+      });
+    }
     res.status(200).json({
       success: true,
-      data: {
-        id: user.User_id,
-        Username: user.Username,
-        Role: normalizeRole(user.Role),
-      },
+      data: session.payload,
     });
   } catch (error) {
     console.error('Error fetching current user:', error);
@@ -209,13 +323,16 @@ const checkSession = async (req, res) => {
     }
 
     const user = users[0];
+    const session = await buildAuthSession(user);
+    if (!session.ok) {
+      return res.status(403).json({
+        success: false,
+        message: 'บัญชีนี้ยังไม่ได้ผูกอีเมลบริษัท',
+      });
+    }
     res.status(200).json({
       success: true,
-      data: {
-        id: user.User_id,
-        Username: user.Username,
-        Role: normalizeRole(user.Role),
-      },
+      data: session.payload,
     });
   } catch (error) {
     console.error('Error checking session:', error);
@@ -261,22 +378,22 @@ const refresh = async (req, res) => {
     }
 
     const user = users[0];
-    const role = normalizeRole(user.Role);
-    const token = signAccessToken({
-      id: user.User_id,
-      Username: user.Username,
-      Role: role,
-    });
+    const session = await buildAuthSession(user);
+    if (!session.ok) {
+      clearRefreshCookie(res);
+      return res.status(403).json({
+        success: false,
+        message: 'บัญชีนี้ยังไม่ได้ผูกอีเมลบริษัท',
+      });
+    }
     setRefreshCookie(res, rotated.refreshToken);
 
     res.status(200).json({
       success: true,
       message: 'ต่ออายุ token สำเร็จ',
       data: {
-        id: user.User_id,
-        Username: user.Username,
-        Role: role,
-        token,
+        ...session.payload,
+        token: session.token,
       },
     });
   } catch (error) {

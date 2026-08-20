@@ -8,6 +8,12 @@ const { collectTaskChanges } = require('../utils/taskChangeSummary');
 const { MA_BROKEN_DEVICE_ASSET_STATE_SET } = require('../config/maBrokenAssetState');
 const { assignDeviceToInStoreWarehouse } = require('../config/inStoreSite');
 const { resolveTaskContractJoin, resolveTaskSiteLocationSql } = require('../lib/taskContractJoin');
+const {
+  tenantTaskFilter,
+  isTaskVisibleToTenant,
+  isSlidVisibleToTenant,
+  projectOwenForManualDevice,
+} = require('../utils/tenantScope');
 
 // app_db tasks: id, task_type, contract_id, assets, replacement_device_id, site_id, site_name,
 // vendor_name, coverage_scope, start_date, end_date, engineers, asset_binding,
@@ -722,7 +728,7 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
   };
 };
 
-const persistManualMaAssets = async (assets, { siteId, contractId, siteName } = {}) => {
+const persistManualMaAssets = async (assets, { siteId, contractId, siteName, tenant } = {}) => {
   if (!Array.isArray(assets) || assets.length === 0) return assets;
 
   const brokenProjectOwen = await resolveSiteNameForProjectOwen(siteId, siteName);
@@ -731,14 +737,15 @@ const persistManualMaAssets = async (assets, { siteId, contractId, siteName } = 
     let nextAsset = asset;
 
     if (isManualMaAsset(asset)) {
-      if (!brokenProjectOwen) {
+      const po = projectOwenForManualDevice(tenant, brokenProjectOwen);
+      if (!po) {
         throw new Error('Manual broken device requires site name for Project Owen');
       }
       const saved = await insertOrUpdateManualDeviceRow(asset, {
         siteId,
         contractId,
         initialAssetState: 'In Use',
-        projectOwenOverride: brokenProjectOwen,
+        projectOwenOverride: po,
       });
       nextAsset = {
         ...asset,
@@ -778,7 +785,7 @@ const persistManualMaAssets = async (assets, { siteId, contractId, siteName } = 
           siteId: warehouseSlid ?? siteId,
           contractId,
           initialAssetState: 'In Store',
-          projectOwenOverride: MANUAL_REPLACEMENT_PROJECT_OWEN,
+          projectOwenOverride: projectOwenForManualDevice(tenant, MANUAL_REPLACEMENT_PROJECT_OWEN),
         }
       );
       const { replacementDevice: _omitRep, ...rest } = nextAsset;
@@ -882,6 +889,15 @@ const createTask = async (req, res) => {
       return isNaN(parsed) ? null : parsed;
     };
 
+    const createContractSlid = safeParseInt(contractId);
+    const createSiteSlid = safeParseInt(siteId);
+    if (createContractSlid && !(await isSlidVisibleToTenant(createContractSlid, req.user && req.user.tenant))) {
+      return res.status(404).json({ success: false, message: 'Contract not found' });
+    }
+    if (createSiteSlid && !(await isSlidVisibleToTenant(createSiteSlid, req.user && req.user.tenant))) {
+      return res.status(404).json({ success: false, message: 'Site not found' });
+    }
+
     /** MA: ถ้ามีอุปกรณ์ที่กรอกเอง → INSERT ลง devices ก่อน แล้วเก็บ Did จริงใน assets */
     let assetsToSave = Array.isArray(assets) ? assets : [];
     if (String(taskType || '').toUpperCase() === 'MA' && assetsToSave.length > 0) {
@@ -890,6 +906,7 @@ const createTask = async (req, res) => {
           siteId: safeParseInt(siteId),
           contractId: safeParseInt(contractId),
           siteName: siteName || null,
+          tenant: req.user && req.user.tenant,
         });
       } catch (persistErr) {
         console.error('[createTask] persistManualMaAssets:', persistErr);
@@ -1073,6 +1090,9 @@ const getTasks = async (req, res) => {
       sql += ` WHERE t.start_date < ? AND (t.end_date IS NULL OR t.end_date >= ?)`;
       params.push(monthEndExclusive, monthStart);
     }
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
+    sql += useMonthFilter ? tf.sql : ` WHERE 1=1${tf.sql}`;
+    params.push(...tf.params);
     sql += ` ORDER BY t.start_date DESC, t.id DESC`;
 
     const [rows] = await db.execute(sql, params);
@@ -1096,12 +1116,13 @@ const getTaskById = async (req, res) => {
   try {
     const { id } = req.params;
     const { select, join } = await buildTaskQueryFragments();
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
     const [rows] = await db.execute(
       `SELECT t.*, ${select}
        FROM tasks t
        ${join}
-       WHERE t.id = ?`,
-      [id]
+       WHERE t.id = ?${tf.sql}`,
+      [id, ...tf.params]
     );
     if (!rows[0]) {
       return res.status(404).json({ success: false, message: 'Task not found' });
@@ -1156,6 +1177,9 @@ const updateTask = async (req, res) => {
 
     const [existing] = await db.execute('SELECT * FROM tasks WHERE id = ?', [id]);
     if (!existing[0]) {
+      return res.status(404).json({ success: false, message: 'Task not found' });
+    }
+    if (!(await isTaskVisibleToTenant(id, req.user && req.user.tenant))) {
       return res.status(404).json({ success: false, message: 'Task not found' });
     }
 
@@ -1272,6 +1296,7 @@ const updateTask = async (req, res) => {
       if (effTaskTypeForAssets === 'MA' && Array.isArray(assets) && assets.length > 0) {
         try {
           assetsForUpdate = await persistManualMaAssets(assets, {
+            tenant: req.user && req.user.tenant,
             siteId:
               siteId !== undefined
                 ? safeParseInt(siteId)
@@ -1481,6 +1506,9 @@ const deleteTask = async (req, res) => {
     if (!existing[0]) {
       return res.status(404).json({ success: false, message: ' Task not found' });
     }
+    if (!(await isTaskVisibleToTenant(id, req.user && req.user.tenant))) {
+      return res.status(404).json({ success: false, message: ' Task not found' });
+    }
 
     // ลบ report ที่ผูกกับ task นี้ก่อน (FK report.id -> tasks.id) เพื่อไม่ให้ constraint กันการลบ
     await db.execute('DELETE FROM report WHERE id = ?', [id]);
@@ -1547,7 +1575,9 @@ const checkEngineerConflict = async (req, res) => {
         )
     `;
     
-    const params = [String(engineerId), String(engineerId), endDateStr, startDateStr];
+    const tf = tenantTaskFilter(req.user && req.user.tenant, 't');
+    sql += tf.sql;
+    const params = [String(engineerId), String(engineerId), endDateStr, startDateStr, ...tf.params];
 
     // ถ้ามี excludeTaskId (เช่น ตอน edit) ให้ข้าม task นั้น
     if (excludeTaskId) {
@@ -1614,6 +1644,7 @@ const getOverdueTasks = async (req, res) => {
        WHERE t.status = 'not-started' AND t.end_date < CURRENT_DATE AND t.task_type = ?
          AND (? IS NULL OR sl.Sid = ?)
          AND (? IS NULL OR sl.lid = ?)
+         ${tenantTaskFilter(req.user && req.user.tenant, 't').sql}
        ORDER BY t.end_date ASC, t.id ASC`,
       [taskType, sid, sid, lid, lid]
     );
@@ -1658,6 +1689,7 @@ const getCompletedTasks = async (req, res) => {
        WHERE t.status = 'done' AND t.task_type = ?
          AND (? IS NULL OR sl.Sid = ?)
          AND (? IS NULL OR sl.lid = ?)
+         ${tenantTaskFilter(req.user && req.user.tenant, 't').sql}
        ORDER BY t.end_date DESC, t.id DESC`,
       [taskType, sid, sid, lid, lid]
     );
@@ -1705,6 +1737,7 @@ const getInprocessTasks = async (req, res) => {
          AND (LOWER(t.status) = 'working' OR (LOWER(t.status) = 'done' AND r.id IS NULL))
          AND (? IS NULL OR sl.Sid = ?)
          AND (? IS NULL OR sl.lid = ?)
+         ${tenantTaskFilter(req.user && req.user.tenant, 't').sql}
        ORDER BY t.end_date ASC, t.id ASC`,
       [taskType, sid, sid, lid, lid]
     );
@@ -1752,6 +1785,7 @@ const getPendingTasks = async (req, res) => {
          AND (t.end_date IS NULL OR t.end_date >= CURRENT_DATE)
          AND (? IS NULL OR sl.Sid = ?)
          AND (? IS NULL OR sl.lid = ?)
+         ${tenantTaskFilter(req.user && req.user.tenant, 't').sql}
        ORDER BY (t.end_date IS NULL) ASC, t.end_date ASC, t.id ASC`,
       [taskType, sid, sid, lid, lid]
     );
