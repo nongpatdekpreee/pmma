@@ -279,9 +279,9 @@ function clampMaUptimeAfterDowntimeStart(existingRow, uptimeDateStr, uptimeTimeS
 }
 
 /** หลัง uptime เปลี่ยน — คำนวณ downtime_total_hours (รองรับชื่อคอลัมน์ใหม่/เก่า) */
-async function persistMaDowntimeTotalHoursForTask(taskId) {
+async function persistMaDowntimeTotalHoursForTask(taskId, executor = db) {
   try {
-    let [taskRows] = await db.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
+    let [taskRows] = await executor.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
     let tr = taskRows[0];
     if (!tr) return;
     const isMa = String(tr.task_type || '').toUpperCase() === 'MA';
@@ -295,8 +295,8 @@ async function persistMaDowntimeTotalHoursForTask(taskId) {
           const utCol = await resolveUptimeTimeCol();
           if (udCol && utCol) {
             try {
-              await db.execute(`UPDATE tasks SET ${udCol} = ?, ${utCol} = ? WHERE id = ?`, [c.date, c.time, taskId]);
-              const [again] = await db.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
+              await executor.execute(`UPDATE tasks SET ${udCol} = ?, ${utCol} = ? WHERE id = ?`, [c.date, c.time, taskId]);
+              const [again] = await executor.execute('SELECT * FROM tasks WHERE id = ?', [taskId]);
               if (again[0]) tr = again[0];
             } catch (updErr) {
               console.warn('[persistMaDowntimeTotalHoursForTask] clamp uptime:', updErr.message);
@@ -313,19 +313,19 @@ async function persistMaDowntimeTotalHoursForTask(taskId) {
     );
     if (hours == null) {
       try {
-        await db.execute('UPDATE tasks SET downtime_total_hours = NULL WHERE id = ?', [taskId]);
+        await executor.execute('UPDATE tasks SET downtime_total_hours = NULL WHERE id = ?', [taskId]);
       } catch (e) {
         if (e.code === 'ER_BAD_FIELD_ERROR' || (e.message && e.message.includes('Unknown column'))) {
-          await db.execute('UPDATE tasks SET down_time_total_hours = NULL WHERE id = ?', [taskId]).catch(() => {});
+          await executor.execute('UPDATE tasks SET down_time_total_hours = NULL WHERE id = ?', [taskId]).catch(() => {});
         }
       }
       return;
     }
     try {
-      await db.execute('UPDATE tasks SET downtime_total_hours = ? WHERE id = ?', [hours, taskId]);
+      await executor.execute('UPDATE tasks SET downtime_total_hours = ? WHERE id = ?', [hours, taskId]);
     } catch (e) {
       if (e.code === 'ER_BAD_FIELD_ERROR' || (e.message && e.message.includes('Unknown column'))) {
-        await db.execute('UPDATE tasks SET down_time_total_hours = ? WHERE id = ?', [hours, taskId]).catch(() => {});
+        await executor.execute('UPDATE tasks SET down_time_total_hours = ? WHERE id = ?', [hours, taskId]).catch(() => {});
       }
     }
   } catch (e) {
@@ -534,11 +534,11 @@ async function buildTaskQueryFragmentsWithSlFilter() {
   };
 }
 // devices_history is populated by DB trigger (trg_devices_update)
-const updateDeviceAssetState = async (deviceId, newState) => {
-  const [current] = await db.execute('SELECT Asset_State FROM devices WHERE Did = ?', [deviceId]);
+const updateDeviceAssetState = async (deviceId, newState, executor = db) => {
+  const [current] = await executor.execute('SELECT Asset_State FROM devices WHERE Did = ?', [deviceId]);
   if (current.length === 0) throw new Error(`Device ${deviceId} not found`);
   if (current[0].Asset_State !== newState) {
-    await db.execute('UPDATE devices SET Asset_State = ? WHERE Did = ?', [newState, deviceId]);
+    await executor.execute('UPDATE devices SET Asset_State = ? WHERE Did = ?', [newState, deviceId]);
   }
 };
 
@@ -578,12 +578,12 @@ const collectMaReplacementReferTicketDeviceIds = (assets, taskReplacementDeviceI
   return [...new Set(merged)];
 };
 
-const syncMaReferTicketOnDevices = async (assets, ticket, taskReplacementDeviceId) => {
+const syncMaReferTicketOnDevices = async (assets, ticket, taskReplacementDeviceId, executor = db) => {
   const ids = collectMaReplacementReferTicketDeviceIds(assets, taskReplacementDeviceId);
   if (ids.length === 0) return;
   const val = normalizeReferTicket(ticket);
   const placeholders = ids.map(() => '?').join(',');
-  await db.execute(
+  await executor.execute(
     `UPDATE devices SET Refer_Ticket = ? WHERE Did IN (${placeholders})`,
     [val, ...ids]
   );
@@ -602,6 +602,62 @@ const extractBrokenDeviceIdFromAsset = (asset) => {
   return null;
 };
 
+const collectMaDeviceSlidSwapPairs = (assets, fallbackReplacementDeviceId) => {
+  if (!Array.isArray(assets)) return [];
+  const pairs = [];
+  const seen = new Set();
+  for (const [index, asset] of assets.entries()) {
+    if (asset == null || typeof asset !== 'object') continue;
+    const brokenDeviceId = extractBrokenDeviceIdFromAsset(asset);
+    const replacementDeviceId =
+      parsePositiveDeviceId(asset.replacementDeviceId) ??
+      (index === 0 ? parsePositiveDeviceId(fallbackReplacementDeviceId) : null);
+    if (brokenDeviceId == null || replacementDeviceId == null || brokenDeviceId === replacementDeviceId) {
+      continue;
+    }
+    const key = `${brokenDeviceId}:${replacementDeviceId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pairs.push({ brokenDeviceId, replacementDeviceId });
+  }
+  return pairs;
+};
+
+const captureMaDeviceSlids = async (pairs, executor = db) => {
+  const snapshots = [];
+  for (const pair of pairs) {
+    const [rows] = await executor.execute(
+      'SELECT Did, SLid FROM devices WHERE Did IN (?, ?) FOR UPDATE',
+      [pair.brokenDeviceId, pair.replacementDeviceId]
+    );
+    const byDid = new Map(rows.map((row) => [Number(row.Did), row.SLid]));
+    if (!byDid.has(pair.brokenDeviceId) || !byDid.has(pair.replacementDeviceId)) {
+      throw new Error(
+        `Cannot swap SLid: device ${pair.brokenDeviceId} or ${pair.replacementDeviceId} was not found`
+      );
+    }
+    snapshots.push({
+      ...pair,
+      brokenSlid: byDid.get(pair.brokenDeviceId),
+      replacementSlid: byDid.get(pair.replacementDeviceId),
+    });
+  }
+  return snapshots;
+};
+
+const applyMaDeviceSlidSwaps = async (swaps, executor = db) => {
+  for (const { brokenDeviceId, replacementDeviceId, brokenSlid, replacementSlid } of swaps) {
+    await executor.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [
+      replacementSlid,
+      brokenDeviceId,
+    ]);
+    await executor.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [
+      brokenSlid,
+      replacementDeviceId,
+    ]);
+  }
+};
+
 /** Did ที่ต้องซิงก์ Assigned_Service: เครื่องเสียใน assets + เครื่องทดแทน */
 const collectMaAssignedServiceDeviceIds = (assets, taskReplacementDeviceId) => {
   const ids = new Set();
@@ -618,13 +674,13 @@ const collectMaAssignedServiceDeviceIds = (assets, taskReplacementDeviceId) => {
 };
 
 /** MA: เขียน assigned_service ของงานลง devices.Assigned_Service */
-const syncMaAssignedServiceOnDevices = async (assets, assignedService, taskReplacementDeviceId) => {
+const syncMaAssignedServiceOnDevices = async (assets, assignedService, taskReplacementDeviceId, executor = db) => {
   const ids = collectMaAssignedServiceDeviceIds(assets, taskReplacementDeviceId);
   if (ids.length === 0) return;
   const raw = assignedService == null ? '' : String(assignedService).trim();
   const val = raw === '' ? null : raw.length > 255 ? raw.slice(0, 255) : raw;
   const placeholders = ids.map(() => '?').join(',');
-  await db.execute(
+  await executor.execute(
     `UPDATE devices SET Assigned_Service = ? WHERE Did IN (${placeholders})`,
     [val, ...ids]
   );
@@ -642,11 +698,11 @@ const isManualMaAsset = (asset) => {
 
 const MANUAL_REPLACEMENT_OWNER = 'TCC';
 
-const resolveSiteNameForProjectOwen = async (siteId, fallbackName) => {
+const resolveSiteNameForProjectOwen = async (siteId, fallbackName, executor = db) => {
   const slid = parsePositiveDeviceId(siteId);
   if (slid != null) {
     try {
-      const [rows] = await db.execute(
+      const [rows] = await executor.execute(
         `SELECT s.Name AS site_name
          FROM sites_location sl
          INNER JOIN sites s ON s.Sid = sl.Sid
@@ -671,7 +727,10 @@ const resolveSiteNameForProjectOwen = async (siteId, fallbackName) => {
  * — broken: In Use ที่ site ของงานก่อน พอ Done ค่อยเปลี่ยน Asset_State + ย้าย site
  * — replacement: In Store ที่คลังก่อน พอ Done ค่อย In Use + ย้ายไป site งาน
  */
-const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, initialAssetState, ownerOverride }) => {
+const insertOrUpdateManualDeviceRow = async (
+  deviceLike,
+  { siteId, contractId, initialAssetState, ownerOverride, executor = db }
+) => {
   const name = String(deviceLike.name ?? deviceLike.CI_Name ?? '').trim();
   if (!name) {
     throw new Error('Manual device requires a name (CI_Name)');
@@ -697,13 +756,15 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
     ownerOverride ??
       deviceLike.Owner ??
       deviceLike.owner ??
-      deviceLike.Project_Owen ??
-      deviceLike.projectOwen ??
       ''
   ).trim();
   if (!owner) {
     throw new Error('Manual device requires Owner');
   }
+  const projectOwenRaw = String(
+    deviceLike.Project_Owen ?? deviceLike.projectOwen ?? ''
+  ).trim();
+  const projectOwen = projectOwenRaw === '' ? null : projectOwenRaw;
   const cid =
     parsePositiveDeviceId(deviceLike.contract_id) ??
     parsePositiveDeviceId(contractId);
@@ -712,13 +773,13 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
   let did = null;
 
   if (assetNumber) {
-    const [existingRows] = await db.execute(
+    const [existingRows] = await executor.execute(
       'SELECT Did FROM devices WHERE Asset_Number = ? LIMIT 1',
       [assetNumber]
     );
     if (existingRows[0]?.Did != null) {
       did = parsePositiveDeviceId(existingRows[0].Did);
-      await db.execute(
+      await executor.execute(
         `UPDATE devices
          SET CI_Name = ?,
              serial = COALESCE(?, serial),
@@ -726,19 +787,20 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
              Asset_State = COALESCE(NULLIF(TRIM(Asset_State), ''), ?),
              Dtypeid = COALESCE(?, Dtypeid),
              DeRoleid = COALESCE(?, DeRoleid),
-             Owner = ?
+             Owner = ?,
+             Project_Owen = ?
          WHERE Did = ?`,
-        [name, serial, slid, assetState, dtypeid, deroleid, owner, did]
+        [name, serial, slid, assetState, dtypeid, deroleid, owner, projectOwen, did]
       );
     }
   }
 
   if (did == null) {
-    const [insertResult] = await db.execute(
+    const [insertResult] = await executor.execute(
       `INSERT INTO devices (
-        Asset_State, serial, CI_Name, Asset_Number, SLid, Dtypeid, DeRoleid, Owner
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [assetState, serial, name, assetNumber, slid, dtypeid, deroleid, owner]
+        Asset_State, serial, CI_Name, Asset_Number, SLid, Dtypeid, DeRoleid, Owner, Project_Owen
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [assetState, serial, name, assetNumber, slid, dtypeid, deroleid, owner, projectOwen]
     );
     did = parsePositiveDeviceId(insertResult.insertId);
   }
@@ -756,28 +818,33 @@ const insertOrUpdateManualDeviceRow = async (deviceLike, { siteId, contractId, i
     dtypeid,
     deroleid,
     owner,
+    projectOwen,
     cid,
   };
 };
 
-const persistManualMaAssets = async (assets, { siteId, contractId, siteName, tenant } = {}) => {
+const persistManualMaAssets = async (
+  assets,
+  { siteId, contractId, siteName, tenant, executor = db } = {}
+) => {
   if (!Array.isArray(assets) || assets.length === 0) return assets;
 
-  const brokenOwner = await resolveSiteNameForProjectOwen(siteId, siteName);
+  const brokenOwner = await resolveSiteNameForProjectOwen(siteId, siteName, executor);
   const resolved = [];
   for (const asset of assets) {
     let nextAsset = asset;
 
     if (isManualMaAsset(asset)) {
-      const owner = ownerForManualDevice(tenant, brokenOwner);
-      if (!owner) {
-        throw new Error('Manual broken device requires site name for Owner');
-      }
+      const owner = ownerForManualDevice(
+        tenant,
+        asset.Owner ?? asset.owner ?? brokenOwner
+      );
       const saved = await insertOrUpdateManualDeviceRow(asset, {
         siteId,
         contractId,
         initialAssetState: 'In Use',
         ownerOverride: owner,
+        executor,
       });
       nextAsset = {
         ...asset,
@@ -793,6 +860,7 @@ const persistManualMaAssets = async (assets, { siteId, contractId, siteName, ten
         Dtypeid: saved.dtypeid ?? asset.Dtypeid,
         DeRoleid: saved.deroleid ?? asset.DeRoleid,
         Owner: saved.owner,
+        Project_Owen: saved.projectOwen ?? asset.Project_Owen,
         contract_id: saved.cid ?? asset.contract_id,
         source: 'manual',
       };
@@ -804,9 +872,9 @@ const persistManualMaAssets = async (assets, { siteId, contractId, siteName, ten
       // เครื่องทดแทนที่กรอกเอง — เริ่มที่ In Store (ยังไม่อยู่ที่ site งานจนกว่า Done)
       let warehouseSlid = null;
       try {
-        warehouseSlid = await require('../config/inStoreSite').resolveDefaultInStoreSlid(db);
+        warehouseSlid = await require('../config/inStoreSite').resolveDefaultInStoreSlid(executor);
         if (warehouseSlid == null) {
-          warehouseSlid = await require('../config/inStoreSite').ensureDefaultInStoreWarehouseSlid(db);
+          warehouseSlid = await require('../config/inStoreSite').ensureDefaultInStoreWarehouseSlid(executor);
         }
       } catch (e) {
         console.warn('[persistManualMaAssets] resolve warehouse SLid:', e.message);
@@ -817,7 +885,11 @@ const persistManualMaAssets = async (assets, { siteId, contractId, siteName, ten
           siteId: warehouseSlid ?? siteId,
           contractId,
           initialAssetState: 'In Store',
-          ownerOverride: ownerForManualDevice(tenant, MANUAL_REPLACEMENT_OWNER),
+          ownerOverride: ownerForManualDevice(
+            tenant,
+            nestedRep.Owner ?? nestedRep.owner ?? MANUAL_REPLACEMENT_OWNER
+          ),
+          executor,
         }
       );
       const { replacementDevice: _omitRep, ...rest } = nextAsset;
@@ -840,7 +912,11 @@ const resolveMaBrokenAssetStateForDone = (asset) => {
 };
 
 /** MA: อัปเดต Asset_State อุปกรณ์ที่เสียเมื่อกด Done เท่านั้น (ใช้ brokenAssetState จาก assets) */
-const applyMaBrokenAssetStatesOnDone = async (assets) => {
+const applyMaBrokenAssetStatesOnDone = async (
+  assets,
+  pairedBrokenDeviceIds = new Set(),
+  executor = db
+) => {
   if (!Array.isArray(assets) || assets.length === 0) return;
   for (const asset of assets) {
     if (asset == null || typeof asset !== 'object') continue;
@@ -850,9 +926,9 @@ const applyMaBrokenAssetStatesOnDone = async (assets) => {
       continue;
     }
     const state = resolveMaBrokenAssetStateForDone(asset);
-    await updateDeviceAssetState(deviceId, state);
-    if (state === 'In Store') {
-      await assignDeviceToInStoreWarehouse(db, deviceId);
+    await updateDeviceAssetState(deviceId, state, executor);
+    if (state === 'In Store' && !pairedBrokenDeviceIds.has(deviceId)) {
+      await assignDeviceToInStoreWarehouse(executor, deviceId);
     }
   }
 };
@@ -1177,6 +1253,8 @@ const getTaskById = async (req, res) => {
 
 // PUT /api/tasks/:id
 const updateTask = async (req, res) => {
+  let transactionConnection = null;
+  let transactionOpen = false;
   try {
     const { id } = req.params;
     const {
@@ -1237,6 +1315,25 @@ const updateTask = async (req, res) => {
         console.warn('[updateTask] report check:', e.message);
       }
     }
+
+    const effectiveTaskType = String(taskType !== undefined ? taskType : existing[0].task_type || '').toUpperCase();
+    const requestedStatus = String(status || existing[0].status || '').toLowerCase();
+    if (effectiveTaskType === 'MA' && requestedStatus === 'done') {
+      transactionConnection = await db.getConnection();
+      await transactionConnection.beginTransaction();
+      transactionOpen = true;
+      const [lockedTaskRows] = await transactionConnection.execute(
+        'SELECT * FROM tasks WHERE id = ? FOR UPDATE',
+        [id]
+      );
+      if (!lockedTaskRows[0]) {
+        await transactionConnection.rollback();
+        transactionOpen = false;
+        return res.status(404).json({ success: false, message: 'Task not found' });
+      }
+      existing[0] = lockedTaskRows[0];
+    }
+    const taskExecutor = transactionConnection || db;
 
     // Helper function to safely parse integer
     const safeParseInt = (value) => {
@@ -1346,9 +1443,14 @@ const updateTask = async (req, res) => {
               siteName !== undefined
                 ? siteName || null
                 : existing[0].site_name || null,
+            executor: taskExecutor,
           });
         } catch (persistErr) {
           console.error('[updateTask] persistManualMaAssets:', persistErr);
+          if (transactionOpen) {
+            await transactionConnection.rollback();
+            transactionOpen = false;
+          }
           return res.status(400).json({
             success: false,
             message: persistErr.message || 'Failed to save manual device to database',
@@ -1393,12 +1495,16 @@ const updateTask = async (req, res) => {
     const taskChanges = collectTaskChanges(existing[0], req.body);
 
     if (updates.length === 0) {
+        if (transactionOpen) {
+          await transactionConnection.rollback();
+          transactionOpen = false;
+        }
         return res.status(400).json({ success: false, message: 'No data to update' });
     }
 
     values.push(id);
     const updateSql = `UPDATE tasks SET ${updates.join(', ')} WHERE id = ?`;
-    await db.execute(updateSql, values);
+    await taskExecutor.execute(updateSql, values);
 
     const effTypeAfterUpdate = taskType !== undefined ? taskType : existing[0].task_type;
     if (String(effTypeAfterUpdate || '').toUpperCase() === 'MA') {
@@ -1408,13 +1514,13 @@ const updateTask = async (req, res) => {
         dtPatch.downtimeDate !== undefined ||
         dtPatch.downtimeTime !== undefined
       ) {
-        await persistMaDowntimeTotalHoursForTask(id);
+        await persistMaDowntimeTotalHoursForTask(id, taskExecutor);
       }
     }
 
     // Handle replacement device asset state changes and SLid assignment
     // MA: อัปเดต Asset_State และ SLid เฉพาะเมื่อ status = 'done' (กด Done ใน detail)
-    const newStatus = status !== undefined ? (status || 'not-started') : existing[0].status;
+    const newStatus = String(status !== undefined ? (status || 'not-started') : existing[0].status || '').toLowerCase();
     const newAssets = assets !== undefined ? assetsForUpdate : oldAssets;
     const newReplacementDeviceId = (() => {
       const fromCol =
@@ -1425,7 +1531,7 @@ const updateTask = async (req, res) => {
       return safeParseInt(newAssets?.[0]?.replacementDeviceId);
     })();
     const newContractId = contractId !== undefined ? contractId : existing[0].contract_id;
-    const currentTaskType = taskType !== undefined ? taskType : existing[0].task_type;
+    const currentTaskType = String(taskType !== undefined ? taskType : existing[0].task_type || '').toUpperCase();
     const mergedTicket = ticket !== undefined ? (ticket || null) : existing[0].ticket;
     const mergedAssignedService = (() => {
       const asInBody = assignedService !== undefined || assigned_service !== undefined;
@@ -1437,11 +1543,17 @@ const updateTask = async (req, res) => {
       return existing[0].assigned_service ?? null;
     })();
     if (currentTaskType === 'MA') {
-      await syncMaReferTicketOnDevices(newAssets, mergedTicket, newReplacementDeviceId);
+      await syncMaReferTicketOnDevices(
+        newAssets,
+        mergedTicket,
+        newReplacementDeviceId,
+        taskExecutor
+      );
       await syncMaAssignedServiceOnDevices(
         newAssets,
         mergedAssignedService,
-        newReplacementDeviceId
+        newReplacementDeviceId,
+        taskExecutor
       );
     }
 
@@ -1451,26 +1563,41 @@ const updateTask = async (req, res) => {
       newAssets.length > 0 &&
       currentTaskType === 'MA'
     ) {
-      try {
         const isBecomingDone = existing[0].status !== 'done' && newStatus === 'done';
         const taskSiteId = siteId !== undefined ? safeParseInt(siteId) : existing[0].site_id;
+        const slidSwapPairs = collectMaDeviceSlidSwapPairs(newAssets, newReplacementDeviceId);
+        const oldSlidSwapPairs = collectMaDeviceSlidSwapPairs(oldAssets, oldReplacementDeviceId);
+        const pairKey = (pair) => `${pair.brokenDeviceId}:${pair.replacementDeviceId}`;
+        const slidSwapPairsChanged =
+          JSON.stringify(slidSwapPairs.map(pairKey)) !==
+          JSON.stringify(oldSlidSwapPairs.map(pairKey));
+        const shouldSwapDeviceSlids = isBecomingDone || slidSwapPairsChanged;
+        const deviceSlidSwaps = shouldSwapDeviceSlids
+          ? await captureMaDeviceSlids(slidSwapPairs, taskExecutor)
+          : [];
+        const pairedBrokenDeviceIds = new Set(
+          slidSwapPairs.map((pair) => pair.brokenDeviceId)
+        );
+        const pairedReplacementDeviceIds = new Set(
+          slidSwapPairs.map((pair) => pair.replacementDeviceId)
+        );
 
         // อุปกรณ์ที่เสีย — เปลี่ยน status + ย้าย site (In Store → คลัง) แม้ไม่มี replacement
         if (isBecomingDone || JSON.stringify(oldAssets) !== JSON.stringify(newAssets)) {
-          await applyMaBrokenAssetStatesOnDone(newAssets);
+          await applyMaBrokenAssetStatesOnDone(newAssets, pairedBrokenDeviceIds, taskExecutor);
         }
 
         if (newReplacementDeviceId) {
           if (oldReplacementDeviceId && oldReplacementDeviceId !== newReplacementDeviceId) {
-            await updateDeviceAssetState(oldReplacementDeviceId, 'In Store');
-            await db.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
+            await updateDeviceAssetState(oldReplacementDeviceId, 'In Store', taskExecutor);
+            await taskExecutor.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
           }
 
           if (isBecomingDone || newReplacementDeviceId !== oldReplacementDeviceId) {
-            await updateDeviceAssetState(newReplacementDeviceId, 'In Use');
+            await updateDeviceAssetState(newReplacementDeviceId, 'In Use', taskExecutor);
           }
-          if (taskSiteId && newReplacementDeviceId) {
-            await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [taskSiteId, newReplacementDeviceId]);
+          if (taskSiteId && newReplacementDeviceId && !pairedReplacementDeviceIds.has(newReplacementDeviceId)) {
+            await taskExecutor.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [taskSiteId, newReplacementDeviceId]);
           }
 
           const newFirstAsset = newAssets[0];
@@ -1480,8 +1607,8 @@ const updateTask = async (req, res) => {
             const oldFirstAsset = oldAssets[0];
             const oldOriginalDeviceId = typeof oldFirstAsset === 'object' ? (oldFirstAsset.id || oldFirstAsset.Did || oldFirstAsset) : oldFirstAsset;
             if (oldOriginalDeviceId && oldOriginalDeviceId !== newOriginalDeviceId) {
-              await updateDeviceAssetState(oldOriginalDeviceId, 'In Store');
-              await assignDeviceToInStoreWarehouse(db, oldOriginalDeviceId);
+              await updateDeviceAssetState(oldOriginalDeviceId, 'In Store', taskExecutor);
+              await assignDeviceToInStoreWarehouse(taskExecutor, oldOriginalDeviceId);
             }
           }
 
@@ -1489,32 +1616,33 @@ const updateTask = async (req, res) => {
           const replacementIdNum = typeof newReplacementDeviceId === 'number' ? newReplacementDeviceId : parseInt(String(newReplacementDeviceId), 10);
           const originalIdNum = typeof newOriginalDeviceId === 'number' ? newOriginalDeviceId : parseInt(String(newOriginalDeviceId), 10);
 
-          if (contractSlid && !isNaN(replacementIdNum)) {
-            try {
-              const slidToUse = taskSiteId != null ? taskSiteId : contractSlid;
-              await db.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [slidToUse, replacementIdNum]);
-              console.log(
-                `Assigned replacement device ${replacementIdNum} to SLid ${slidToUse} (was broken device ${originalIdNum})`
-              );
-            } catch (error) {
-              console.error('Error assigning replacement device to SLid:', error);
-            }
+          if (contractSlid && !isNaN(replacementIdNum) && !pairedReplacementDeviceIds.has(replacementIdNum)) {
+            const slidToUse = taskSiteId != null ? taskSiteId : contractSlid;
+            await taskExecutor.execute('UPDATE devices SET SLid = ? WHERE Did = ?', [slidToUse, replacementIdNum]);
+            console.log(
+              `Assigned replacement device ${replacementIdNum} to SLid ${slidToUse} (was broken device ${originalIdNum})`
+            );
           }
         }
-      } catch (error) {
-        console.error('Error updating device asset states:', error);
-      }
-    } else if (existing[0].status === 'done' && oldReplacementDeviceId && (!newReplacementDeviceId || !newAssets || newAssets.length === 0)) {
-      try {
-        await updateDeviceAssetState(oldReplacementDeviceId, 'In Store');
-        await db.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
-      } catch (error) {
-        console.error('Error reverting replacement device:', error);
-      }
+        for (const replacementId of pairedReplacementDeviceIds) {
+          if (isBecomingDone || replacementId !== oldReplacementDeviceId) {
+            await updateDeviceAssetState(replacementId, 'In Use', taskExecutor);
+          }
+        }
+        if (shouldSwapDeviceSlids) {
+          await applyMaDeviceSlidSwaps(deviceSlidSwaps, taskExecutor);
+        }
+    } else if (
+      existing[0].status === 'done' &&
+      oldReplacementDeviceId &&
+      (!newReplacementDeviceId || !newAssets || newAssets.length === 0)
+    ) {
+      await updateDeviceAssetState(oldReplacementDeviceId, 'In Store', taskExecutor);
+      await taskExecutor.execute('UPDATE devices SET SLid = NULL WHERE Did = ?', [oldReplacementDeviceId]);
     }
 
     const { select, join } = await buildTaskQueryFragments();
-    const [rows] = await db.execute(
+    const [rows] = await taskExecutor.execute(
       `SELECT t.*, ${select}
        FROM tasks t
        ${join}
@@ -1522,6 +1650,11 @@ const updateTask = async (req, res) => {
       [id]
     );
     const updatedTask = mapTaskRow(rows[0]);
+
+    if (transactionOpen) {
+      await transactionConnection.commit();
+      transactionOpen = false;
+    }
 
     if (taskChanges.length > 0) {
       notifyTeamsPlanUpdated(updatedTask, {
@@ -1538,12 +1671,22 @@ const updateTask = async (req, res) => {
       data: updatedTask,
     });
   } catch (error) {
+    if (transactionOpen && transactionConnection) {
+      try {
+        await transactionConnection.rollback();
+      } catch (rollbackError) {
+        console.error('[updateTask] transaction rollback failed:', rollbackError);
+      }
+      transactionOpen = false;
+    }
     console.error('Error updating task:', error);
     res.status(500).json({
       success: false,
       message: 'Error updating task',
       error: error.message,
     });
+  } finally {
+    if (transactionConnection) transactionConnection.release();
   }
 };
 

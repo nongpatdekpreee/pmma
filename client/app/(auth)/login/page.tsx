@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPasswordHelp, setShowPasswordHelp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(e: FormEvent) {
@@ -94,9 +95,20 @@ export default function LoginPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="password" className="text-sm font-medium text-foreground">
-                    Password
-                  </label>
+                  <div className="flex items-center justify-between gap-3">
+                    <label htmlFor="password" className="text-sm font-medium text-foreground">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPasswordHelp((visible) => !visible)}
+                      aria-expanded={showPasswordHelp}
+                      aria-controls="forgot-password-help"
+                      className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
                   <div className="group relative">
                     <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
                     <input
@@ -119,6 +131,15 @@ export default function LoginPage() {
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {showPasswordHelp && (
+                    <p
+                      id="forgot-password-help"
+                      className="rounded-lg border border-primary/15 bg-primary/5 px-3 py-2 text-xs text-muted-foreground"
+                      role="status"
+                    >
+                      Please contact your system administrator to reset your password.
+                    </p>
+                  )}
                 </div>
 
                 {error && (

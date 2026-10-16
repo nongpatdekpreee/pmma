@@ -2331,7 +2331,8 @@ const getMergeCandidates = async (req, res) => {
 
 /**
  * POST /api/contracts/merge
- * Merge source SLids into primary (same SOF only). Moves devices, closes sources.
+ * Merge source SLids into primary (same SOF only): moves devices, closes sources,
+ * and clears source contract names after saving their history snapshots.
  * Body: { primary_slid, source_slids: number[], contract_name?: string }
  */
 const mergeContracts = async (req, res) => {
@@ -2440,7 +2441,10 @@ const mergeContracts = async (req, res) => {
         devicesMoved += deviceIds.length;
       }
 
-      await slc.updateSiteLocationContract(conn, slid, { status: 'not_renewing' });
+      await slc.updateSiteLocationContract(conn, slid, {
+        status: 'not_renewing',
+        contract_name: '',
+      });
       closedSlids.push(slid);
     }
 

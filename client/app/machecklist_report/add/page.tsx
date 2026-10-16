@@ -675,10 +675,6 @@ function AddMAReportPageContent() {
       toastWarning('Please select a task before submitting the report.');
       return;
     }
-    if (!selectedDeviceId) {
-      toastWarning('Please select a device.');
-      return;
-    }
     if (!reportUptimeDate?.trim() || !reportUptimeTime?.trim()) {
       toastWarning('Please enter Uptime date and Uptime time (service back online time)');
       return;
@@ -766,8 +762,8 @@ function AddMAReportPageContent() {
 
       const reportData = {
         taskId: selectedTaskId,
-        deviceId: selectedDeviceId,
-        device: selectedDevice,
+        deviceId: selectedDeviceId || null,
+        device: selectedDevice ?? null,
         checklistItems: [],
         uploadedFiles: filesWithPath,
         maResult,
@@ -1036,7 +1032,7 @@ function AddMAReportPageContent() {
           {/* Device Selection */}
           <div className="mb-6">
             <label className="block text-sm font-bold text-muted-foreground mb-3">
-              Device * <span className="text-muted-foreground font-normal">(Only from selected Task)</span>
+              Device <span className="text-muted-foreground font-normal">(Optional — only from selected Task)</span>
             </label>
             <select
               value={selectedDeviceId}
@@ -1050,7 +1046,7 @@ function AddMAReportPageContent() {
                   : selectedTaskId == null && availableMATasks.length > 0
                     ? 'Please select a task above first'
                     : selectedTaskId != null && allowedDevices.length === 0
-                      ? 'No devices found for this task'
+                      ? 'No device — you can still submit a report'
                       : 'Select device...'}
               </option>
               {allowedDevices.map(device => {

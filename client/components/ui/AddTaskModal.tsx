@@ -279,6 +279,7 @@ function buildManualMaBrokenDevice(params: {
   Dtypeid?: number;
   DeRoleid?: number;
   owner: string;
+  projectOwen?: string;
   contractId: number;
   siteName?: string;
   slid?: number;
@@ -289,6 +290,7 @@ function buildManualMaBrokenDevice(params: {
   const role = params.role?.trim() || undefined;
   const type = params.type?.trim() || role;
   const owner = params.owner.trim();
+  const projectOwen = params.projectOwen?.trim() || undefined;
   return {
     id: `manual-${randomUUID()}`,
     name,
@@ -299,6 +301,7 @@ function buildManualMaBrokenDevice(params: {
     ...(params.Dtypeid != null ? { Dtypeid: params.Dtypeid } : {}),
     ...(params.DeRoleid != null ? { DeRoleid: params.DeRoleid } : {}),
     Owner: owner,
+    ...(projectOwen ? { Project_Owen: projectOwen } : {}),
     contract_id: params.contractId,
     site: params.siteName,
     SLid: params.slid,
@@ -1520,7 +1523,7 @@ export function AddTaskModal({
     }
     const bySite = Sid ? devices.filter((d) => d.SLid != null && String(d.SLid) === Sid) : devices;
     return Sid && bySite.length > 0 ? bySite : devices;
-  }, [devices, Sid, selectedContractIdsKey, selectedContractIds]);
+  }, [devices, Sid, selectedContractIds]);
   const uniqueDeviceRoles = Array.from(new Set(devicesToShow.map(d => d.role).filter(Boolean))).sort();
 
   // Get unique models from devicesToShow, but use deviceTypes data if available for better accuracy
@@ -3467,41 +3470,43 @@ export function AddTaskModal({
         document.body
       )}
 
-      <MaManualBrokenDeviceModal
-        open={maManualDeviceModalOpen}
-        kind={maManualTarget?.kind === 'replacement' ? 'replacement' : 'broken'}
-        title={
-          maManualTarget?.kind === 'replacement'
-            ? 'Add Replacement Device Manually'
-            : 'Add Broken Device Manually'
-        }
-        contractOptions={contractOptions.filter((c) =>
-          selectedContractIds.includes(String(c.contract_id)),
-        )}
-        selectedContractIds={selectedContractIds}
-        siteName={
-          siteOptions.find((s) => s.id === Sid)?.name?.trim() ||
-          Sname.trim() ||
-          undefined
-        }
-        slid={Sid && !Number.isNaN(Number(Sid)) ? Number(Sid) : undefined}
-        deviceTypes={deviceTypes}
-        deviceRoles={deviceRoles}
-        onClose={() => {
-          setMaManualDeviceModalOpen(false);
-          setMaManualTarget(null);
-        }}
-        onConfirm={(device) => {
-          if (maManualTarget?.kind === 'replacement') {
-            updateBrokenDeviceReplacement(maManualTarget.pairId, device);
-          } else {
-            addBrokenDevicePair(device);
+      {maManualDeviceModalOpen && (
+        <MaManualBrokenDeviceModal
+          open
+          kind={maManualTarget?.kind === 'replacement' ? 'replacement' : 'broken'}
+          title={
+            maManualTarget?.kind === 'replacement'
+              ? 'Add Replacement Device Manually'
+              : 'Add Broken Device Manually'
           }
-          setMaManualDeviceModalOpen(false);
-          setMaManualTarget(null);
-        }}
-        onValidationError={showWarning}
-      />
+          contractOptions={contractOptions.filter((c) =>
+            selectedContractIds.includes(String(c.contract_id)),
+          )}
+          selectedContractIds={selectedContractIds}
+          siteName={
+            siteOptions.find((s) => s.id === Sid)?.name?.trim() ||
+            Sname.trim() ||
+            undefined
+          }
+          slid={Sid && !Number.isNaN(Number(Sid)) ? Number(Sid) : undefined}
+          deviceTypes={deviceTypes}
+          deviceRoles={deviceRoles}
+          onClose={() => {
+            setMaManualDeviceModalOpen(false);
+            setMaManualTarget(null);
+          }}
+          onConfirm={(device) => {
+            if (maManualTarget?.kind === 'replacement') {
+              updateBrokenDeviceReplacement(maManualTarget.pairId, device);
+            } else {
+              addBrokenDevicePair(device);
+            }
+            setMaManualDeviceModalOpen(false);
+            setMaManualTarget(null);
+          }}
+          onValidationError={showWarning}
+        />
+      )}
 
       <AssetSelectModal
         open={assetModalOpen}
@@ -3781,29 +3786,19 @@ function MaManualBrokenDeviceModal({
   const [name, setName] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
   const [assetNumber, setAssetNumber] = useState('');
+  const [owner, setOwner] = useState(
+    kind === 'replacement' ? MANUAL_REPLACEMENT_OWNER : (siteName?.trim() || '')
+  );
+  const [projectOwen, setProjectOwen] = useState('');
   const [roleId, setRoleId] = useState('');
   const [typeId, setTypeId] = useState('');
-  const [contractId, setContractId] = useState('');
-
-  useEffect(() => {
-    if (!open) return;
-    setName('');
-    setSerialNumber('');
-    setAssetNumber('');
-    setRoleId('');
-    setTypeId('');
-    setContractId(selectedContractIds[0] ?? '');
-  }, [open, selectedContractIds]);
+  const [contractId, setContractId] = useState(selectedContractIds[0] ?? '');
 
   if (!open) return null;
 
   const showContractPicker = selectedContractIds.length > 1;
   const selectedRole = deviceRoles.find((r) => String(r.DeRoleid) === roleId);
   const selectedType = deviceTypes.find((t) => String(t.Dtypeid) === typeId);
-  const resolvedOwner =
-    kind === 'replacement'
-      ? MANUAL_REPLACEMENT_OWNER
-      : (siteName?.trim() || '');
 
   const handleConfirm = () => {
     const trimmedName = name.trim();
@@ -3816,12 +3811,9 @@ function MaManualBrokenDeviceModal({
       onValidationError('Please enter serial number');
       return;
     }
-    if (!resolvedOwner) {
-      onValidationError(
-        kind === 'replacement'
-          ? 'Replacement Owner must be TCC'
-          : 'Please select a site first (Owner uses the site name)',
-      );
+    const trimmedOwner = owner.trim();
+    if (!trimmedOwner) {
+      onValidationError('Please enter Owner');
       return;
     }
     const contractIdStr = showContractPicker ? contractId : selectedContractIds[0];
@@ -3843,7 +3835,8 @@ function MaManualBrokenDeviceModal({
           : undefined,
         Dtypeid: dtypeid != null && !Number.isNaN(dtypeid) ? dtypeid : undefined,
         DeRoleid: deroleid != null && !Number.isNaN(deroleid) ? deroleid : undefined,
-        owner: resolvedOwner,
+        owner: trimmedOwner,
+        projectOwen,
         contractId: contractNum,
         siteName: siteName?.trim() || undefined,
         slid,
@@ -3900,15 +3893,34 @@ function MaManualBrokenDeviceModal({
           </div>
 
           <div>
-            <label className={fieldLabel}>Owner</label>
-            <div className={`${inputBase} bg-muted text-foreground`}>
-              {resolvedOwner ||
-                (kind === 'replacement' ? MANUAL_REPLACEMENT_OWNER : 'Select a site first')}
-            </div>
+            <label className={fieldLabel}>
+              Owner <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={owner}
+              onChange={(e) => setOwner(e.target.value)}
+              placeholder="Required"
+              className={inputBase}
+            />
             <p className="mt-1 text-[10px] text-muted-foreground">
               {kind === 'replacement'
-                ? 'Replacement devices are owned by TCC.'
-                : 'Broken devices use the selected site name as Owner.'}
+                ? 'Defaults to TCC; editable if the device has a different owner.'
+                : 'Defaults to the selected site name; editable as needed.'}
+            </p>
+          </div>
+
+          <div>
+            <label className={fieldLabel}>Project Owen</label>
+            <input
+              type="text"
+              value={projectOwen}
+              onChange={(e) => setProjectOwen(e.target.value)}
+              placeholder="Optional"
+              className={inputBase}
+            />
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Saved to devices.Project_Owen (separate from Owner).
             </p>
           </div>
 

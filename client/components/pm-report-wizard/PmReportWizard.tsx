@@ -636,13 +636,17 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
   };
 
   const handleSave = useCallback(async () => {
-    if (!selectedTaskId || allowedDevices.length === 0) {
+    if (!selectedTaskId) {
+      toastWarning('Please select a task before saving.');
+      return;
+    }
+    if (!externalPdfFile && allowedDevices.length === 0) {
       toastWarning('Please select a task with devices before saving.');
       return;
     }
 
     const site = baseTaskContext.siteName || 'Unknown';
-    const primaryDeviceId = String(allowedDevices[0].Did);
+    const primaryDeviceId = allowedDevices[0] ? String(allowedDevices[0].Did) : null;
     const filesWithPath: Array<{ name: string; type: string; path?: string; slot?: string }> = [];
 
     if (externalPdfFile) {
@@ -801,7 +805,7 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
     externalPdfFile,
   ]);
 
-  const canSaveExternalPdf = Boolean(selectedTaskId && allowedDevices.length > 0 && externalPdfFile);
+  const canSaveExternalPdf = Boolean(selectedTaskId && externalPdfFile);
   const canSaveWizard = Boolean(
     selectedTaskId &&
       locationMapped &&
@@ -897,10 +901,11 @@ export const PmReportWizard = forwardRef<PmReportWizardHandle, Props>(function P
             </p>
           ) : loadingDevices ? (
             <p className="text-sm text-muted-foreground">Loading devices...</p>
-          ) : allowedDevices.length === 0 ? (
-            <p className="text-sm text-amber-700">No devices linked to this task.</p>
           ) : (
             <>
+              {allowedDevices.length === 0 && (
+                <p className="text-sm text-amber-700">No devices linked to this task. You can still upload a finished PM PDF.</p>
+              )}
               <div
                 role="button"
                 tabIndex={0}

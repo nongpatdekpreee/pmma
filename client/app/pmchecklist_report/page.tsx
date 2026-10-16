@@ -162,7 +162,7 @@ type ReportInformationFields = {
 interface MAReport {
   id: string;
   taskId?: number;
-  deviceId: string;
+  deviceId: string | null;
   engineers?: Array<{ id?: string; name?: string; lastName?: string; last_name?: string }>;
   device?: {
     Did?: number;
@@ -232,7 +232,9 @@ function getReportDevices(report: PMReport | MAReport): ReportDeviceSummary[] {
       Vendor: d.Vendor,
     }];
   }
-  return [{ CI_Name: `Device ${report.deviceId}`, name: `Device ${report.deviceId}` }];
+  return report.deviceId
+    ? [{ CI_Name: `Device ${report.deviceId}`, name: `Device ${report.deviceId}` }]
+    : [];
 }
 
 /** ลำดับ path จาก Upload Images/Documents/MA Results ของรายงาน (uploadedFiles[].path) */

@@ -1020,8 +1020,8 @@ export async function uploadReportFile(file: File): Promise<{ success: boolean; 
 /** POST /api/pm-reports - ส่ง PM Checklist Report */
 export async function postPmReport(body: {
   taskId: number;
-  deviceId: string;
-  device?: object;
+  deviceId: string | null;
+  device?: object | null;
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   uploadedFiles?: Array<{ name: string; type: string; path?: string; slot?: string }>;
   pmResult?: 'pass' | 'fail' | 'warning';
@@ -1054,7 +1054,7 @@ export async function getMaReports(params?: { limit?: number; offset?: number })
   success: boolean;
   data?: Array<{
     id: string;
-    deviceId: string;
+    deviceId: string | null;
     device?: object;
     checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
     maResult: 'pass' | 'warning' | 'fail';
@@ -1093,8 +1093,8 @@ export async function uploadMaReportFile(file: File): Promise<{ success: boolean
 /** POST /api/ma-reports - ส่ง MA Checklist Report (ใช้ maResult: 'pass' | 'fail') */
 export async function postMaReport(body: {
   taskId: number;
-  deviceId: string;
-  device?: object;
+  deviceId: string | null;
+  device?: object | null;
   checklistItems: Array<{ id: string; task: string; status: string; notes?: string }>;
   uploadedFiles?: Array<{ name: string; type: string; path?: string }>;
   sla_result?: number;
