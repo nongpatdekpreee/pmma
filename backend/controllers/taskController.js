@@ -914,7 +914,6 @@ const resolveMaBrokenAssetStateForDone = (asset) => {
 /** MA: อัปเดต Asset_State อุปกรณ์ที่เสียเมื่อกด Done เท่านั้น (ใช้ brokenAssetState จาก assets) */
 const applyMaBrokenAssetStatesOnDone = async (
   assets,
-  pairedBrokenDeviceIds = new Set(),
   executor = db
 ) => {
   if (!Array.isArray(assets) || assets.length === 0) return;
@@ -927,9 +926,6 @@ const applyMaBrokenAssetStatesOnDone = async (
     }
     const state = resolveMaBrokenAssetStateForDone(asset);
     await updateDeviceAssetState(deviceId, state, executor);
-    if (state === 'In Store' && !pairedBrokenDeviceIds.has(deviceId)) {
-      await assignDeviceToInStoreWarehouse(executor, deviceId);
-    }
   }
 };
 
@@ -1582,9 +1578,9 @@ const updateTask = async (req, res) => {
           slidSwapPairs.map((pair) => pair.replacementDeviceId)
         );
 
-        // อุปกรณ์ที่เสีย — เปลี่ยน status + ย้าย site (In Store → คลัง) แม้ไม่มี replacement
+        // อุปกรณ์ที่เสีย — อัปเดต Asset_State เมื่อปิดงาน MA
         if (isBecomingDone || JSON.stringify(oldAssets) !== JSON.stringify(newAssets)) {
-          await applyMaBrokenAssetStatesOnDone(newAssets, pairedBrokenDeviceIds, taskExecutor);
+          await applyMaBrokenAssetStatesOnDone(newAssets, taskExecutor);
         }
 
         if (newReplacementDeviceId) {
@@ -1631,6 +1627,13 @@ const updateTask = async (req, res) => {
         }
         if (shouldSwapDeviceSlids) {
           await applyMaDeviceSlidSwaps(deviceSlidSwaps, taskExecutor);
+        }
+        // หลังสลับ SLid แล้ว ย้ายอุปกรณ์ที่เสียกลับคลังบางนา ไม่ขึ้นกับ Asset_State
+        for (const asset of newAssets) {
+          const brokenDeviceId = extractBrokenDeviceIdFromAsset(asset);
+          if (brokenDeviceId != null) {
+            await assignDeviceToInStoreWarehouse(taskExecutor, brokenDeviceId);
+          }
         }
     } else if (
       existing[0].status === 'done' &&
