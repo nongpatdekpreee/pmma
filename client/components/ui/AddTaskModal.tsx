@@ -51,6 +51,7 @@ import {
   resolveMaBrokenAssetStateDefault,
   type MaBrokenAssetState,
 } from '@/lib/maBrokenAssetState';
+import { MA_ASSIGNED_SERVICE_OPTIONS } from '@/lib/maWorkOrder/constants';
 
 
 type CalendarEventStatus = 'done' | 'working' | 'stuck' | 'not-started';
@@ -1491,7 +1492,12 @@ export function AddTaskModal({
   }, [selectedContractIds, contractOptions]);
 
   const maAssignedServiceSelectOptions = useMemo(() => {
-    const base = assignedServiceOptions.map((s) => String(s ?? '').trim()).filter(Boolean);
+    const base = [
+      ...new Set([
+        ...MA_ASSIGNED_SERVICE_OPTIONS,
+        ...assignedServiceOptions.map((s) => String(s ?? '').trim()).filter(Boolean),
+      ]),
+    ];
     const cur = maAssignedService.trim();
     if (cur && !base.includes(cur)) return [cur, ...base];
     return base;

@@ -35,9 +35,6 @@ export function MaWorkOrderPage1({ data }: { data: MaWorkOrderData }) {
       <MaWoFieldRow label="ชื่อ-สกุล">
         <MaWoDottedValue value={data.customerName} />
       </MaWoFieldRow>
-      <MaWoFieldRow label="ตำแหน่ง">
-        <MaWoDottedValue value={data.customerPosition} />
-      </MaWoFieldRow>
       <MaWoFieldRow label="หน่วยงาน">
         <MaWoDottedValue value={data.customerDepartment} />
       </MaWoFieldRow>

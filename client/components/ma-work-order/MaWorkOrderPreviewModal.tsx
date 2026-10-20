@@ -43,7 +43,7 @@ export function MaWorkOrderPreviewModal({
     if (!data) return;
     setDownloading(true);
     try {
-      const filename = task ? buildMaWorkOrderFilename(task) : 'MA_work_order.pdf';
+      const filename = task ? buildMaWorkOrderFilename(task, data) : 'MA_work_order.pdf';
       await downloadMaWorkOrderPdf(data, filename);
     } finally {
       setDownloading(false);

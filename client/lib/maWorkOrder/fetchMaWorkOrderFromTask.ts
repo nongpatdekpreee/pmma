@@ -45,7 +45,6 @@ function taskRecordToInput(task: Record<string, unknown>): MaWorkOrderTaskInput 
     endDate: String(task.endDate ?? task.end_date ?? ''),
     reporterName: String(task.reporterName ?? task.reporter_name ?? ''),
     reporterTel: String(task.reporterTel ?? task.reporter_tel ?? ''),
-    reporterPosition: String(task.reporterPosition ?? task.reporter_position ?? ''),
     reporterEmail: String(task.reporterEmail ?? task.reporter_email ?? ''),
     ticket: String(task.ticket ?? ''),
     assignedService: String(task.assignedService ?? task.assigned_service ?? '') || null,
@@ -204,16 +203,54 @@ export async function fetchMaWorkOrderFromTask(
   });
 }
 
-export function buildMaWorkOrderFilename(task: Record<string, unknown>): string {
-  const ticket = String(task.ticket ?? '').trim();
-  const id = String(task.id ?? 'task').trim();
-  const site = String(task.Sname ?? task.siteName ?? 'site')
+function sanitizeFilenamePart(value: string): string {
+  return value
     .trim()
-    .replace(/[<>:"/\\|?*]+/g, '_')
-    .slice(0, 40);
-  const date = new Date().toISOString().slice(0, 10);
-  const base = ticket ? `MA_${ticket}` : `MA_${id}`;
-  return `${base}_${site}_${date}.pdf`;
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60);
+}
+
+function formatFilenameDate(task: Record<string, unknown>): string {
+  const dateValue = [
+    task.startDate,
+    task.start_date,
+    task.uptimeDate,
+    task.uptime_date,
+    task.endDate,
+    task.end_date,
+  ].find((value) => value != null && String(value).trim() !== '');
+  if (dateValue == null) return 'unknown-date';
+
+  const value = String(dateValue).trim();
+  const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (dateOnly) return `${dateOnly[3]}-${dateOnly[2]}-${dateOnly[1]}`;
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return sanitizeFilenamePart(value) || 'unknown-date';
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  return `${day}-${month}-${parsed.getFullYear()}`;
+}
+
+export function buildMaWorkOrderFilename(
+  task: Record<string, unknown>,
+  data: MaWorkOrderData
+): string {
+  const models = (rows: MaWorkOrderData['brokenHardware']) => [...new Set(
+    rows
+      .filter((row) => row.checked && row.model.trim())
+      .map((row) => row.model.trim())
+  )];
+  const replacementModels = models(data.replacementHardware);
+  const selectedModels = replacementModels.length
+    ? replacementModels
+    : models(data.brokenHardware);
+  const model = sanitizeFilenamePart(selectedModels.join('-')) || 'unknown-model';
+  const location = sanitizeFilenamePart(data.problemLocation) || 'unknown-location';
+  return `${formatFilenameDate(task)}_${model}_${location}.pdf`;
 }
 
 type DetailDeviceLike = {

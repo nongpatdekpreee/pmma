@@ -1571,9 +1571,6 @@ const updateTask = async (req, res) => {
         const deviceSlidSwaps = shouldSwapDeviceSlids
           ? await captureMaDeviceSlids(slidSwapPairs, taskExecutor)
           : [];
-        const pairedBrokenDeviceIds = new Set(
-          slidSwapPairs.map((pair) => pair.brokenDeviceId)
-        );
         const pairedReplacementDeviceIds = new Set(
           slidSwapPairs.map((pair) => pair.replacementDeviceId)
         );

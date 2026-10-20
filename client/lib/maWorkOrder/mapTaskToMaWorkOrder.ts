@@ -110,10 +110,9 @@ function buildReplacementRows(
         model: '',
         serialNumber: '',
       } as MaWorkOrderDeviceInput);
-    const broken = resolveDevice(asset, resolvedDevices);
     rows.push({
       checked: true,
-      model: rep.model || rep.name || broken.model || broken.name || '',
+      model: rep.model || rep.name || '',
       serialNumber: rep.serialNumber || '',
     });
   }
@@ -152,7 +151,6 @@ export function mapTaskToMaWorkOrder(
     issueDate: toThaiDateParts(context.issueDate ?? task.startDate ?? new Date()),
 
     customerName: (task.reporterName ?? '').trim(),
-    customerPosition: (task.reporterPosition ?? task.reporter_position ?? '').trim(),
     customerDepartment: companyOrSite,
     customerPhone: (task.reporterTel ?? '').trim(),
     companyName: companyOrSite,

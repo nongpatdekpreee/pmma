@@ -1161,16 +1161,63 @@ export async function getDevicesWithPM(params?: { search?: string; deviceRole?: 
   
   try {
     const res = await apiFetch(apiUrl(`/api/devices/with-pm?${q.toString()}`));
-    
-    const data = await res.json();
-    
-    // Always return data, even if status is not ok
-    // Frontend will check response.success to handle errors
-    if (!res.ok) {
-      console.warn(`API returned status ${res.status}:`, data.message || data.error || 'Unknown error');
+
+    const data = await responseJsonSafe<{
+      success: boolean;
+      data?: Array<{
+        deviceId: string;
+        deviceName: string;
+        deviceRole: string;
+        site: string;
+        location: string;
+        vendor: string;
+        model: string;
+        serialNumber: string;
+        lastPM: string | null;
+        nextPM: string | null;
+        pmHistory: Array<{
+          id: string;
+          date: string;
+          status: 'Done' | 'In Progress' | 'Failed' | 'Scheduled';
+          technician: string;
+          notes?: string | null;
+        }>;
+        status: 'Active' | 'Inactive' | 'Maintenance';
+      }>;
+      statistics?: {
+        totalDevices: number;
+        activeDevices: number;
+        upcomingPM: number;
+      };
+      message?: string;
+      error?: string;
+    }>(res);
+
+    if (!data) {
+      const message = `API returned a non-JSON response (HTTP ${res.status})`;
+      console.error(`[getDevicesWithPM] ${message}`);
+      return {
+        success: false,
+        data: [],
+        statistics: { totalDevices: 0, activeDevices: 0, upcomingPM: 0 },
+        message,
+        error: message,
+      };
     }
-    
-    return data;
+
+    if (!res.ok) {
+      console.error(
+        `[getDevicesWithPM] API returned HTTP ${res.status}:`,
+        data.message || data.error || 'Unknown error'
+      );
+    }
+
+    const emptyStatistics = { totalDevices: 0, activeDevices: 0, upcomingPM: 0 };
+    return {
+      ...data,
+      data: data.data ?? [],
+      statistics: data.statistics ?? emptyStatistics,
+    };
   } catch (error) {
     console.error('Network error fetching devices with PM:', error);
     // Return error response structure instead of throwing

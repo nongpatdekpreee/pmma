@@ -6,7 +6,6 @@ export const MA_WORK_ORDER_SAMPLE: MaWorkOrderData = {
   issueDate: { day: '27', month: 'พฤษภาคม', yearBe: '2569' },
 
   customerName: 'Chatchai Chalermrutnukul',
-  customerPosition: 'IT',
   customerDepartment: 'TCC-Private Company',
   customerPhone: '090-571-9746',
   companyName: 'TCC-Private Company',

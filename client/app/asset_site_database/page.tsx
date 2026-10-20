@@ -96,6 +96,7 @@ const AssetSiteDatabase = () => {
   const [devices, setDevices] = useState<AssetDevice[]>([]);
   const [allDevices, setAllDevices] = useState<AssetDevice[]>([]); // เก็บ devices ทั้งหมดสำหรับ client-side filtering
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [statistics, setStatistics] = useState({
     totalDevices: 0,
     activeDevices: 0,
@@ -144,11 +145,13 @@ const AssetSiteDatabase = () => {
         
         if (response && response.success !== false && response.data) {
           setDevices(response.data);
+          setLoadError("");
           if (response.statistics) {
             setStatistics(response.statistics);
           }
         } else {
           setDevices([]);
+          setLoadError(response?.message || response?.error || "Cannot load Asset & Site data.");
           if (response?.statistics) {
             setStatistics(response.statistics);
           }
@@ -347,6 +350,14 @@ const AssetSiteDatabase = () => {
 
         {/* ================= Table Card ================= */}
         <div className="rounded-xl bg-card p-4 md:p-6 shadow-md overflow-hidden">
+          {loadError && (
+            <div
+              role="alert"
+              className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+            >
+              โหลดข้อมูล Asset &amp; Site ไม่สำเร็จ: {loadError}
+            </div>
+          )}
           {/* Header */}
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
             <div>

@@ -41,7 +41,6 @@ export interface MaWorkOrderData {
 
   /** ส่วนที่ 1 — ข้อมูลลูกค้า */
   customerName: string;
-  customerPosition: string;
   customerDepartment: string;
   customerPhone: string;
   companyName: string;
@@ -93,8 +92,6 @@ export interface MaWorkOrderTaskInput {
   vendorTel?: string;
   reporterName?: string;
   reporterTel?: string;
-  reporterPosition?: string;
-  reporter_position?: string;
   reporterEmail?: string;
   reporter_email?: string;
   ticket?: string;

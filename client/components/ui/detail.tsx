@@ -185,7 +185,7 @@ export function TaskDetailModal({ isOpen, onClose, task, onUpdate, onEdit, onDel
             )
           : undefined;
       const data = await fetchMaWorkOrderFromTask(taskRecord, prefetched);
-      await downloadMaWorkOrderPdf(data, buildMaWorkOrderFilename(taskRecord));
+      await downloadMaWorkOrderPdf(data, buildMaWorkOrderFilename(taskRecord, data));
     } catch (err) {
       console.error('MA work order PDF download failed:', err);
       showAlert('Cannot create PDF file, please try again', 'warning', 'Download failed');

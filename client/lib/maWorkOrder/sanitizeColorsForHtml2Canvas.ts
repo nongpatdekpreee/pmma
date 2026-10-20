@@ -102,8 +102,6 @@ function injectFontAndExportStyles(doc: Document, exportCss: string): void {
   }
 }
 
-let exportCssCache: string | null = null;
-
 /** จัดข้อความแถบหัวข้อกลางแนวตั้งก่อน html2canvas */
 export function prepareSectionBarsForPdfCapture(root: HTMLElement): void {
   root.querySelectorAll('.ma-wo-section-bar').forEach((node) => {
@@ -144,15 +142,13 @@ export function prepareOriginalBadgesForPdfCapture(root: HTMLElement): void {
 }
 
 export async function loadMaWorkOrderExportCss(): Promise<string> {
-  if (exportCssCache) return exportCssCache;
   const [fontsRes, exportRes] = await Promise.all([
-    fetch('/ma-work-order/fonts.css'),
-    fetch('/ma-work-order/export.css'),
+    fetch('/ma-work-order/fonts.css', { cache: 'no-store' }),
+    fetch('/ma-work-order/export.css', { cache: 'no-store' }),
   ]);
   if (!exportRes.ok) throw new Error('Failed to load MA work order export styles');
   const fontsCss = fontsRes.ok ? await fontsRes.text() : MA_WORK_ORDER_FONT_FACE_CSS;
-  exportCssCache = `${fontsCss}\n${await exportRes.text()}`;
-  return exportCssCache;
+  return `${fontsCss}\n${await exportRes.text()}`;
 }
 
 /** รอให้ Noto Sans Thai โหลดครบก่อน html2canvas */

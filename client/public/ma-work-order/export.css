@@ -2,7 +2,6 @@
 
 .ma-wo-root {
   font-family: 'Noto Sans Thai', 'TH Sarabun New', 'Sarabun', sans-serif;
-  color: #1a1a1a;
   font-size: 13px;
   line-height: 1.45;
   max-width: 100%;
@@ -10,6 +9,10 @@
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+.ma-wo-root:not(.pm-pr-root) {
+  color: #243447;
 }
 
 .ma-wo-page {
@@ -28,11 +31,12 @@
   margin-top: 16px;
 }
 
-.ma-wo-original-badge {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-original-badge {
   position: absolute;
   top: 10mm;
   right: 14mm;
-  border: 1px solid #9ca3af;
+  border: 1px solid #123b63;
+  color: #123b63;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -72,30 +76,32 @@
   object-position: left top;
 }
 
-.ma-wo-company-name {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-company-name {
   font-size: 14px;
   font-weight: 700;
+  color: #123b63;
   margin: 0 0 2px;
 }
 
-.ma-wo-company-lines {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-company-lines {
   margin: 0;
   font-size: 11px;
-  color: #4b5563;
+  color: #526579;
   line-height: 1.35;
 }
 
-.ma-wo-doc-version {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-doc-version {
   text-align: right;
   font-size: 10px;
-  color: #6b7280;
+  color: #526579;
   margin: 4px 0 10px;
 }
 
-.ma-wo-title {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-title {
   text-align: center;
   font-size: 16px;
   font-weight: 700;
+  color: #123b63;
   margin: 0 0 10px;
 }
 
@@ -118,14 +124,16 @@
   flex-shrink: 0;
 }
 
-.ma-wo-section-bar {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-section-bar {
   display: flex;
   align-items: center;
   width: 100%;
   min-height: 32px;
   padding: 0 8px;
-  background: #e8e8e8;
-  border: 1px solid #9ca3af;
+  background: #eaf2f8;
+  border: 1px solid #b7c6d5;
+  border-left: 3px solid #087e98;
+  color: #123b63;
   margin-bottom: 8px;
   box-sizing: border-box;
   font-weight: 700;
@@ -172,13 +180,13 @@
   vertical-align: bottom;
 }
 
-.ma-wo-dotted::after {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-dotted::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  border-bottom: 1px dotted #9ca3af;
+  border-bottom: 1px dotted #b7c6d5;
   pointer-events: none;
 }
 
@@ -233,11 +241,11 @@
   align-items: center;
 }
 
-.ma-wo-box {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-box {
   position: relative;
   width: 12px;
   height: 12px;
-  border: 1px solid #374151;
+  border: 1px solid #123b63;
   display: inline-block;
   box-sizing: border-box;
   flex-shrink: 0;
@@ -246,14 +254,14 @@
   vertical-align: middle;
 }
 
-.ma-wo-box.checked::after {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-box.checked::after {
   content: '';
   position: absolute;
   left: 3px;
   top: 0;
   width: 4px;
   height: 7px;
-  border: solid #111;
+  border: solid #087e98;
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
   display: block;
@@ -274,22 +282,22 @@
   width: 100%;
 }
 
-.ma-wo-radio-circle {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-radio-circle {
   width: 12px;
   height: 12px;
-  border: 1px solid #374151;
+  border: 1px solid #123b63;
   border-radius: 50%;
   margin-top: 2px;
   flex-shrink: 0;
   position: relative;
 }
 
-.ma-wo-radio-circle.checked::after {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-radio-circle.checked::after {
   content: '';
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background: #111;
+  background: #087e98;
 }
 
 .ma-wo-hw-row {
@@ -336,7 +344,7 @@
   width: 100%;
 }
 
-.ma-wo-ruled-line {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-ruled-line {
   position: relative;
   display: block;
   width: 100%;
@@ -346,16 +354,16 @@
   line-height: 1.25;
   padding: 0 2px 6px;
   margin-bottom: 6px;
-  color: #1a1a1a;
+  color: #243447;
 }
 
-.ma-wo-ruled-line::after {
+.ma-wo-root:not(.pm-pr-root) .ma-wo-ruled-line::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  border-bottom: 1px dotted #9ca3af;
+  border-bottom: 1px dotted #b7c6d5;
   pointer-events: none;
 }
 
@@ -382,8 +390,8 @@
   width: 100%;
 }
 
-.ma-wo-signatures {
-  border-top: 1px solid #9ca3af;
+.ma-wo-root:not(.pm-pr-root) .ma-wo-signatures {
+  border-top: 2px solid #123b63;
   margin-top: 16px;
   padding-top: 12px;
   display: grid;
